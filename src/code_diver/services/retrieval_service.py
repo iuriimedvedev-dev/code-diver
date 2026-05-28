@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from ..domain import CodeItem, SearchResult
-from ..math_utils import dot, normalize
+from ..domain import SearchResult
+from ..math_utils import normalize
 from ..providers import EmbeddingProvider
+from ..store import VectorStore
 
 
 class RetrievalService:
@@ -10,14 +11,8 @@ class RetrievalService:
         self,
         provider: EmbeddingProvider,
         query: str,
-        items: list[CodeItem],
-        vectors: list[list[float]],
+        vector_store: VectorStore,
         limit: int,
     ) -> list[SearchResult]:
         query_vector = normalize(provider.embed_query(query))
-        scored = [
-            SearchResult(item=item, score=dot(query_vector, normalize(vector)))
-            for item, vector in zip(items, vectors)
-        ]
-        scored.sort(key=lambda result: result.score, reverse=True)
-        return scored[:limit]
+        return vector_store.search(query_vector, limit)

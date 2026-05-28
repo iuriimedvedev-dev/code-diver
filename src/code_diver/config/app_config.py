@@ -9,6 +9,7 @@ from typing import Any
 class AppConfig:
     root: Path = Path(".")
     artifact: Path = Path(".code-diver/index.json")
+    storage: dict[str, Any] = field(default_factory=dict)
     embedding: dict[str, Any] = field(default_factory=dict)
     pi: dict[str, Any] = field(default_factory=dict)
     scanner: dict[str, Any] = field(default_factory=dict)

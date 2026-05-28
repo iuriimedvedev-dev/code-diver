@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..domain import CodeItem, EvalCase, EvalResult
+from ..domain import EvalCase, EvalResult
 from ..providers import EmbeddingProvider
+from ..store import VectorStore
 from .retrieval_service import RetrievalService
 
 
@@ -15,13 +16,12 @@ class EvaluationService:
         self,
         cases: list[EvalCase],
         provider: EmbeddingProvider,
-        items: list[CodeItem],
-        vectors: list[list[float]],
+        vector_store: VectorStore,
         limit: int,
     ) -> tuple[dict[str, Any], list[EvalResult]]:
         results: list[EvalResult] = []
         for case in cases:
-            search_results = self.retrieval_service.search(provider, case.query, items, vectors, limit)
+            search_results = self.retrieval_service.search(provider, case.query, vector_store, limit)
             retrieved = [result.item.id for result in search_results]
             matched_ranks = [
                 rank
@@ -55,16 +55,16 @@ class EvaluationService:
         }
         return metrics, results
 
-    def _matches_any_expected(self, item: CodeItem, expected: list[str]) -> bool:
+    def _matches_any_expected(self, item: object, expected: list[str]) -> bool:
         return any(self._matches_expected(item, value) for value in expected)
 
-    def _matches_expected(self, item: CodeItem, expected: str) -> bool:
+    def _matches_expected(self, item: object, expected: str) -> bool:
         normalized = expected.strip()
         return (
-            item.id == normalized
-            or item.path == normalized
-            or item.path.startswith(normalized.rstrip("/") + "/")
-            or item.id.startswith(normalized + "#")
+            getattr(item, "id") == normalized
+            or getattr(item, "path") == normalized
+            or getattr(item, "path").startswith(normalized.rstrip("/") + "/")
+            or getattr(item, "id").startswith(normalized + "#")
         )
 
     def _mean(self, values: Any) -> float:

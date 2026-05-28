@@ -18,7 +18,7 @@ from .services import (
     IndexingService,
     RetrievalService,
 )
-from .store import IndexStore
+from .store import create_vector_store
 from .ui import EditorOpener, SearchRenderer
 
 
@@ -78,12 +78,11 @@ def cmd_index(_: argparse.Namespace, config: AppConfig) -> int:
     provider = make_embedding_provider(config)
     items = make_indexing_service(config).build(
         root=config.root,
-        artifact=config.artifact,
         provider=provider,
         plugin_config={"config": config},
     )
     print(
-        f"Indexed {len(items)} items -> {config.artifact} "
+        f"Indexed {len(items)} items -> {store_label(config)} "
         f"({provider.name}, model={provider.model}, dimensions={provider.dimensions})"
     )
     return 0
@@ -126,20 +125,20 @@ def cmd_chat(args: argparse.Namespace, config: AppConfig) -> int:
 
 
 def cmd_evaluate(args: argparse.Namespace, config: AppConfig) -> int:
-    if args.reindex or not config.artifact.exists():
+    vector_store = create_vector_store(config)
+    if args.reindex or not vector_store.exists():
         cmd_index(args, config)
+        vector_store = create_vector_store(config)
 
     dataset = args.dataset or Path(config.evaluation.get("dataset", "datasets/sample_eval.jsonl"))
     limit = _limit(args.limit, config.evaluation, "limit", 10)
-    store = IndexStore()
-    payload, items, vectors = store.load_items_and_vectors(config.artifact)
-    provider = make_embedding_provider(config, payload)
+    provider = make_embedding_provider(config, vector_store.metadata())
     plugin_manager = make_plugin_manager(config)
     cases = DatasetLoader().load(dataset)
     for case in cases:
         case.query = plugin_manager.prepare_query(case.query)
 
-    metrics, results = EvaluationService().evaluate(cases, provider, items, vectors, limit)
+    metrics, results = EvaluationService().evaluate(cases, provider, vector_store, limit)
     if args.json:
         print(json.dumps({"metrics": metrics, "results": [eval_result_to_json(result) for result in results]}, indent=2))
         return 0
@@ -158,10 +157,10 @@ def cmd_evaluate(args: argparse.Namespace, config: AppConfig) -> int:
 
 
 def run_search(config: AppConfig, query: str, limit: int) -> list[SearchResult]:
-    payload, items, vectors = IndexStore().load_items_and_vectors(config.artifact)
-    provider = make_embedding_provider(config, payload)
+    vector_store = create_vector_store(config)
+    provider = make_embedding_provider(config, vector_store.metadata())
     prepared_query = make_plugin_manager(config).prepare_query(query)
-    return RetrievalService().search(provider, prepared_query, items, vectors, limit)
+    return RetrievalService().search(provider, prepared_query, vector_store, limit)
 
 
 def make_indexing_service(config: AppConfig) -> IndexingService:
@@ -172,7 +171,7 @@ def make_indexing_service(config: AppConfig) -> IndexingService:
         max_file_bytes=int(scanner_config.get("max_file_bytes", 1_000_000)),
         chunk_lines=int(scanner_config.get("chunk_lines", 120)),
     )
-    return IndexingService(scanner, make_plugin_manager(config), IndexStore())
+    return IndexingService(scanner, make_plugin_manager(config), create_vector_store(config))
 
 
 def make_plugin_manager(config: AppConfig) -> PluginManager:
@@ -197,6 +196,15 @@ def search_ui_config(config: AppConfig) -> dict[str, Any]:
     ui_config = dict(config.ui)
     ui_config["preview_lines"] = config.search.get("preview_lines", ui_config.get("preview_lines", 8))
     return ui_config
+
+
+def store_label(config: AppConfig) -> str:
+    storage = config.storage or {}
+    provider = str(storage.get("provider", "json"))
+    if provider == "qdrant":
+        qdrant = dict(storage.get("qdrant") or {})
+        return f"qdrant:{qdrant.get('collection', 'code_diver')}"
+    return str(config.artifact)
 
 
 def result_to_json(result: SearchResult) -> dict[str, Any]:

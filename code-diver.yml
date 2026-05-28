@@ -1,6 +1,15 @@
 root: .
 artifact: .code-diver/index.json
 
+storage:
+  provider: json
+  qdrant:
+    url: http://localhost:6333
+    # For embedded local experiments, use location: .code-diver/qdrant instead of url.
+    # For tests, location: ":memory:" works without a Qdrant server.
+    collection: code_diver
+    api_key_env: QDRANT_API_KEY
+
 embedding:
   provider: gemini
   model: gemini-embedding-2

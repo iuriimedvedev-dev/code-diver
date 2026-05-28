@@ -12,6 +12,7 @@ license = { text = "MIT" }
 dependencies = [
   "google-genai>=1.0.0",
   "PyYAML>=6.0.2",
+  "qdrant-client>=1.15.0",
   "rich>=13.9.0",
 ]
 

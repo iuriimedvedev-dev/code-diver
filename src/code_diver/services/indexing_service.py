@@ -5,7 +5,7 @@ from pathlib import Path
 from ..domain import CodeItem
 from ..plugins import PluginManager
 from ..providers import EmbeddingProvider
-from ..store import IndexStore
+from ..store import VectorStore
 from .codebase_scanner import CodebaseScanner
 
 
@@ -14,16 +14,15 @@ class IndexingService:
         self,
         scanner: CodebaseScanner,
         plugin_manager: PluginManager,
-        index_store: IndexStore,
+        vector_store: VectorStore,
     ):
         self.scanner = scanner
         self.plugin_manager = plugin_manager
-        self.index_store = index_store
+        self.vector_store = vector_store
 
     def build(
         self,
         root: Path,
-        artifact: Path,
         provider: EmbeddingProvider,
         plugin_config: dict | None = None,
     ) -> list[CodeItem]:
@@ -32,8 +31,7 @@ class IndexingService:
         items = self.plugin_manager.transform_items(self._dedupe_items([*scanned_items, *plugin_items]))
         texts = [item.to_embedding_text() for item in items]
         vectors = provider.embed_documents(texts) if texts else []
-        self.index_store.save(
-            artifact,
+        self.vector_store.save(
             root=root,
             provider=provider.name,
             model=provider.model,

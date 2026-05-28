@@ -21,6 +21,7 @@ class ConfigLoader:
         return AppConfig(
             root=Path(data.get("root", ".")),
             artifact=Path(data.get("artifact", ".code-diver/index.json")),
+            storage=dict(data.get("storage") or {}),
             embedding=dict(data.get("embedding") or {}),
             pi=dict(data.get("pi") or {}),
             scanner=dict(data.get("scanner") or {}),
