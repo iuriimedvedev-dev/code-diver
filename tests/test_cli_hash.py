@@ -48,9 +48,19 @@ embedding:
 scanner:
   include:
     - "*.py"
+graph:
+  artifact: {tmp_path}/graph.json
 evaluation:
   dataset: {dataset}
   limit: 3
+experiments:
+  suite: test-suite
+  strategies:
+    - vector
+    - recursive
+    - graph
+metrics:
+  enabled: false
 plugins: []
 """.strip(),
         encoding="utf-8",
@@ -68,3 +78,9 @@ plugins: []
     eval_payload = json.loads(capsys.readouterr().out)
     assert eval_payload["metrics"]["cases"] == 1
     assert eval_payload["metrics"]["hit_rate@3"] == 1.0
+
+    assert main(["--config", str(config), "experiment", "--json"]) == 0
+    experiment_payload = json.loads(capsys.readouterr().out)
+    assert experiment_payload["suite"] == "test-suite"
+    assert [result["strategy"] for result in experiment_payload["strategies"]] == ["vector", "recursive", "graph"]
+    assert all(result["metrics"]["cases"] == 1 for result in experiment_payload["strategies"])

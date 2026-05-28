@@ -44,3 +44,16 @@ class Defaults:
     UI_LINKS = True
     EDITOR_COMMAND = "code"
     EDITOR_ARGS = ["-g", "{path}:{line}"]
+
+    EXPERIMENT_SUITE = "local"
+    EXPERIMENT_STRATEGIES = ["vector", "recursive", "graph"]
+
+    METRICS_ENABLED = False
+    CLICKHOUSE_URL = "http://localhost:8123"
+    CLICKHOUSE_DATABASE = "code_diver"
+    CLICKHOUSE_USERNAME = "code_diver"
+    CLICKHOUSE_PASSWORD = "code_diver"
+    CLICKHOUSE_METRICS_TABLE = "rag_eval_metrics"
+    CLICKHOUSE_CASES_TABLE = "rag_eval_cases"
+    CLICKHOUSE_TIMEOUT_SECONDS = 10.0
+    CLICKHOUSE_RETENTION_DAYS = 30

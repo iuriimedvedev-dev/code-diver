@@ -37,6 +37,7 @@ uv run code-diver open "where is authentication configured?"
 uv run code-diver chat
 uv run code-diver ask "summarize the retrieval pipeline"
 uv run code-diver evaluate
+uv run code-diver experiment
 ```
 
 ## Retrieval Experiments
@@ -73,9 +74,30 @@ The `protogen` marker targets the optional sibling repository at `../protogen`. 
 uv run code-diver --config configs/protogen.yml index
 uv run code-diver --config configs/protogen.yml search "where is the arena runner implemented?"
 uv run code-diver --config configs/protogen.yml evaluate --json
+uv run code-diver --config configs/protogen.yml experiment
 ```
 
 The config uses deterministic hash embeddings for repeatable local testing. Switch `embedding.provider` to `gemini` and `storage.provider` to `qdrant` when running live Gemini/Qdrant experiments.
+
+`experiment` runs the configured retrieval hypotheses from YAML:
+
+```yaml
+experiments:
+  suite: protogen-local
+  strategies:
+    - vector
+    - recursive
+    - graph
+```
+
+Start the local metrics stack before recording experiment results:
+
+```bash
+docker compose -f ops/metrics/docker-compose.yml up -d
+uv run code-diver --config configs/protogen.yml experiment
+```
+
+The stack runs ClickHouse for metrics storage and Grafana with a provisioned dashboard. Tables use the configured `metrics.retention_days` TTL, and the compose file caps ClickHouse memory/CPU for local experimentation.
 
 `chat` starts interactive Pi. `ask` runs Pi in print mode. Both load `.pi/extensions/code-diver-rag.ts`, which registers:
 
@@ -83,6 +105,7 @@ The config uses deterministic hash embeddings for repeatable local testing. Swit
 - `code_diver_search`
 - `code_diver_open`
 - `code_diver_evaluate`
+- `code_diver_experiment`
 - `code_diver_tree`
 - `code_diver_grep`
 - `code_diver_rg`

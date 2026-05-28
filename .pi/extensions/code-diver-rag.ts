@@ -83,6 +83,23 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.registerTool({
+    name: "code_diver_experiment",
+    label: "Code Diver Experiment",
+    description: "Run configured retrieval hypotheses and record metrics when metrics storage is enabled.",
+    parameters: Type.Object({
+      reindex: Type.Optional(Type.Boolean({ description: "Rebuild the index before running hypotheses." })),
+    }),
+    execute: async (_toolCallId, params: { reindex?: boolean }, signal, _onUpdate, ctx: ToolContext) => {
+      const args = ["experiment"];
+      if (params.reindex) {
+        args.push("--reindex");
+      }
+      const result = await runCodeDiver(ctx.cwd, args, signal);
+      return textResult(result.stdout || result.stderr);
+    },
+  });
+
+  pi.registerTool({
     name: "code_diver_tree",
     label: "Code Diver Tree",
     description: "Read-only, gitignore-aware repository tree. Does not edit files.",

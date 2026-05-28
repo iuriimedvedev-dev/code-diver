@@ -6,7 +6,9 @@ from pathlib import Path
 from ..settings import Defaults
 from .embedding_config import EmbeddingConfig
 from .evaluation_config import EvaluationConfig
+from .experiments_config import ExperimentsConfig
 from .graph_config import GraphConfig
+from .metrics_config import MetricsConfig
 from .pi_config import PiConfig
 from .recursive_search_config import RecursiveSearchConfig
 from .scanner_config import ScannerConfig
@@ -28,4 +30,6 @@ class AppConfig:
     graph: GraphConfig = field(default_factory=GraphConfig)
     ui: UiConfig = field(default_factory=UiConfig)
     evaluation: EvaluationConfig = field(default_factory=EvaluationConfig)
+    experiments: ExperimentsConfig = field(default_factory=ExperimentsConfig)
+    metrics: MetricsConfig = field(default_factory=MetricsConfig)
     plugins: list[str] = field(default_factory=list)

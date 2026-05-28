@@ -46,6 +46,20 @@ ui:
     args: ["+{{line}}", "{{path}}"]
 evaluation:
   dataset: {tmp_path}/eval.jsonl
+experiments:
+  suite: custom-suite
+  strategies: [vector, graph]
+metrics:
+  enabled: true
+  url: http://clickhouse:8123
+  database: metrics_db
+  username: writer
+  password: secret
+  docker_container: clickhouse-dev
+  metrics_table: metrics_table
+  cases_table: cases_table
+  timeout_seconds: 3
+  retention_days: 7
 plugins:
   - plugin.py
 """.strip(),
@@ -74,6 +88,18 @@ plugins:
     assert config.ui.editor.command == "vim"
     assert config.ui.editor.args == ["+{line}", "{path}"]
     assert config.evaluation.dataset == tmp_path / "eval.jsonl"
+    assert config.experiments.suite == "custom-suite"
+    assert config.experiments.strategies == ["vector", "graph"]
+    assert config.metrics.enabled is True
+    assert config.metrics.url == "http://clickhouse:8123"
+    assert config.metrics.database == "metrics_db"
+    assert config.metrics.username == "writer"
+    assert config.metrics.password == "secret"
+    assert config.metrics.docker_container == "clickhouse-dev"
+    assert config.metrics.metrics_table == "metrics_table"
+    assert config.metrics.cases_table == "cases_table"
+    assert config.metrics.timeout_seconds == 3
+    assert config.metrics.retention_days == 7
     assert config.plugins == ["plugin.py"]
 
 

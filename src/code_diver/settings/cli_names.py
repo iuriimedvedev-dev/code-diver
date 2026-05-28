@@ -7,6 +7,7 @@ class CommandName(StrEnum):
     ASK = "ask"
     CHAT = "chat"
     EVALUATE = "evaluate"
+    EXPERIMENT = "experiment"
     GREP = "grep"
     INDEX = "index"
     OPEN = "open"

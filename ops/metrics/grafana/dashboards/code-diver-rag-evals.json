@@ -1,0 +1,82 @@
+{
+  "uid": "code-diver-rag-evals",
+  "title": "Code Diver RAG Evals",
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Hit Rate by Strategy",
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "code-diver-clickhouse"
+      },
+      "targets": [
+        {
+          "editorType": "sql",
+          "format": 1,
+          "rawSql": "SELECT event_time AS time, strategy, metric_value FROM code_diver.rag_eval_metrics WHERE $__timeFilter(event_time) AND startsWith(metric_name, 'hit_rate@') ORDER BY time"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 }
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "MRR by Strategy",
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "code-diver-clickhouse"
+      },
+      "targets": [
+        {
+          "editorType": "sql",
+          "format": 1,
+          "rawSql": "SELECT event_time AS time, strategy, metric_value FROM code_diver.rag_eval_metrics WHERE $__timeFilter(event_time) AND startsWith(metric_name, 'mrr@') ORDER BY time"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 }
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Runtime",
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "code-diver-clickhouse"
+      },
+      "targets": [
+        {
+          "editorType": "sql",
+          "format": 1,
+          "rawSql": "SELECT event_time AS time, strategy, metric_value FROM code_diver.rag_eval_metrics WHERE $__timeFilter(event_time) AND metric_name = 'duration_ms' ORDER BY time"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 }
+    },
+    {
+      "id": 4,
+      "type": "table",
+      "title": "Latest Case Results",
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "code-diver-clickhouse"
+      },
+      "targets": [
+        {
+          "editorType": "sql",
+          "format": 1,
+          "rawSql": "SELECT event_time, run_id, suite, strategy, case_id, hit, reciprocal_rank, precision, recall FROM code_diver.rag_eval_cases WHERE $__timeFilter(event_time) ORDER BY event_time DESC, strategy, case_id LIMIT 200"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 }
+    }
+  ]
+}

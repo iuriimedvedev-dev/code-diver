@@ -3,13 +3,16 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import uuid
 from pathlib import Path
 from typing import Any
 
 from .config import AppConfig, ConfigLoader
 from .domain import SearchResult
+from .experiments import ExperimentRunner
 from .graph import CodeGraphBuilder, CodeGraphStore
 from .inspection import GrepService, RgService, TreeService
+from .metrics import ClickHouseClient, ClickHouseDockerClient, ClickHouseMetricsRepository, ExperimentMetricsMapper
 from .pi import PiRunner
 from .plugins import PluginManager
 from .providers import create_embedding_provider
@@ -95,6 +98,14 @@ def build_parser() -> argparse.ArgumentParser:
     evaluate.add_argument(OptionName.JSON.value, action="store_true")
     evaluate.add_argument(OptionName.REINDEX.value, action="store_true")
     evaluate.set_defaults(func=cmd_evaluate)
+
+    experiment = subparsers.add_parser(
+        CommandName.EXPERIMENT.value,
+        help="Run configured retrieval hypotheses and optionally record metrics.",
+    )
+    experiment.add_argument(OptionName.JSON.value, action="store_true")
+    experiment.add_argument(OptionName.REINDEX.value, action="store_true")
+    experiment.set_defaults(func=cmd_experiment)
 
     return parser
 
@@ -199,6 +210,49 @@ def cmd_evaluate(args: argparse.Namespace, config: AppConfig) -> int:
     return 0
 
 
+def cmd_experiment(args: argparse.Namespace, config: AppConfig) -> int:
+    vector_store = create_vector_store(config)
+    if args.reindex or not vector_store.exists():
+        cmd_index(args, config)
+        vector_store = create_vector_store(config)
+
+    provider = make_embedding_provider(config, vector_store.metadata())
+    plugin_manager = make_plugin_manager(config)
+    cases = DatasetLoader().load(config.evaluation.dataset)
+    for case in cases:
+        case.query = plugin_manager.prepare_query(case.query)
+
+    run_id = uuid.uuid4().hex
+    experiment_run = ExperimentRunner(
+        RetrievalStrategyFactory(),
+        provider,
+        vector_store,
+    ).run(run_id, config, cases)
+
+    saved_rows = 0
+    if config.metrics.enabled:
+        repository = make_metrics_repository(config)
+        repository.ensure_schema()
+        metric_rows, case_rows = ExperimentMetricsMapper().to_rows(experiment_run, config, args.config)
+        repository.save(metric_rows, case_rows)
+        saved_rows = len(metric_rows) + len(case_rows)
+
+    if args.json:
+        print(json.dumps(experiment_run_to_json(experiment_run, saved_rows), indent=2))
+        return 0
+
+    print(f"run_id: {experiment_run.run_id}")
+    print(f"suite: {experiment_run.suite}")
+    for strategy_result in experiment_run.strategy_results:
+        print()
+        print(f"{strategy_result.strategy}:")
+        for name, value in strategy_result.metrics.items():
+            print(f"  {name}: {value:.4f}" if isinstance(value, float) else f"  {name}: {value}")
+    if config.metrics.enabled:
+        print(f"\nrecorded_rows: {saved_rows}")
+    return 0
+
+
 def run_search(config: AppConfig, query: str, limit: int) -> list[SearchResult]:
     vector_store = create_vector_store(config)
     provider = make_embedding_provider(config, vector_store.metadata())
@@ -238,6 +292,26 @@ def make_retrieval_strategy(config: AppConfig, provider: Any, vector_store: Any)
     return RetrievalStrategyFactory().create(config.search.strategy, config, provider, vector_store)
 
 
+def make_metrics_repository(config: AppConfig) -> ClickHouseMetricsRepository:
+    metrics = config.metrics
+    if metrics.docker_container:
+        client = ClickHouseDockerClient(
+            metrics.docker_container,
+            metrics.username,
+            metrics.password,
+            metrics.timeout_seconds,
+        )
+    else:
+        client = ClickHouseClient(metrics.url, metrics.username, metrics.password, metrics.timeout_seconds)
+    return ClickHouseMetricsRepository(
+        client,
+        database=metrics.database,
+        metrics_table=metrics.metrics_table,
+        cases_table=metrics.cases_table,
+        retention_days=metrics.retention_days,
+    )
+
+
 def store_label(config: AppConfig) -> str:
     provider = config.storage.provider
     if provider == VectorStoreProviderId.QDRANT.value:
@@ -259,4 +333,20 @@ def eval_result_to_json(result: Any) -> dict[str, Any]:
         SchemaKey.RECIPROCAL_RANK.value: result.reciprocal_rank,
         SchemaKey.PRECISION.value: result.precision,
         SchemaKey.RECALL.value: result.recall,
+    }
+
+
+def experiment_run_to_json(run: Any, saved_rows: int) -> dict[str, Any]:
+    return {
+        "run_id": run.run_id,
+        "suite": run.suite,
+        "recorded_rows": saved_rows,
+        "strategies": [
+            {
+                "strategy": strategy_result.strategy,
+                "metrics": strategy_result.metrics,
+                "results": [eval_result_to_json(result) for result in strategy_result.results],
+            }
+            for strategy_result in run.strategy_results
+        ],
     }

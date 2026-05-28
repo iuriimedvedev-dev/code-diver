@@ -29,6 +29,10 @@ def test_protogen_config_targets_external_repo() -> None:
     assert "src/**/*.py" in config.scanner.include
     assert "src/templates/**" in config.scanner.exclude
     assert config.evaluation.dataset == Path("datasets/protogen_eval.jsonl")
+    assert config.experiments.suite == "protogen-local"
+    assert config.experiments.strategies == ["vector", "recursive", "graph"]
+    assert config.metrics.enabled is True
+    assert config.metrics.docker_container == "code-diver-clickhouse"
 
 
 @pytest.mark.skipif(not protogen_available(), reason="../protogen is not available")

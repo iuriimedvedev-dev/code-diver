@@ -10,7 +10,9 @@ from .app_config import AppConfig
 from .editor_config import EditorConfig
 from .embedding_config import EmbeddingConfig
 from .evaluation_config import EvaluationConfig
+from .experiments_config import ExperimentsConfig
 from .graph_config import GraphConfig
+from .metrics_config import MetricsConfig
 from .pi_config import PiConfig
 from .qdrant_config import QdrantConfig
 from .recursive_search_config import RecursiveSearchConfig
@@ -36,6 +38,8 @@ class ConfigLoader:
             graph=self._graph(data.get("graph")),
             ui=self._ui(data.get("ui")),
             evaluation=self._evaluation(data.get("evaluation")),
+            experiments=self._experiments(data.get("experiments")),
+            metrics=self._metrics(data.get("metrics")),
             plugins=self._string_list(data.get("plugins")),
         )
 
@@ -145,6 +149,28 @@ class ConfigLoader:
         return EvaluationConfig(
             dataset=Path(mapping.get("dataset", Defaults.DATASET)),
             limit=int(mapping.get("limit", Defaults.SEARCH_LIMIT)),
+        )
+
+    def _experiments(self, data: Any) -> ExperimentsConfig:
+        mapping = self._mapping(data)
+        return ExperimentsConfig(
+            suite=str(mapping.get("suite", Defaults.EXPERIMENT_SUITE)),
+            strategies=self._string_list(mapping.get("strategies")) or list(Defaults.EXPERIMENT_STRATEGIES),
+        )
+
+    def _metrics(self, data: Any) -> MetricsConfig:
+        mapping = self._mapping(data)
+        return MetricsConfig(
+            enabled=bool(mapping.get("enabled", Defaults.METRICS_ENABLED)),
+            url=str(mapping.get("url", Defaults.CLICKHOUSE_URL)),
+            database=str(mapping.get("database", Defaults.CLICKHOUSE_DATABASE)),
+            username=str(mapping.get("username", Defaults.CLICKHOUSE_USERNAME)),
+            password=str(mapping.get("password", Defaults.CLICKHOUSE_PASSWORD)),
+            docker_container=mapping.get("docker_container"),
+            metrics_table=str(mapping.get("metrics_table", Defaults.CLICKHOUSE_METRICS_TABLE)),
+            cases_table=str(mapping.get("cases_table", Defaults.CLICKHOUSE_CASES_TABLE)),
+            timeout_seconds=float(mapping.get("timeout_seconds", Defaults.CLICKHOUSE_TIMEOUT_SECONDS)),
+            retention_days=int(mapping.get("retention_days", Defaults.CLICKHOUSE_RETENTION_DAYS)),
         )
 
     def _mapping(self, value: Any) -> dict[str, Any]:
