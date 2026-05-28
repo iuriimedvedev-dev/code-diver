@@ -27,6 +27,7 @@ class QdrantVectorStore(VectorStore):
             raise RuntimeError("Install dependencies with `uv sync` before using Qdrant storage.") from exc
 
         resolved_key = api_key or (os.environ.get(api_key_env) if api_key_env else None)
+        resolved_key = resolved_key.strip() if resolved_key else None
         if location:
             self.client = QdrantClient(location=location)
         else:

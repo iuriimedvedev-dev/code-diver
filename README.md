@@ -140,6 +140,15 @@ uv run code-diver --config configs/protogen.yml experiment
 
 The stack runs ClickHouse for metrics storage and Grafana with a provisioned dashboard. Tables use the configured `metrics.retention_days` TTL, and the compose file caps ClickHouse memory/CPU for local experimentation.
 
+For isolated runs, use the Alpine runtime container in `ops/runtime`. It mounts a target codebase at `/workspace`, writes artifacts under `/artifacts`, uses Qdrant for vectors, and writes metrics to ClickHouse over the compose network:
+
+```bash
+docker compose -f ops/runtime/docker-compose.yml build code-diver
+CODEBASE_PATH=/absolute/path/to/repo \
+ARTIFACTS_PATH=/absolute/path/to/artifacts \
+docker compose -f ops/runtime/docker-compose.yml run --rm code-diver index
+```
+
 `chat` starts interactive Pi. `ask` runs Pi in print mode. Both load `.pi/extensions/code-diver-rag.ts`, which registers:
 
 - `code_diver_index`

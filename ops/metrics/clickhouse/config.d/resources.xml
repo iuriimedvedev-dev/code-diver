@@ -1,4 +1,5 @@
 <clickhouse>
+    <listen_host>0.0.0.0</listen_host>
     <max_server_memory_usage>750000000</max_server_memory_usage>
     <max_thread_pool_size>1000</max_thread_pool_size>
     <logger>

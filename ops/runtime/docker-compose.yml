@@ -1,0 +1,80 @@
+services:
+  code-diver:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    image: code-diver:local
+    working_dir: /app
+    environment:
+      CODE_DIVER_CONFIG: ${CODE_DIVER_CONFIG:-/app/configs/container.yml}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      QDRANT_API_KEY: ${QDRANT_API_KEY:-}
+    volumes:
+      - ${CODEBASE_PATH:-../..}:/workspace:ro
+      - ${ARTIFACTS_PATH:-../../.code-diver/container}:/artifacts
+    depends_on:
+      qdrant:
+        condition: service_started
+      clickhouse:
+        condition: service_healthy
+    profiles:
+      - tools
+
+  qdrant:
+    image: ${QDRANT_IMAGE:-qdrant/qdrant:latest}
+    ports:
+      - "${QDRANT_PORT:-6333}:6333"
+    volumes:
+      - qdrant-data:/qdrant/storage
+    mem_limit: ${QDRANT_MEM_LIMIT:-1g}
+    cpus: ${QDRANT_CPUS:-1.0}
+
+  clickhouse:
+    image: ${CLICKHOUSE_IMAGE:-clickhouse/clickhouse-server:latest}
+    environment:
+      CLICKHOUSE_DB: ${CLICKHOUSE_DB:-code_diver}
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-code_diver}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-code_diver}
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+    ports:
+      - "${CLICKHOUSE_HTTP_PORT:-18123}:8123"
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+      - ../metrics/clickhouse/config.d:/etc/clickhouse-server/config.d:ro
+      - ../metrics/clickhouse/users.d/resources.xml:/etc/clickhouse-server/users.d/code-diver-resources.xml:ro
+    mem_limit: ${CLICKHOUSE_MEM_LIMIT:-1g}
+    cpus: ${CLICKHOUSE_CPUS:-1.0}
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8123/ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  grafana:
+    image: ${GRAFANA_IMAGE:-grafana/grafana:latest}
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_INSTALL_PLUGINS: grafana-clickhouse-datasource
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/code-diver-rag-evals.json
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ../metrics/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ../metrics/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    mem_limit: ${GRAFANA_MEM_LIMIT:-512m}
+    cpus: ${GRAFANA_CPUS:-0.5}
+
+volumes:
+  qdrant-data:
+  clickhouse-data:
+  grafana-data:
