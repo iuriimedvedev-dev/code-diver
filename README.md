@@ -50,6 +50,15 @@ search:
 
 See [docs/research.md](docs/research.md) for the current codebase RAG research notes and experiment plan.
 
+## Tests
+
+```bash
+uv run pytest
+uv run pytest -m unit
+uv run pytest -m e2e
+uv run pytest -m smoke
+```
+
 `chat` starts interactive Pi. `ask` runs Pi in print mode. Both load `.pi/extensions/code-diver-rag.ts`, which registers:
 
 - `code_diver_index`

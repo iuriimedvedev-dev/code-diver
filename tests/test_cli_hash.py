@@ -3,7 +3,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from code_diver.cli import main
+
+
+pytestmark = pytest.mark.e2e
 
 
 def test_index_search_and_evaluate_with_hash_provider(tmp_path: Path, capsys) -> None:

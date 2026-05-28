@@ -2,7 +2,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from code_diver.cli import main
+
+
+pytestmark = pytest.mark.e2e
 
 
 def test_graph_strategy_expands_from_import_seed(tmp_path: Path, capsys) -> None:

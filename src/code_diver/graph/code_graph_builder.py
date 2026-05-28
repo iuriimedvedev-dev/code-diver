@@ -66,7 +66,8 @@ class CodeGraphBuilder:
         package_dir = Path(rel_path).parent
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
-                imports.update(self._python_module_to_paths(alias.name) for alias in node.names)
+                for alias in node.names:
+                    imports.update(self._python_module_to_paths(alias.name))
             elif isinstance(node, ast.ImportFrom):
                 module = node.module or ""
                 if node.level:

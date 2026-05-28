@@ -1,7 +1,12 @@
 from __future__ import annotations
 
+import pytest
+
 from code_diver.domain import CodeItem
 from code_diver.store import QdrantVectorStore
+
+
+pytestmark = pytest.mark.unit
 
 
 def test_qdrant_vector_store_searches_in_memory_collection(tmp_path) -> None:

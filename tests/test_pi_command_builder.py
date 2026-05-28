@@ -2,9 +2,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from code_diver.config.app_config import AppConfig
 from code_diver.config.pi_config import PiConfig
 from code_diver.pi import PiCommandBuilder
+
+
+pytestmark = pytest.mark.unit
 
 
 def test_pi_command_builder_uses_configured_extension_prompt_and_tools() -> None:
