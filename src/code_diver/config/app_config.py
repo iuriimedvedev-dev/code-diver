@@ -5,6 +5,7 @@ from pathlib import Path
 
 from ..settings import Defaults
 from .embedding_config import EmbeddingConfig
+from .env_file_config import EnvFileConfig
 from .evaluation_config import EvaluationConfig
 from .experiments_config import ExperimentsConfig
 from .generation_config import GenerationConfig
@@ -23,6 +24,7 @@ from .ui_config import UiConfig
 class AppConfig:
     root: Path = Defaults.ROOT
     artifact: Path = Defaults.ARTIFACT
+    env_file: EnvFileConfig = field(default_factory=EnvFileConfig)
     storage: StorageConfig = field(default_factory=StorageConfig)
     embedding: EmbeddingConfig = field(default_factory=EmbeddingConfig)
     generation: GenerationConfig = field(default_factory=GenerationConfig)

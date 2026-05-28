@@ -9,9 +9,11 @@ class GeminiGenerationProvider:
     def __init__(
         self,
         model: str = Defaults.GENERATION_MODEL,
+        fallback_models: list[str] | None = None,
         api_key: str | None = None,
         temperature: float = Defaults.GENERATION_TEMPERATURE,
         thinking_budget: int | None = Defaults.GENERATION_THINKING_BUDGET,
+        api_version: str | None = Defaults.GENERATION_API_VERSION,
     ):
         try:
             from google import genai
@@ -21,13 +23,26 @@ class GeminiGenerationProvider:
 
         self.name = Defaults.GENERATION_PROVIDER
         self.model = model
+        self.fallback_models = fallback_models or []
         self.temperature = temperature
         self.thinking_budget = thinking_budget
         resolved_key = api_key or os.environ.get(EnvironmentVariable.GEMINI_API_KEY.value)
-        self.client = genai.Client(api_key=resolved_key) if resolved_key else genai.Client()
+        client_kwargs = {"http_options": {"api_version": api_version}} if api_version else {}
+        if resolved_key:
+            client_kwargs["api_key"] = resolved_key
+        self.client = genai.Client(**client_kwargs)
         self.types = types
 
     def generate_json(self, prompt: str) -> str:
+        errors: list[str] = []
+        for model in [self.model, *self.fallback_models]:
+            try:
+                return self._generate_json(model, prompt)
+            except Exception as exc:
+                errors.append(f"{model}: {exc}")
+        raise RuntimeError("Gemini generation failed for all configured models: " + " | ".join(errors))
+
+    def _generate_json(self, model: str, prompt: str) -> str:
         config_kwargs = {
             "temperature": self.temperature,
             "response_mime_type": "application/json",
@@ -36,7 +51,7 @@ class GeminiGenerationProvider:
             config_kwargs["thinking_config"] = self.types.ThinkingConfig(thinking_budget=self.thinking_budget)
         config = self.types.GenerateContentConfig(**config_kwargs)
         response = self.client.models.generate_content(
-            model=self.model,
+            model=model,
             contents=prompt,
             config=config,
         )

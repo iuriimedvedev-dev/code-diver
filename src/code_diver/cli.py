@@ -10,6 +10,7 @@ from typing import Any
 from .config import AppConfig, ConfigLoader
 from .ai_indexing import AiCodebaseScanner, HybridCodebaseScanner
 from .domain import SearchResult
+from .env import EnvFileLoader
 from .experiments import ExperimentRunner
 from .generation import create_generation_provider
 from .graph import CodeGraphBuilder, CodeGraphStore
@@ -37,6 +38,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         config = ConfigLoader().load(args.config)
+        EnvFileLoader().load(config.env_file.path, config.env_file.override)
         return int(args.func(args, config))
     except KeyboardInterrupt:
         print("Interrupted.", file=sys.stderr)

@@ -10,6 +10,7 @@ export GEMINI_API_KEY="..."
 ```
 
 Pi must also be installed and available as `pi` on `PATH`.
+Secrets can also live in `.env`; the CLI loads it before creating providers. `.env` is ignored by git.
 
 Gemini-backed defaults:
 
@@ -88,6 +89,20 @@ uv run code-diver --config configs/protogen-ai.yml experiment
 ```
 
 The generic AI discovery patterns live in YAML. Add project-specific patterns in a separate config only when running a targeted experiment.
+
+Provider selection is config-driven:
+
+```yaml
+generation:
+  provider: gemini # or openai
+  model: gemini-3-flash-preview
+
+embedding:
+  provider: gemini # openai or hash also supported
+  model: gemini-embedding-001
+```
+
+For OpenAI, set `OPENAI_API_KEY` and use `generation.provider: openai` plus `embedding.provider: openai`. Defaults are `gpt-5.1` and `text-embedding-3-large`.
 
 `experiment` runs the configured retrieval hypotheses from YAML:
 

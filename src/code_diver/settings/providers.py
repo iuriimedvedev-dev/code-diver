@@ -6,6 +6,7 @@ from enum import StrEnum
 class EmbeddingProviderId(StrEnum):
     GEMINI = "gemini"
     HASH = "hash"
+    OPENAI = "openai"
 
 
 class VectorStoreProviderId(StrEnum):

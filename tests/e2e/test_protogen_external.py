@@ -41,6 +41,7 @@ def test_protogen_config_targets_external_repo() -> None:
     assert ai_config.embedding.provider == "gemini"
     assert ai_config.embedding.model == "gemini-embedding-001"
     assert ai_config.generation.model == "gemini-3-flash-preview"
+    assert ai_config.generation.api_version == "v1alpha"
 
 
 @pytest.mark.skipif(not protogen_available(), reason="../protogen is not available")

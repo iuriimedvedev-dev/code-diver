@@ -27,8 +27,10 @@ embedding:
 generation:
   provider: gemini
   model: gemini-3-flash-preview
+  fallback_models: [gemini-2.5-flash]
   temperature: 0.2
   thinking_budget: 256
+  api_version: v1alpha
 indexing:
   mode: ai
   ai:
@@ -88,8 +90,10 @@ plugins:
     assert config.embedding.dimensions == 64
     assert config.generation.provider == "gemini"
     assert config.generation.model == "gemini-3-flash-preview"
+    assert config.generation.fallback_models == ["gemini-2.5-flash"]
     assert config.generation.temperature == 0.2
     assert config.generation.thinking_budget == 256
+    assert config.generation.api_version == "v1alpha"
     assert config.indexing.mode == "ai"
     assert config.indexing.ai.max_files == 5
     assert config.indexing.ai.max_items == 8

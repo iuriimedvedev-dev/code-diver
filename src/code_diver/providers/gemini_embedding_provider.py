@@ -17,6 +17,7 @@ class GeminiEmbeddingProvider(EmbeddingProvider):
     ):
         try:
             from google import genai
+            from google.genai import types
         except ImportError as exc:  # pragma: no cover - depends on environment
             raise RuntimeError("Install dependencies with `uv sync` before using Gemini embeddings.") from exc
 
@@ -26,6 +27,7 @@ class GeminiEmbeddingProvider(EmbeddingProvider):
         self.batch_size = batch_size
         resolved_key = api_key or os.environ.get(EnvironmentVariable.GEMINI_API_KEY.value)
         self.client = genai.Client(api_key=resolved_key) if resolved_key else genai.Client()
+        self.types = types
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
         vectors: list[list[float]] = []
@@ -33,7 +35,10 @@ class GeminiEmbeddingProvider(EmbeddingProvider):
             result = self.client.models.embed_content(
                 model=self.model,
                 contents=list(batch),
-                config={"output_dimensionality": self.dimensions},
+                config=self.types.EmbedContentConfig(
+                    output_dimensionality=self.dimensions,
+                    task_type="RETRIEVAL_DOCUMENT",
+                ),
             )
             vectors.extend(_extract_vectors(result.embeddings))
         return vectors
@@ -41,8 +46,11 @@ class GeminiEmbeddingProvider(EmbeddingProvider):
     def embed_query(self, query: str) -> list[float]:
         result = self.client.models.embed_content(
             model=self.model,
-            contents=f"task: code retrieval | query: {query}",
-            config={"output_dimensionality": self.dimensions},
+            contents=query,
+            config=self.types.EmbedContentConfig(
+                output_dimensionality=self.dimensions,
+                task_type="RETRIEVAL_QUERY",
+            ),
         )
         vectors = _extract_vectors(result.embeddings)
         if not vectors:

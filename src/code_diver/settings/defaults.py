@@ -5,6 +5,7 @@ from pathlib import Path
 
 class Defaults:
     CONFIG_PATH = Path("code-diver.yml")
+    ENV_FILE = Path(".env")
     ROOT = Path(".")
     ARTIFACT = Path(".code-diver/index.json")
     GRAPH_ARTIFACT = Path(".code-diver/graph.json")
@@ -20,6 +21,8 @@ class Defaults:
     EMBEDDING_MODEL = "gemini-embedding-001"
     EMBEDDING_DIMENSIONS = 768
     EMBEDDING_BATCH_SIZE = 32
+    OPENAI_EMBEDDING_MODEL = "text-embedding-3-large"
+    OPENAI_EMBEDDING_DIMENSIONS = 3072
     HASH_DIMENSIONS = 256
     HASH_MODEL = "hash-token-v1"
 
@@ -31,8 +34,14 @@ class Defaults:
 
     GENERATION_PROVIDER = "gemini"
     GENERATION_MODEL = "gemini-3-flash-preview"
+    GENERATION_FALLBACK_MODELS = ["gemini-2.5-flash"]
     GENERATION_TEMPERATURE = 0.1
     GENERATION_THINKING_BUDGET = 1024
+    GENERATION_API_VERSION = "v1alpha"
+    OPENAI_GENERATION_MODEL = "gpt-5.1"
+    OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
+    OPENAI_EMBEDDINGS_URL = "https://api.openai.com/v1/embeddings"
+    OPENAI_TIMEOUT_SECONDS = 60.0
 
     INDEXING_MODE = "scanner"
     AI_INDEX_MAX_FILES = 40

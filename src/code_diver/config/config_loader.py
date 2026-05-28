@@ -9,6 +9,7 @@ from ..settings import Defaults
 from .app_config import AppConfig
 from .editor_config import EditorConfig
 from .embedding_config import EmbeddingConfig
+from .env_file_config import EnvFileConfig
 from .evaluation_config import EvaluationConfig
 from .experiments_config import ExperimentsConfig
 from .generation_config import GenerationConfig
@@ -32,6 +33,7 @@ class ConfigLoader:
         return AppConfig(
             root=Path(data.get("root", Defaults.ROOT)),
             artifact=Path(data.get("artifact", Defaults.ARTIFACT)),
+            env_file=self._env_file(data.get("env_file")),
             storage=self._storage(data.get("storage")),
             embedding=self._embedding(data.get("embedding")),
             generation=self._generation(data.get("generation")),
@@ -65,6 +67,15 @@ class ConfigLoader:
             qdrant=self._qdrant(mapping.get("qdrant")),
         )
 
+    def _env_file(self, data: Any) -> EnvFileConfig:
+        if isinstance(data, str):
+            return EnvFileConfig(path=Path(data))
+        mapping = self._mapping(data)
+        return EnvFileConfig(
+            path=Path(mapping.get("path", Defaults.ENV_FILE)),
+            override=bool(mapping.get("override", False)),
+        )
+
     def _qdrant(self, data: Any) -> QdrantConfig:
         mapping = self._mapping(data)
         return QdrantConfig(
@@ -91,9 +102,12 @@ class ConfigLoader:
         return GenerationConfig(
             provider=str(mapping.get("provider", Defaults.GENERATION_PROVIDER)),
             model=str(mapping.get("model", Defaults.GENERATION_MODEL)),
+            fallback_models=self._string_list(mapping.get("fallback_models"))
+            or list(Defaults.GENERATION_FALLBACK_MODELS),
             api_key=mapping.get("api_key"),
             temperature=float(mapping.get("temperature", Defaults.GENERATION_TEMPERATURE)),
             thinking_budget=self._optional_int(mapping.get("thinking_budget", Defaults.GENERATION_THINKING_BUDGET)),
+            api_version=mapping.get("api_version", Defaults.GENERATION_API_VERSION),
         )
 
     def _indexing(self, data: Any) -> IndexingConfig:

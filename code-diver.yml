@@ -19,8 +19,11 @@ embedding:
 generation:
   provider: gemini
   model: gemini-3-flash-preview
+  fallback_models:
+    - gemini-2.5-flash
   temperature: 0.1
   thinking_budget: 1024
+  api_version: v1alpha
 
 indexing:
   mode: scanner
