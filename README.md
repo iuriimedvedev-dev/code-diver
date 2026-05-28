@@ -36,6 +36,20 @@ uv run code-diver ask "summarize the retrieval pipeline"
 uv run code-diver evaluate
 ```
 
+## Retrieval Experiments
+
+`code-diver.yml` controls storage and retrieval strategy:
+
+```yaml
+storage:
+  provider: json # or qdrant
+
+search:
+  strategy: vector # vector, recursive, graph
+```
+
+See [docs/research.md](docs/research.md) for the current codebase RAG research notes and experiment plan.
+
 `chat` starts interactive Pi. `ask` runs Pi in print mode. Both load `.pi/extensions/code-diver-rag.ts`, which registers:
 
 - `code_diver_index`
