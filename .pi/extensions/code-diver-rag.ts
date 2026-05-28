@@ -13,6 +13,23 @@ type CommandResult = {
 
 const MAX_TOOL_OUTPUT = 40_000;
 
+type SearchProbe = {
+  query: string;
+  limit?: number;
+};
+
+type TextProbe = {
+  pattern: string;
+  path?: string;
+  limit?: number;
+};
+
+type TreeProbe = {
+  path?: string;
+  depth?: number;
+  limit?: number;
+};
+
 export default function (pi: ExtensionAPI) {
   pi.registerTool({
     name: "code_diver_index",
@@ -40,6 +57,97 @@ export default function (pi: ExtensionAPI) {
       }
       const result = await runCodeDiver(ctx.cwd, args, signal);
       return textResult(result.stdout);
+    },
+  });
+
+  pi.registerTool({
+    name: "code_diver_inspect",
+    label: "Code Diver Inspect",
+    description:
+      "Run multiple independent read-only repository probes concurrently: vector searches, regex searches, literal greps, and tree reads.",
+    parameters: Type.Object({
+      searches: Type.Optional(
+        Type.Array(
+          Type.Object({
+            query: Type.String({ description: "Natural language search query." }),
+            limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 25, description: "Maximum number of results." })),
+          }),
+          { maxItems: 8 },
+        ),
+      ),
+      regexes: Type.Optional(
+        Type.Array(
+          Type.Object({
+            pattern: Type.String({ description: "Regex pattern to search for." }),
+            path: Type.Optional(Type.String({ description: "Relative path inside the repository." })),
+            limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 1000, description: "Maximum number of matches." })),
+          }),
+          { maxItems: 8 },
+        ),
+      ),
+      literals: Type.Optional(
+        Type.Array(
+          Type.Object({
+            pattern: Type.String({ description: "Literal text to search for." }),
+            path: Type.Optional(Type.String({ description: "Relative path inside the repository." })),
+            limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 1000, description: "Maximum number of matches." })),
+          }),
+          { maxItems: 8 },
+        ),
+      ),
+      trees: Type.Optional(
+        Type.Array(
+          Type.Object({
+            path: Type.Optional(Type.String({ description: "Relative path inside the repository." })),
+            depth: Type.Optional(Type.Integer({ minimum: 1, maximum: 10, description: "Maximum tree depth." })),
+            limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 1000, description: "Maximum number of entries." })),
+          }),
+          { maxItems: 8 },
+        ),
+      ),
+    }),
+    execute: async (
+      _toolCallId,
+      params: { searches?: SearchProbe[]; regexes?: TextProbe[]; literals?: TextProbe[]; trees?: TreeProbe[] },
+      signal,
+      _onUpdate,
+      ctx: ToolContext,
+    ) => {
+      const tasks: Array<Promise<string>> = [];
+      for (const search of params.searches ?? []) {
+        const args = ["search", search.query, "--json"];
+        if (search.limit) {
+          args.push("--limit", String(search.limit));
+        }
+        tasks.push(labelResult(`search: ${search.query}`, runCodeDiver(ctx.cwd, args, signal)));
+      }
+      for (const regex of params.regexes ?? []) {
+        const args = ["rg", regex.pattern];
+        appendPathAndLimit(args, regex.path, regex.limit);
+        tasks.push(labelResult(`rg: ${regex.pattern}`, runCodeDiver(ctx.cwd, args, signal)));
+      }
+      for (const literal of params.literals ?? []) {
+        const args = ["grep", literal.pattern];
+        appendPathAndLimit(args, literal.path, literal.limit);
+        tasks.push(labelResult(`grep: ${literal.pattern}`, runCodeDiver(ctx.cwd, args, signal)));
+      }
+      for (const tree of params.trees ?? []) {
+        const args = ["tree"];
+        if (tree.path) {
+          args.push("--path", tree.path);
+        }
+        if (tree.depth) {
+          args.push("--depth", String(tree.depth));
+        }
+        if (tree.limit) {
+          args.push("--limit", String(tree.limit));
+        }
+        tasks.push(labelResult(`tree: ${tree.path ?? "."}`, runCodeDiver(ctx.cwd, args, signal)));
+      }
+      if (!tasks.length) {
+        return textResult("No probes requested.");
+      }
+      return textResult((await Promise.all(tasks)).join("\n\n"));
     },
   });
 
@@ -167,6 +275,20 @@ export default function (pi: ExtensionAPI) {
       return textResult(result.stdout || result.stderr);
     },
   });
+}
+
+function appendPathAndLimit(args: string[], path?: string, limit?: number) {
+  if (path) {
+    args.push("--path", path);
+  }
+  if (limit) {
+    args.push("--limit", String(limit));
+  }
+}
+
+async function labelResult(label: string, resultPromise: Promise<CommandResult>): Promise<string> {
+  const result = await resultPromise;
+  return `## ${label}\n${result.stdout || result.stderr}`;
 }
 
 function runCodeDiver(cwd: string, args: string[], signal?: AbortSignal): Promise<CommandResult> {

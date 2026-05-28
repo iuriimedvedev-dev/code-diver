@@ -13,5 +13,7 @@ class EmbeddingConfig:
     api_key: str | None = None
     url: str | None = None
     batch_size: int = Defaults.EMBEDDING_BATCH_SIZE
+    workers: int = Defaults.EMBEDDING_WORKERS
+    max_input_chars: int | None = Defaults.EMBEDDING_MAX_INPUT_CHARS
     retry_attempts: int = Defaults.EMBEDDING_RETRY_ATTEMPTS
     retry_delay_seconds: float = Defaults.EMBEDDING_RETRY_DELAY_SECONDS

@@ -12,7 +12,9 @@ embedding:
   dimensions:
   url: http://127.0.0.1:1234/v1/embeddings
   api_key: local
-  batch_size: 8
+  batch_size: 1
+  workers: 4
+  max_input_chars: 400
 
 generation:
   provider: openai_compatible
@@ -61,7 +63,7 @@ scanner:
     - "*.png"
     - ".env*"
   max_file_bytes: 500000
-  chunk_lines: 360
+  chunk_lines: 180
 
 search:
   limit: 10

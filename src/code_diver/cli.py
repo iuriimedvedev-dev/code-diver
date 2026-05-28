@@ -27,7 +27,7 @@ from .settings import (
     SchemaKey,
     VectorStoreProviderId,
 )
-from .services import CodebaseScanner, DatasetLoader, GraphIndexingService, IndexingService
+from .services import CodebaseScanner, DatasetLoader, GraphIndexingService, IndexingOptions, IndexingService
 from .services.evaluation_service import EvaluationService
 from .strategies import RetrievalStrategyFactory
 from .store import create_vector_store
@@ -266,7 +266,17 @@ def run_search(config: AppConfig, query: str, limit: int) -> list[SearchResult]:
 
 
 def make_indexing_service(config: AppConfig) -> IndexingService:
-    return IndexingService(make_codebase_scanner(config), make_plugin_manager(config), create_vector_store(config))
+    return IndexingService(
+        make_codebase_scanner(config),
+        make_plugin_manager(config),
+        create_vector_store(config),
+        IndexingOptions(
+            embedding_batch_size=config.embedding.batch_size,
+            embedding_workers=config.embedding.workers,
+            embedding_max_input_chars=config.embedding.max_input_chars,
+            progress=True,
+        ),
+    )
 
 
 def make_codebase_scanner(config: AppConfig):

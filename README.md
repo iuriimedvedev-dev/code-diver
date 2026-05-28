@@ -9,7 +9,7 @@ uv sync
 export GEMINI_API_KEY="..."
 ```
 
-Pi must also be installed and available as `pi` on `PATH`.
+Pi must also be installed and available as `pi-dev` on `PATH`.
 Secrets can also live in `.env`; the CLI loads it before creating providers. `.env` is ignored by git.
 
 Gemini-backed defaults:
@@ -100,16 +100,22 @@ generation:
 embedding:
   provider: gemini # openai or hash also supported
   model: gemini-embedding-001
+  batch_size: 32
+  workers: 1
+  max_input_chars:
 ```
 
 For OpenAI, set `OPENAI_API_KEY` and use `generation.provider: openai` plus `embedding.provider: openai`. Defaults are `gpt-5.1` and `text-embedding-3-large`.
 
-For local models on Apple Silicon, start an OpenAI-compatible local server and use one of the local configs. `configs/protogen-local.yml` targets LM Studio on `http://localhost:1234/v1`. `configs/protogen-ollama.yml` targets Ollama on `http://localhost:11434/v1`.
+For local embeddings on Apple Silicon, start an OpenAI-compatible local embedding server and use `configs/protogen-ollama.yml`. This keeps Gemini as the orchestration model while embeddings run locally through Ollama on `http://localhost:11434/v1`. `configs/protogen-local.yml` is kept for fully local LM Studio experiments on `http://localhost:1234/v1`.
+
+Local embedding configs can set `embedding.workers` for parallel embedding requests and `embedding.max_input_chars` to fit smaller local model context windows. For small local embedding contexts, use `batch_size: 1` and increase `workers` instead of sending large multi-input batches.
 
 ```bash
 uv run code-diver --config configs/protogen-local.yml index
 uv run code-diver --config configs/protogen-local.yml experiment
 
+ollama pull mxbai-embed-large
 uv run code-diver --config configs/protogen-ollama.yml index
 uv run code-diver --config configs/protogen-ollama.yml experiment
 ```
@@ -138,6 +144,7 @@ The stack runs ClickHouse for metrics storage and Grafana with a provisioned das
 
 - `code_diver_index`
 - `code_diver_search`
+- `code_diver_inspect`
 - `code_diver_open`
 - `code_diver_evaluate`
 - `code_diver_experiment`
@@ -149,7 +156,7 @@ Pi arguments and the active tool allowlist are configured in `code-diver.yml`:
 
 ```yaml
 pi:
-  binary: pi
+  binary: pi-dev
   extension: .pi/extensions/code-diver-rag.ts
   prompt_template: .pi/prompts/code-diver-rag.md
   provider: google

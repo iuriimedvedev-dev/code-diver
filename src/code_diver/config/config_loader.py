@@ -96,6 +96,8 @@ class ConfigLoader:
             api_key=mapping.get("api_key"),
             url=mapping.get("url"),
             batch_size=int(mapping.get("batch_size", Defaults.EMBEDDING_BATCH_SIZE)),
+            workers=int(mapping.get("workers", Defaults.EMBEDDING_WORKERS)),
+            max_input_chars=self._optional_int(mapping.get("max_input_chars", Defaults.EMBEDDING_MAX_INPUT_CHARS)),
             retry_attempts=int(mapping.get("retry_attempts", Defaults.EMBEDDING_RETRY_ATTEMPTS)),
             retry_delay_seconds=float(mapping.get("retry_delay_seconds", Defaults.EMBEDDING_RETRY_DELAY_SECONDS)),
         )

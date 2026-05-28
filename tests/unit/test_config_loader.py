@@ -26,6 +26,8 @@ embedding:
   model: local-embed
   url: http://127.0.0.1:1234/v1/embeddings
   dimensions: 64
+  workers: 3
+  max_input_chars: 4096
 generation:
   provider: openai_compatible
   model: local-chat
@@ -93,6 +95,8 @@ plugins:
     assert config.embedding.model == "local-embed"
     assert config.embedding.url == "http://127.0.0.1:1234/v1/embeddings"
     assert config.embedding.dimensions == 64
+    assert config.embedding.workers == 3
+    assert config.embedding.max_input_chars == 4096
     assert config.generation.provider == "openai_compatible"
     assert config.generation.model == "local-chat"
     assert config.generation.url == "http://127.0.0.1:1234/v1/chat/completions"

@@ -10,14 +10,18 @@ embedding:
   dimensions:
   url: http://127.0.0.1:11434/v1/embeddings
   api_key: ollama
-  batch_size: 8
+  batch_size: 1
+  workers: 4
+  max_input_chars: 400
 
 generation:
-  provider: openai_compatible
-  model: qwen3-coder:30b
-  url: http://127.0.0.1:11434/v1/chat/completions
-  api_key: ollama
+  provider: gemini
+  model: gemini-3-flash-preview
+  fallback_models:
+    - gemini-2.5-flash
   temperature: 0
+  thinking_budget: 1024
+  api_version: v1alpha
 
 indexing:
   mode: orchestrated
@@ -56,7 +60,7 @@ scanner:
     - "*.png"
     - ".env*"
   max_file_bytes: 500000
-  chunk_lines: 360
+  chunk_lines: 180
 
 search:
   limit: 10

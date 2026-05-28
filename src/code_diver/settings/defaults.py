@@ -21,6 +21,8 @@ class Defaults:
     EMBEDDING_MODEL = "gemini-embedding-001"
     EMBEDDING_DIMENSIONS = 768
     EMBEDDING_BATCH_SIZE = 32
+    EMBEDDING_WORKERS = 1
+    EMBEDDING_MAX_INPUT_CHARS = None
     EMBEDDING_RETRY_ATTEMPTS = 3
     EMBEDDING_RETRY_DELAY_SECONDS = 20.0
     OPENAI_EMBEDDING_MODEL = "text-embedding-3-large"
@@ -28,7 +30,7 @@ class Defaults:
     HASH_DIMENSIONS = 256
     HASH_MODEL = "hash-token-v1"
 
-    PI_BINARY = "pi"
+    PI_BINARY = "pi-dev"
     PI_EXTENSION = Path(".pi/extensions/code-diver-rag.ts")
     PI_PROMPT_TEMPLATE = Path(".pi/prompts/code-diver-rag.md")
     PI_PROVIDER = "google"
@@ -48,6 +50,7 @@ class Defaults:
     OPENAI_TIMEOUT_SECONDS = 60.0
 
     INDEXING_MODE = "scanner"
+    INDEXING_PROGRESS = False
     AI_INDEX_MAX_FILES = 40
     AI_INDEX_MAX_ITEMS = 80
     AI_INDEX_MAX_CONTEXT_CHARS = 60000
