@@ -22,11 +22,14 @@ storage:
     location: ":memory:"
     collection: custom_collection
 embedding:
-  provider: hash
+  provider: openai_compatible
+  model: local-embed
+  url: http://127.0.0.1:1234/v1/embeddings
   dimensions: 64
 generation:
-  provider: gemini
-  model: gemini-3-flash-preview
+  provider: openai_compatible
+  model: local-chat
+  url: http://127.0.0.1:1234/v1/chat/completions
   fallback_models: [gemini-2.5-flash]
   temperature: 0.2
   thinking_budget: 256
@@ -86,10 +89,13 @@ plugins:
     assert config.storage.provider == "qdrant"
     assert config.storage.qdrant.location == ":memory:"
     assert config.storage.qdrant.collection == "custom_collection"
-    assert config.embedding.provider == "hash"
+    assert config.embedding.provider == "openai_compatible"
+    assert config.embedding.model == "local-embed"
+    assert config.embedding.url == "http://127.0.0.1:1234/v1/embeddings"
     assert config.embedding.dimensions == 64
-    assert config.generation.provider == "gemini"
-    assert config.generation.model == "gemini-3-flash-preview"
+    assert config.generation.provider == "openai_compatible"
+    assert config.generation.model == "local-chat"
+    assert config.generation.url == "http://127.0.0.1:1234/v1/chat/completions"
     assert config.generation.fallback_models == ["gemini-2.5-flash"]
     assert config.generation.temperature == 0.2
     assert config.generation.thinking_budget == 256

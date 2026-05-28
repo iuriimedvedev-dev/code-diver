@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from ..config import AppConfig
 from ..graph import CodeGraphStore
+from ..generation import create_generation_provider
+from ..orchestration import OrchestratedRetrievalStrategy
 from ..providers import EmbeddingProvider
 from ..settings import RetrievalStrategyId
 from ..store import VectorStore
@@ -21,6 +23,13 @@ class RetrievalStrategyFactory:
     ) -> RetrievalStrategy:
         strategy_id = RetrievalStrategyId(strategy)
         vector = VectorRetrievalStrategy(provider, vector_store)
+        if strategy_id is RetrievalStrategyId.ORCHESTRATED:
+            return OrchestratedRetrievalStrategy(
+                vector,
+                vector_store,
+                create_generation_provider(config),
+                per_query_limit=config.search.limit,
+            )
         if strategy_id is RetrievalStrategyId.VECTOR:
             return vector
         if strategy_id is RetrievalStrategyId.RECURSIVE:

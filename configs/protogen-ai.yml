@@ -13,7 +13,9 @@ embedding:
   provider: gemini
   model: gemini-embedding-001
   dimensions: 768
-  batch_size: 32
+  batch_size: 4
+  retry_attempts: 5
+  retry_delay_seconds: 30
 
 generation:
   provider: gemini
@@ -25,11 +27,11 @@ generation:
   api_version: v1alpha
 
 indexing:
-  mode: ai
+  mode: orchestrated
   ai:
-    max_files: 60
-    max_items: 120
-    max_context_chars: 90000
+    max_files: 120
+    max_items: 180
+    max_context_chars: 160000
     tree_depth: 4
     tree_limit: 800
     discovery_limit: 300
@@ -96,12 +98,12 @@ scanner:
     - "*.png"
     - ".env*"
   max_file_bytes: 500000
-  chunk_lines: 160
+  chunk_lines: 360
 
 search:
   limit: 10
   preview_lines: 10
-  strategy: vector
+  strategy: orchestrated
 
 recursive_search:
   rounds: 2
@@ -131,6 +133,7 @@ evaluation:
 experiments:
   suite: protogen-ai
   strategies:
+    - orchestrated
     - vector
     - recursive
     - graph

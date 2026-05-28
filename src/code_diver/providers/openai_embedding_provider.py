@@ -59,10 +59,7 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
             self.url,
             data=json.dumps(payload).encode("utf-8"),
             method="POST",
-            headers={
-                "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json",
-            },
+            headers=self._headers(),
         )
         try:
             with urlopen(request, timeout=self.timeout_seconds) as response:
@@ -72,6 +69,12 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
             raise RuntimeError(f"OpenAI embeddings request failed: HTTP {exc.code}: {detail}") from exc
         except URLError as exc:
             raise RuntimeError(f"OpenAI embeddings API is not reachable: {exc.reason}") from exc
+
+    def _headers(self) -> dict[str, str]:
+        return {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
 
 
 def _batches(items: list[str], size: int):

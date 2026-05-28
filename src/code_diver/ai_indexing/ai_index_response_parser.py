@@ -56,7 +56,12 @@ class AiIndexResponseParser:
     def _json_text(self, response: str) -> str:
         stripped = response.strip()
         fenced = re.search(r"```(?:json)?\s*(.*?)```", stripped, flags=re.DOTALL)
-        return fenced.group(1).strip() if fenced else stripped
+        candidate = fenced.group(1).strip() if fenced else stripped
+        start = candidate.find("{")
+        if start < 0:
+            return candidate
+        parsed, end = json.JSONDecoder().raw_decode(candidate[start:])
+        return json.dumps(parsed) if end < len(candidate[start:].strip()) else candidate[start:]
 
     def _optional_int(self, value: Any) -> int | None:
         if value is None or value == "":

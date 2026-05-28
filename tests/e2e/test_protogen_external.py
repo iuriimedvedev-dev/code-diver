@@ -37,7 +37,7 @@ def test_protogen_config_targets_external_repo() -> None:
 
     ai_config = ConfigLoader().load(AI_CONFIG_PATH)
     assert ai_config.root == PROTOGEN_ROOT
-    assert ai_config.indexing.mode == "ai"
+    assert ai_config.indexing.mode == "orchestrated"
     assert ai_config.embedding.provider == "gemini"
     assert ai_config.embedding.model == "gemini-embedding-001"
     assert ai_config.generation.model == "gemini-3-flash-preview"

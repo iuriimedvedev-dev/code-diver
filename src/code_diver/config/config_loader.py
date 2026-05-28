@@ -94,7 +94,10 @@ class ConfigLoader:
             model=mapping.get("model", Defaults.EMBEDDING_MODEL),
             dimensions=self._optional_int(mapping.get("dimensions", Defaults.EMBEDDING_DIMENSIONS)),
             api_key=mapping.get("api_key"),
+            url=mapping.get("url"),
             batch_size=int(mapping.get("batch_size", Defaults.EMBEDDING_BATCH_SIZE)),
+            retry_attempts=int(mapping.get("retry_attempts", Defaults.EMBEDDING_RETRY_ATTEMPTS)),
+            retry_delay_seconds=float(mapping.get("retry_delay_seconds", Defaults.EMBEDDING_RETRY_DELAY_SECONDS)),
         )
 
     def _generation(self, data: Any) -> GenerationConfig:
@@ -105,6 +108,7 @@ class ConfigLoader:
             fallback_models=self._string_list(mapping.get("fallback_models"))
             or list(Defaults.GENERATION_FALLBACK_MODELS),
             api_key=mapping.get("api_key"),
+            url=mapping.get("url"),
             temperature=float(mapping.get("temperature", Defaults.GENERATION_TEMPERATURE)),
             thinking_budget=self._optional_int(mapping.get("thinking_budget", Defaults.GENERATION_THINKING_BUDGET)),
             api_version=mapping.get("api_version", Defaults.GENERATION_API_VERSION),

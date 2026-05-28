@@ -21,6 +21,8 @@ class Defaults:
     EMBEDDING_MODEL = "gemini-embedding-001"
     EMBEDDING_DIMENSIONS = 768
     EMBEDDING_BATCH_SIZE = 32
+    EMBEDDING_RETRY_ATTEMPTS = 3
+    EMBEDDING_RETRY_DELAY_SECONDS = 20.0
     OPENAI_EMBEDDING_MODEL = "text-embedding-3-large"
     OPENAI_EMBEDDING_DIMENSIONS = 3072
     HASH_DIMENSIONS = 256
@@ -40,7 +42,9 @@ class Defaults:
     GENERATION_API_VERSION = "v1alpha"
     OPENAI_GENERATION_MODEL = "gpt-5.1"
     OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
+    OPENAI_CHAT_COMPLETIONS_URL = "https://api.openai.com/v1/chat/completions"
     OPENAI_EMBEDDINGS_URL = "https://api.openai.com/v1/embeddings"
+    LOCAL_OPENAI_BASE_URL = "http://127.0.0.1:1234/v1"
     OPENAI_TIMEOUT_SECONDS = 60.0
 
     INDEXING_MODE = "scanner"

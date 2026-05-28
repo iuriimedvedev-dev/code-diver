@@ -16,6 +16,7 @@ from .generation import create_generation_provider
 from .graph import CodeGraphBuilder, CodeGraphStore
 from .inspection import GrepService, RgService, TreeService
 from .metrics import ClickHouseClient, ClickHouseDockerClient, ClickHouseMetricsRepository, ExperimentMetricsMapper
+from .orchestration import OrchestratedCodebaseScanner
 from .pi import PiRunner
 from .plugins import PluginManager
 from .providers import create_embedding_provider
@@ -278,6 +279,8 @@ def make_codebase_scanner(config: AppConfig):
     mode = config.indexing.mode
     if mode == "scanner":
         return scanner
+    if mode == "orchestrated":
+        return OrchestratedCodebaseScanner(scanner, create_generation_provider(config), config)
     ai_scanner = AiCodebaseScanner(scanner, create_generation_provider(config), config.indexing.ai)
     if mode == "ai":
         return ai_scanner
@@ -300,7 +303,10 @@ def make_embedding_provider(config: AppConfig, payload: dict[str, Any] | None = 
         model=model,
         dimensions=int(dimensions) if dimensions else None,
         api_key=embedding.api_key,
+        url=embedding.url,
         batch_size=embedding.batch_size,
+        retry_attempts=embedding.retry_attempts,
+        retry_delay_seconds=embedding.retry_delay_seconds,
     )
 
 

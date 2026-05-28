@@ -4,6 +4,7 @@ from ..config import AppConfig
 from ..settings import Defaults
 from .generation_provider import GenerationProvider
 from .gemini_generation_provider import GeminiGenerationProvider
+from .openai_compatible_generation_provider import OpenAICompatibleGenerationProvider
 from .openai_generation_provider import OpenAIGenerationProvider
 
 
@@ -22,5 +23,12 @@ def create_generation_provider(config: AppConfig) -> GenerationProvider:
         return OpenAIGenerationProvider(
             model=generation.model or Defaults.OPENAI_GENERATION_MODEL,
             api_key=generation.api_key,
+            url=generation.url or Defaults.OPENAI_RESPONSES_URL,
+        )
+    if generation.provider == "openai_compatible":
+        return OpenAICompatibleGenerationProvider(
+            model=generation.model,
+            api_key=generation.api_key,
+            url=generation.url,
         )
     raise ValueError(f"Unknown generation provider: {generation.provider}")

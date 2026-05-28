@@ -11,6 +11,7 @@ class GenerationConfig:
     model: str = Defaults.GENERATION_MODEL
     fallback_models: list[str] = field(default_factory=lambda: list(Defaults.GENERATION_FALLBACK_MODELS))
     api_key: str | None = None
+    url: str | None = None
     temperature: float = Defaults.GENERATION_TEMPERATURE
     thinking_budget: int | None = Defaults.GENERATION_THINKING_BUDGET
     api_version: str | None = Defaults.GENERATION_API_VERSION

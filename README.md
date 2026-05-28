@@ -80,7 +80,7 @@ uv run code-diver --config configs/protogen.yml experiment
 
 The config uses deterministic hash embeddings for repeatable local testing. Switch `embedding.provider` to `gemini` and `storage.provider` to `qdrant` when running live Gemini/Qdrant experiments.
 
-For AI-curated indexing, use `indexing.mode: ai`. The AI indexer is project-agnostic: it receives read-only tool descriptions plus observed `tree`/`rg` output and bounded source excerpts, then returns semantic code items for embedding.
+For model-orchestrated indexing, use `indexing.mode: orchestrated`. The generation model sees repository structure, file names, aggregate stats, config constraints, and index metadata. It does not receive source code contents. Local scanners build chunks, and embedding providers create retrieval vectors from those chunks.
 
 ```bash
 export GEMINI_API_KEY="..."
@@ -103,6 +103,16 @@ embedding:
 ```
 
 For OpenAI, set `OPENAI_API_KEY` and use `generation.provider: openai` plus `embedding.provider: openai`. Defaults are `gpt-5.1` and `text-embedding-3-large`.
+
+For local models on Apple Silicon, start an OpenAI-compatible local server and use one of the local configs. `configs/protogen-local.yml` targets LM Studio on `http://localhost:1234/v1`. `configs/protogen-ollama.yml` targets Ollama on `http://localhost:11434/v1`.
+
+```bash
+uv run code-diver --config configs/protogen-local.yml index
+uv run code-diver --config configs/protogen-local.yml experiment
+
+uv run code-diver --config configs/protogen-ollama.yml index
+uv run code-diver --config configs/protogen-ollama.yml experiment
+```
 
 `experiment` runs the configured retrieval hypotheses from YAML:
 

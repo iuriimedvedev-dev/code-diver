@@ -7,6 +7,7 @@ class EmbeddingProviderId(StrEnum):
     GEMINI = "gemini"
     HASH = "hash"
     OPENAI = "openai"
+    OPENAI_COMPATIBLE = "openai_compatible"
 
 
 class VectorStoreProviderId(StrEnum):

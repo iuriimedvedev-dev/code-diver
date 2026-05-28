@@ -44,10 +44,7 @@ class OpenAIGenerationProvider:
             self.url,
             data=json.dumps(payload).encode("utf-8"),
             method="POST",
-            headers={
-                "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json",
-            },
+            headers=self._headers(),
         )
         try:
             with urlopen(request, timeout=self.timeout_seconds) as response:
@@ -65,3 +62,9 @@ class OpenAIGenerationProvider:
                 if content.get("type") in {"output_text", "text"}:
                     parts.append(str(content.get("text", "")))
         return "".join(parts)
+
+    def _headers(self) -> dict[str, str]:
+        return {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
