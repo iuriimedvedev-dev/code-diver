@@ -12,16 +12,46 @@ storage:
 
 embedding:
   provider: gemini
-  model: gemini-embedding-2
+  model: gemini-embedding-001
   dimensions: 768
   batch_size: 32
+
+generation:
+  provider: gemini
+  model: gemini-3-flash-preview
+  temperature: 0.1
+  thinking_budget: 1024
+
+indexing:
+  mode: scanner
+  ai:
+    max_files: 40
+    max_items: 80
+    max_context_chars: 60000
+    tree_depth: 4
+    tree_limit: 500
+    discovery_limit: 200
+    discovery_patterns:
+      - "class "
+      - "def "
+      - "async def "
+      - "function "
+      - "interface "
+      - "type "
+      - "struct "
+      - "enum "
+      - "impl "
+      - "fn "
+      - "export "
+      - "module "
+      - "package "
 
 pi:
   binary: pi
   extension: .pi/extensions/code-diver-rag.ts
   prompt_template: .pi/prompts/code-diver-rag.md
   provider: google
-  model: gemini-3.5-flash
+  model: gemini-3-flash-preview
   tools:
     - code_diver_index
     - code_diver_search

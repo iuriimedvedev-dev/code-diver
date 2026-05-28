@@ -1,18 +1,49 @@
 root: ../protogen
-artifact: .code-diver/protogen-index.json
+artifact: .code-diver/protogen-ai-index.json
 
 storage:
   provider: json
   qdrant:
     url: http://localhost:6333
-    collection: code_diver_protogen
+    collection: code_diver_protogen_ai
     api_key_env: QDRANT_API_KEY
     batch_size: 128
 
 embedding:
-  provider: hash
-  dimensions: 256
-  batch_size: 64
+  provider: gemini
+  model: gemini-embedding-001
+  dimensions: 768
+  batch_size: 32
+
+generation:
+  provider: gemini
+  model: gemini-3-flash-preview
+  temperature: 0.1
+  thinking_budget: 1024
+
+indexing:
+  mode: ai
+  ai:
+    max_files: 60
+    max_items: 120
+    max_context_chars: 90000
+    tree_depth: 4
+    tree_limit: 800
+    discovery_limit: 300
+    discovery_patterns:
+      - "class "
+      - "def "
+      - "async def "
+      - "function "
+      - "interface "
+      - "type "
+      - "struct "
+      - "enum "
+      - "impl "
+      - "fn "
+      - "export "
+      - "module "
+      - "package "
 
 pi:
   binary: pi
@@ -62,7 +93,7 @@ scanner:
     - "*.png"
     - ".env*"
   max_file_bytes: 500000
-  chunk_lines: 120
+  chunk_lines: 160
 
 search:
   limit: 10
@@ -76,7 +107,7 @@ recursive_search:
 
 graph:
   enabled: true
-  artifact: .code-diver/protogen-graph.json
+  artifact: .code-diver/protogen-ai-graph.json
   expansion_depth: 1
   neighbor_limit: 20
 
@@ -95,7 +126,7 @@ evaluation:
   limit: 10
 
 experiments:
-  suite: protogen-local
+  suite: protogen-ai
   strategies:
     - vector
     - recursive

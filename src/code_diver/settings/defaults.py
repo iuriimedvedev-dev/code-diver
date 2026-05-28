@@ -17,7 +17,7 @@ class Defaults:
     QDRANT_BATCH_SIZE = 64
 
     EMBEDDING_PROVIDER = "gemini"
-    EMBEDDING_MODEL = "gemini-embedding-2"
+    EMBEDDING_MODEL = "gemini-embedding-001"
     EMBEDDING_DIMENSIONS = 768
     EMBEDDING_BATCH_SIZE = 32
     HASH_DIMENSIONS = 256
@@ -27,7 +27,35 @@ class Defaults:
     PI_EXTENSION = Path(".pi/extensions/code-diver-rag.ts")
     PI_PROMPT_TEMPLATE = Path(".pi/prompts/code-diver-rag.md")
     PI_PROVIDER = "google"
-    PI_MODEL = "gemini-3.5-flash"
+    PI_MODEL = "gemini-3-flash-preview"
+
+    GENERATION_PROVIDER = "gemini"
+    GENERATION_MODEL = "gemini-3-flash-preview"
+    GENERATION_TEMPERATURE = 0.1
+    GENERATION_THINKING_BUDGET = 1024
+
+    INDEXING_MODE = "scanner"
+    AI_INDEX_MAX_FILES = 40
+    AI_INDEX_MAX_ITEMS = 80
+    AI_INDEX_MAX_CONTEXT_CHARS = 60000
+    AI_INDEX_TREE_DEPTH = 4
+    AI_INDEX_TREE_LIMIT = 500
+    AI_INDEX_DISCOVERY_LIMIT = 200
+    AI_INDEX_DISCOVERY_PATTERNS = [
+        "class ",
+        "def ",
+        "async def ",
+        "function ",
+        "interface ",
+        "type ",
+        "struct ",
+        "enum ",
+        "impl ",
+        "fn ",
+        "export ",
+        "module ",
+        "package ",
+    ]
 
     MAX_FILE_BYTES = 1_000_000
     CHUNK_LINES = 120

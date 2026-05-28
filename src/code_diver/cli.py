@@ -8,8 +8,10 @@ from pathlib import Path
 from typing import Any
 
 from .config import AppConfig, ConfigLoader
+from .ai_indexing import AiCodebaseScanner, HybridCodebaseScanner
 from .domain import SearchResult
 from .experiments import ExperimentRunner
+from .generation import create_generation_provider
 from .graph import CodeGraphBuilder, CodeGraphStore
 from .inspection import GrepService, RgService, TreeService
 from .metrics import ClickHouseClient, ClickHouseDockerClient, ClickHouseMetricsRepository, ExperimentMetricsMapper
@@ -261,13 +263,25 @@ def run_search(config: AppConfig, query: str, limit: int) -> list[SearchResult]:
 
 
 def make_indexing_service(config: AppConfig) -> IndexingService:
+    return IndexingService(make_codebase_scanner(config), make_plugin_manager(config), create_vector_store(config))
+
+
+def make_codebase_scanner(config: AppConfig):
     scanner = CodebaseScanner(
         include=config.scanner.include,
         exclude=config.scanner.exclude,
         max_file_bytes=config.scanner.max_file_bytes,
         chunk_lines=config.scanner.chunk_lines,
     )
-    return IndexingService(scanner, make_plugin_manager(config), create_vector_store(config))
+    mode = config.indexing.mode
+    if mode == "scanner":
+        return scanner
+    ai_scanner = AiCodebaseScanner(scanner, create_generation_provider(config), config.indexing.ai)
+    if mode == "ai":
+        return ai_scanner
+    if mode == "hybrid":
+        return HybridCodebaseScanner([scanner, ai_scanner])
+    raise ValueError(f"Unknown indexing mode: {mode}")
 
 
 def make_plugin_manager(config: AppConfig) -> PluginManager:

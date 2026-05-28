@@ -24,6 +24,18 @@ storage:
 embedding:
   provider: hash
   dimensions: 64
+generation:
+  provider: gemini
+  model: gemini-3-flash-preview
+  temperature: 0.2
+  thinking_budget: 256
+indexing:
+  mode: ai
+  ai:
+    max_files: 5
+    max_items: 8
+    max_context_chars: 1000
+    discovery_patterns: ["class ", "interface "]
 pi:
   binary: pi-dev
   tools: [read, code_diver_search]
@@ -74,6 +86,15 @@ plugins:
     assert config.storage.qdrant.collection == "custom_collection"
     assert config.embedding.provider == "hash"
     assert config.embedding.dimensions == 64
+    assert config.generation.provider == "gemini"
+    assert config.generation.model == "gemini-3-flash-preview"
+    assert config.generation.temperature == 0.2
+    assert config.generation.thinking_budget == 256
+    assert config.indexing.mode == "ai"
+    assert config.indexing.ai.max_files == 5
+    assert config.indexing.ai.max_items == 8
+    assert config.indexing.ai.max_context_chars == 1000
+    assert config.indexing.ai.discovery_patterns == ["class ", "interface "]
     assert config.pi.binary == "pi-dev"
     assert config.pi.tools == ["read", "code_diver_search"]
     assert config.scanner.include == ["*.py"]

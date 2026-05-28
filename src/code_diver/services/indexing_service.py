@@ -6,13 +6,13 @@ from ..domain import CodeItem
 from ..plugins import PluginManager
 from ..providers import EmbeddingProvider
 from ..store import VectorStore
-from .codebase_scanner import CodebaseScanner
+from .code_item_scanner import CodeItemScanner
 
 
 class IndexingService:
     def __init__(
         self,
-        scanner: CodebaseScanner,
+        scanner: CodeItemScanner,
         plugin_manager: PluginManager,
         vector_store: VectorStore,
     ):

@@ -13,8 +13,8 @@ Pi must also be installed and available as `pi` on `PATH`.
 
 Gemini-backed defaults:
 
-- Pi model: `gemini-3.5-flash`
-- embedding model: `gemini-embedding-2`
+- Pi/generation model: `gemini-3-flash-preview`
+- embedding model: `gemini-embedding-001`
 - embedding dimensions: `768`
 
 Configuration lives in `code-diver.yml`. For local, reproducible experiments without an API key, set:
@@ -79,6 +79,16 @@ uv run code-diver --config configs/protogen.yml experiment
 
 The config uses deterministic hash embeddings for repeatable local testing. Switch `embedding.provider` to `gemini` and `storage.provider` to `qdrant` when running live Gemini/Qdrant experiments.
 
+For AI-curated indexing, use `indexing.mode: ai`. The AI indexer is project-agnostic: it receives read-only tool descriptions plus observed `tree`/`rg` output and bounded source excerpts, then returns semantic code items for embedding.
+
+```bash
+export GEMINI_API_KEY="..."
+uv run code-diver --config configs/protogen-ai.yml index
+uv run code-diver --config configs/protogen-ai.yml experiment
+```
+
+The generic AI discovery patterns live in YAML. Add project-specific patterns in a separate config only when running a targeted experiment.
+
 `experiment` runs the configured retrieval hypotheses from YAML:
 
 ```yaml
@@ -118,7 +128,7 @@ pi:
   extension: .pi/extensions/code-diver-rag.ts
   prompt_template: .pi/prompts/code-diver-rag.md
   provider: google
-  model: gemini-3.5-flash
+  model: gemini-3-flash-preview
   tools:
     - code_diver_search
 ```

@@ -11,7 +11,10 @@ from .editor_config import EditorConfig
 from .embedding_config import EmbeddingConfig
 from .evaluation_config import EvaluationConfig
 from .experiments_config import ExperimentsConfig
+from .generation_config import GenerationConfig
 from .graph_config import GraphConfig
+from .ai_index_config import AiIndexConfig
+from .indexing_config import IndexingConfig
 from .metrics_config import MetricsConfig
 from .pi_config import PiConfig
 from .qdrant_config import QdrantConfig
@@ -31,6 +34,8 @@ class ConfigLoader:
             artifact=Path(data.get("artifact", Defaults.ARTIFACT)),
             storage=self._storage(data.get("storage")),
             embedding=self._embedding(data.get("embedding")),
+            generation=self._generation(data.get("generation")),
+            indexing=self._indexing(data.get("indexing")),
             pi=self._pi(data.get("pi")),
             scanner=self._scanner(data.get("scanner")),
             search=self._search(data.get("search")),
@@ -79,6 +84,36 @@ class ConfigLoader:
             dimensions=self._optional_int(mapping.get("dimensions", Defaults.EMBEDDING_DIMENSIONS)),
             api_key=mapping.get("api_key"),
             batch_size=int(mapping.get("batch_size", Defaults.EMBEDDING_BATCH_SIZE)),
+        )
+
+    def _generation(self, data: Any) -> GenerationConfig:
+        mapping = self._mapping(data)
+        return GenerationConfig(
+            provider=str(mapping.get("provider", Defaults.GENERATION_PROVIDER)),
+            model=str(mapping.get("model", Defaults.GENERATION_MODEL)),
+            api_key=mapping.get("api_key"),
+            temperature=float(mapping.get("temperature", Defaults.GENERATION_TEMPERATURE)),
+            thinking_budget=self._optional_int(mapping.get("thinking_budget", Defaults.GENERATION_THINKING_BUDGET)),
+        )
+
+    def _indexing(self, data: Any) -> IndexingConfig:
+        mapping = self._mapping(data)
+        return IndexingConfig(
+            mode=str(mapping.get("mode", Defaults.INDEXING_MODE)),
+            ai=self._ai_index(mapping.get("ai")),
+        )
+
+    def _ai_index(self, data: Any) -> AiIndexConfig:
+        mapping = self._mapping(data)
+        return AiIndexConfig(
+            max_files=int(mapping.get("max_files", Defaults.AI_INDEX_MAX_FILES)),
+            max_items=int(mapping.get("max_items", Defaults.AI_INDEX_MAX_ITEMS)),
+            max_context_chars=int(mapping.get("max_context_chars", Defaults.AI_INDEX_MAX_CONTEXT_CHARS)),
+            tree_depth=int(mapping.get("tree_depth", Defaults.AI_INDEX_TREE_DEPTH)),
+            tree_limit=int(mapping.get("tree_limit", Defaults.AI_INDEX_TREE_LIMIT)),
+            discovery_limit=int(mapping.get("discovery_limit", Defaults.AI_INDEX_DISCOVERY_LIMIT)),
+            discovery_patterns=self._string_list(mapping.get("discovery_patterns"))
+            or list(Defaults.AI_INDEX_DISCOVERY_PATTERNS),
         )
 
     def _pi(self, data: Any) -> PiConfig:

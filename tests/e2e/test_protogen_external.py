@@ -12,6 +12,7 @@ from code_diver.config import ConfigLoader
 pytestmark = [pytest.mark.e2e, pytest.mark.protogen]
 
 CONFIG_PATH = Path("configs/protogen.yml")
+AI_CONFIG_PATH = Path("configs/protogen-ai.yml")
 PROTOGEN_ROOT = Path("../protogen")
 
 
@@ -33,6 +34,13 @@ def test_protogen_config_targets_external_repo() -> None:
     assert config.experiments.strategies == ["vector", "recursive", "graph"]
     assert config.metrics.enabled is True
     assert config.metrics.docker_container == "code-diver-clickhouse"
+
+    ai_config = ConfigLoader().load(AI_CONFIG_PATH)
+    assert ai_config.root == PROTOGEN_ROOT
+    assert ai_config.indexing.mode == "ai"
+    assert ai_config.embedding.provider == "gemini"
+    assert ai_config.embedding.model == "gemini-embedding-001"
+    assert ai_config.generation.model == "gemini-3-flash-preview"
 
 
 @pytest.mark.skipif(not protogen_available(), reason="../protogen is not available")

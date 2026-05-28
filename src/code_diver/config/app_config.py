@@ -7,7 +7,9 @@ from ..settings import Defaults
 from .embedding_config import EmbeddingConfig
 from .evaluation_config import EvaluationConfig
 from .experiments_config import ExperimentsConfig
+from .generation_config import GenerationConfig
 from .graph_config import GraphConfig
+from .indexing_config import IndexingConfig
 from .metrics_config import MetricsConfig
 from .pi_config import PiConfig
 from .recursive_search_config import RecursiveSearchConfig
@@ -23,6 +25,8 @@ class AppConfig:
     artifact: Path = Defaults.ARTIFACT
     storage: StorageConfig = field(default_factory=StorageConfig)
     embedding: EmbeddingConfig = field(default_factory=EmbeddingConfig)
+    generation: GenerationConfig = field(default_factory=GenerationConfig)
+    indexing: IndexingConfig = field(default_factory=IndexingConfig)
     pi: PiConfig = field(default_factory=PiConfig)
     scanner: ScannerConfig = field(default_factory=ScannerConfig)
     search: SearchConfig = field(default_factory=SearchConfig)
