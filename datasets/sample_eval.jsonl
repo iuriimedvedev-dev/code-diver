@@ -1,0 +1,3 @@
+{"id":"scanner","query":"code that scans files and chunks repository content","expected":["src/code_diver/services/codebase_scanner.py"]}
+{"id":"plugins","query":"plugin hooks that collect items transform items and prepare queries","expected":["src/code_diver/plugins/plugin_manager.py"]}
+{"id":"evaluation","query":"retrieval metrics hit rate mrr precision recall","expected":["src/code_diver/services/evaluation_service.py"]}

@@ -1,0 +1,2 @@
+class IndexStoreError(RuntimeError):
+    pass

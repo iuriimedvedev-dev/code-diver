@@ -1,0 +1,14 @@
+{
+  "name": "code-diver-rag-pi-package",
+  "version": "0.1.0",
+  "private": true,
+  "keywords": ["pi-package", "rag", "code-search"],
+  "pi": {
+    "extensions": ["./.pi/extensions/code-diver-rag.ts"],
+    "prompts": ["./.pi/prompts"]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "typebox": "*"
+  }
+}

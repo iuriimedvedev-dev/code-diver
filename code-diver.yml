@@ -1,0 +1,52 @@
+root: .
+artifact: .code-diver/index.json
+
+embedding:
+  provider: gemini
+  model: gemini-embedding-2
+  dimensions: 768
+  batch_size: 32
+
+pi:
+  binary: pi
+  extension: .pi/extensions/code-diver-rag.ts
+  prompt_template: .pi/prompts/code-diver-rag.md
+  provider: google
+  model: gemini-3.5-flash
+  tools:
+    - read
+    - grep
+    - find
+    - ls
+    - bash
+    - code_diver_index
+    - code_diver_search
+    - code_diver_open
+    - code_diver_evaluate
+  extra_args: []
+
+scanner:
+  include: []
+  exclude: []
+  max_file_bytes: 1000000
+  chunk_lines: 120
+
+search:
+  limit: 10
+  preview_lines: 8
+
+ui:
+  color: true
+  pager: auto
+  links: true
+  editor:
+    command: code
+    args:
+      - -g
+      - "{path}:{line}"
+
+evaluation:
+  dataset: datasets/sample_eval.jsonl
+  limit: 10
+
+plugins: []

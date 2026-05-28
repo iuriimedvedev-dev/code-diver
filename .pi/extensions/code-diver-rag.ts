@@ -1,0 +1,127 @@
+import { spawn } from "node:child_process";
+import { Type } from "typebox";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+
+type ToolContext = {
+  cwd: string;
+};
+
+type CommandResult = {
+  stdout: string;
+  stderr: string;
+};
+
+const MAX_TOOL_OUTPUT = 40_000;
+
+export default function (pi: ExtensionAPI) {
+  pi.registerTool({
+    name: "code_diver_index",
+    label: "Code Diver Index",
+    description: "Build or refresh the Code Diver retrieval artifact for this repository.",
+    parameters: Type.Object({}),
+    execute: async (_toolCallId, _params, signal, _onUpdate, ctx: ToolContext) => {
+      const result = await runCodeDiver(ctx.cwd, ["index"], signal);
+      return textResult(result.stdout || result.stderr || "Index completed.");
+    },
+  });
+
+  pi.registerTool({
+    name: "code_diver_search",
+    label: "Code Diver Search",
+    description: "Search the Code Diver retrieval index for repository context relevant to a query.",
+    parameters: Type.Object({
+      query: Type.String({ description: "Natural language search query." }),
+      limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 25, description: "Maximum number of results." })),
+    }),
+    execute: async (_toolCallId, params: { query: string; limit?: number }, signal, _onUpdate, ctx: ToolContext) => {
+      const args = ["search", params.query, "--json"];
+      if (params.limit) {
+        args.push("--limit", String(params.limit));
+      }
+      const result = await runCodeDiver(ctx.cwd, args, signal);
+      return textResult(result.stdout);
+    },
+  });
+
+  pi.registerTool({
+    name: "code_diver_open",
+    label: "Code Diver Open",
+    description: "Open the best Code Diver search result in the configured editor.",
+    parameters: Type.Object({
+      query: Type.String({ description: "Natural language search query." }),
+      rank: Type.Optional(Type.Integer({ minimum: 1, maximum: 25, description: "Search result rank to open." })),
+    }),
+    execute: async (_toolCallId, params: { query: string; rank?: number }, signal, _onUpdate, ctx: ToolContext) => {
+      const args = ["open", params.query];
+      if (params.rank) {
+        args.push("--rank", String(params.rank));
+      }
+      const result = await runCodeDiver(ctx.cwd, args, signal);
+      return textResult(result.stdout || result.stderr);
+    },
+  });
+
+  pi.registerTool({
+    name: "code_diver_evaluate",
+    label: "Code Diver Evaluate",
+    description: "Run the configured retrieval evaluation dataset and report metrics.",
+    parameters: Type.Object({
+      details: Type.Optional(Type.Boolean({ description: "Include per-case retrieval details." })),
+      reindex: Type.Optional(Type.Boolean({ description: "Rebuild the index before evaluation." })),
+    }),
+    execute: async (_toolCallId, params: { details?: boolean; reindex?: boolean }, signal, _onUpdate, ctx: ToolContext) => {
+      const args = ["evaluate"];
+      if (params.details) {
+        args.push("--details");
+      }
+      if (params.reindex) {
+        args.push("--reindex");
+      }
+      const result = await runCodeDiver(ctx.cwd, args, signal);
+      return textResult(result.stdout || result.stderr);
+    },
+  });
+}
+
+function runCodeDiver(cwd: string, args: string[], signal?: AbortSignal): Promise<CommandResult> {
+  const config = process.env.CODE_DIVER_CONFIG || "code-diver.yml";
+  const childArgs = ["run", "code-diver", "--config", config, ...args];
+  return new Promise((resolve, reject) => {
+    const child = spawn("uv", childArgs, {
+      cwd,
+      env: process.env,
+      stdio: ["ignore", "pipe", "pipe"],
+      signal,
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk.toString();
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk.toString();
+    });
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (code === 0) {
+        resolve({ stdout: truncate(stdout), stderr: truncate(stderr) });
+        return;
+      }
+      reject(new Error(truncate(stderr || stdout || `code-diver exited with status ${code}`)));
+    });
+  });
+}
+
+function textResult(text: string) {
+  return {
+    content: [{ type: "text", text: truncate(text) }],
+    details: {},
+  };
+}
+
+function truncate(text: string): string {
+  if (text.length <= MAX_TOOL_OUTPUT) {
+    return text;
+  }
+  return `${text.slice(0, MAX_TOOL_OUTPUT)}\n... truncated ...`;
+}
