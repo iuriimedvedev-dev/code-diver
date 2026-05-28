@@ -2,22 +2,23 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from code_diver.config import AppConfig
+from code_diver.config.app_config import AppConfig
+from code_diver.config.pi_config import PiConfig
 from code_diver.pi import PiCommandBuilder
 
 
 def test_pi_command_builder_uses_configured_extension_prompt_and_tools() -> None:
     config = AppConfig(
         root=Path("/repo"),
-        pi={
-            "binary": "pi-dev",
-            "extension": ".pi/extensions/code-diver-rag.ts",
-            "prompt_template": ".pi/prompts/code-diver-rag.md",
-            "provider": "google",
-            "model": "gemini-3.5-flash",
-            "tools": ["read", "code_diver_search"],
-            "extra_args": ["--no-session"],
-        },
+        pi=PiConfig(
+            binary="pi-dev",
+            extension=Path(".pi/extensions/code-diver-rag.ts"),
+            prompt_template=Path(".pi/prompts/code-diver-rag.md"),
+            provider="google",
+            model="gemini-3.5-flash",
+            tools=["read", "code_diver_search"],
+            extra_args=["--no-session"],
+        ),
     )
 
     command = PiCommandBuilder().build(config, prompt="Explain retrieval", print_mode=True)

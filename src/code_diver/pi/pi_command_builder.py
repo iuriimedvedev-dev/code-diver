@@ -1,46 +1,39 @@
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Any
-
 from ..config import AppConfig
+from ..settings import Defaults, EnvironmentVariable, OptionName
 
 
 class PiCommandBuilder:
     def build(self, config: AppConfig, prompt: str | None = None, print_mode: bool = False) -> list[str]:
         pi_config = config.pi
-        command = [str(pi_config.get("binary", "pi"))]
+        command = [pi_config.binary]
         if print_mode:
-            command.append("-p")
+            command.append(OptionName.PRINT.value)
 
-        extension = Path(pi_config.get("extension", ".pi/extensions/code-diver-rag.ts"))
-        command.extend(["--extension", str(extension)])
+        command.extend([OptionName.EXTENSION.value, str(pi_config.extension)])
 
-        prompt_template = pi_config.get("prompt_template")
-        if prompt_template:
-            command.extend(["--prompt-template", str(prompt_template)])
+        if pi_config.prompt_template:
+            command.extend([OptionName.PROMPT_TEMPLATE.value, str(pi_config.prompt_template)])
 
-        provider = pi_config.get("provider")
-        if provider:
-            command.extend(["--provider", str(provider)])
+        if pi_config.provider:
+            command.extend([OptionName.PROVIDER.value, pi_config.provider])
 
-        model = pi_config.get("model")
-        if model:
-            command.extend(["--model", str(model)])
+        if pi_config.model:
+            command.extend([OptionName.MODEL.value, pi_config.model])
 
-        tools = list(pi_config.get("tools") or [])
-        if tools:
-            command.extend(["--tools", ",".join(str(tool) for tool in tools)])
+        if pi_config.tools:
+            command.extend([OptionName.TOOLS.value, ",".join(pi_config.tools)])
 
-        command.extend(str(value) for value in pi_config.get("extra_args") or [])
+        command.extend(pi_config.extra_args)
         if prompt:
             command.append(prompt)
         return command
 
     def env(self, config: AppConfig, config_path: Path | None) -> dict[str, str]:
         env = {
-            "CODE_DIVER_CONFIG": str((config_path or Path("code-diver.yml")).resolve()),
-            "CODE_DIVER_ROOT": str(config.root.resolve()),
+            EnvironmentVariable.CODE_DIVER_CONFIG.value: str((config_path or Defaults.CONFIG_PATH).resolve()),
+            EnvironmentVariable.CODE_DIVER_ROOT.value: str(config.root.resolve()),
         }
-        env.update({str(key): str(value) for key, value in dict(config.pi.get("env") or {}).items()})
+        env.update(config.pi.env)
         return env

@@ -3,14 +3,15 @@ from __future__ import annotations
 import hashlib
 
 from .embedding_provider import EmbeddingProvider
+from ..settings import Defaults, EmbeddingProviderId
 from ..services.tokenizer import tokenize
 from ..math_utils import normalize
 
 
 class HashEmbeddingProvider(EmbeddingProvider):
-    def __init__(self, dimensions: int = 256):
-        self.name = "hash"
-        self.model = "hash-token-v1"
+    def __init__(self, dimensions: int = Defaults.HASH_DIMENSIONS):
+        self.name = EmbeddingProviderId.HASH.value
+        self.model = Defaults.HASH_MODEL
         self.dimensions = dimensions
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:

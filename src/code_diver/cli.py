@@ -8,16 +8,20 @@ from typing import Any
 
 from .config import AppConfig, ConfigLoader
 from .domain import SearchResult
+from .graph import CodeGraphBuilder, CodeGraphStore
 from .pi import PiRunner
 from .plugins import PluginManager
 from .providers import create_embedding_provider
-from .services import (
-    CodebaseScanner,
-    DatasetLoader,
-    EvaluationService,
-    IndexingService,
-    RetrievalService,
+from .settings import (
+    CommandName,
+    Defaults,
+    OptionName,
+    SchemaKey,
+    VectorStoreProviderId,
 )
+from .services import CodebaseScanner, DatasetLoader, GraphIndexingService, IndexingService
+from .services.evaluation_service import EvaluationService
+from .strategies import RetrievalStrategyFactory
 from .store import create_vector_store
 from .ui import EditorOpener, SearchRenderer
 
@@ -38,37 +42,39 @@ def main(argv: list[str] | None = None) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="code-diver", description="Config-first codebase RAG CLI.")
-    parser.add_argument("--config", type=Path, default=None, help="YAML config path. Defaults to code-diver.yml.")
+    parser.add_argument(OptionName.CONFIG.value, type=Path, default=None, help="YAML config path.")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    index = subparsers.add_parser("index", help="Index repository code into the configured artifact.")
+    index = subparsers.add_parser(CommandName.INDEX.value, help="Index repository code into the configured artifact.")
     index.set_defaults(func=cmd_index)
 
-    search = subparsers.add_parser("search", help="Search indexed code.")
+    search = subparsers.add_parser(CommandName.SEARCH.value, help="Search indexed code.")
     search.add_argument("query")
-    search.add_argument("--limit", type=int, default=None)
-    search.add_argument("--json", action="store_true")
+    search.add_argument(OptionName.LIMIT.value, type=int, default=None)
+    search.add_argument(OptionName.JSON.value, action="store_true")
     search.set_defaults(func=cmd_search)
 
-    open_result = subparsers.add_parser("open", help="Open the best search result in the configured editor.")
+    open_result = subparsers.add_parser(
+        CommandName.OPEN.value, help="Open the best search result in the configured editor."
+    )
     open_result.add_argument("query")
-    open_result.add_argument("--rank", type=int, default=1)
+    open_result.add_argument(OptionName.RANK.value, type=int, default=1)
     open_result.set_defaults(func=cmd_open)
 
-    chat = subparsers.add_parser("chat", help="Start Pi with Code Diver RAG tools loaded.")
+    chat = subparsers.add_parser(CommandName.CHAT.value, help="Start Pi with Code Diver RAG tools loaded.")
     chat.add_argument("prompt", nargs="?", default=None)
     chat.set_defaults(func=cmd_chat)
 
-    ask = subparsers.add_parser("ask", help="Ask Pi once with Code Diver RAG tools loaded.")
+    ask = subparsers.add_parser(CommandName.ASK.value, help="Ask Pi once with Code Diver RAG tools loaded.")
     ask.add_argument("query")
     ask.set_defaults(func=cmd_ask)
 
-    evaluate = subparsers.add_parser("evaluate", help="Evaluate retrieval on the configured dataset.")
-    evaluate.add_argument("--dataset", type=Path, default=None)
-    evaluate.add_argument("--limit", type=int, default=None)
-    evaluate.add_argument("--details", action="store_true")
-    evaluate.add_argument("--json", action="store_true")
-    evaluate.add_argument("--reindex", action="store_true")
+    evaluate = subparsers.add_parser(CommandName.EVALUATE.value, help="Evaluate retrieval on the configured dataset.")
+    evaluate.add_argument(OptionName.DATASET.value, type=Path, default=None)
+    evaluate.add_argument(OptionName.LIMIT.value, type=int, default=None)
+    evaluate.add_argument(OptionName.DETAILS.value, action="store_true")
+    evaluate.add_argument(OptionName.JSON.value, action="store_true")
+    evaluate.add_argument(OptionName.REINDEX.value, action="store_true")
     evaluate.set_defaults(func=cmd_evaluate)
 
     return parser
@@ -81,6 +87,8 @@ def cmd_index(_: argparse.Namespace, config: AppConfig) -> int:
         provider=provider,
         plugin_config={"config": config},
     )
+    if config.graph.enabled:
+        GraphIndexingService(CodeGraphBuilder(), CodeGraphStore(config.graph.artifact)).build(config.root, items)
     print(
         f"Indexed {len(items)} items -> {store_label(config)} "
         f"({provider.name}, model={provider.model}, dimensions={provider.dimensions})"
@@ -89,17 +97,17 @@ def cmd_index(_: argparse.Namespace, config: AppConfig) -> int:
 
 
 def cmd_search(args: argparse.Namespace, config: AppConfig) -> int:
-    results = run_search(config, args.query, _limit(args.limit, config.search, "limit", 10))
+    results = run_search(config, args.query, args.limit or config.search.limit)
     if args.json:
         print(json.dumps([result_to_json(result) for result in results], indent=2))
     else:
-        SearchRenderer(config.root, search_ui_config(config)).render(args.query, results)
+        SearchRenderer(config.root, config.ui, config.search.preview_lines).render(args.query, results)
     return 0
 
 
 def cmd_open(args: argparse.Namespace, config: AppConfig) -> int:
     rank = max(int(args.rank), 1)
-    limit = max(rank, _limit(None, config.search, "limit", 10))
+    limit = max(rank, config.search.limit)
     results = run_search(config, args.query, limit)
     if not results:
         print("No search results.")
@@ -130,15 +138,16 @@ def cmd_evaluate(args: argparse.Namespace, config: AppConfig) -> int:
         cmd_index(args, config)
         vector_store = create_vector_store(config)
 
-    dataset = args.dataset or Path(config.evaluation.get("dataset", "datasets/sample_eval.jsonl"))
-    limit = _limit(args.limit, config.evaluation, "limit", 10)
+    dataset = args.dataset or config.evaluation.dataset
+    limit = args.limit or config.evaluation.limit
     provider = make_embedding_provider(config, vector_store.metadata())
     plugin_manager = make_plugin_manager(config)
     cases = DatasetLoader().load(dataset)
     for case in cases:
         case.query = plugin_manager.prepare_query(case.query)
 
-    metrics, results = EvaluationService().evaluate(cases, provider, vector_store, limit)
+    strategy = make_retrieval_strategy(config, provider, vector_store)
+    metrics, results = EvaluationService(strategy).evaluate(cases, limit)
     if args.json:
         print(json.dumps({"metrics": metrics, "results": [eval_result_to_json(result) for result in results]}, indent=2))
         return 0
@@ -160,16 +169,15 @@ def run_search(config: AppConfig, query: str, limit: int) -> list[SearchResult]:
     vector_store = create_vector_store(config)
     provider = make_embedding_provider(config, vector_store.metadata())
     prepared_query = make_plugin_manager(config).prepare_query(query)
-    return RetrievalService().search(provider, prepared_query, vector_store, limit)
+    return make_retrieval_strategy(config, provider, vector_store).search(prepared_query, limit)
 
 
 def make_indexing_service(config: AppConfig) -> IndexingService:
-    scanner_config = config.scanner
     scanner = CodebaseScanner(
-        include=list(scanner_config.get("include") or []),
-        exclude=list(scanner_config.get("exclude") or []),
-        max_file_bytes=int(scanner_config.get("max_file_bytes", 1_000_000)),
-        chunk_lines=int(scanner_config.get("chunk_lines", 120)),
+        include=config.scanner.include,
+        exclude=config.scanner.exclude,
+        max_file_bytes=config.scanner.max_file_bytes,
+        chunk_lines=config.scanner.chunk_lines,
     )
     return IndexingService(scanner, make_plugin_manager(config), create_vector_store(config))
 
@@ -180,49 +188,41 @@ def make_plugin_manager(config: AppConfig) -> PluginManager:
 
 def make_embedding_provider(config: AppConfig, payload: dict[str, Any] | None = None):
     embedding = config.embedding
-    provider_name = str(embedding.get("provider") or (payload or {}).get("provider") or "gemini")
-    model = embedding.get("model") or (payload or {}).get("model")
-    dimensions = embedding.get("dimensions") or (payload or {}).get("dimensions")
+    provider_name = embedding.provider or str((payload or {}).get(SchemaKey.PROVIDER.value, Defaults.EMBEDDING_PROVIDER))
+    model = embedding.model or (payload or {}).get(SchemaKey.MODEL.value)
+    dimensions = embedding.dimensions or (payload or {}).get(SchemaKey.DIMENSIONS.value)
     return create_embedding_provider(
         provider_name,
         model=model,
         dimensions=int(dimensions) if dimensions else None,
-        api_key=embedding.get("api_key"),
-        batch_size=int(embedding.get("batch_size", 32)),
+        api_key=embedding.api_key,
+        batch_size=embedding.batch_size,
     )
 
 
-def search_ui_config(config: AppConfig) -> dict[str, Any]:
-    ui_config = dict(config.ui)
-    ui_config["preview_lines"] = config.search.get("preview_lines", ui_config.get("preview_lines", 8))
-    return ui_config
+def make_retrieval_strategy(config: AppConfig, provider: Any, vector_store: Any):
+    return RetrievalStrategyFactory().create(config.search.strategy, config, provider, vector_store)
 
 
 def store_label(config: AppConfig) -> str:
-    storage = config.storage or {}
-    provider = str(storage.get("provider", "json"))
-    if provider == "qdrant":
-        qdrant = dict(storage.get("qdrant") or {})
-        return f"qdrant:{qdrant.get('collection', 'code_diver')}"
+    provider = config.storage.provider
+    if provider == VectorStoreProviderId.QDRANT.value:
+        return f"{provider}:{config.storage.qdrant.collection}"
     return str(config.artifact)
 
 
 def result_to_json(result: SearchResult) -> dict[str, Any]:
-    return {"score": result.score, "item": result.item.to_json()}
+    return {SchemaKey.SCORE.value: result.score, SchemaKey.ITEM.value: result.item.to_json()}
 
 
 def eval_result_to_json(result: Any) -> dict[str, Any]:
     return {
         "case_id": result.case_id,
-        "query": result.query,
-        "expected": result.expected,
-        "retrieved": result.retrieved,
-        "hit": result.hit,
-        "reciprocal_rank": result.reciprocal_rank,
-        "precision": result.precision,
-        "recall": result.recall,
+        SchemaKey.QUERY.value: result.query,
+        SchemaKey.EXPECTED.value: result.expected,
+        SchemaKey.RETRIEVED.value: result.retrieved,
+        SchemaKey.HIT.value: result.hit,
+        SchemaKey.RECIPROCAL_RANK.value: result.reciprocal_rank,
+        SchemaKey.PRECISION.value: result.precision,
+        SchemaKey.RECALL.value: result.recall,
     }
-
-
-def _limit(value: int | None, config: dict[str, Any], key: str, default: int) -> int:
-    return int(value if value is not None else config.get(key, default))

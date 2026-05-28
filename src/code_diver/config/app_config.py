@@ -2,18 +2,30 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+
+from ..settings import Defaults
+from .embedding_config import EmbeddingConfig
+from .evaluation_config import EvaluationConfig
+from .graph_config import GraphConfig
+from .pi_config import PiConfig
+from .recursive_search_config import RecursiveSearchConfig
+from .scanner_config import ScannerConfig
+from .search_config import SearchConfig
+from .storage_config import StorageConfig
+from .ui_config import UiConfig
 
 
 @dataclass(slots=True)
 class AppConfig:
-    root: Path = Path(".")
-    artifact: Path = Path(".code-diver/index.json")
-    storage: dict[str, Any] = field(default_factory=dict)
-    embedding: dict[str, Any] = field(default_factory=dict)
-    pi: dict[str, Any] = field(default_factory=dict)
-    scanner: dict[str, Any] = field(default_factory=dict)
-    search: dict[str, Any] = field(default_factory=dict)
-    ui: dict[str, Any] = field(default_factory=dict)
-    evaluation: dict[str, Any] = field(default_factory=dict)
+    root: Path = Defaults.ROOT
+    artifact: Path = Defaults.ARTIFACT
+    storage: StorageConfig = field(default_factory=StorageConfig)
+    embedding: EmbeddingConfig = field(default_factory=EmbeddingConfig)
+    pi: PiConfig = field(default_factory=PiConfig)
+    scanner: ScannerConfig = field(default_factory=ScannerConfig)
+    search: SearchConfig = field(default_factory=SearchConfig)
+    recursive_search: RecursiveSearchConfig = field(default_factory=RecursiveSearchConfig)
+    graph: GraphConfig = field(default_factory=GraphConfig)
+    ui: UiConfig = field(default_factory=UiConfig)
+    evaluation: EvaluationConfig = field(default_factory=EvaluationConfig)
     plugins: list[str] = field(default_factory=list)

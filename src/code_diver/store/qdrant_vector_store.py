@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from ..domain import CodeItem, SearchResult
+from ..settings import Defaults, SchemaKey
 from .vector_store import VectorStore
 
 
@@ -13,12 +14,12 @@ class QdrantVectorStore(VectorStore):
     def __init__(
         self,
         *,
-        url: str = "http://localhost:6333",
+        url: str = Defaults.QDRANT_URL,
         location: str | None = None,
-        collection: str = "code_diver",
+        collection: str = Defaults.QDRANT_COLLECTION,
         api_key: str | None = None,
-        api_key_env: str | None = "QDRANT_API_KEY",
-        batch_size: int = 64,
+        api_key_env: str | None = Defaults.QDRANT_API_KEY_ENV,
+        batch_size: int = Defaults.QDRANT_BATCH_SIZE,
     ):
         try:
             from qdrant_client import QdrantClient
@@ -63,11 +64,11 @@ class QdrantVectorStore(VectorStore):
                 id=self._point_id(item.id),
                 vector=vector,
                 payload={
-                    "item": item.to_json(),
-                    "root": str(root.resolve()),
-                    "provider": provider,
-                    "model": model,
-                    "dimensions": dimensions,
+                    SchemaKey.ITEM.value: item.to_json(),
+                    SchemaKey.ROOT.value: str(root.resolve()),
+                    SchemaKey.PROVIDER.value: provider,
+                    SchemaKey.MODEL.value: model,
+                    SchemaKey.DIMENSIONS.value: dimensions,
                 },
             )
             for item, vector in zip(items, vectors)
@@ -81,9 +82,9 @@ class QdrantVectorStore(VectorStore):
             return {}
         payload = points[0].payload or {}
         return {
-            "provider": payload.get("provider"),
-            "model": payload.get("model"),
-            "dimensions": payload.get("dimensions"),
+            SchemaKey.PROVIDER.value: payload.get(SchemaKey.PROVIDER.value),
+            SchemaKey.MODEL.value: payload.get(SchemaKey.MODEL.value),
+            SchemaKey.DIMENSIONS.value: payload.get(SchemaKey.DIMENSIONS.value),
         }
 
     def search(self, query_vector: list[float], limit: int) -> list[SearchResult]:
@@ -94,7 +95,7 @@ class QdrantVectorStore(VectorStore):
             with_payload=True,
         )
         return [
-            SearchResult(item=CodeItem.from_json((point.payload or {})["item"]), score=float(point.score))
+            SearchResult(item=CodeItem.from_json((point.payload or {})[SchemaKey.ITEM.value]), score=float(point.score))
             for point in response.points
         ]
 

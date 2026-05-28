@@ -6,6 +6,7 @@ from types import ModuleType
 from typing import Any, Iterable
 
 from ..domain import CodeItem
+from ..settings import PluginHook, SchemaKey
 from .plugin_error import PluginError
 
 
@@ -16,20 +17,20 @@ class PluginManager:
     def collect_items(self, root: Path, config: dict[str, Any] | None = None) -> list[CodeItem]:
         items: list[CodeItem] = []
         for module in self.modules:
-            hook = getattr(module, "collect_items", None)
+            hook = getattr(module, PluginHook.COLLECT_ITEMS.value, None)
             if hook is None:
                 continue
             try:
                 raw_items = hook(root, config or {})
             except Exception as exc:  # pragma: no cover - plugin code is external
-                raise PluginError(f"{module.__name__}.collect_items failed: {exc}") from exc
+                raise PluginError(f"{module.__name__}.{PluginHook.COLLECT_ITEMS.value} failed: {exc}") from exc
             items.extend(self._coerce_items(raw_items))
         return items
 
     def transform_items(self, items: list[CodeItem]) -> list[CodeItem]:
         transformed = items
         for module in self.modules:
-            hook = getattr(module, "transform_item", None)
+            hook = getattr(module, PluginHook.TRANSFORM_ITEM.value, None)
             if hook is None:
                 continue
             next_items: list[CodeItem] = []
@@ -37,7 +38,9 @@ class PluginManager:
                 try:
                     raw = hook(item.to_json())
                 except Exception as exc:  # pragma: no cover - plugin code is external
-                    raise PluginError(f"{module.__name__}.transform_item failed for {item.id}: {exc}") from exc
+                    raise PluginError(
+                        f"{module.__name__}.{PluginHook.TRANSFORM_ITEM.value} failed for {item.id}: {exc}"
+                    ) from exc
                 if raw is None:
                     continue
                 next_items.append(self._coerce_item(raw))
@@ -47,13 +50,13 @@ class PluginManager:
     def prepare_query(self, query: str) -> str:
         prepared = query
         for module in self.modules:
-            hook = getattr(module, "prepare_query", None)
+            hook = getattr(module, PluginHook.PREPARE_QUERY.value, None)
             if hook is None:
                 continue
             try:
                 prepared = str(hook(prepared))
             except Exception as exc:  # pragma: no cover - plugin code is external
-                raise PluginError(f"{module.__name__}.prepare_query failed: {exc}") from exc
+                raise PluginError(f"{module.__name__}.{PluginHook.PREPARE_QUERY.value} failed: {exc}") from exc
         return prepared
 
     def _load_module(self, path: Path) -> ModuleType:
@@ -78,12 +81,12 @@ class PluginManager:
             raise PluginError(f"Plugin item must be a dict or CodeItem, got {type(raw).__name__}")
         return CodeItem.from_json(
             {
-                "id": raw.get("id"),
-                "path": raw.get("path"),
-                "title": raw.get("title") or raw.get("path"),
-                "content": raw.get("content"),
-                "start_line": raw.get("start_line"),
-                "end_line": raw.get("end_line"),
-                "metadata": raw.get("metadata") or {},
+                SchemaKey.ID.value: raw.get(SchemaKey.ID.value),
+                SchemaKey.PATH.value: raw.get(SchemaKey.PATH.value),
+                SchemaKey.TITLE.value: raw.get(SchemaKey.TITLE.value) or raw.get(SchemaKey.PATH.value),
+                SchemaKey.CONTENT.value: raw.get(SchemaKey.CONTENT.value),
+                SchemaKey.START_LINE.value: raw.get(SchemaKey.START_LINE.value),
+                SchemaKey.END_LINE.value: raw.get(SchemaKey.END_LINE.value),
+                SchemaKey.METADATA.value: raw.get(SchemaKey.METADATA.value) or {},
             }
         )

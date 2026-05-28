@@ -1,0 +1,38 @@
+from __future__ import annotations
+
+from enum import StrEnum
+
+
+class SchemaKey(StrEnum):
+    CASES = "cases"
+    CONTENT = "content"
+    CREATED_AT = "created_at"
+    DIMENSIONS = "dimensions"
+    EDGES = "edges"
+    END_LINE = "end_line"
+    EXPECTED = "expected"
+    GRAPH = "graph"
+    HIT = "hit"
+    ID = "id"
+    ITEM = "item"
+    ITEMS = "items"
+    KIND = "kind"
+    METADATA = "metadata"
+    MODEL = "model"
+    PATH = "path"
+    PRECISION = "precision"
+    PROVIDER = "provider"
+    QUERY = "query"
+    RECALL = "recall"
+    RECIPROCAL_RANK = "reciprocal_rank"
+    RELEVANT = "relevant"
+    RETRIEVED = "retrieved"
+    ROOT = "root"
+    SCHEMA_VERSION = "schema_version"
+    SCORE = "score"
+    SOURCE = "source"
+    START_LINE = "start_line"
+    TARGET = "target"
+    TITLE = "title"
+    VECTOR = "vector"
+    WEIGHT = "weight"

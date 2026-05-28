@@ -3,14 +3,15 @@ from __future__ import annotations
 import os
 from typing import Iterable
 
+from ..settings import Defaults, EmbeddingProviderId, EnvironmentVariable
 from .embedding_provider import EmbeddingProvider
 
 
 class GeminiEmbeddingProvider(EmbeddingProvider):
     def __init__(
         self,
-        model: str = "gemini-embedding-2",
-        dimensions: int = 768,
+        model: str = Defaults.EMBEDDING_MODEL,
+        dimensions: int = Defaults.EMBEDDING_DIMENSIONS,
         api_key: str | None = None,
         batch_size: int = 32,
     ):
@@ -19,11 +20,11 @@ class GeminiEmbeddingProvider(EmbeddingProvider):
         except ImportError as exc:  # pragma: no cover - depends on environment
             raise RuntimeError("Install dependencies with `uv sync` before using Gemini embeddings.") from exc
 
-        self.name = "gemini"
+        self.name = EmbeddingProviderId.GEMINI.value
         self.model = model
         self.dimensions = dimensions
         self.batch_size = batch_size
-        resolved_key = api_key or os.environ.get("GEMINI_API_KEY")
+        resolved_key = api_key or os.environ.get(EnvironmentVariable.GEMINI_API_KEY.value)
         self.client = genai.Client(api_key=resolved_key) if resolved_key else genai.Client()
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:

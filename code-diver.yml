@@ -43,6 +43,18 @@ scanner:
 search:
   limit: 10
   preview_lines: 8
+  strategy: vector
+
+recursive_search:
+  rounds: 2
+  branch_limit: 3
+  limit: 5
+
+graph:
+  enabled: true
+  artifact: .code-diver/graph.json
+  expansion_depth: 1
+  neighbor_limit: 20
 
 ui:
   color: true

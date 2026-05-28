@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from ..domain import EvalCase
+from ..settings import SchemaKey
 
 
 class DatasetLoader:
@@ -15,17 +16,17 @@ class DatasetLoader:
             rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
         else:
             payload = json.loads(path.read_text(encoding="utf-8"))
-            rows = payload["cases"] if isinstance(payload, dict) else payload
+            rows = payload[SchemaKey.CASES.value] if isinstance(payload, dict) else payload
         return [self._case_from_row(row, index) for index, row in enumerate(rows)]
 
     def _case_from_row(self, row: dict[str, Any], index: int) -> EvalCase:
-        expected = row.get("expected") or row.get("relevant") or row.get("answers")
+        expected = row.get(SchemaKey.EXPECTED.value) or row.get(SchemaKey.RELEVANT.value)
         if isinstance(expected, str):
             expected = [expected]
         if not expected:
             raise ValueError(f"Dataset row {index} must include expected/relevant ids or paths.")
         return EvalCase(
-            id=str(row.get("id") or f"case-{index + 1}"),
-            query=str(row["query"]),
+            id=str(row.get(SchemaKey.ID.value) or f"case-{index + 1}"),
+            query=str(row[SchemaKey.QUERY.value]),
             expected=[str(value) for value in expected],
         )

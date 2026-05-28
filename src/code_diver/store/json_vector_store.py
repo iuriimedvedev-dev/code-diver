@@ -7,6 +7,7 @@ from typing import Any
 
 from ..domain import CodeItem, SearchResult
 from ..math_utils import dot, normalize
+from ..settings import SchemaKey
 from .index_store_error import IndexStoreError
 from .vector_store import VectorStore
 
@@ -35,16 +36,16 @@ class JsonVectorStore(VectorStore):
 
         self.artifact.parent.mkdir(parents=True, exist_ok=True)
         payload = {
-            "schema_version": SCHEMA_VERSION,
-            "created_at": datetime.now(timezone.utc).isoformat(),
-            "root": str(root.resolve()),
-            "provider": provider,
-            "model": model,
-            "dimensions": dimensions,
-            "items": [
+            SchemaKey.SCHEMA_VERSION.value: SCHEMA_VERSION,
+            SchemaKey.CREATED_AT.value: datetime.now(timezone.utc).isoformat(),
+            SchemaKey.ROOT.value: str(root.resolve()),
+            SchemaKey.PROVIDER.value: provider,
+            SchemaKey.MODEL.value: model,
+            SchemaKey.DIMENSIONS.value: dimensions,
+            SchemaKey.ITEMS.value: [
                 {
-                    "item": item.to_json(),
-                    "vector": vector,
+                    SchemaKey.ITEM.value: item.to_json(),
+                    SchemaKey.VECTOR.value: vector,
                 }
                 for item, vector in zip(items, vectors)
             ],
@@ -54,9 +55,9 @@ class JsonVectorStore(VectorStore):
     def metadata(self) -> dict[str, Any]:
         payload = self._load()
         return {
-            "provider": payload["provider"],
-            "model": payload["model"],
-            "dimensions": payload["dimensions"],
+            SchemaKey.PROVIDER.value: payload[SchemaKey.PROVIDER.value],
+            SchemaKey.MODEL.value: payload[SchemaKey.MODEL.value],
+            SchemaKey.DIMENSIONS.value: payload[SchemaKey.DIMENSIONS.value],
         }
 
     def search(self, query_vector: list[float], limit: int) -> list[SearchResult]:
@@ -71,17 +72,17 @@ class JsonVectorStore(VectorStore):
 
     def load_items_and_vectors(self) -> tuple[dict[str, Any], list[CodeItem], list[list[float]]]:
         payload = self._load()
-        records = payload.get("items") or []
-        items = [CodeItem.from_json(record["item"]) for record in records]
-        vectors = [[float(value) for value in record["vector"]] for record in records]
+        records = payload.get(SchemaKey.ITEMS.value) or []
+        items = [CodeItem.from_json(record[SchemaKey.ITEM.value]) for record in records]
+        vectors = [[float(value) for value in record[SchemaKey.VECTOR.value]] for record in records]
         return payload, items, vectors
 
     def _load(self) -> dict[str, Any]:
         if not self.artifact.exists():
             raise IndexStoreError(f"Index artifact not found: {self.artifact}")
         payload = json.loads(self.artifact.read_text(encoding="utf-8"))
-        if payload.get("schema_version") != SCHEMA_VERSION:
+        if payload.get(SchemaKey.SCHEMA_VERSION.value) != SCHEMA_VERSION:
             raise IndexStoreError(
-                f"Unsupported index schema {payload.get('schema_version')}; expected {SCHEMA_VERSION}"
+                f"Unsupported index schema {payload.get(SchemaKey.SCHEMA_VERSION.value)}; expected {SCHEMA_VERSION}"
             )
         return payload

@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from ..settings import SchemaKey
+
 
 @dataclass(slots=True)
 class CodeItem:
@@ -22,28 +24,28 @@ class CodeItem:
 
     def to_json(self) -> dict[str, Any]:
         return {
-            "id": self.id,
-            "path": self.path,
-            "title": self.title,
-            "content": self.content,
-            "start_line": self.start_line,
-            "end_line": self.end_line,
-            "metadata": self.metadata,
+            SchemaKey.ID.value: self.id,
+            SchemaKey.PATH.value: self.path,
+            SchemaKey.TITLE.value: self.title,
+            SchemaKey.CONTENT.value: self.content,
+            SchemaKey.START_LINE.value: self.start_line,
+            SchemaKey.END_LINE.value: self.end_line,
+            SchemaKey.METADATA.value: self.metadata,
         }
 
     @classmethod
     def from_json(cls, data: dict[str, Any]) -> "CodeItem":
-        item_id = data.get("id")
-        path = data.get("path")
-        content = data.get("content")
+        item_id = data.get(SchemaKey.ID.value)
+        path = data.get(SchemaKey.PATH.value)
+        content = data.get(SchemaKey.CONTENT.value)
         if not item_id or not path or content is None:
             raise ValueError("CodeItem requires id, path, and content.")
         return cls(
             id=str(item_id),
             path=str(path),
-            title=str(data.get("title") or path),
+            title=str(data.get(SchemaKey.TITLE.value) or path),
             content=str(content),
-            start_line=data.get("start_line"),
-            end_line=data.get("end_line"),
-            metadata=dict(data.get("metadata") or {}),
+            start_line=data.get(SchemaKey.START_LINE.value),
+            end_line=data.get(SchemaKey.END_LINE.value),
+            metadata=dict(data.get(SchemaKey.METADATA.value) or {}),
         )

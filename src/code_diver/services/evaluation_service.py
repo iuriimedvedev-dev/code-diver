@@ -3,25 +3,21 @@ from __future__ import annotations
 from typing import Any
 
 from ..domain import EvalCase, EvalResult
-from ..providers import EmbeddingProvider
-from ..store import VectorStore
-from .retrieval_service import RetrievalService
+from ..strategies import RetrievalStrategy
 
 
 class EvaluationService:
-    def __init__(self, retrieval_service: RetrievalService | None = None):
-        self.retrieval_service = retrieval_service or RetrievalService()
+    def __init__(self, retrieval_strategy: RetrievalStrategy):
+        self.retrieval_strategy = retrieval_strategy
 
     def evaluate(
         self,
         cases: list[EvalCase],
-        provider: EmbeddingProvider,
-        vector_store: VectorStore,
         limit: int,
     ) -> tuple[dict[str, Any], list[EvalResult]]:
         results: list[EvalResult] = []
         for case in cases:
-            search_results = self.retrieval_service.search(provider, case.query, vector_store, limit)
+            search_results = self.retrieval_strategy.search(case.query, limit)
             retrieved = [result.item.id for result in search_results]
             matched_ranks = [
                 rank
