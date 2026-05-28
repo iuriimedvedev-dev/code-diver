@@ -1,0 +1,10 @@
+{"id":"protogen-fastapi-entrypoint","query":"FastAPI application startup entrypoint app object server main","expected":["src/main.py"]}
+{"id":"protogen-openrouter-settings","query":"OpenRouter API configuration settings model api key base url retries","expected":["src/config/settings.py"]}
+{"id":"protogen-session-service","query":"session service lifecycle create cancel cleanup active session","expected":["src/sessions/service.py"]}
+{"id":"protogen-pipeline-service-metrics","query":"pipeline service emits live metrics websocket session updates","expected":["src/services/pipeline_service.py"]}
+{"id":"protogen-arena-service","query":"arena experiment service create run leaderboard strategy quality evaluation","expected":["src/arena/service.py","src/arena/runner.py","src/arena/evaluator.py"]}
+{"id":"protogen-cli-entrypoint","query":"CLI command group generate session metrics monitor arena commands","expected":["src/cli/cli.py","src/cli/commands_click"]}
+{"id":"protogen-metrics-collector","query":"metrics collector tracks llm tokens cost calls cache usage","expected":["src/metrics/collector.py"]}
+{"id":"protogen-eval-yaml","query":"evaluation yaml datasets generated app task definitions","expected":["evals"]}
+{"id":"protogen-frontend-package","query":"frontend package dependencies angular scripts package json","expected":["frontend/package.json"]}
+{"id":"protogen-docker-compose","query":"docker compose development services postgres redis backend frontend","expected":["docker-compose.dev.yml","docker-compose.monitoring.yml"]}

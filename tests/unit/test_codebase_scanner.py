@@ -25,7 +25,10 @@ def test_scanner_skips_binary_and_excluded_paths(tmp_path: Path) -> None:
     (tmp_path / "keep.py").write_text("print('ok')\n", encoding="utf-8")
     (tmp_path / "skip.py").write_text("print('skip')\n", encoding="utf-8")
     (tmp_path / "binary.py").write_bytes(b"abc\x00def")
+    nested = tmp_path / "generated" / "nested.py"
+    nested.parent.mkdir()
+    nested.write_text("print('generated')\n", encoding="utf-8")
 
-    items = CodebaseScanner(include=["*.py"], exclude=["skip.py"]).scan(tmp_path)
+    items = CodebaseScanner(include=["*.py"], exclude=["skip.py", "generated/**"]).scan(tmp_path)
 
     assert [item.path for item in items] == ["keep.py"]

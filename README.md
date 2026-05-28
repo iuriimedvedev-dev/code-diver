@@ -60,7 +60,22 @@ uv run pytest
 uv run pytest -m unit
 uv run pytest -m e2e
 uv run pytest -m smoke
+uv run pytest -m protogen
 ```
+
+The `protogen` marker targets the optional sibling repository at `../protogen`. It is skipped when that repo is not present.
+
+## Protogen Evaluation
+
+`configs/protogen.yml` indexes the sibling `../protogen` repo into local Code Diver artifacts while keeping the source repo read-only:
+
+```bash
+uv run code-diver --config configs/protogen.yml index
+uv run code-diver --config configs/protogen.yml search "where is the arena runner implemented?"
+uv run code-diver --config configs/protogen.yml evaluate --json
+```
+
+The config uses deterministic hash embeddings for repeatable local testing. Switch `embedding.provider` to `gemini` and `storage.provider` to `qdrant` when running live Gemini/Qdrant experiments.
 
 `chat` starts interactive Pi. `ask` runs Pi in print mode. Both load `.pi/extensions/code-diver-rag.ts`, which registers:
 

@@ -33,4 +33,5 @@ markers = [
   "unit: isolated tests for classes and small services",
   "e2e: end-to-end CLI flows without external network services",
   "smoke: fast sanity checks for command wiring and default behavior",
+  "protogen: tests that exercise the optional sibling ../protogen repository",
 ]

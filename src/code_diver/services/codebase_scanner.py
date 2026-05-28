@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import fnmatch
 import hashlib
+import os
 from pathlib import Path
 
 from ..domain import CodeItem
@@ -75,21 +76,44 @@ class CodebaseScanner:
     def scan(self, root: Path) -> list[CodeItem]:
         root = root.resolve()
         items: list[CodeItem] = []
-        for path in sorted(root.rglob("*")):
-            if not path.is_file():
-                continue
-            rel_path = path.relative_to(root).as_posix()
-            if self._matches_any(rel_path, self.exclude):
-                continue
-            if self.include and not self._matches_any(rel_path, self.include):
-                continue
-            if not self.include and path.suffix.lower() not in DEFAULT_INCLUDE_SUFFIXES:
-                continue
-            text = self._read_text(path)
-            if text is None or not text.strip():
-                continue
-            items.extend(self._chunk_file(rel_path, text))
+        for current_root, dir_names, file_names in os.walk(root):
+            current_path = Path(current_root)
+            dir_names[:] = [
+                name
+                for name in sorted(dir_names)
+                if not self._matches_excluded_directory((current_path / name).relative_to(root).as_posix())
+            ]
+            for file_name in sorted(file_names):
+                path = current_path / file_name
+                rel_path = path.relative_to(root).as_posix()
+                if self._should_skip_file(path, rel_path):
+                    continue
+                text = self._read_text(path)
+                if text is None or not text.strip():
+                    continue
+                items.extend(self._chunk_file(rel_path, text))
         return items
+
+    def _should_skip_file(self, path: Path, rel_path: str) -> bool:
+        if self._matches_any(rel_path, self.exclude):
+            return True
+        if self.include and not self._matches_any(rel_path, self.include):
+            return True
+        if not self.include and path.suffix.lower() not in DEFAULT_INCLUDE_SUFFIXES:
+            return True
+        return False
+
+    def _matches_excluded_directory(self, rel_path: str) -> bool:
+        return any(self._matches_directory_pattern(rel_path, pattern) for pattern in self.exclude)
+
+    def _matches_directory_pattern(self, rel_path: str, pattern: str) -> bool:
+        normalized = pattern.rstrip("/")
+        if normalized.endswith("/**"):
+            base = normalized[:-3]
+            if "/" not in base and base in rel_path.split("/"):
+                return True
+            return rel_path == base or rel_path.startswith(base + "/")
+        return self._matches_any(rel_path, [pattern])
 
     def _read_text(self, path: Path) -> str | None:
         try:
