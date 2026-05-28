@@ -13,4 +13,8 @@ def test_cli_help_smoke(capsys) -> None:
         main(["--help"])
 
     assert exc.value.code == 0
-    assert "index" in capsys.readouterr().out
+    output = capsys.readouterr().out
+    assert "index" in output
+    assert "tree" in output
+    assert "grep" in output
+    assert "rg" in output

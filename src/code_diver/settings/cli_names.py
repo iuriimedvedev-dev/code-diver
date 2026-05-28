@@ -7,9 +7,12 @@ class CommandName(StrEnum):
     ASK = "ask"
     CHAT = "chat"
     EVALUATE = "evaluate"
+    GREP = "grep"
     INDEX = "index"
     OPEN = "open"
+    RG = "rg"
     SEARCH = "search"
+    TREE = "tree"
 
 
 class OptionName(StrEnum):
@@ -20,6 +23,7 @@ class OptionName(StrEnum):
     JSON = "--json"
     LIMIT = "--limit"
     MODEL = "--model"
+    PATH = "--path"
     PRINT = "-p"
     PROMPT_TEMPLATE = "--prompt-template"
     PROVIDER = "--provider"

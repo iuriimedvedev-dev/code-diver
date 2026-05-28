@@ -9,6 +9,7 @@ from typing import Any
 from .config import AppConfig, ConfigLoader
 from .domain import SearchResult
 from .graph import CodeGraphBuilder, CodeGraphStore
+from .inspection import GrepService, RgService, TreeService
 from .pi import PiRunner
 from .plugins import PluginManager
 from .providers import create_embedding_provider
@@ -53,6 +54,24 @@ def build_parser() -> argparse.ArgumentParser:
     search.add_argument(OptionName.LIMIT.value, type=int, default=None)
     search.add_argument(OptionName.JSON.value, action="store_true")
     search.set_defaults(func=cmd_search)
+
+    tree = subparsers.add_parser(CommandName.TREE.value, help="Print a gitignore-aware repository tree.")
+    tree.add_argument(OptionName.PATH.value, default=None)
+    tree.add_argument(OptionName.LIMIT.value, type=int, default=200)
+    tree.add_argument("--depth", type=int, default=3)
+    tree.set_defaults(func=cmd_tree)
+
+    grep = subparsers.add_parser(CommandName.GREP.value, help="Literal gitignore-aware text search.")
+    grep.add_argument("pattern")
+    grep.add_argument(OptionName.PATH.value, default=None)
+    grep.add_argument(OptionName.LIMIT.value, type=int, default=100)
+    grep.set_defaults(func=cmd_grep)
+
+    rg = subparsers.add_parser(CommandName.RG.value, help="Regex gitignore-aware text search via rg.")
+    rg.add_argument("pattern")
+    rg.add_argument(OptionName.PATH.value, default=None)
+    rg.add_argument(OptionName.LIMIT.value, type=int, default=100)
+    rg.set_defaults(func=cmd_rg)
 
     open_result = subparsers.add_parser(
         CommandName.OPEN.value, help="Open the best search result in the configured editor."
@@ -102,6 +121,21 @@ def cmd_search(args: argparse.Namespace, config: AppConfig) -> int:
         print(json.dumps([result_to_json(result) for result in results], indent=2))
     else:
         SearchRenderer(config.root, config.ui, config.search.preview_lines).render(args.query, results)
+    return 0
+
+
+def cmd_tree(args: argparse.Namespace, config: AppConfig) -> int:
+    print(TreeService(config.root).render(path=args.path, max_depth=args.depth, limit=args.limit))
+    return 0
+
+
+def cmd_grep(args: argparse.Namespace, config: AppConfig) -> int:
+    print(GrepService(config.root).render(args.pattern, path=args.path, limit=args.limit))
+    return 0
+
+
+def cmd_rg(args: argparse.Namespace, config: AppConfig) -> int:
+    print(RgService(config.root).search(args.pattern, path=args.path, limit=args.limit))
     return 0
 
 

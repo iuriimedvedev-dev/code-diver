@@ -81,6 +81,75 @@ export default function (pi: ExtensionAPI) {
       return textResult(result.stdout || result.stderr);
     },
   });
+
+  pi.registerTool({
+    name: "code_diver_tree",
+    label: "Code Diver Tree",
+    description: "Read-only, gitignore-aware repository tree. Does not edit files.",
+    parameters: Type.Object({
+      path: Type.Optional(Type.String({ description: "Relative path inside the repository." })),
+      depth: Type.Optional(Type.Integer({ minimum: 1, maximum: 10, description: "Maximum tree depth." })),
+      limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 1000, description: "Maximum number of entries." })),
+    }),
+    execute: async (_toolCallId, params: { path?: string; depth?: number; limit?: number }, signal, _onUpdate, ctx: ToolContext) => {
+      const args = ["tree"];
+      if (params.path) {
+        args.push("--path", params.path);
+      }
+      if (params.depth) {
+        args.push("--depth", String(params.depth));
+      }
+      if (params.limit) {
+        args.push("--limit", String(params.limit));
+      }
+      const result = await runCodeDiver(ctx.cwd, args, signal);
+      return textResult(result.stdout || result.stderr);
+    },
+  });
+
+  pi.registerTool({
+    name: "code_diver_grep",
+    label: "Code Diver Grep",
+    description: "Read-only, gitignore-aware literal text search. Does not edit files.",
+    parameters: Type.Object({
+      pattern: Type.String({ description: "Literal text to search for." }),
+      path: Type.Optional(Type.String({ description: "Relative path inside the repository." })),
+      limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 1000, description: "Maximum number of matches." })),
+    }),
+    execute: async (_toolCallId, params: { pattern: string; path?: string; limit?: number }, signal, _onUpdate, ctx: ToolContext) => {
+      const args = ["grep", params.pattern];
+      if (params.path) {
+        args.push("--path", params.path);
+      }
+      if (params.limit) {
+        args.push("--limit", String(params.limit));
+      }
+      const result = await runCodeDiver(ctx.cwd, args, signal);
+      return textResult(result.stdout || result.stderr);
+    },
+  });
+
+  pi.registerTool({
+    name: "code_diver_rg",
+    label: "Code Diver Rg",
+    description: "Read-only, gitignore-aware regex text search using ripgrep when available. Does not edit files.",
+    parameters: Type.Object({
+      pattern: Type.String({ description: "Regex pattern to search for." }),
+      path: Type.Optional(Type.String({ description: "Relative path inside the repository." })),
+      limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 1000, description: "Maximum number of matches." })),
+    }),
+    execute: async (_toolCallId, params: { pattern: string; path?: string; limit?: number }, signal, _onUpdate, ctx: ToolContext) => {
+      const args = ["rg", params.pattern];
+      if (params.path) {
+        args.push("--path", params.path);
+      }
+      if (params.limit) {
+        args.push("--limit", String(params.limit));
+      }
+      const result = await runCodeDiver(ctx.cwd, args, signal);
+      return textResult(result.stdout || result.stderr);
+    },
+  });
 }
 
 function runCodeDiver(cwd: string, args: string[], signal?: AbortSignal): Promise<CommandResult> {

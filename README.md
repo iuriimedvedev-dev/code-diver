@@ -30,6 +30,9 @@ embedding:
 ```bash
 uv run code-diver index
 uv run code-diver search "where is authentication configured?"
+uv run code-diver tree
+uv run code-diver grep "authenticate"
+uv run code-diver rg "auth.*user"
 uv run code-diver open "where is authentication configured?"
 uv run code-diver chat
 uv run code-diver ask "summarize the retrieval pipeline"
@@ -65,6 +68,9 @@ uv run pytest -m smoke
 - `code_diver_search`
 - `code_diver_open`
 - `code_diver_evaluate`
+- `code_diver_tree`
+- `code_diver_grep`
+- `code_diver_rg`
 
 Pi arguments and the active tool allowlist are configured in `code-diver.yml`:
 
@@ -76,13 +82,10 @@ pi:
   provider: google
   model: gemini-3.5-flash
   tools:
-    - read
-    - grep
-    - find
-    - ls
-    - bash
     - code_diver_search
 ```
+
+The Pi tool allowlist should stay read-only. Do not add `bash` or editing tools for this assistant; use the `code_diver_*` tools for repository inspection.
 
 `search` renders colored, syntax-highlighted snippets and uses a pager for larger result sets. Editor opening is configured in `code-diver.yml`:
 
