@@ -31,11 +31,11 @@ class Defaults:
     HASH_DIMENSIONS = 256
     HASH_MODEL = "hash-token-v1"
 
-    PI_BINARY = "pi-dev"
+    PI_BINARY = "pi"
     PI_EXTENSION = Path(".pi/extensions/code-diver-rag.ts")
     PI_PROMPT_TEMPLATE = Path(".pi/prompts/code-diver-rag.md")
     PI_PROVIDER = "google"
-    PI_MODEL = "gemini-3.5-flash"
+    PI_MODEL = "google/gemini-3.5-flash"
 
     GENERATION_PROVIDER = "gemini"
     GENERATION_MODEL = "gemini-3.5-flash"

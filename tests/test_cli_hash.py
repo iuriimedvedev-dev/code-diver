@@ -93,3 +93,73 @@ plugins: []
     assert experiment_payload["suite"] == "test-suite"
     assert [result["strategy"] for result in experiment_payload["strategies"]] == ["vector", "recursive", "graph"]
     assert all(result["metrics"]["cases"] == 1 for result in experiment_payload["strategies"])
+
+
+def test_index_selected_writes_qdrant_from_paths_only(tmp_path: Path, capsys, monkeypatch) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    source = repo / "payments.py"
+    source.write_text(
+        """
+class PaymentGateway:
+    def charge_card(self, card_token, amount):
+        return {"status": "paid", "amount": amount}
+""".strip(),
+        encoding="utf-8",
+    )
+    config = tmp_path / "code-diver.yml"
+    config.write_text(
+        f"""
+root: {repo}
+storage:
+  provider: qdrant
+  qdrant:
+    location: {tmp_path}/qdrant
+    collection: selected_items
+embedding:
+  provider: hash
+  dimensions: 64
+scanner:
+  include:
+    - "*.py"
+  chunk_lines: 20
+graph:
+  enabled: false
+trace:
+  enabled: false
+plugins: []
+""".strip(),
+        encoding="utf-8",
+    )
+    payload = {
+        "items": [
+            {
+                "path": "payments.py",
+                "startLine": 1,
+                "endLine": 3,
+                "title": "Payment gateway",
+                "reason": "core payment API",
+                "kind": "api",
+            }
+        ]
+    }
+
+    monkeypatch.setattr("sys.stdin", _StringInput(json.dumps(payload)))
+
+    assert main(["--config", str(config), "index-selected", "--json"]) == 0
+    index_payload = json.loads(capsys.readouterr().out)
+    assert index_payload["indexed"] == 1
+    assert index_payload["items"][0]["metadata"]["source"] == "ai_selected"
+    assert index_payload["items"][0]["content"].startswith("class PaymentGateway")
+
+    assert main(["--config", str(config), "search", "charge card payment gateway", "--json"]) == 0
+    search_payload = json.loads(capsys.readouterr().out)
+    assert search_payload[0]["item"]["path"] == "payments.py"
+
+
+class _StringInput:
+    def __init__(self, text: str):
+        self.text = text
+
+    def read(self) -> str:
+        return self.text

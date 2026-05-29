@@ -9,12 +9,13 @@ uv sync
 export GEMINI_API_KEY="..."
 ```
 
-Pi must also be installed and available as `pi-dev` on `PATH`.
+By default the config launches Pi through `npx -y @earendil-works/pi-coding-agent`.
 Secrets can also live in `.env`; the CLI loads it before creating providers. `.env` is ignored by git.
 
 Gemini-backed defaults:
 
-- Pi/generation model: `gemini-3.5-flash`
+- Pi model: `google/gemini-3.5-flash`
+- generation model: `gemini-3.5-flash`
 - embedding model: `gemini-embedding-2`
 - embedding dimensions: `768`
 
@@ -170,11 +171,17 @@ Pi arguments and the active tool allowlist are configured in `code-diver.yml`:
 
 ```yaml
 pi:
-  binary: pi-dev
+  binary: npx
+  launcher_args:
+    - -y
+    - "@earendil-works/pi-coding-agent"
   extension: .pi/extensions/code-diver-rag.ts
   prompt_template: .pi/prompts/code-diver-rag.md
   provider: google
-  model: gemini-3.5-flash
+  model: google/gemini-3.5-flash
+  fallback_models:
+    - google/gemini-3-flash-preview
+    - google/gemini-2.5-flash
   tools:
     - code_diver_search
 ```

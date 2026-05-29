@@ -55,11 +55,17 @@ indexing:
       - "package "
 
 pi:
-  binary: pi-dev
+  binary: npx
+  launcher_args:
+    - -y
+    - "@earendil-works/pi-coding-agent"
   extension: .pi/extensions/code-diver-rag.ts
   prompt_template: .pi/prompts/code-diver-rag.md
   provider: google
-  model: gemini-3.5-flash
+  model: google/gemini-3.5-flash
+  fallback_models:
+    - google/gemini-3-flash-preview
+    - google/gemini-2.5-flash
   tools:
     - code_diver_index
     - code_diver_search

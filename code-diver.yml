@@ -2,11 +2,9 @@ root: .
 artifact: .code-diver/index.json
 
 storage:
-  provider: json
+  provider: qdrant
   qdrant:
-    url: http://localhost:6333
-    # For embedded local experiments, use location: .code-diver/qdrant instead of url.
-    # For tests, location: ":memory:" works without a Qdrant server.
+    location: .code-diver/qdrant
     collection: code_diver
     api_key_env: QDRANT_API_KEY
 
@@ -54,13 +52,20 @@ indexing:
       - "package "
 
 pi:
-  binary: pi-dev
+  binary: npx
+  launcher_args:
+    - -y
+    - "@earendil-works/pi-coding-agent"
   extension: .pi/extensions/code-diver-rag.ts
   prompt_template: .pi/prompts/code-diver-rag.md
   provider: google
-  model: gemini-3.5-flash
+  model: google/gemini-3.5-flash
+  fallback_models:
+    - google/gemini-3-flash-preview
+    - google/gemini-2.5-flash
   tools:
     - code_diver_index
+    - code_diver_index_selected
     - code_diver_search
     - code_diver_inspect
     - code_diver_open
@@ -71,6 +76,33 @@ pi:
     - code_diver_rg
     - code_diver_read
     - code_diver_symbols
+  toolsets:
+    indexing:
+      - code_diver_tree
+      - code_diver_symbols
+      - code_diver_grep
+      - code_diver_rg
+      - code_diver_read
+      - code_diver_inspect
+      - code_diver_index_selected
+      - code_diver_evaluate
+    vector_search:
+      - code_diver_search
+      - code_diver_inspect
+      - code_diver_open
+      - code_diver_tree
+      - code_diver_symbols
+      - code_diver_grep
+      - code_diver_rg
+      - code_diver_read
+      - code_diver_evaluate
+    grep_search:
+      - code_diver_inspect
+      - code_diver_tree
+      - code_diver_symbols
+      - code_diver_grep
+      - code_diver_rg
+      - code_diver_read
   extra_args: []
 
 scanner:
@@ -122,6 +154,25 @@ experiments:
     - vector
     - recursive
     - graph
+  hypotheses:
+    - name: vector_qdrant
+      strategy: vector
+      toolset: vector_search
+      description: Qdrant vector retrieval with read-only verification tools.
+    - name: recursive_qdrant
+      strategy: recursive
+      toolset: vector_search
+      description: Multi-round vector retrieval over Qdrant.
+    - name: graph_ast_qdrant
+      strategy: graph
+      toolset: vector_search
+      description: Vector retrieval expanded with AST GraphRAG.
+    - name: ai_grep_only
+      toolset: grep_search
+      description: Pi agent searches with tree, symbols, grep, rg, read, and no vector search.
+    - name: ai_selected_index
+      toolset: indexing
+      description: Pi agent chooses file ranges and persists them through index-selected.
 
 metrics:
   enabled: false

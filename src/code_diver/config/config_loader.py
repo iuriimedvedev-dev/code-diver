@@ -10,6 +10,7 @@ from .app_config import AppConfig
 from .editor_config import EditorConfig
 from .embedding_config import EmbeddingConfig
 from .env_file_config import EnvFileConfig
+from .experiment_hypothesis_config import ExperimentHypothesisConfig
 from .evaluation_config import EvaluationConfig
 from .experiments_config import ExperimentsConfig
 from .generation_config import GenerationConfig
@@ -147,11 +148,17 @@ class ConfigLoader:
         mapping = self._mapping(data)
         return PiConfig(
             binary=str(mapping.get("binary", Defaults.PI_BINARY)),
+            launcher_args=self._string_list(mapping.get("launcher_args")),
             extension=Path(mapping.get("extension", Defaults.PI_EXTENSION)),
             prompt_template=self._optional_path(mapping.get("prompt_template", Defaults.PI_PROMPT_TEMPLATE)),
             provider=mapping.get("provider", Defaults.PI_PROVIDER),
             model=mapping.get("model", Defaults.PI_MODEL),
+            fallback_models=self._string_list(mapping.get("fallback_models")),
             tools=self._string_list(mapping.get("tools")),
+            toolsets={
+                str(name): self._string_list(tools)
+                for name, tools in self._mapping(mapping.get("toolsets")).items()
+            },
             extra_args=self._string_list(mapping.get("extra_args")),
             env={str(key): str(value) for key, value in self._mapping(mapping.get("env")).items()},
         )
@@ -228,7 +235,30 @@ class ConfigLoader:
         return ExperimentsConfig(
             suite=str(mapping.get("suite", Defaults.EXPERIMENT_SUITE)),
             strategies=self._string_list(mapping.get("strategies")) or list(Defaults.EXPERIMENT_STRATEGIES),
+            hypotheses=self._experiment_hypotheses(mapping.get("hypotheses")),
         )
+
+    def _experiment_hypotheses(self, data: Any) -> list[ExperimentHypothesisConfig]:
+        if data is None:
+            return []
+        if not isinstance(data, list):
+            raise ValueError("experiments.hypotheses must be a YAML list.")
+        hypotheses: list[ExperimentHypothesisConfig] = []
+        for value in data:
+            mapping = self._mapping(value)
+            name = str(mapping.get("name") or "").strip()
+            if not name:
+                raise ValueError("Each experiment hypothesis requires a name.")
+            hypotheses.append(
+                ExperimentHypothesisConfig(
+                    name=name,
+                    strategy=self._optional_string(mapping.get("strategy")),
+                    toolset=self._optional_string(mapping.get("toolset")),
+                    tools=self._string_list(mapping.get("tools")),
+                    description=self._optional_string(mapping.get("description")),
+                )
+            )
+        return hypotheses
 
     def _metrics(self, data: Any) -> MetricsConfig:
         mapping = self._mapping(data)
@@ -263,6 +293,12 @@ class ConfigLoader:
         if value is None:
             return None
         return int(value)
+
+    def _optional_string(self, value: Any) -> str | None:
+        if value is None:
+            return None
+        text = str(value).strip()
+        return text or None
 
     def _optional_path(self, value: Any) -> Path | None:
         if value is None:

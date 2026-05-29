@@ -4,6 +4,7 @@ from dataclasses import replace
 from time import perf_counter
 
 from ..config import AppConfig
+from ..config.experiment_hypothesis_config import ExperimentHypothesisConfig
 from ..domain import EvalCase
 from ..providers import EmbeddingProvider
 from ..services.evaluation_service import EvaluationService
@@ -26,10 +27,12 @@ class ExperimentRunner:
 
     def run(self, run_id: str, config: AppConfig, cases: list[EvalCase]) -> ExperimentRun:
         strategy_results: list[StrategyExperimentResult] = []
-        for strategy in config.experiments.strategies:
-            strategy_config = replace(config, search=replace(config.search, strategy=strategy))
+        for hypothesis in self._hypotheses(config):
+            if not hypothesis.strategy:
+                continue
+            strategy_config = replace(config, search=replace(config.search, strategy=hypothesis.strategy))
             retrieval_strategy = self.strategy_factory.create(
-                strategy,
+                hypothesis.strategy,
                 strategy_config,
                 self.provider,
                 self.vector_store,
@@ -38,12 +41,22 @@ class ExperimentRunner:
             metrics, results = EvaluationService(retrieval_strategy).evaluate(cases, config.evaluation.limit)
             duration_ms = (perf_counter() - started) * 1000
             metrics["duration_ms"] = duration_ms
+            if hypothesis.tools:
+                metrics["tools_count"] = len(hypothesis.tools)
             strategy_results.append(
                 StrategyExperimentResult(
-                    strategy=strategy,
+                    strategy=hypothesis.name,
                     metrics=metrics,
                     results=results,
                     duration_ms=duration_ms,
                 )
             )
         return ExperimentRun(run_id=run_id, suite=config.experiments.suite, strategy_results=strategy_results)
+
+    def _hypotheses(self, config: AppConfig) -> list[ExperimentHypothesisConfig]:
+        if config.experiments.hypotheses:
+            return config.experiments.hypotheses
+        return [
+            ExperimentHypothesisConfig(name=strategy, strategy=strategy)
+            for strategy in config.experiments.strategies
+        ]

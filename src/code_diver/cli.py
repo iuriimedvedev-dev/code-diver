@@ -27,7 +27,16 @@ from .settings import (
     SchemaKey,
     VectorStoreProviderId,
 )
-from .services import CodebaseScanner, DatasetLoader, GraphIndexingService, IndexingOptions, IndexingService
+from .services import (
+    CodebaseScanner,
+    DatasetLoader,
+    GraphIndexingService,
+    IndexingOptions,
+    IndexingService,
+    SelectedCodeItemBuilder,
+    SelectedIndexPayloadParser,
+    SelectedIndexingService,
+)
 from .services.evaluation_service import EvaluationService
 from .strategies import RetrievalStrategyFactory
 from .store import create_vector_store
@@ -57,6 +66,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     index = subparsers.add_parser(CommandName.INDEX.value, help="Index repository code into the configured artifact.")
     index.set_defaults(func=cmd_index)
+
+    index_selected = subparsers.add_parser(
+        CommandName.INDEX_SELECTED.value,
+        help="Index agent-selected file ranges from a JSON payload on stdin.",
+    )
+    index_selected.add_argument(OptionName.JSON.value, action="store_true")
+    index_selected.set_defaults(func=cmd_index_selected)
 
     search = subparsers.add_parser(CommandName.SEARCH.value, help="Search indexed code.")
     search.add_argument("query")
@@ -102,10 +118,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     chat = subparsers.add_parser(CommandName.CHAT.value, help="Start Pi with Code Diver RAG tools loaded.")
     chat.add_argument("prompt", nargs="?", default=None)
+    chat.add_argument(OptionName.TOOLSET.value, default=None)
+    chat.add_argument(OptionName.HYPOTHESIS.value, default=None)
     chat.set_defaults(func=cmd_chat)
 
     ask = subparsers.add_parser(CommandName.ASK.value, help="Ask Pi once with Code Diver RAG tools loaded.")
     ask.add_argument("query")
+    ask.add_argument(OptionName.TOOLSET.value, default=None)
+    ask.add_argument(OptionName.HYPOTHESIS.value, default=None)
     ask.set_defaults(func=cmd_ask)
 
     evaluate = subparsers.add_parser(CommandName.EVALUATE.value, help="Evaluate retrieval on the configured dataset.")
@@ -148,6 +168,46 @@ def cmd_index(_: argparse.Namespace, config: AppConfig) -> int:
         f"({provider.name}, model={provider.model}, dimensions={provider.dimensions})"
     )
     close_vector_store(indexing_service.vector_store)
+    return 0
+
+
+def cmd_index_selected(args: argparse.Namespace, config: AppConfig) -> int:
+    selections = SelectedIndexPayloadParser().parse(sys.stdin.read())
+    built = SelectedCodeItemBuilder(config.root, config.scanner.chunk_lines).build(selections)
+    if not built.items:
+        payload = {"indexed": 0, "skipped": built.skipped, "store": store_label(config), "items": []}
+        print(json.dumps(payload, indent=2) if args.json else "Indexed 0 selected items.")
+        return 0
+    provider = make_embedding_provider(config)
+    service = SelectedIndexingService(
+        create_vector_store(config),
+        IndexingOptions(
+            embedding_batch_size=config.embedding.batch_size,
+            embedding_workers=config.embedding.workers,
+            embedding_max_input_chars=config.embedding.max_input_chars,
+            progress=True,
+        ),
+        make_trace_logger(config),
+    )
+    items = service.build(config.root, provider, built.items)
+    if config.graph.enabled:
+        GraphIndexingService(
+            CodeGraphBuilder(ast_enabled=config.graph.ast_enabled),
+            CodeGraphStore(config.graph.artifact),
+        ).build(config.root, items)
+    close_vector_store(service.vector_store)
+    payload = {
+        "indexed": len(items),
+        "skipped": built.skipped,
+        "store": store_label(config),
+        "items": [item.to_json() for item in items],
+    }
+    if args.json:
+        print(json.dumps(payload, indent=2))
+    else:
+        print(f"Indexed {len(items)} selected items -> {store_label(config)}")
+        for skipped in built.skipped:
+            print(f"skipped: {skipped}", file=sys.stderr)
     return 0
 
 
@@ -205,11 +265,11 @@ def cmd_open(args: argparse.Namespace, config: AppConfig) -> int:
 
 
 def cmd_ask(args: argparse.Namespace, config: AppConfig) -> int:
-    return PiRunner().run_print(config, args.config, args.query)
+    return PiRunner().run_print(config, args.config, args.query, toolset=args.toolset, hypothesis=args.hypothesis)
 
 
 def cmd_chat(args: argparse.Namespace, config: AppConfig) -> int:
-    return PiRunner().run_interactive(config, args.config, args.prompt)
+    return PiRunner().run_interactive(config, args.config, args.prompt, toolset=args.toolset, hypothesis=args.hypothesis)
 
 
 def cmd_evaluate(args: argparse.Namespace, config: AppConfig) -> int:

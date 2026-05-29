@@ -61,23 +61,34 @@ class QdrantVectorStore(VectorStore):
             collection_name=self.collection,
             vectors_config=models.VectorParams(size=dimensions, distance=models.Distance.COSINE),
         )
+        self._upsert_points(root, provider, model, dimensions, items, vectors)
 
-        points = [
-            models.PointStruct(
-                id=self._point_id(item.id),
-                vector=vector,
-                payload={
-                    SchemaKey.ITEM.value: item.to_json(),
-                    SchemaKey.ROOT.value: str(root.resolve()),
-                    SchemaKey.PROVIDER.value: provider,
-                    SchemaKey.MODEL.value: model,
-                    SchemaKey.DIMENSIONS.value: dimensions,
-                },
+    def append(
+        self,
+        *,
+        root: Path,
+        provider: str,
+        model: str,
+        dimensions: int,
+        items: list[CodeItem],
+        vectors: list[list[float]],
+    ) -> None:
+        if len(items) != len(vectors):
+            raise ValueError(f"Item/vector mismatch: {len(items)} items, {len(vectors)} vectors")
+
+        from qdrant_client import models
+
+        if not self.client.collection_exists(self.collection):
+            self.client.create_collection(
+                collection_name=self.collection,
+                vectors_config=models.VectorParams(size=dimensions, distance=models.Distance.COSINE),
             )
-            for item, vector in zip(items, vectors)
-        ]
-        for offset in range(0, len(points), self.batch_size):
-            self.client.upsert(collection_name=self.collection, points=points[offset : offset + self.batch_size])
+        else:
+            metadata = self.metadata()
+            existing_dimensions = metadata.get(SchemaKey.DIMENSIONS.value)
+            if existing_dimensions and int(existing_dimensions) != int(dimensions):
+                raise ValueError(f"Qdrant dimension mismatch: existing={existing_dimensions}, new={dimensions}")
+        self._upsert_points(root, provider, model, dimensions, items, vectors)
 
     def metadata(self) -> dict[str, Any]:
         points, _ = self.client.scroll(collection_name=self.collection, limit=1, with_payload=True, with_vectors=False)
@@ -109,3 +120,31 @@ class QdrantVectorStore(VectorStore):
 
     def _point_id(self, item_id: str) -> str:
         return uuid.uuid5(uuid.NAMESPACE_URL, item_id).hex
+
+    def _upsert_points(
+        self,
+        root: Path,
+        provider: str,
+        model: str,
+        dimensions: int,
+        items: list[CodeItem],
+        vectors: list[list[float]],
+    ) -> None:
+        from qdrant_client import models
+
+        points = [
+            models.PointStruct(
+                id=self._point_id(item.id),
+                vector=vector,
+                payload={
+                    SchemaKey.ITEM.value: item.to_json(),
+                    SchemaKey.ROOT.value: str(root.resolve()),
+                    SchemaKey.PROVIDER.value: provider,
+                    SchemaKey.MODEL.value: model,
+                    SchemaKey.DIMENSIONS.value: dimensions,
+                },
+            )
+            for item, vector in zip(items, vectors)
+        ]
+        for offset in range(0, len(points), self.batch_size):
+            self.client.upsert(collection_name=self.collection, points=points[offset : offset + self.batch_size])

@@ -49,8 +49,12 @@ indexing:
     max_context_chars: 1000
     discovery_patterns: ["class ", "interface "]
 pi:
-  binary: pi-dev
+  binary: npx
+  launcher_args: [-y, "@earendil-works/pi-coding-agent"]
+  fallback_models: [google/gemini-3-flash-preview, google/gemini-2.5-flash]
   tools: [read, code_diver_search]
+  toolsets:
+    grep_only: [code_diver_tree, code_diver_rg, code_diver_read]
 scanner:
   include: ["*.py"]
   chunk_lines: 10
@@ -79,6 +83,13 @@ evaluation:
 experiments:
   suite: custom-suite
   strategies: [vector, graph]
+  hypotheses:
+    - name: grep_only
+      toolset: grep_only
+      description: grep without vectors
+    - name: vector_qdrant
+      strategy: vector
+      tools: [code_diver_search, code_diver_read]
 metrics:
   enabled: true
   url: http://clickhouse:8123
@@ -125,8 +136,11 @@ plugins:
     assert config.indexing.ai.max_items == 8
     assert config.indexing.ai.max_context_chars == 1000
     assert config.indexing.ai.discovery_patterns == ["class ", "interface "]
-    assert config.pi.binary == "pi-dev"
+    assert config.pi.binary == "npx"
+    assert config.pi.launcher_args == ["-y", "@earendil-works/pi-coding-agent"]
+    assert config.pi.fallback_models == ["google/gemini-3-flash-preview", "google/gemini-2.5-flash"]
     assert config.pi.tools == ["read", "code_diver_search"]
+    assert config.pi.toolsets["grep_only"] == ["code_diver_tree", "code_diver_rg", "code_diver_read"]
     assert config.scanner.include == ["*.py"]
     assert config.scanner.chunk_lines == 10
     assert config.scanner.symbol_chunks is True
@@ -146,6 +160,10 @@ plugins:
     assert config.evaluation.dataset == tmp_path / "eval.jsonl"
     assert config.experiments.suite == "custom-suite"
     assert config.experiments.strategies == ["vector", "graph"]
+    assert config.experiments.hypotheses[0].name == "grep_only"
+    assert config.experiments.hypotheses[0].toolset == "grep_only"
+    assert config.experiments.hypotheses[1].strategy == "vector"
+    assert config.experiments.hypotheses[1].tools == ["code_diver_search", "code_diver_read"]
     assert config.metrics.enabled is True
     assert config.metrics.url == "http://clickhouse:8123"
     assert config.metrics.database == "metrics_db"

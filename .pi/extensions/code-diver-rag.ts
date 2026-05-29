@@ -41,6 +41,15 @@ type SymbolsProbe = {
   limit?: number;
 };
 
+type SelectedIndexItem = {
+  path: string;
+  startLine?: number;
+  endLine?: number;
+  title?: string;
+  reason?: string;
+  kind?: string;
+};
+
 export default function (pi: ExtensionAPI) {
   pi.registerTool({
     name: "code_diver_index",
@@ -50,6 +59,30 @@ export default function (pi: ExtensionAPI) {
     execute: async (_toolCallId, _params, signal, _onUpdate, ctx: ToolContext) => {
       const result = await runCodeDiver(ctx.cwd, ["index"], signal);
       return textResult(result.stdout || result.stderr || "Index completed.");
+    },
+  });
+
+  pi.registerTool({
+    name: "code_diver_index_selected",
+    label: "Code Diver Index Selected",
+    description:
+      "Persist AI-selected repository file ranges into the configured local vector store. Accepts paths and line ranges only; the CLI reads files itself.",
+    parameters: Type.Object({
+      items: Type.Array(
+        Type.Object({
+          path: Type.String({ description: "Relative file path inside the repository." }),
+          startLine: Type.Optional(Type.Integer({ minimum: 1, description: "First line to index." })),
+          endLine: Type.Optional(Type.Integer({ minimum: 1, description: "Last line to index." })),
+          title: Type.Optional(Type.String({ description: "Short stable title for this code item." })),
+          reason: Type.Optional(Type.String({ description: "Why this range is useful for retrieval." })),
+          kind: Type.Optional(Type.String({ description: "Optional kind such as entrypoint, api, config, model, test." })),
+        }),
+        { minItems: 1, maxItems: 200 },
+      ),
+    }),
+    execute: async (_toolCallId, params: { items: SelectedIndexItem[] }, signal, _onUpdate, ctx: ToolContext) => {
+      const result = await runCodeDiver(ctx.cwd, ["index-selected", "--json"], signal, JSON.stringify(params));
+      return textResult(result.stdout || result.stderr || "Selected index completed.");
     },
   });
 
@@ -381,14 +414,14 @@ async function labelResult(label: string, resultPromise: Promise<CommandResult>)
   return `## ${label}\n${result.stdout || result.stderr}`;
 }
 
-function runCodeDiver(cwd: string, args: string[], signal?: AbortSignal): Promise<CommandResult> {
+function runCodeDiver(cwd: string, args: string[], signal?: AbortSignal, input?: string): Promise<CommandResult> {
   const config = process.env.CODE_DIVER_CONFIG || "code-diver.yml";
   const childArgs = ["run", "code-diver", "--config", config, ...args];
   return new Promise((resolve, reject) => {
     const child = spawn("uv", childArgs, {
       cwd,
       env: process.env,
-      stdio: ["ignore", "pipe", "pipe"],
+      stdio: ["pipe", "pipe", "pipe"],
       signal,
     });
     let stdout = "";
@@ -399,6 +432,10 @@ function runCodeDiver(cwd: string, args: string[], signal?: AbortSignal): Promis
     child.stderr.on("data", (chunk) => {
       stderr += chunk.toString();
     });
+    if (input) {
+      child.stdin.write(input);
+    }
+    child.stdin.end();
     child.on("error", reject);
     child.on("close", (code) => {
       if (code === 0) {
