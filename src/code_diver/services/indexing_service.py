@@ -7,6 +7,7 @@ from ..domain import CodeItem
 from ..plugins import PluginManager
 from ..providers import EmbeddingProvider
 from ..store import VectorStore
+from ..tracing import TraceLogger
 from .code_item_scanner import CodeItemScanner
 from .embedding_text_preparer import EmbeddingTextPreparer
 from .indexing_options import IndexingOptions
@@ -20,11 +21,13 @@ class IndexingService:
         plugin_manager: PluginManager,
         vector_store: VectorStore,
         options: IndexingOptions | None = None,
+        trace_logger: TraceLogger | None = None,
     ):
         self.scanner = scanner
         self.plugin_manager = plugin_manager
         self.vector_store = vector_store
         self.options = options or IndexingOptions()
+        self.trace_logger = trace_logger or TraceLogger.disabled()
 
     def build(
         self,
@@ -35,6 +38,19 @@ class IndexingService:
         scanned_items = self.scanner.scan(root)
         plugin_items = self.plugin_manager.collect_items(root, plugin_config or {})
         items = self.plugin_manager.transform_items(self._dedupe_items([*scanned_items, *plugin_items]))
+        self.trace_logger.write(
+            "index_items_prepared",
+            {
+                "root": root,
+                "scanner_items": len(scanned_items),
+                "plugin_items": len(plugin_items),
+                "indexed_items": len(items),
+                "unique_paths": len({item.path for item in items}),
+                "embedding_batch_size": self.options.embedding_batch_size,
+                "embedding_workers": self.options.embedding_workers,
+                "embedding_max_input_chars": self.options.embedding_max_input_chars,
+            },
+        )
         preparer = EmbeddingTextPreparer(self.options.embedding_max_input_chars)
         texts = [preparer.prepare(item) for item in items]
         vectors = ParallelEmbeddingService(
@@ -50,6 +66,16 @@ class IndexingService:
             dimensions=provider.dimensions,
             items=items,
             vectors=vectors,
+        )
+        self.trace_logger.write(
+            "index_vectors_saved",
+            {
+                "root": root,
+                "provider": provider.name,
+                "model": provider.model,
+                "dimensions": provider.dimensions,
+                "vectors": len(vectors),
+            },
         )
         return items
 

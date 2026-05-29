@@ -38,6 +38,7 @@ def authenticate_user(username, password):
     )
     config = tmp_path / "code-diver.yml"
     artifact = tmp_path / "index.json"
+    trace = tmp_path / "trace.jsonl"
     config.write_text(
         f"""
 root: {repo}
@@ -50,6 +51,10 @@ scanner:
     - "*.py"
 graph:
   artifact: {tmp_path}/graph.json
+trace:
+  enabled: true
+  artifact: {trace}
+  include_prompts: true
 evaluation:
   dataset: {dataset}
   limit: 3
@@ -68,6 +73,10 @@ plugins: []
 
     assert main(["--config", str(config), "index"]) == 0
     assert artifact.exists()
+    trace_records = [json.loads(line) for line in trace.read_text(encoding="utf-8").splitlines()]
+    assert [record["event"] for record in trace_records] == ["index_items_prepared", "index_vectors_saved"]
+    assert trace_records[0]["payload"]["indexed_items"] == 1
+    assert trace_records[1]["payload"]["model"] == "hash-token-v1"
     capsys.readouterr()
 
     assert main(["--config", str(config), "search", "authenticate user password", "--json"]) == 0

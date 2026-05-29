@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -7,8 +8,10 @@ import pytest
 from code_diver.config.app_config import AppConfig
 from code_diver.config.indexing_config import IndexingConfig
 from code_diver.config.ai_index_config import AiIndexConfig
+from code_diver.config.trace_config import TraceConfig
 from code_diver.orchestration import OrchestratedCodebaseScanner, OrchestratedRetrievalStrategy
 from code_diver.services import CodebaseScanner
+from code_diver.tracing import TraceLogger
 
 
 pytestmark = pytest.mark.unit
@@ -55,6 +58,33 @@ def test_orchestrated_scanner_does_not_send_source_contents_to_generation(tmp_pa
 
     assert items
     assert "SECRET_SOURCE_SENTINEL" not in provider.prompts[0]
+
+
+def test_orchestrated_scanner_traces_ai_index_plan_without_source_contents(tmp_path: Path) -> None:
+    (tmp_path / "main.py").write_text("SECRET_SOURCE_SENTINEL = 'do not send'\n", encoding="utf-8")
+    trace_path = tmp_path / "trace.jsonl"
+    provider = FakeGenerationProvider('{"include":["*.py"],"exclude":["build/**"],"chunk_lines":50}')
+
+    scanner = OrchestratedCodebaseScanner(
+        CodebaseScanner(include=["*.py"]),
+        provider,
+        AppConfig(
+            root=tmp_path,
+            indexing=IndexingConfig(mode="orchestrated", ai=AiIndexConfig(tree_limit=20)),
+            trace=TraceConfig(enabled=True, artifact=trace_path, include_prompts=True),
+        ),
+        TraceLogger(TraceConfig(enabled=True, artifact=trace_path, include_prompts=True)),
+    )
+
+    scanner.scan(tmp_path)
+
+    records = [json.loads(line) for line in trace_path.read_text(encoding="utf-8").splitlines()]
+    events = [record["event"] for record in records]
+    assert "index_plan_prompt" in events
+    assert "index_plan_response" in events
+    assert "index_plan_selected" in events
+    assert "index_scanner_config_selected" in events
+    assert "SECRET_SOURCE_SENTINEL" not in trace_path.read_text(encoding="utf-8")
 
 
 def test_orchestrated_retrieval_plans_queries_without_index_contents() -> None:

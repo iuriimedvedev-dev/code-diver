@@ -9,6 +9,7 @@ class Defaults:
     ROOT = Path(".")
     ARTIFACT = Path(".code-diver/index.json")
     GRAPH_ARTIFACT = Path(".code-diver/graph.json")
+    TRACE_ARTIFACT = Path(".code-diver/traces/indexing.jsonl")
     DATASET = Path("datasets/sample_eval.jsonl")
 
     STORAGE_PROVIDER = "json"
@@ -51,6 +52,8 @@ class Defaults:
 
     INDEXING_MODE = "scanner"
     INDEXING_PROGRESS = False
+    TRACE_ENABLED = True
+    TRACE_INCLUDE_PROMPTS = True
     AI_INDEX_MAX_FILES = 40
     AI_INDEX_MAX_ITEMS = 80
     AI_INDEX_MAX_CONTEXT_CHARS = 60000

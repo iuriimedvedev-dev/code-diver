@@ -17,6 +17,7 @@ from .recursive_search_config import RecursiveSearchConfig
 from .scanner_config import ScannerConfig
 from .search_config import SearchConfig
 from .storage_config import StorageConfig
+from .trace_config import TraceConfig
 from .ui_config import UiConfig
 
 
@@ -34,6 +35,7 @@ class AppConfig:
     search: SearchConfig = field(default_factory=SearchConfig)
     recursive_search: RecursiveSearchConfig = field(default_factory=RecursiveSearchConfig)
     graph: GraphConfig = field(default_factory=GraphConfig)
+    trace: TraceConfig = field(default_factory=TraceConfig)
     ui: UiConfig = field(default_factory=UiConfig)
     evaluation: EvaluationConfig = field(default_factory=EvaluationConfig)
     experiments: ExperimentsConfig = field(default_factory=ExperimentsConfig)

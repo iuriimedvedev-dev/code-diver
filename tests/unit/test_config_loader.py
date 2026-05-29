@@ -59,6 +59,10 @@ recursive_search:
 graph:
   artifact: {tmp_path}/graph.json
   expansion_depth: 2
+trace:
+  enabled: true
+  artifact: {tmp_path}/trace.jsonl
+  include_prompts: false
 ui:
   editor:
     command: vim
@@ -120,6 +124,9 @@ plugins:
     assert config.recursive_search.limit == 4
     assert config.graph.artifact == tmp_path / "graph.json"
     assert config.graph.expansion_depth == 2
+    assert config.trace.enabled is True
+    assert config.trace.artifact == tmp_path / "trace.jsonl"
+    assert config.trace.include_prompts is False
     assert config.ui.editor.command == "vim"
     assert config.ui.editor.args == ["+{line}", "{path}"]
     assert config.evaluation.dataset == tmp_path / "eval.jsonl"

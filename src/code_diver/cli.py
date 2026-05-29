@@ -31,6 +31,7 @@ from .services import CodebaseScanner, DatasetLoader, GraphIndexingService, Inde
 from .services.evaluation_service import EvaluationService
 from .strategies import RetrievalStrategyFactory
 from .store import create_vector_store
+from .tracing import TraceLogger
 from .ui import EditorOpener, SearchRenderer
 
 
@@ -276,6 +277,7 @@ def make_indexing_service(config: AppConfig) -> IndexingService:
             embedding_max_input_chars=config.embedding.max_input_chars,
             progress=True,
         ),
+        make_trace_logger(config),
     )
 
 
@@ -290,7 +292,7 @@ def make_codebase_scanner(config: AppConfig):
     if mode == "scanner":
         return scanner
     if mode == "orchestrated":
-        return OrchestratedCodebaseScanner(scanner, create_generation_provider(config), config)
+        return OrchestratedCodebaseScanner(scanner, create_generation_provider(config), config, make_trace_logger(config))
     ai_scanner = AiCodebaseScanner(scanner, create_generation_provider(config), config.indexing.ai)
     if mode == "ai":
         return ai_scanner
@@ -301,6 +303,10 @@ def make_codebase_scanner(config: AppConfig):
 
 def make_plugin_manager(config: AppConfig) -> PluginManager:
     return PluginManager([Path(path) for path in config.plugins])
+
+
+def make_trace_logger(config: AppConfig) -> TraceLogger:
+    return TraceLogger(config.trace)
 
 
 def make_embedding_provider(config: AppConfig, payload: dict[str, Any] | None = None):

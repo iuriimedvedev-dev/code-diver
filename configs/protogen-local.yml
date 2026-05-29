@@ -81,6 +81,11 @@ graph:
   expansion_depth: 1
   neighbor_limit: 20
 
+trace:
+  enabled: true
+  artifact: .code-diver/traces/protogen-local-indexing.jsonl
+  include_prompts: true
+
 evaluation:
   dataset: datasets/protogen_eval.jsonl
   limit: 10

@@ -23,6 +23,7 @@ from .recursive_search_config import RecursiveSearchConfig
 from .scanner_config import ScannerConfig
 from .search_config import SearchConfig
 from .storage_config import StorageConfig
+from .trace_config import TraceConfig
 from .ui_config import UiConfig
 
 
@@ -43,6 +44,7 @@ class ConfigLoader:
             search=self._search(data.get("search")),
             recursive_search=self._recursive_search(data.get("recursive_search")),
             graph=self._graph(data.get("graph")),
+            trace=self._trace(data.get("trace")),
             ui=self._ui(data.get("ui")),
             evaluation=self._evaluation(data.get("evaluation")),
             experiments=self._experiments(data.get("experiments")),
@@ -181,6 +183,14 @@ class ConfigLoader:
             artifact=Path(mapping.get("artifact", Defaults.GRAPH_ARTIFACT)),
             expansion_depth=int(mapping.get("expansion_depth", Defaults.GRAPH_EXPANSION_DEPTH)),
             neighbor_limit=int(mapping.get("neighbor_limit", Defaults.GRAPH_NEIGHBOR_LIMIT)),
+        )
+
+    def _trace(self, data: Any) -> TraceConfig:
+        mapping = self._mapping(data)
+        return TraceConfig(
+            enabled=bool(mapping.get("enabled", Defaults.TRACE_ENABLED)),
+            artifact=Path(mapping.get("artifact", Defaults.TRACE_ARTIFACT)),
+            include_prompts=bool(mapping.get("include_prompts", Defaults.TRACE_INCLUDE_PROMPTS)),
         )
 
     def _ui(self, data: Any) -> UiConfig:
