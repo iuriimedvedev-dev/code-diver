@@ -13,19 +13,43 @@ class TreeService:
         self.ignore = IgnoreMatcher(self.root, exclude)
 
     def render(self, path: str | None = None, max_depth: int = 3, limit: int = 200) -> str:
+        structured = self.list_entries(path=path, max_depth=max_depth, limit=limit)
+        lines: list[str] = [structured["root"]]
+        for entry in structured["entries"]:
+            prefix = "  " * int(entry["depth"])
+            suffix = "/" if entry["kind"] == "directory" else ""
+            lines.append(f"{prefix}{entry['name']}{suffix}")
+        if structured["metrics"]["truncated"]:
+            lines.append("...")
+        return "\n".join(lines)
+
+    def list_entries(self, path: str | None = None, max_depth: int = 3, limit: int = 200) -> dict:
         start = self.guard.resolve(path)
-        lines: list[str] = [self._label(start)]
+        entries: list[dict] = []
         count = 0
         for current, depth in self._walk(start, max_depth):
             if count >= limit:
-                lines.append("...")
                 break
-            rel = current.relative_to(start)
-            prefix = "  " * depth
-            suffix = "/" if current.is_dir() else ""
-            lines.append(f"{prefix}{rel.name}{suffix}")
+            rel_path = current.relative_to(self.root).as_posix()
+            entries.append(
+                {
+                    "path": rel_path,
+                    "name": current.name,
+                    "kind": "directory" if current.is_dir() else "file",
+                    "depth": depth,
+                }
+            )
             count += 1
-        return "\n".join(lines)
+        return {
+            "root": self._label(start),
+            "entries": entries,
+            "metrics": {
+                "entryCount": len(entries),
+                "limit": limit,
+                "maxDepth": max_depth,
+                "truncated": count >= limit,
+            },
+        }
 
     def _walk(self, start: Path, max_depth: int):
         if not start.is_dir():

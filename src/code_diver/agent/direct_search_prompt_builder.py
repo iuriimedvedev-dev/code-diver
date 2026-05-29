@@ -30,6 +30,7 @@ class DirectSearchPromptBuilder:
 You are a code search orchestrator for hypothesis `{hypothesis_name}`.
 Use only the listed read-only tools. Find code locations that answer the user's informal query.
 Return JSON only. Do not invent paths. Prefer precise files or code ranges with direct evidence.
+Tool observations are structured JSON. grep/rg/symbols/tree return candidates, metrics, file names, and line numbers by default; request source text only through code_diver_read or includeText=true when absolutely necessary.
 
 When you need more evidence:
 {{

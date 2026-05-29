@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from .ignore_matcher import IgnoreMatcher
 from .path_guard import PathGuard
@@ -14,6 +15,13 @@ class ReadExcerptService:
         self.max_file_bytes = max_file_bytes
 
     def render(self, path: str, start_line: int = 1, lines: int = 80) -> str:
+        structured = self.structured(path, start_line=start_line, lines=lines)
+        body = "\n".join(
+            f"{line['line']:>5} | {line['text']}" for line in structured["lines"]
+        )
+        return f"{structured['path']}:{structured['startLine']}-{structured['endLine']}\n{body}"
+
+    def structured(self, path: str, start_line: int = 1, lines: int = 80) -> dict[str, Any]:
         target = self.guard.resolve(path)
         if self.ignore.ignored(target):
             raise ValueError(f"Path is ignored: {path}")
@@ -27,5 +35,19 @@ class ReadExcerptService:
         end_line = min(bounded_start + bounded_lines - 1, len(text_lines))
         selected = text_lines[bounded_start - 1 : end_line]
         rel_path = target.relative_to(self.root).as_posix()
-        body = "\n".join(f"{line_number:>5} | {line}" for line_number, line in enumerate(selected, start=bounded_start))
-        return f"{rel_path}:{bounded_start}-{end_line}\n{body}"
+        return {
+            "path": rel_path,
+            "startLine": bounded_start,
+            "endLine": end_line,
+            "lineCount": len(selected),
+            "lines": [
+                {"line": line_number, "text": line}
+                for line_number, line in enumerate(selected, start=bounded_start)
+            ],
+            "metrics": {
+                "requestedLines": lines,
+                "returnedLines": len(selected),
+                "fileLines": len(text_lines),
+                "truncated": bounded_lines < lines or end_line < min(start_line + lines - 1, len(text_lines)),
+            },
+        }

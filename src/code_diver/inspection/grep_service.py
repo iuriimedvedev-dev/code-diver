@@ -5,6 +5,7 @@ import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from .ignore_matcher import IgnoreMatcher
 from .path_guard import PathGuard
@@ -56,6 +57,33 @@ class GrepService:
         return "\n".join(
             f"{match.path}:{match.line}: {match.text}" for match in self.search(pattern, path, limit, regex)
         )
+
+    def structured(
+        self,
+        pattern: str,
+        path: str | None = None,
+        limit: int = 100,
+        regex: bool = False,
+        include_text: bool = False,
+    ) -> dict[str, Any]:
+        matches = self.search(pattern, path, limit, regex)
+        return {
+            "query": {
+                "pattern": pattern,
+                "path": path,
+                "regex": regex,
+                "includeText": include_text,
+            },
+            "candidates": self._candidates(matches),
+            "matches": [self._match_json(match, include_text) for match in matches],
+            "metrics": {
+                "matchCount": len(matches),
+                "candidateCount": len({match.path for match in matches}),
+                "limit": limit,
+                "truncated": len(matches) >= limit,
+                "backend": "rg" if not regex and shutil.which("rg") is not None else "python",
+            },
+        }
 
     def _files(self, start: Path):
         if start.is_file():
@@ -125,6 +153,31 @@ class GrepService:
         for pattern in self.ignore.patterns:
             args.extend(["--glob", f"!{pattern}"])
         return args
+
+    def _match_json(self, match: GrepMatch, include_text: bool) -> dict[str, Any]:
+        payload: dict[str, Any] = {"path": match.path, "line": match.line}
+        if include_text:
+            payload["text"] = match.text
+        return payload
+
+    def _candidates(self, matches: list[GrepMatch]) -> list[dict[str, Any]]:
+        by_path: dict[str, list[int]] = {}
+        for match in matches:
+            by_path.setdefault(match.path, []).append(match.line)
+        candidates: list[dict[str, Any]] = []
+        for path, lines in by_path.items():
+            candidates.append(
+                {
+                    "path": path,
+                    "startLine": min(lines),
+                    "endLine": max(lines),
+                    "matchCount": len(lines),
+                    "confidence": min(0.95, 0.45 + len(lines) * 0.08),
+                    "evidenceLines": lines[:20],
+                }
+            )
+        candidates.sort(key=lambda item: (-int(item["matchCount"]), item["path"]))
+        return candidates
 
     def _readable(self, path: Path) -> bool:
         try:
