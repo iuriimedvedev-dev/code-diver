@@ -14,6 +14,28 @@ The current implementation is intentionally inspectable, but it is still a basel
 
 This explains the weak metrics: we are measuring line-window chunks and a hash embedding baseline against repo-level questions. That is useful as a control group, but not a competitive code RAG system.
 
+## Experiment Results on `../protogen`
+
+Dataset: `datasets/protogen_eval.jsonl`, 10 repository-location cases, `limit=10`.
+
+| Config | Indexing | Items | Strategy | Hit@10 | MRR@10 | Notes |
+| --- | --- | ---: | --- | ---: | ---: | --- |
+| `configs/protogen-baseline.yml` | line chunks, hash embeddings | 2444 | vector | 0.70 | 0.372 | Best current cheap baseline. |
+| `configs/protogen-baseline.yml` | line chunks, hash embeddings | 2444 | recursive | 0.50 | 0.256 | More latency, worse hit rate. |
+| `configs/protogen-baseline.yml` | line chunks, hash embeddings | 2444 | graph | 0.60 | 0.359 | Import/same-file graph helps some cases. |
+| `configs/protogen-symbols.yml` | symbol-only during first run, hash embeddings | 6961 | vector | 0.30 | 0.144 | Bad: tiny method chunks lost file-level context. |
+| `configs/protogen-symbols.yml` | hybrid line+symbol chunks, hash embeddings | 8842 | vector | 0.30 | 0.250 | Better MRR than symbol-only, still worse than baseline. |
+| `configs/protogen-symbols.yml` | hybrid line+symbol chunks, hash embeddings | 8842 | recursive | 0.50 | 0.298 | Best recursive run so far, still below baseline vector hit rate. |
+| `configs/protogen-symbols.yml` | hybrid line+symbol chunks, hash embeddings | 8842 | graph | 0.30 | 0.250 | Reference graph needs better reranking. |
+| `configs/protogen-orchestrated-hash.yml` | Gemini index plan + symbol replacement, hash embeddings | 6975 | orchestrated | 0.40 | 0.242 | Query planning worked, but symbol replacement hurt. |
+
+Important trace findings:
+
+- The first AI index plan replaced source include patterns with broad eval/tooling patterns, producing only 371 indexed items and `hit@10=0.10`. The trace made the failure obvious.
+- Include patterns from AI are now additive and guarded. Hidden/tool-state additions are rejected, and broad additions that match too many files are rejected.
+- Gemini consistently prefers `symbol_chunks=true` for this repo. With hash embeddings, symbol granularity alone is not enough; we need hybrid retrieval and reranking.
+- The next useful hypothesis is not "symbols vs chunks"; it is "file chunks + symbols + lexical/path boosts + rerank".
+
 ## Current Design Hypotheses
 
 ### H1: Recursive AI Search
