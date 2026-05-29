@@ -33,6 +33,12 @@ Dataset: `datasets/protogen_eval.jsonl`, 10 repository-location cases, `limit=10
 | `configs/protogen-symbols.yml` | hybrid line+symbol + AST graph, hash embeddings | 8842 | vector | 0.30 | 0.250 | Control after AST graph change; unchanged. |
 | `configs/protogen-symbols.yml` | hybrid line+symbol + AST graph, hash embeddings | 8842 | recursive | 0.50 | 0.298 | Still the best hash run. |
 | `configs/protogen-symbols.yml` | hybrid line+symbol + AST graph, hash embeddings | 8842 | graph | 0.30 | 0.220 | Faster after bounded imports, but quality still needs rerank/path boosts. |
+| `configs/protogen-ollama-embeddings.yml` | local mxbai-embed-large + hybrid line/symbol/AST graph | 8246 | vector | 0.90 | 0.663 | Best measured retrieval quality; JSON vector store is still slow. |
+| `configs/protogen-ollama-embeddings.yml` | local mxbai-embed-large + hybrid line/symbol/AST graph | 8246 | recursive | 0.90 | 0.612 | More latency without quality gain over vector. |
+| `configs/protogen-ollama-embeddings.yml` | local mxbai-embed-large + hybrid line/symbol/AST graph | 8246 | graph | 0.90 | 0.663 | Same quality as vector in this run; graph expansion did not improve ranking yet. |
+| `configs/protogen-ollama-qdrant.yml` | local mxbai-embed-large + embedded Qdrant | 8246 | vector | 0.90 | 0.663 | Same quality as JSON, 0.4s eval instead of 14.4s. |
+| `configs/protogen-ollama-qdrant.yml` | local mxbai-embed-large + embedded Qdrant | 8246 | recursive | 0.90 | 0.612 | 1.4s eval instead of 57.9s. |
+| `configs/protogen-ollama-qdrant.yml` | local mxbai-embed-large + embedded Qdrant | 8246 | graph | 0.90 | 0.663 | 3.8s eval; graph expansion still not improving ranking. |
 
 Important trace findings:
 
@@ -40,8 +46,10 @@ Important trace findings:
 - Include patterns from AI are now additive and guarded. Hidden/tool-state additions are rejected, and broad additions that match too many files are rejected.
 - Gemini consistently prefers `symbol_chunks=true` for this repo. With hash embeddings, symbol granularity alone is not enough; we need hybrid retrieval and reranking.
 - A live `gemini-3.5-flash` orchestration smoke reached the API but hit capacity/deadline errors; the configured fallback chain returned JSON successfully. `gemini-embedding-2` returned 768-dimensional document and query vectors.
+- Vertex provider was implemented with the current `google-genai` Vertex path. Live test could not complete with current local credentials: ADC requires reauthentication, and `GEMINI_API_KEY` is not accepted by the Vertex `aiplatform.googleapis.com` prediction API.
 - A live orchestrated evaluation loop exposed latency risk: query-plan calls on `gemini-3.5-flash` sometimes took 40-50 seconds. We added a 20s generation timeout guard; evaluation should not depend on unbounded live orchestration.
 - AST GraphRAG initially produced 671,857 edges and a 177MB graph artifact because imports linked every source chunk to every imported target chunk. Bounded import representatives reduced this to 161,681 edges and a 60MB graph artifact.
+- Local Ollama `mxbai-embed-large` embeddings are currently the best measured option on this dataset. Moving them from JSON brute-force search to embedded Qdrant preserved quality and reduced vector evaluation from 14.4s to 0.4s.
 - The next useful hypothesis is not "symbols vs chunks"; it is "file chunks + symbols + lexical/path boosts + rerank".
 
 ## Current Design Hypotheses

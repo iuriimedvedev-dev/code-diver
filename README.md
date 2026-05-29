@@ -53,7 +53,7 @@ search:
   strategy: vector # vector, recursive, graph
 ```
 
-See [docs/research.md](docs/research.md) for the current codebase RAG research notes and experiment plan.
+See [docs/research.md](docs/research.md) for the current codebase RAG research notes and experiment plan, and [docs/metrics.md](docs/metrics.md) for metric definitions and current run comparisons.
 
 ## Tests
 
