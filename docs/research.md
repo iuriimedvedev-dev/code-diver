@@ -2,6 +2,18 @@
 
 Goal: reduce tokens, keep answer quality, and make repository retrieval fast and precise.
 
+## Current State After Baseline Runs
+
+The current implementation is intentionally inspectable, but it is still a baseline:
+
+- `CodebaseScanner` walks files, filters by suffix/glob, and chunks by fixed line windows.
+- The container protogen config currently uses `embedding.provider: hash`, so those metrics measure a fast lexical-ish baseline, not Gemini/Ollama/OpenAI semantic embeddings.
+- `indexing.mode: scanner` means the container baseline does not ask the AI orchestrator to plan the index.
+- `indexing.mode: orchestrated` asks the generation provider for include/exclude/chunk sizing from repo tree, aggregate stats, and sample paths only. It does not send source contents to the model.
+- Indexing traces are now first-class config via `trace.*`; JSONL trace includes AI index prompt/response/selected plan, selected scanner config, item counts, embedding concurrency, provider/model/dimensions, and vector counts.
+
+This explains the weak metrics: we are measuring line-window chunks and a hash embedding baseline against repo-level questions. That is useful as a control group, but not a competitive code RAG system.
+
 ## Current Design Hypotheses
 
 ### H1: Recursive AI Search
@@ -88,6 +100,20 @@ Source:
 
 - https://arxiv.org/abs/2601.08773
 
+RepoGraph treats a repository-level code graph as navigation infrastructure for AI software engineering systems and reports gains when plugged into SWE-bench-oriented agents. GraphCodeAgent builds both a requirement graph and a structural-semantic code graph, then uses multi-hop agent reasoning to retrieve explicit and implicit code snippets for repo-level generation.
+
+Sources:
+
+- https://arxiv.org/abs/2410.14684
+- https://arxiv.org/abs/2504.10046
+
+CodeRAG-Bench shows that code retrievers still struggle when relevant context has weak lexical overlap with the query, which matches the failure mode seen in our hash/vector baseline. RealBench, published in 2026, reinforces that repo-level work should be evaluated with realistic repository tasks rather than only small natural-language coding prompts.
+
+Sources:
+
+- https://arxiv.org/abs/2406.14497
+- https://arxiv.org/abs/2604.22659
+
 ### Cost-Efficient Graph Retrieval
 
 Clue-RAG uses a multi-partite graph over chunks, knowledge units, and entities, plus query-driven iterative retrieval. It reports improved accuracy/F1 while reducing indexing costs and can match or beat baselines without LLM indexing.
@@ -97,6 +123,15 @@ Useful takeaway: our graph should support multiple node granularities later: fil
 Source:
 
 - https://arxiv.org/abs/2507.08445
+
+### General GraphRAG Lessons
+
+Microsoft GraphRAG's indexing pipeline extracts entities, relationships, and claims, performs community detection, creates summaries, and stores both graph tables and vector embeddings. The important lesson for code is architectural, not literal: keep indexing configurable, persist intermediate artifacts, and trace expensive extraction decisions. For source code, deterministic AST/LSP/tree-sitter extraction should come before LLM graph extraction.
+
+Sources:
+
+- https://microsoft.github.io/graphrag//index/overview/
+- https://github.com/microsoft/graphrag
 
 ## Near-Term Experiment Plan
 
@@ -113,6 +148,8 @@ Source:
    - Current `search.strategy: graph`.
    - Start with import and same-file expansion.
    - Add AST symbol edges next: defines, calls, references, inherits, implements, tests.
+   - Store file, symbol, chunk, and dependency nodes separately instead of treating every chunk as one flat item type.
+   - Add a bounded graph traversal trace so each query explains why neighbors were pulled.
 
 4. Qdrant backend
    - Switch `storage.provider: qdrant`.
@@ -127,6 +164,11 @@ Source:
      - find tests;
      - identify change impact.
    - Track metrics per task type, not only aggregate.
+
+6. Hybrid retrieval and reranking
+   - Combine `rg`/literal hits, semantic vector search, path/symbol filters, and graph expansion.
+   - Rerank with a small top-N cross-encoder/LLM pass only after cheap retrieval narrows candidates.
+   - Track latency, token cost, candidate count, context tokens, and answer correctness per stage.
 
 ## Design Bias
 
