@@ -77,6 +77,10 @@ class JsonVectorStore(VectorStore):
         vectors = [[float(value) for value in record[SchemaKey.VECTOR.value]] for record in records]
         return payload, items, vectors
 
+    def count_items(self) -> int:
+        _, items, _ = self.load_items_and_vectors()
+        return len(items)
+
     def _load(self) -> dict[str, Any]:
         if not self.artifact.exists():
             raise IndexStoreError(f"Index artifact not found: {self.artifact}")

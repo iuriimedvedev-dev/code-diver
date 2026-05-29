@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import os
+
 from ..config import AppConfig
-from ..settings import VectorStoreProviderId
+from ..settings import EnvironmentVariable, VectorStoreProviderId
 from .json_vector_store import JsonVectorStore
 from .qdrant_vector_store import QdrantVectorStore
 from .vector_store import VectorStore
@@ -13,10 +15,11 @@ def create_vector_store(config: AppConfig) -> VectorStore:
         return JsonVectorStore(config.artifact)
     if provider is VectorStoreProviderId.QDRANT:
         qdrant = config.storage.qdrant
+        collection = os.environ.get(EnvironmentVariable.CODE_DIVER_QDRANT_COLLECTION.value) or qdrant.collection
         return QdrantVectorStore(
             url=qdrant.url,
             location=qdrant.location,
-            collection=qdrant.collection,
+            collection=collection,
             api_key=qdrant.api_key,
             api_key_env=qdrant.api_key_env,
             batch_size=qdrant.batch_size,

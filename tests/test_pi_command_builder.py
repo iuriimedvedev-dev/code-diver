@@ -8,6 +8,8 @@ from code_diver.config.app_config import AppConfig
 from code_diver.config.experiment_hypothesis_config import ExperimentHypothesisConfig
 from code_diver.config.experiments_config import ExperimentsConfig
 from code_diver.config.pi_config import PiConfig
+from code_diver.config.qdrant_config import QdrantConfig
+from code_diver.config.storage_config import StorageConfig
 from code_diver.pi import PiCommandBuilder
 
 
@@ -90,3 +92,14 @@ def test_pi_command_builder_uses_configured_toolset() -> None:
 
     assert command[command.index("--tools") + 1] == "code_diver_tree,code_diver_index_selected"
     assert env["CODE_DIVER_TOOLSET"] == "indexing"
+
+
+def test_pi_command_builder_exports_qdrant_collection() -> None:
+    config = AppConfig(
+        root=Path("/repo"),
+        storage=StorageConfig(provider="qdrant", qdrant=QdrantConfig(collection="hypothesis_collection")),
+    )
+
+    env = PiCommandBuilder().env(config, Path("code-diver.yml"))
+
+    assert env["CODE_DIVER_QDRANT_COLLECTION"] == "hypothesis_collection"

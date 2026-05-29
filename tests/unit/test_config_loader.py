@@ -52,6 +52,7 @@ pi:
   binary: npx
   launcher_args: [-y, "@earendil-works/pi-coding-agent"]
   fallback_models: [google/gemini-3-flash-preview, google/gemini-2.5-flash]
+  timeout_seconds: 77
   tools: [read, code_diver_search]
   toolsets:
     grep_only: [code_diver_tree, code_diver_rg, code_diver_read]
@@ -139,6 +140,7 @@ plugins:
     assert config.pi.binary == "npx"
     assert config.pi.launcher_args == ["-y", "@earendil-works/pi-coding-agent"]
     assert config.pi.fallback_models == ["google/gemini-3-flash-preview", "google/gemini-2.5-flash"]
+    assert config.pi.timeout_seconds == 77
     assert config.pi.tools == ["read", "code_diver_search"]
     assert config.pi.toolsets["grep_only"] == ["code_diver_tree", "code_diver_rg", "code_diver_read"]
     assert config.scanner.include == ["*.py"]

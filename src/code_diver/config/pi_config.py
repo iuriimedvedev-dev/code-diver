@@ -15,6 +15,7 @@ class PiConfig:
     provider: str | None = Defaults.PI_PROVIDER
     model: str | None = Defaults.PI_MODEL
     fallback_models: list[str] = field(default_factory=list)
+    timeout_seconds: int = Defaults.PI_TIMEOUT_SECONDS
     tools: list[str] = field(default_factory=list)
     toolsets: dict[str, list[str]] = field(default_factory=dict)
     extra_args: list[str] = field(default_factory=list)

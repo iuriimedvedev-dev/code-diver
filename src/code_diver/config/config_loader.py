@@ -154,6 +154,7 @@ class ConfigLoader:
             provider=mapping.get("provider", Defaults.PI_PROVIDER),
             model=mapping.get("model", Defaults.PI_MODEL),
             fallback_models=self._string_list(mapping.get("fallback_models")),
+            timeout_seconds=int(mapping.get("timeout_seconds", Defaults.PI_TIMEOUT_SECONDS)),
             tools=self._string_list(mapping.get("tools")),
             toolsets={
                 str(name): self._string_list(tools)

@@ -63,6 +63,7 @@ pi:
   fallback_models:
     - google/gemini-3-flash-preview
     - google/gemini-2.5-flash
+  timeout_seconds: 180
   tools:
     - code_diver_index
     - code_diver_index_selected
@@ -173,6 +174,36 @@ experiments:
     - name: ai_selected_index
       toolset: indexing
       description: Pi agent chooses file ranges and persists them through index-selected.
+    - name: ai_index_tree_only
+      tools:
+        - code_diver_tree
+        - code_diver_index_selected
+      description: Pi agent indexes with only tree discovery plus selected persistence.
+    - name: ai_index_symbols_only
+      tools:
+        - code_diver_symbols
+        - code_diver_index_selected
+      description: Pi agent indexes with only symbol listing plus selected persistence.
+    - name: ai_index_grep_only
+      tools:
+        - code_diver_grep
+        - code_diver_index_selected
+      description: Pi agent indexes with only literal grep plus selected persistence.
+    - name: ai_index_rg_only
+      tools:
+        - code_diver_rg
+        - code_diver_index_selected
+      description: Pi agent indexes with only regex search plus selected persistence.
+    - name: ai_index_read_only
+      tools:
+        - code_diver_read
+        - code_diver_index_selected
+      description: Pi agent indexes with only bounded reads plus selected persistence.
+    - name: ai_index_inspect_only
+      tools:
+        - code_diver_inspect
+        - code_diver_index_selected
+      description: Pi agent indexes with only the concurrent inspect tool plus selected persistence.
 
 metrics:
   enabled: false

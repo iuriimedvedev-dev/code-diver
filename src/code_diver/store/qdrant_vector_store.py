@@ -118,6 +118,11 @@ class QdrantVectorStore(VectorStore):
         if callable(close):
             close()
 
+    def count_items(self) -> int:
+        if not self.client.collection_exists(self.collection):
+            return 0
+        return int(self.client.count(collection_name=self.collection, exact=True).count)
+
     def _point_id(self, item_id: str) -> str:
         return uuid.uuid5(uuid.NAMESPACE_URL, item_id).hex
 

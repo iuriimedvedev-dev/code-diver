@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from time import perf_counter
 from typing import Any
 
 from ..domain import EvalCase, EvalResult
@@ -16,8 +17,11 @@ class EvaluationService:
         limit: int,
     ) -> tuple[dict[str, Any], list[EvalResult]]:
         results: list[EvalResult] = []
+        durations_ms: list[float] = []
         for case in cases:
+            started = perf_counter()
             search_results = self.retrieval_strategy.search(case.query, limit)
+            durations_ms.append((perf_counter() - started) * 1000)
             retrieved = [result.item.id for result in search_results]
             matched_ranks = [
                 rank
@@ -48,6 +52,9 @@ class EvaluationService:
             f"mrr@{limit}": self._mean(result.reciprocal_rank for result in results),
             f"precision@{limit}": self._mean(result.precision for result in results),
             f"recall@{limit}": self._mean(result.recall for result in results),
+            "search_duration_ms_total": sum(durations_ms),
+            "search_duration_ms_mean": self._mean(durations_ms),
+            "search_duration_ms_p95": self._percentile(durations_ms, 0.95),
         }
         return metrics, results
 
@@ -68,3 +75,10 @@ class EvaluationService:
         if not materialized:
             return 0.0
         return sum(materialized) / len(materialized)
+
+    def _percentile(self, values: list[float], quantile: float) -> float:
+        if not values:
+            return 0.0
+        ordered = sorted(values)
+        index = min(int(round((len(ordered) - 1) * quantile)), len(ordered) - 1)
+        return ordered[index]

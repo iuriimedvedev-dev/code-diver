@@ -36,6 +36,7 @@ class Defaults:
     PI_PROMPT_TEMPLATE = Path(".pi/prompts/code-diver-rag.md")
     PI_PROVIDER = "google"
     PI_MODEL = "google/gemini-3.5-flash"
+    PI_TIMEOUT_SECONDS = 180
 
     GENERATION_PROVIDER = "gemini"
     GENERATION_MODEL = "gemini-3.5-flash"

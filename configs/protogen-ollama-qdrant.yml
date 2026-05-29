@@ -84,6 +84,7 @@ pi:
   fallback_models:
     - google/gemini-3-flash-preview
     - google/gemini-2.5-flash
+  timeout_seconds: 90
   tools:
     - code_diver_index
     - code_diver_index_selected
@@ -132,7 +133,7 @@ trace:
   include_prompts: true
 
 evaluation:
-  dataset: datasets/protogen_eval.jsonl
+  dataset: datasets/protogen_eval_100.jsonl
   limit: 10
 
 experiments:
@@ -160,6 +161,36 @@ experiments:
     - name: ai_selected_index
       toolset: indexing
       description: Pi agent inspects the repository and saves selected file ranges into Qdrant.
+    - name: ai_index_tree_only
+      tools:
+        - code_diver_tree
+        - code_diver_index_selected
+      description: Pi agent indexes with only tree discovery plus selected persistence.
+    - name: ai_index_symbols_only
+      tools:
+        - code_diver_symbols
+        - code_diver_index_selected
+      description: Pi agent indexes with only symbol listing plus selected persistence.
+    - name: ai_index_grep_only
+      tools:
+        - code_diver_grep
+        - code_diver_index_selected
+      description: Pi agent indexes with only literal grep plus selected persistence.
+    - name: ai_index_rg_only
+      tools:
+        - code_diver_rg
+        - code_diver_index_selected
+      description: Pi agent indexes with only regex search plus selected persistence.
+    - name: ai_index_read_only
+      tools:
+        - code_diver_read
+        - code_diver_index_selected
+      description: Pi agent indexes with only bounded reads plus selected persistence.
+    - name: ai_index_inspect_only
+      tools:
+        - code_diver_inspect
+        - code_diver_index_selected
+      description: Pi agent indexes with only the concurrent inspect tool plus selected persistence.
 
 metrics:
   enabled: false

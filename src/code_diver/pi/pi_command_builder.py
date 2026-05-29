@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from ..config import AppConfig
-from ..settings import Defaults, EnvironmentVariable, OptionName
+from ..settings import Defaults, EnvironmentVariable, OptionName, VectorStoreProviderId
 
 
 class PiCommandBuilder:
@@ -53,6 +53,8 @@ class PiCommandBuilder:
             EnvironmentVariable.CODE_DIVER_CONFIG.value: str((config_path or Defaults.CONFIG_PATH).resolve()),
             EnvironmentVariable.CODE_DIVER_ROOT.value: str(config.root.resolve()),
         }
+        if config.storage.provider == VectorStoreProviderId.QDRANT.value:
+            env[EnvironmentVariable.CODE_DIVER_QDRANT_COLLECTION.value] = config.storage.qdrant.collection
         if toolset:
             env["CODE_DIVER_TOOLSET"] = toolset
         if hypothesis:

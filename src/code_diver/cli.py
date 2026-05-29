@@ -4,7 +4,9 @@ import argparse
 import json
 import sys
 import uuid
+from dataclasses import replace
 from pathlib import Path
+from time import perf_counter
 from typing import Any
 
 from .config import AppConfig, ConfigLoader
@@ -17,7 +19,7 @@ from .graph import CodeGraphBuilder, CodeGraphStore
 from .inspection import GrepService, ReadExcerptService, RgService, SymbolsService, TreeService
 from .metrics import ClickHouseClient, ClickHouseDockerClient, ClickHouseMetricsRepository, ExperimentMetricsMapper
 from .orchestration import OrchestratedCodebaseScanner
-from .pi import PiRunner
+from .pi import PiRunLogParser, PiRunner
 from .plugins import PluginManager
 from .providers import create_embedding_provider
 from .settings import (
@@ -135,6 +137,16 @@ def build_parser() -> argparse.ArgumentParser:
     evaluate.add_argument(OptionName.JSON.value, action="store_true")
     evaluate.add_argument(OptionName.REINDEX.value, action="store_true")
     evaluate.set_defaults(func=cmd_evaluate)
+
+    evaluate_indexing = subparsers.add_parser(
+        CommandName.EVALUATE_INDEXING.value,
+        help="Ask Pi indexing hypotheses to build isolated indexes, then evaluate retrieval metrics.",
+    )
+    evaluate_indexing.add_argument(OptionName.LIMIT.value, type=int, default=None)
+    evaluate_indexing.add_argument(OptionName.HYPOTHESIS.value, action="append", default=[])
+    evaluate_indexing.add_argument(OptionName.DETAILS.value, action="store_true")
+    evaluate_indexing.add_argument(OptionName.JSON.value, action="store_true")
+    evaluate_indexing.set_defaults(func=cmd_evaluate_indexing)
 
     experiment = subparsers.add_parser(
         CommandName.EXPERIMENT.value,
@@ -305,6 +317,85 @@ def cmd_evaluate(args: argparse.Namespace, config: AppConfig) -> int:
     return 0
 
 
+def cmd_evaluate_indexing(args: argparse.Namespace, config: AppConfig) -> int:
+    cases = DatasetLoader().load(config.evaluation.dataset)
+    limit = args.limit or config.evaluation.limit
+    run_id = uuid.uuid4().hex[:12]
+    rows: list[dict[str, Any]] = []
+    for hypothesis in indexing_hypotheses(config, args.hypothesis):
+        eval_config = config_for_indexing_hypothesis(config, hypothesis.name, run_id)
+        log_path = indexing_hypothesis_log_path(config, hypothesis.name, run_id)
+        prompt = indexing_hypothesis_prompt(hypothesis.name, cases)
+        started = perf_counter()
+        exit_code = PiRunner().run_print_logged(
+            eval_config,
+            args.config,
+            prompt,
+            log_path,
+            hypothesis=hypothesis.name,
+        )
+        indexing_duration_ms = (perf_counter() - started) * 1000
+        pi_usage = PiRunLogParser().parse(log_path)
+        row: dict[str, Any] = {
+            "hypothesis": hypothesis.name,
+            "collection": eval_config.storage.qdrant.collection,
+            "tools": resolve_hypothesis_tools(config, hypothesis.name),
+            "log_path": str(log_path),
+            "indexing_exit_code": exit_code,
+            "indexing_duration_ms": indexing_duration_ms,
+            "pi_usage": pi_usage.to_json(),
+        }
+        if exit_code != 0:
+            row["error"] = "pi_indexing_failed"
+            rows.append(row)
+            continue
+        vector_store = create_vector_store(eval_config)
+        if not vector_store.exists():
+            row["error"] = "index_not_found"
+            close_vector_store(vector_store)
+            rows.append(row)
+            continue
+        count_items = getattr(vector_store, "count_items", None)
+        if callable(count_items):
+            row["indexed_items"] = count_items()
+        provider = make_embedding_provider(eval_config, vector_store.metadata())
+        strategy = make_retrieval_strategy(eval_config, provider, vector_store)
+        eval_started = perf_counter()
+        metrics, results = EvaluationService(strategy).evaluate(cases, limit)
+        metrics["evaluation_duration_ms"] = (perf_counter() - eval_started) * 1000
+        row["metrics"] = metrics
+        if args.details:
+            row["results"] = [eval_result_to_json(result) for result in results]
+        close_vector_store(vector_store)
+        rows.append(row)
+
+    if args.json:
+        print(json.dumps({"run_id": run_id, "results": rows}, indent=2))
+        return 0
+
+    print(f"run_id: {run_id}")
+    for row in rows:
+        print()
+        print(f"{row['hypothesis']} ({row['collection']})")
+        print(f"  tools: {', '.join(row['tools'])}")
+        print(f"  log_path: {row['log_path']}")
+        print(f"  indexing_duration_ms: {row['indexing_duration_ms']:.1f}")
+        usage = row["pi_usage"]
+        print(
+            "  pi_usage: "
+            f"tokens={usage['total_tokens']} "
+            f"input={usage['input_tokens']} output={usage['output_tokens']} "
+            f"cost=${usage['total_cost']:.6f} tool_calls={usage['tool_calls']}"
+        )
+        if row.get("error"):
+            print(f"  error: {row['error']} exit_code={row['indexing_exit_code']}")
+            continue
+        print(f"  indexed_items: {row.get('indexed_items', 'unknown')}")
+        for name, value in row["metrics"].items():
+            print(f"  {name}: {value:.4f}" if isinstance(value, float) else f"  {name}: {value}")
+    return 0
+
+
 def cmd_experiment(args: argparse.Namespace, config: AppConfig) -> int:
     vector_store = None if args.reindex else create_vector_store(config)
     needs_index = args.reindex or not vector_store.exists()
@@ -423,6 +514,55 @@ def make_embedding_provider(config: AppConfig, payload: dict[str, Any] | None = 
 
 def make_retrieval_strategy(config: AppConfig, provider: Any, vector_store: Any):
     return RetrievalStrategyFactory().create(config.search.strategy, config, provider, vector_store)
+
+
+def indexing_hypotheses(config: AppConfig, names: list[str] | None = None):
+    selected_names = set(names or [])
+    return [
+        hypothesis
+        for hypothesis in config.experiments.hypotheses
+        if not selected_names or hypothesis.name in selected_names
+        if "code_diver_index_selected" in resolve_hypothesis_tools(config, hypothesis.name)
+    ]
+
+
+def resolve_hypothesis_tools(config: AppConfig, hypothesis_name: str) -> list[str]:
+    hypothesis = next(
+        (candidate for candidate in config.experiments.hypotheses if candidate.name == hypothesis_name),
+        None,
+    )
+    if hypothesis is None:
+        return []
+    if hypothesis.tools:
+        return hypothesis.tools
+    if hypothesis.toolset:
+        return config.pi.toolsets.get(hypothesis.toolset, [])
+    return config.pi.tools
+
+
+def config_for_indexing_hypothesis(config: AppConfig, hypothesis_name: str, run_id: str) -> AppConfig:
+    qdrant = replace(
+        config.storage.qdrant,
+        collection=f"{config.storage.qdrant.collection}_{hypothesis_name}_{run_id}",
+    )
+    return replace(config, storage=replace(config.storage, qdrant=qdrant))
+
+
+def indexing_hypothesis_log_path(config: AppConfig, hypothesis_name: str, run_id: str) -> Path:
+    base = config.trace.artifact.parent if config.trace.artifact else Path(".code-diver/traces")
+    return base / "orchestrator-indexing" / run_id / f"{hypothesis_name}.jsonl"
+
+
+def indexing_hypothesis_prompt(hypothesis_name: str, cases: list[Any]) -> str:
+    queries = "\n".join(f"- {case.query}" for case in cases)
+    return (
+        f"Evaluate indexing hypothesis `{hypothesis_name}`. Build a compact selected index for this repository "
+        "using only the available tools. Use code_diver_index_selected exactly once after inspection. "
+        "Index up to 30 high-value ranges that should help later retrieval for these task-style queries. "
+        "Do not include expected file paths unless you discovered them with tools. Queries:\n"
+        f"{queries}\n"
+        "Final answer: one short line with the number of indexed ranges."
+    )
 
 
 def make_metrics_repository(config: AppConfig) -> ClickHouseMetricsRepository:
