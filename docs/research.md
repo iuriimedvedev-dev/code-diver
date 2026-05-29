@@ -11,6 +11,8 @@ The current implementation is intentionally inspectable, but it is still a basel
 - `indexing.mode: scanner` means the container baseline does not ask the AI orchestrator to plan the index.
 - `indexing.mode: orchestrated` asks the generation provider for include/exclude/chunk sizing from repo tree, aggregate stats, and sample paths only. It does not send source contents to the model.
 - Indexing traces are now first-class config via `trace.*`; JSONL trace includes AI index prompt/response/selected plan, selected scanner config, item counts, embedding concurrency, provider/model/dimensions, and vector counts.
+- Deterministic GraphRAG now includes same-file, bounded import, lexical reference, containment, and Python AST call edges. Import edges are bounded to file representatives so imports do not explode across every chunk pair.
+- Gemini defaults now use `gemini-3.5-flash` for orchestration and `gemini-embedding-2` for embeddings. The embedding provider handles Embedding 2's no-`task_type` contract and creates separate `Content` objects for batch document embeddings.
 
 This explains the weak metrics: we are measuring line-window chunks and a hash embedding baseline against repo-level questions. That is useful as a control group, but not a competitive code RAG system.
 
@@ -28,12 +30,18 @@ Dataset: `datasets/protogen_eval.jsonl`, 10 repository-location cases, `limit=10
 | `configs/protogen-symbols.yml` | hybrid line+symbol chunks, hash embeddings | 8842 | recursive | 0.50 | 0.298 | Best recursive run so far, still below baseline vector hit rate. |
 | `configs/protogen-symbols.yml` | hybrid line+symbol chunks, hash embeddings | 8842 | graph | 0.30 | 0.250 | Reference graph needs better reranking. |
 | `configs/protogen-orchestrated-hash.yml` | Gemini index plan + symbol replacement, hash embeddings | 6975 | orchestrated | 0.40 | 0.242 | Query planning worked, but symbol replacement hurt. |
+| `configs/protogen-symbols.yml` | hybrid line+symbol + AST graph, hash embeddings | 8842 | vector | 0.30 | 0.250 | Control after AST graph change; unchanged. |
+| `configs/protogen-symbols.yml` | hybrid line+symbol + AST graph, hash embeddings | 8842 | recursive | 0.50 | 0.298 | Still the best hash run. |
+| `configs/protogen-symbols.yml` | hybrid line+symbol + AST graph, hash embeddings | 8842 | graph | 0.30 | 0.220 | Faster after bounded imports, but quality still needs rerank/path boosts. |
 
 Important trace findings:
 
 - The first AI index plan replaced source include patterns with broad eval/tooling patterns, producing only 371 indexed items and `hit@10=0.10`. The trace made the failure obvious.
 - Include patterns from AI are now additive and guarded. Hidden/tool-state additions are rejected, and broad additions that match too many files are rejected.
 - Gemini consistently prefers `symbol_chunks=true` for this repo. With hash embeddings, symbol granularity alone is not enough; we need hybrid retrieval and reranking.
+- A live `gemini-3.5-flash` orchestration smoke reached the API but hit capacity/deadline errors; the configured fallback chain returned JSON successfully. `gemini-embedding-2` returned 768-dimensional document and query vectors.
+- A live orchestrated evaluation loop exposed latency risk: query-plan calls on `gemini-3.5-flash` sometimes took 40-50 seconds. We added a 20s generation timeout guard; evaluation should not depend on unbounded live orchestration.
+- AST GraphRAG initially produced 671,857 edges and a 177MB graph artifact because imports linked every source chunk to every imported target chunk. Bounded import representatives reduced this to 161,681 edges and a 60MB graph artifact.
 - The next useful hypothesis is not "symbols vs chunks"; it is "file chunks + symbols + lexical/path boosts + rerank".
 
 ## Current Design Hypotheses
@@ -63,7 +71,7 @@ Vector search captures topical similarity, but code questions often need depende
 Initial graph shape:
 
 - nodes: indexed `CodeItem`s;
-- edges: same-file adjacency and import relationships;
+- edges: same-file adjacency, bounded imports, lexical references, containment, and Python AST calls;
 - retrieval: vector seeds first, then bounded graph expansion.
 
 This is deliberately cheap and deterministic. The next quality step should be AST/LSP/SCIP edges, not LLM-extracted knowledge graphs.
@@ -72,6 +80,7 @@ Implementation in this repo:
 
 - `search.strategy: graph`
 - `graph.artifact`
+- `graph.ast_enabled`
 - `graph.expansion_depth`
 - `graph.neighbor_limit`
 

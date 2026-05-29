@@ -14,8 +14,8 @@ Secrets can also live in `.env`; the CLI loads it before creating providers. `.e
 
 Gemini-backed defaults:
 
-- Pi/generation model: `gemini-3-flash-preview`
-- embedding model: `gemini-embedding-001`
+- Pi/generation model: `gemini-3.5-flash`
+- embedding model: `gemini-embedding-2`
 - embedding dimensions: `768`
 
 Configuration lives in `code-diver.yml`. For local, reproducible experiments without an API key, set:
@@ -95,17 +95,20 @@ Provider selection is config-driven:
 ```yaml
 generation:
   provider: gemini # or openai
-  model: gemini-3-flash-preview
+  model: gemini-3.5-flash
+  timeout_ms: 20000
 
 embedding:
   provider: gemini # openai or hash also supported
-  model: gemini-embedding-001
+  model: gemini-embedding-2
   batch_size: 32
   workers: 1
   max_input_chars:
 ```
 
 For OpenAI, set `OPENAI_API_KEY` and use `generation.provider: openai` plus `embedding.provider: openai`. Defaults are `gpt-5.1` and `text-embedding-3-large`.
+
+Gemini Embedding 2 is not wire-compatible with `gemini-embedding-001`: existing Gemini embedding artifacts must be rebuilt after switching models.
 
 For local embeddings on Apple Silicon, start an OpenAI-compatible local embedding server and use `configs/protogen-ollama.yml`. This keeps Gemini as the orchestration model while embeddings run locally through Ollama on `http://localhost:11434/v1`. `configs/protogen-local.yml` is kept for fully local LM Studio experiments on `http://localhost:1234/v1`.
 
@@ -160,6 +163,8 @@ docker compose -f ops/runtime/docker-compose.yml run --rm code-diver index
 - `code_diver_tree`
 - `code_diver_grep`
 - `code_diver_rg`
+- `code_diver_read`
+- `code_diver_symbols`
 
 Pi arguments and the active tool allowlist are configured in `code-diver.yml`:
 
@@ -169,7 +174,7 @@ pi:
   extension: .pi/extensions/code-diver-rag.ts
   prompt_template: .pi/prompts/code-diver-rag.md
   provider: google
-  model: gemini-3-flash-preview
+  model: gemini-3.5-flash
   tools:
     - code_diver_search
 ```
