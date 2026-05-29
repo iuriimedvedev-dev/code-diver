@@ -49,6 +49,9 @@ Dataset: `datasets/protogen_eval.jsonl`, 10 repository-location cases, `limit=10
 | `configs/protogen-ollama-qdrant.yml` | local `mxbai-embed-large` + embedded Qdrant | line+symbol+AST graph | vector | 8246 | 0.90 | 0.663 | 0.310 | 0.900 | 0.4s |
 | `configs/protogen-ollama-qdrant.yml` | local `mxbai-embed-large` + embedded Qdrant | line+symbol+AST graph | recursive | 8246 | 0.90 | 0.612 | 0.310 | 0.850 | 1.4s |
 | `configs/protogen-ollama-qdrant.yml` | local `mxbai-embed-large` + embedded Qdrant | line+symbol+AST graph | graph | 8246 | 0.90 | 0.663 | 0.310 | 0.900 | 3.8s |
+| `configs/protogen-vertex-smoke.yml` | Vertex `gemini-embedding-2` | selected-file smoke index | vector | 603 | 0.70 | 0.700 | 0.470 | 0.700 | 6.5s |
+| `configs/protogen-vertex-smoke.yml` | Vertex `gemini-embedding-2` | selected-file smoke index | recursive | 603 | 0.70 | 0.700 | 0.492 | 0.700 | 30.7s |
+| `configs/protogen-vertex-smoke.yml` | Vertex `gemini-embedding-2` | selected-file smoke index | graph | 603 | 0.70 | 0.700 | 0.470 | 0.700 | 6.3s |
 
 `n/a` means the older run was recorded before full metric output was documented.
 
@@ -56,7 +59,7 @@ Dataset: `datasets/protogen_eval.jsonl`, 10 repository-location cases, `limit=10
 
 Based on current measured retrieval metrics, the local Ollama embedding model is better than the hash baseline by a large margin on `../protogen`: `hit@10` improves to `0.90`, and `mrr@10` improves to `0.663`.
 
-This does not yet prove local embeddings are better than Gemini/Vertex embeddings. The Gemini Embedding 2 and Vertex providers are wired and smoke-tested where credentials allow, but a full API embedding evaluation is still pending because Vertex ADC needs reauthentication and full Gemini API embedding runs cost network time/quota.
+This does not yet prove local embeddings are better than Gemini/Vertex embeddings. Vertex now works through refreshed ADC, but the recorded Vertex run is a selected-file smoke index, not a full-repository benchmark. Full Vertex indexing is possible, but `gemini-embedding-2` on Vertex currently behaves as one-content-per-request in our SDK path, so a full 8k-item run needs explicit cost/time budgeting or more aggressive parallelism.
 
 Practical conclusion right now:
 

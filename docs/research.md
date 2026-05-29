@@ -39,6 +39,7 @@ Dataset: `datasets/protogen_eval.jsonl`, 10 repository-location cases, `limit=10
 | `configs/protogen-ollama-qdrant.yml` | local mxbai-embed-large + embedded Qdrant | 8246 | vector | 0.90 | 0.663 | Same quality as JSON, 0.4s eval instead of 14.4s. |
 | `configs/protogen-ollama-qdrant.yml` | local mxbai-embed-large + embedded Qdrant | 8246 | recursive | 0.90 | 0.612 | 1.4s eval instead of 57.9s. |
 | `configs/protogen-ollama-qdrant.yml` | local mxbai-embed-large + embedded Qdrant | 8246 | graph | 0.90 | 0.663 | 3.8s eval; graph expansion still not improving ranking. |
+| `configs/protogen-vertex-smoke.yml` | Vertex gemini-embedding-2 selected-file smoke index | 603 | vector | 0.70 | 0.700 | End-to-end Vertex provider works through ADC; not comparable to full-repo runs. |
 
 Important trace findings:
 
@@ -46,7 +47,8 @@ Important trace findings:
 - Include patterns from AI are now additive and guarded. Hidden/tool-state additions are rejected, and broad additions that match too many files are rejected.
 - Gemini consistently prefers `symbol_chunks=true` for this repo. With hash embeddings, symbol granularity alone is not enough; we need hybrid retrieval and reranking.
 - A live `gemini-3.5-flash` orchestration smoke reached the API but hit capacity/deadline errors; the configured fallback chain returned JSON successfully. `gemini-embedding-2` returned 768-dimensional document and query vectors.
-- Vertex provider was implemented with the current `google-genai` Vertex path. Live test could not complete with current local credentials: ADC requires reauthentication, and `GEMINI_API_KEY` is not accepted by the Vertex `aiplatform.googleapis.com` prediction API.
+- Vertex provider was implemented with the current `google-genai` Vertex path. `GEMINI_API_KEY` is valid for Gemini Developer API but not accepted by Vertex `aiplatform.googleapis.com`; refreshed ADC works. Vertex generation smoke returned JSON in about 2.7s, and Vertex embedding smoke returned 768-dimensional vectors in about 1.6s.
+- Full Vertex indexing was stopped after the planner succeeded because embedding 8842 items would take too long with the current one-content-per-request Vertex embedding path. A bounded Vertex smoke index over 603 items completed and produced `hit@10=0.70`, `MRR@10=0.70`.
 - A live orchestrated evaluation loop exposed latency risk: query-plan calls on `gemini-3.5-flash` sometimes took 40-50 seconds. We added a 20s generation timeout guard; evaluation should not depend on unbounded live orchestration.
 - AST GraphRAG initially produced 671,857 edges and a 177MB graph artifact because imports linked every source chunk to every imported target chunk. Bounded import representatives reduced this to 161,681 edges and a 60MB graph artifact.
 - Local Ollama `mxbai-embed-large` embeddings are currently the best measured option on this dataset. Moving them from JSON brute-force search to embedded Qdrant preserved quality and reduced vector evaluation from 14.4s to 0.4s.

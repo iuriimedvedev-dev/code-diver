@@ -1,5 +1,5 @@
 root: ../protogen
-artifact: .code-diver/protogen-vertex-index.json
+artifact: .code-diver/protogen-vertex-smoke-index.json
 
 storage:
   provider: json
@@ -10,11 +10,11 @@ embedding:
   dimensions: 768
   project: "236777862453"
   location: global
-  batch_size: 4
-  workers: 1
-  max_input_chars:
+  batch_size: 1
+  workers: 4
+  max_input_chars: 1200
   retry_attempts: 3
-  retry_delay_seconds: 20
+  retry_delay_seconds: 10
 
 generation:
   provider: vertex
@@ -25,54 +25,34 @@ generation:
   project: "236777862453"
   location: global
   temperature: 0
-  thinking_budget: 1024
+  thinking_budget: 512
   api_version: v1
   timeout_ms: 20000
 
 indexing:
-  mode: orchestrated
-  ai:
-    tree_depth: 4
-    tree_limit: 800
+  mode: scanner
 
 scanner:
   include:
-    - README.md
-    - pyproject.toml
-    - Dockerfile
-    - docker-compose*.yml
-    - src/*.py
-    - src/**/*.py
-    - evals/*.yaml
-    - scripts/*.py
+    - src/main.py
+    - src/sessions/service.py
+    - src/services/pipeline_service.py
+    - src/arena/service.py
+    - src/arena/runner.py
+    - src/arena/evaluator.py
+    - src/metrics/collector.py
     - frontend/package.json
+    - evals/*.yaml
   exclude:
-    - .claude/**
-    - .codex/**
-    - .opencode/**
-    - frontend/node_modules/**
-    - generated/**
-    - htmlcov/**
-    - logs/**
-    - workspaces/**
-    - src/app/**
-    - src/templates/**
-    - src/tests/**
-    - src/themes/**
-    - test_generated/**
-    - test_codex_cli/**
-    - "*.db"
-    - "*.history*"
-    - "*.png"
     - ".env*"
   max_file_bytes: 500000
-  chunk_lines: 180
+  chunk_lines: 120
   symbol_chunks: true
 
 search:
   limit: 10
   preview_lines: 10
-  strategy: orchestrated
+  strategy: vector
 
 recursive_search:
   rounds: 2
@@ -81,14 +61,14 @@ recursive_search:
 
 graph:
   enabled: true
-  artifact: .code-diver/protogen-vertex-graph.json
+  artifact: .code-diver/protogen-vertex-smoke-graph.json
   ast_enabled: true
   expansion_depth: 1
   neighbor_limit: 20
 
 trace:
   enabled: true
-  artifact: .code-diver/traces/protogen-vertex-indexing.jsonl
+  artifact: .code-diver/traces/protogen-vertex-smoke-indexing.jsonl
   include_prompts: true
 
 evaluation:
@@ -96,9 +76,8 @@ evaluation:
   limit: 10
 
 experiments:
-  suite: protogen-vertex
+  suite: protogen-vertex-smoke
   strategies:
-    - orchestrated
     - vector
     - recursive
     - graph
