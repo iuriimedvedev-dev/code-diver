@@ -96,6 +96,8 @@ class ConfigLoader:
             model=mapping.get("model", Defaults.EMBEDDING_MODEL),
             dimensions=self._optional_int(mapping.get("dimensions", Defaults.EMBEDDING_DIMENSIONS)),
             api_key=mapping.get("api_key"),
+            project=mapping.get("project"),
+            location=mapping.get("location"),
             url=mapping.get("url"),
             batch_size=int(mapping.get("batch_size", Defaults.EMBEDDING_BATCH_SIZE)),
             workers=int(mapping.get("workers", Defaults.EMBEDDING_WORKERS)),
@@ -112,6 +114,8 @@ class ConfigLoader:
             fallback_models=self._string_list(mapping.get("fallback_models"))
             or list(Defaults.GENERATION_FALLBACK_MODELS),
             api_key=mapping.get("api_key"),
+            project=mapping.get("project"),
+            location=mapping.get("location"),
             url=mapping.get("url"),
             temperature=float(mapping.get("temperature", Defaults.GENERATION_TEMPERATURE)),
             thinking_budget=self._optional_int(mapping.get("thinking_budget", Defaults.GENERATION_THINKING_BUDGET)),

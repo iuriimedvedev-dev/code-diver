@@ -8,6 +8,7 @@ class EmbeddingProviderId(StrEnum):
     HASH = "hash"
     OPENAI = "openai"
     OPENAI_COMPATIBLE = "openai_compatible"
+    VERTEX = "vertex"
 
 
 class VectorStoreProviderId(StrEnum):

@@ -23,3 +23,13 @@ def test_qdrant_vector_store_searches_in_memory_collection(tmp_path) -> None:
     assert store.metadata()["model"] == "test"
     results = store.search([1.0, 0.0], limit=1)
     assert results[0].item.path == "auth.py"
+
+
+def test_qdrant_vector_store_searches_embedded_path_collection(tmp_path) -> None:
+    store = QdrantVectorStore(location=str(tmp_path / "qdrant"), collection="test_code_diver_path")
+    items = [CodeItem(id="auth.py#1", path="auth.py", title="auth", content="authenticate user")]
+
+    store.save(root=tmp_path, provider="hash", model="test", dimensions=2, items=items, vectors=[[1.0, 0.0]])
+
+    assert store.exists()
+    assert store.search([1.0, 0.0], limit=1)[0].item.path == "auth.py"

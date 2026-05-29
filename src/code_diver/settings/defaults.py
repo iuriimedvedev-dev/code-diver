@@ -44,6 +44,8 @@ class Defaults:
     GENERATION_THINKING_BUDGET = 1024
     GENERATION_API_VERSION = "v1alpha"
     GENERATION_TIMEOUT_MS = 20_000
+    VERTEX_PROVIDER = "vertex"
+    VERTEX_LOCATION = "global"
     OPENAI_GENERATION_MODEL = "gpt-5.1"
     OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
     OPENAI_CHAT_COMPLETIONS_URL = "https://api.openai.com/v1/chat/completions"

@@ -6,6 +6,7 @@ from .gemini_embedding_provider import GeminiEmbeddingProvider
 from .hash_embedding_provider import HashEmbeddingProvider
 from .openai_compatible_embedding_provider import OpenAICompatibleEmbeddingProvider
 from .openai_embedding_provider import OpenAIEmbeddingProvider
+from .vertex_embedding_provider import VertexEmbeddingProvider
 
 
 def create_embedding_provider(
@@ -14,6 +15,8 @@ def create_embedding_provider(
     dimensions: int | None = None,
     api_key: str | None = None,
     url: str | None = None,
+    project: str | None = None,
+    location: str | None = None,
     batch_size: int = 32,
     retry_attempts: int = Defaults.EMBEDDING_RETRY_ATTEMPTS,
     retry_delay_seconds: float = Defaults.EMBEDDING_RETRY_DELAY_SECONDS,
@@ -26,6 +29,17 @@ def create_embedding_provider(
             model=model or Defaults.EMBEDDING_MODEL,
             dimensions=dimensions or Defaults.EMBEDDING_DIMENSIONS,
             api_key=api_key,
+            batch_size=batch_size,
+            retry_attempts=retry_attempts,
+            retry_delay_seconds=retry_delay_seconds,
+        )
+    if provider_id is EmbeddingProviderId.VERTEX:
+        return VertexEmbeddingProvider(
+            model=model or Defaults.EMBEDDING_MODEL,
+            dimensions=dimensions or Defaults.EMBEDDING_DIMENSIONS,
+            api_key=api_key,
+            project=project,
+            location=location,
             batch_size=batch_size,
             retry_attempts=retry_attempts,
             retry_delay_seconds=retry_delay_seconds,

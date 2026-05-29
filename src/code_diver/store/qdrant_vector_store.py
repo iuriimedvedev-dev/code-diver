@@ -28,8 +28,10 @@ class QdrantVectorStore(VectorStore):
 
         resolved_key = api_key or (os.environ.get(api_key_env) if api_key_env else None)
         resolved_key = resolved_key.strip() if resolved_key else None
-        if location:
+        if location == ":memory:":
             self.client = QdrantClient(location=location)
+        elif location:
+            self.client = QdrantClient(path=location)
         else:
             self.client = QdrantClient(url=url, api_key=resolved_key)
         self.collection = collection
@@ -99,6 +101,11 @@ class QdrantVectorStore(VectorStore):
             SearchResult(item=CodeItem.from_json((point.payload or {})[SchemaKey.ITEM.value]), score=float(point.score))
             for point in response.points
         ]
+
+    def close(self) -> None:
+        close = getattr(self.client, "close", None)
+        if callable(close):
+            close()
 
     def _point_id(self, item_id: str) -> str:
         return uuid.uuid5(uuid.NAMESPACE_URL, item_id).hex

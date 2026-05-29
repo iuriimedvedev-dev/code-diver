@@ -6,6 +6,7 @@ from .generation_provider import GenerationProvider
 from .gemini_generation_provider import GeminiGenerationProvider
 from .openai_compatible_generation_provider import OpenAICompatibleGenerationProvider
 from .openai_generation_provider import OpenAIGenerationProvider
+from .vertex_generation_provider import VertexGenerationProvider
 
 
 def create_generation_provider(config: AppConfig) -> GenerationProvider:
@@ -18,6 +19,18 @@ def create_generation_provider(config: AppConfig) -> GenerationProvider:
             temperature=generation.temperature,
             thinking_budget=generation.thinking_budget,
             api_version=generation.api_version,
+            timeout_ms=generation.timeout_ms,
+        )
+    if generation.provider == Defaults.VERTEX_PROVIDER:
+        return VertexGenerationProvider(
+            model=generation.model,
+            fallback_models=generation.fallback_models,
+            api_key=generation.api_key,
+            project=generation.project,
+            location=generation.location,
+            temperature=generation.temperature,
+            thinking_budget=generation.thinking_budget,
+            api_version=generation.api_version or "v1",
             timeout_ms=generation.timeout_ms,
         )
     if generation.provider == "openai":

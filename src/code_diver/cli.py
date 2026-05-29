@@ -129,7 +129,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 def cmd_index(_: argparse.Namespace, config: AppConfig) -> int:
     provider = make_embedding_provider(config)
-    items = make_indexing_service(config).build(
+    indexing_service = make_indexing_service(config)
+    items = indexing_service.build(
         root=config.root,
         provider=provider,
         plugin_config={"config": config},
@@ -146,6 +147,7 @@ def cmd_index(_: argparse.Namespace, config: AppConfig) -> int:
         f"Indexed {len(items)} items -> {store_label(config)} "
         f"({provider.name}, model={provider.model}, dimensions={provider.dimensions})"
     )
+    close_vector_store(indexing_service.vector_store)
     return 0
 
 
@@ -244,8 +246,11 @@ def cmd_evaluate(args: argparse.Namespace, config: AppConfig) -> int:
 
 
 def cmd_experiment(args: argparse.Namespace, config: AppConfig) -> int:
-    vector_store = create_vector_store(config)
-    if args.reindex or not vector_store.exists():
+    vector_store = None if args.reindex else create_vector_store(config)
+    needs_index = args.reindex or not vector_store.exists()
+    if needs_index:
+        if vector_store is not None:
+            close_vector_store(vector_store)
         cmd_index(args, config)
         vector_store = create_vector_store(config)
 
@@ -348,6 +353,8 @@ def make_embedding_provider(config: AppConfig, payload: dict[str, Any] | None = 
         dimensions=int(dimensions) if dimensions else None,
         api_key=embedding.api_key,
         url=embedding.url,
+        project=embedding.project,
+        location=embedding.location,
         batch_size=embedding.batch_size,
         retry_attempts=embedding.retry_attempts,
         retry_delay_seconds=embedding.retry_delay_seconds,
@@ -383,6 +390,12 @@ def store_label(config: AppConfig) -> str:
     if provider == VectorStoreProviderId.QDRANT.value:
         return f"{provider}:{config.storage.qdrant.collection}"
     return str(config.artifact)
+
+
+def close_vector_store(vector_store: Any) -> None:
+    close = getattr(vector_store, "close", None)
+    if callable(close):
+        close()
 
 
 def result_to_json(result: SearchResult) -> dict[str, Any]:

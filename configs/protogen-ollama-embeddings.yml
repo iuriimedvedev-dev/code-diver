@@ -1,0 +1,90 @@
+root: ../protogen
+artifact: .code-diver/protogen-ollama-embeddings-index.json
+
+storage:
+  provider: json
+
+embedding:
+  provider: openai_compatible
+  model: mxbai-embed-large
+  dimensions:
+  url: http://127.0.0.1:11434/v1/embeddings
+  api_key: ollama
+  batch_size: 1
+  workers: 4
+  max_input_chars: 400
+
+indexing:
+  mode: scanner
+
+scanner:
+  include:
+    - README.md
+    - pyproject.toml
+    - Dockerfile
+    - docker-compose*.yml
+    - src/*.py
+    - src/**/*.py
+    - evals/*.yaml
+    - scripts/*.py
+    - frontend/package.json
+  exclude:
+    - .claude/**
+    - .codex/**
+    - .opencode/**
+    - frontend/node_modules/**
+    - generated/**
+    - htmlcov/**
+    - logs/**
+    - workspaces/**
+    - src/app/**
+    - src/templates/**
+    - src/tests/**
+    - src/themes/**
+    - test_generated/**
+    - test_codex_cli/**
+    - "*.db"
+    - "*.history*"
+    - "*.png"
+    - ".env*"
+  max_file_bytes: 500000
+  chunk_lines: 180
+  symbol_chunks: true
+
+search:
+  limit: 10
+  preview_lines: 10
+  strategy: vector
+
+recursive_search:
+  rounds: 2
+  branch_limit: 3
+  limit: 5
+
+graph:
+  enabled: true
+  artifact: .code-diver/protogen-ollama-embeddings-graph.json
+  ast_enabled: true
+  expansion_depth: 1
+  neighbor_limit: 20
+
+trace:
+  enabled: true
+  artifact: .code-diver/traces/protogen-ollama-embeddings-indexing.jsonl
+  include_prompts: true
+
+evaluation:
+  dataset: datasets/protogen_eval.jsonl
+  limit: 10
+
+experiments:
+  suite: protogen-ollama-embeddings
+  strategies:
+    - vector
+    - recursive
+    - graph
+
+metrics:
+  enabled: false
+
+plugins: []

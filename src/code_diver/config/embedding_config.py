@@ -11,6 +11,8 @@ class EmbeddingConfig:
     model: str | None = Defaults.EMBEDDING_MODEL
     dimensions: int | None = Defaults.EMBEDDING_DIMENSIONS
     api_key: str | None = None
+    project: str | None = None
+    location: str | None = None
     url: str | None = None
     batch_size: int = Defaults.EMBEDDING_BATCH_SIZE
     workers: int = Defaults.EMBEDDING_WORKERS

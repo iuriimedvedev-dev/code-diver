@@ -59,11 +59,14 @@ class IndexingService:
             workers=self.options.embedding_workers,
             on_batch_complete=self._progress_callback(len(texts)),
         ).embed_documents(texts)
+        dimensions = provider.dimensions or (len(vectors[0]) if vectors else 0)
+        if not provider.dimensions and dimensions:
+            provider.dimensions = dimensions
         self.vector_store.save(
             root=root,
             provider=provider.name,
             model=provider.model,
-            dimensions=provider.dimensions,
+            dimensions=dimensions,
             items=items,
             vectors=vectors,
         )
@@ -73,7 +76,7 @@ class IndexingService:
                 "root": root,
                 "provider": provider.name,
                 "model": provider.model,
-                "dimensions": provider.dimensions,
+                "dimensions": dimensions,
                 "vectors": len(vectors),
             },
         )
