@@ -49,6 +49,7 @@ pi:
 scanner:
   include: ["*.py"]
   chunk_lines: 10
+  symbol_chunks: true
 search:
   strategy: recursive
   limit: 7
@@ -117,6 +118,7 @@ plugins:
     assert config.pi.tools == ["read", "code_diver_search"]
     assert config.scanner.include == ["*.py"]
     assert config.scanner.chunk_lines == 10
+    assert config.scanner.symbol_chunks is True
     assert config.search.strategy == "recursive"
     assert config.search.limit == 7
     assert config.recursive_search.rounds == 3

@@ -5,6 +5,7 @@ from pathlib import Path
 
 from ..inspection import TreeService
 from ..services import CodebaseScanner
+from ..services import CodeSymbolExtractor
 
 
 class RepositoryInventory:
@@ -28,5 +29,24 @@ class RepositoryInventory:
                 "top_dirs: " + ", ".join(f"{directory}={count}" for directory, count in top_dirs.most_common(20)),
                 "sample_paths:",
                 "\n".join(paths[:200]),
+                "symbol_samples:",
+                self._symbol_samples(root, paths, limit=160) or "(none)",
             ]
         )
+
+    def _symbol_samples(self, root: Path, paths: list[str], limit: int) -> str:
+        extractor = CodeSymbolExtractor()
+        rows: list[str] = []
+        for rel_path in paths:
+            path = root / rel_path
+            if path.suffix.lower() not in {".go", ".java", ".js", ".jsx", ".kt", ".py", ".rs", ".ts", ".tsx"}:
+                continue
+            try:
+                text = path.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            for symbol in extractor.extract(rel_path, text):
+                rows.append(f"{rel_path}:{symbol.start_line}: {symbol.kind} {symbol.name} - {symbol.signature}")
+                if len(rows) >= limit:
+                    return "\n".join(rows)
+        return "\n".join(rows)

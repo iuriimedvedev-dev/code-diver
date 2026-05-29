@@ -158,6 +158,7 @@ class ConfigLoader:
             exclude=self._string_list(mapping.get("exclude")),
             max_file_bytes=int(mapping.get("max_file_bytes", Defaults.MAX_FILE_BYTES)),
             chunk_lines=int(mapping.get("chunk_lines", Defaults.CHUNK_LINES)),
+            symbol_chunks=bool(mapping.get("symbol_chunks", Defaults.SYMBOL_CHUNKS)),
         )
 
     def _search(self, data: Any) -> SearchConfig:

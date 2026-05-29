@@ -32,3 +32,26 @@ def test_scanner_skips_binary_and_excluded_paths(tmp_path: Path) -> None:
     items = CodebaseScanner(include=["*.py"], exclude=["skip.py", "generated/**"]).scan(tmp_path)
 
     assert [item.path for item in items] == ["keep.py"]
+
+
+def test_scanner_can_chunk_python_symbols(tmp_path: Path) -> None:
+    (tmp_path / "app.py").write_text(
+        """
+class UserService:
+    def create_user(self):
+        return "created"
+
+def build_app():
+    return UserService()
+""".strip(),
+        encoding="utf-8",
+    )
+
+    items = CodebaseScanner(include=["*.py"], symbol_chunks=True).scan(tmp_path)
+
+    titles = {item.title for item in items}
+    assert "app.py" in titles
+    assert "app.py::UserService" in titles
+    assert "app.py::UserService.create_user" in titles
+    assert "app.py::build_app" in titles
+    assert all(item.metadata["source"] == "scanner" for item in items)

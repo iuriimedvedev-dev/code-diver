@@ -25,6 +25,8 @@ class ExperimentMetricsMapper:
             "artifact": str(config.artifact),
             "embedding_provider": config.embedding.provider,
             "embedding_model": config.embedding.model,
+            "indexing_mode": config.indexing.mode,
+            "scanner_symbol_chunks": config.scanner.symbol_chunks,
             "storage_provider": config.storage.provider,
         }
         metric_rows: list[MetricRow] = []

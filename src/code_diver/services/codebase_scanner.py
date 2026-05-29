@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 
 from ..domain import CodeItem
+from .code_symbol_extractor import CodeSymbolExtractor
 
 DEFAULT_EXCLUDES = (
     ".git/**",
@@ -67,11 +68,15 @@ class CodebaseScanner:
         exclude: list[str] | None = None,
         max_file_bytes: int = 1_000_000,
         chunk_lines: int = 120,
+        symbol_chunks: bool = False,
+        symbol_extractor: CodeSymbolExtractor | None = None,
     ):
         self.include = include or []
         self.exclude = [*DEFAULT_EXCLUDES, *(exclude or [])]
         self.max_file_bytes = max_file_bytes
         self.chunk_lines = chunk_lines
+        self.symbol_chunks = symbol_chunks
+        self.symbol_extractor = symbol_extractor or CodeSymbolExtractor()
 
     def scan(self, root: Path) -> list[CodeItem]:
         root = root.resolve()
@@ -91,8 +96,14 @@ class CodebaseScanner:
                 text = self._read_text(path)
                 if text is None or not text.strip():
                     continue
-                items.extend(self._chunk_file(rel_path, text))
+                items.extend(self._items_for_file(rel_path, text))
         return items
+
+    def _items_for_file(self, rel_path: str, text: str) -> list[CodeItem]:
+        if not self.symbol_chunks:
+            return self._chunk_file(rel_path, text)
+        symbol_items = self._symbol_items(rel_path, text)
+        return [*self._chunk_file(rel_path, text), *symbol_items]
 
     def _should_skip_file(self, path: Path, rel_path: str) -> bool:
         if self._matches_any(rel_path, self.exclude):
@@ -150,6 +161,34 @@ class CodebaseScanner:
                 )
             )
         return chunks
+
+    def _symbol_items(self, rel_path: str, text: str) -> list[CodeItem]:
+        lines = text.splitlines()
+        items: list[CodeItem] = []
+        for symbol in self.symbol_extractor.extract(rel_path, text):
+            start_line = max(symbol.start_line, 1)
+            end_line = min(max(symbol.end_line, start_line), len(lines))
+            body = "\n".join(lines[start_line - 1 : end_line])
+            digest = hashlib.sha1(f"{rel_path}:{symbol.name}:{start_line}:{end_line}".encode("utf-8")).hexdigest()[:12]
+            items.append(
+                CodeItem(
+                    id=f"{rel_path}::{symbol.name}#{digest}",
+                    path=rel_path,
+                    title=f"{rel_path}::{symbol.name}",
+                    content="\n".join(
+                        [
+                            f"symbol: {symbol.kind} {symbol.name}",
+                            f"signature: {symbol.signature}",
+                            "",
+                            body,
+                        ]
+                    ),
+                    start_line=start_line,
+                    end_line=end_line,
+                    metadata={"source": "scanner", "kind": symbol.kind, "symbol": symbol.name},
+                )
+            )
+        return items
 
     def _matches_any(self, rel_path: str, patterns: list[str]) -> bool:
         return any(

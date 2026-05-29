@@ -23,9 +23,16 @@ class AiIndexPromptBuilder:
 
     def _instructions(self) -> str:
         return f"""
-You are building a high-quality semantic code index for retrieval.
-Select the most useful code items from the observations. Prefer real architectural units:
-entrypoints, public APIs, data models, configuration, dependency boundaries, workflows, tests, docs, and cross-cutting modules.
+You are building a high-quality semantic code index for an arbitrary repository.
+Treat the observations as outputs from read-only tools. Select compact, searchable index records that will help a later AI answer repository questions with minimal context.
+
+Prefer real architectural units:
+- entrypoints and command surfaces;
+- public APIs, services, workflows, and dependency boundaries;
+- domain/data models and configuration;
+- tests/evals/docs that explain intended behavior;
+- cross-cutting modules such as metrics, auth, storage, queues, and adapters.
+
 Return only JSON with this shape:
 {{
   "items": [
@@ -44,6 +51,8 @@ Rules:
 - Do not invent files or behavior.
 - Use relative paths exactly as shown.
 - Make summaries dense and query-oriented.
+- Include identifiers, external systems, protocols, framework names, and domain nouns that users might search for.
+- Prefer fewer high-signal records over many repetitive chunks.
 - Produce at most {self.config.max_items} items.
 """.strip()
 

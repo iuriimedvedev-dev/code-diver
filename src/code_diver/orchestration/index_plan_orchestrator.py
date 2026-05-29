@@ -7,8 +7,8 @@ from ..config import AppConfig
 from ..generation import GenerationProvider
 from ..services import CodebaseScanner
 from ..tracing import TraceLogger
+from .index_plan_prompt_builder import IndexPlanPromptBuilder
 from .json_response import JsonResponse
-from .repository_inventory import RepositoryInventory
 
 
 @dataclass(slots=True)
@@ -16,6 +16,7 @@ class IndexPlan:
     include: list[str] = field(default_factory=list)
     exclude: list[str] = field(default_factory=list)
     chunk_lines: int | None = None
+    symbol_chunks: bool | None = None
 
 
 class IndexPlanOrchestrator:
@@ -62,6 +63,7 @@ class IndexPlanOrchestrator:
             include=self._strings(payload.get("include")),
             exclude=self._strings(payload.get("exclude")),
             chunk_lines=self._optional_int(payload.get("chunk_lines")),
+            symbol_chunks=self._optional_bool(payload.get("symbol_chunks")),
         )
         self.trace_logger.write(
             "index_plan_selected",
@@ -69,36 +71,13 @@ class IndexPlanOrchestrator:
                 "include": plan.include,
                 "exclude": plan.exclude,
                 "chunk_lines": plan.chunk_lines,
+                "symbol_chunks": plan.symbol_chunks,
             },
         )
         return plan
 
     def _prompt(self, root: Path, config: AppConfig, scanner: CodebaseScanner) -> str:
-        inventory = RepositoryInventory(
-            scanner,
-            config.indexing.ai.tree_depth,
-            config.indexing.ai.tree_limit,
-        ).render(root)
-        return f"""
-You orchestrate codebase indexing. You do not read source code contents.
-Use only repository structure, file names, extensions, and aggregate inventory below.
-Return JSON only:
-{{
-  "include": ["glob patterns to index, empty means keep current config"],
-  "exclude": ["glob patterns to exclude in addition to current config"],
-  "chunk_lines": 120
-}}
-Goals:
-- Preserve broad coverage for an arbitrary repository and language stack.
-- Exclude caches, generated output, vendored dependencies, binary assets, and logs.
-- Keep enough source, docs, tests, config, and manifests for retrieval.
-
-Current include: {config.scanner.include}
-Current exclude: {config.scanner.exclude}
-Current chunk_lines: {config.scanner.chunk_lines}
-
-{inventory}
-""".strip()
+        return IndexPlanPromptBuilder().build(root, config, scanner)
 
     def _strings(self, value: object) -> list[str]:
         if not isinstance(value, list):
@@ -109,3 +88,10 @@ Current chunk_lines: {config.scanner.chunk_lines}
         if value is None or value == "":
             return None
         return int(value)
+
+    def _optional_bool(self, value: object) -> bool | None:
+        if value is None or value == "":
+            return None
+        if isinstance(value, bool):
+            return value
+        return str(value).strip().lower() in {"1", "true", "yes", "on"}

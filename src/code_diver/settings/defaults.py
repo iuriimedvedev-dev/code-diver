@@ -78,6 +78,7 @@ class Defaults:
 
     MAX_FILE_BYTES = 1_000_000
     CHUNK_LINES = 120
+    SYMBOL_CHUNKS = False
     SEARCH_LIMIT = 10
     PREVIEW_LINES = 8
     RECURSIVE_ROUNDS = 2

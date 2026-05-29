@@ -61,6 +61,7 @@ scanner:
     - ".env*"
   max_file_bytes: 500000
   chunk_lines: 180
+  symbol_chunks: true
 
 search:
   limit: 10

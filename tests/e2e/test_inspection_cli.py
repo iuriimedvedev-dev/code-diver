@@ -32,3 +32,13 @@ def test_inspection_cli_commands_are_read_only_and_gitignore_aware(tmp_path: Pat
     assert main(["--config", str(config), "rg", "target"]) == 0
     rg_output = capsys.readouterr().out
     assert "app.py:1" in rg_output
+
+    assert main(["--config", str(config), "symbols", "--path", "app.py"]) == 0
+    symbols_output = capsys.readouterr().out
+    assert "app.py:1: function target" in symbols_output
+    assert "ignored.py" not in symbols_output
+
+    assert main(["--config", str(config), "read", "app.py", "--start-line", "1", "--lines", "1"]) == 0
+    read_output = capsys.readouterr().out
+    assert "app.py:1-1" in read_output
+    assert "def target" in read_output

@@ -10,6 +10,7 @@ from .code_graph import CodeGraph
 from .graph_edge import GraphEdge
 
 TS_IMPORT_RE = re.compile(r"""from\s+['"]([^'"]+)['"]|import\s*\([^)]*['"]([^'"]+)['"][^)]*\)""")
+IDENTIFIER_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 
 class CodeGraphBuilder:
@@ -22,6 +23,7 @@ class CodeGraphBuilder:
         edges: list[GraphEdge] = []
         edges.extend(self._same_file_edges(by_path))
         edges.extend(self._import_edges(root, by_path))
+        edges.extend(self._reference_edges(items))
         return CodeGraph(items=by_id, edges=self._dedupe_edges(edges))
 
     def _same_file_edges(self, by_path: dict[str, list[CodeItem]]) -> list[GraphEdge]:
@@ -80,6 +82,35 @@ class CodeGraphBuilder:
                 else:
                     imports.update(self._python_module_to_paths(module))
         return imports
+
+    def _reference_edges(self, items: list[CodeItem]) -> list[GraphEdge]:
+        by_name: dict[str, list[CodeItem]] = {}
+        for item in items:
+            name = self._symbol_name(item)
+            if name and len(name) >= 3:
+                by_name.setdefault(name, []).append(item)
+        edges: list[GraphEdge] = []
+        for source in items:
+            tokens = set(IDENTIFIER_RE.findall(f"{source.title}\n{source.content}"))
+            for name in tokens.intersection(by_name):
+                for target in by_name[name]:
+                    if source.id == target.id:
+                        continue
+                    edges.append(
+                        GraphEdge(source=source.id, target=target.id, kind=EdgeKind.REFERENCES.value, weight=0.7)
+                    )
+                    break
+                if len(edges) > len(items) * 20:
+                    continue
+        return edges
+
+    def _symbol_name(self, item: CodeItem) -> str:
+        metadata_symbol = item.metadata.get("symbol") if isinstance(item.metadata, dict) else None
+        if metadata_symbol:
+            return str(metadata_symbol).split(".")[-1]
+        if "::" in item.title:
+            return item.title.rsplit("::", 1)[-1].split(".")[-1]
+        return ""
 
     def _python_module_to_paths(self, module: str) -> set[str]:
         module_path = module.replace(".", "/")

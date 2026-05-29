@@ -26,3 +26,25 @@ def test_code_graph_builder_creates_python_import_edges(tmp_path: Path) -> None:
         edge.source == "service" and edge.target == "repository" and edge.kind == EdgeKind.IMPORTS.value
         for edge in graph.edges
     )
+
+
+def test_code_graph_builder_creates_symbol_reference_edges(tmp_path: Path) -> None:
+    (tmp_path / "service.py").write_text("def register():\n    save_user()\n", encoding="utf-8")
+    (tmp_path / "repository.py").write_text("def save_user(): pass\n", encoding="utf-8")
+    items = [
+        CodeItem("service", "service.py", "service.py::register", "def register():\n    save_user()"),
+        CodeItem(
+            "repository",
+            "repository.py",
+            "repository.py::save_user",
+            "def save_user(): pass",
+            metadata={"symbol": "save_user"},
+        ),
+    ]
+
+    graph = CodeGraphBuilder().build(tmp_path, items)
+
+    assert any(
+        edge.source == "service" and edge.target == "repository" and edge.kind == EdgeKind.REFERENCES.value
+        for edge in graph.edges
+    )

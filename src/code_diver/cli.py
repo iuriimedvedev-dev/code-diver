@@ -14,7 +14,7 @@ from .env import EnvFileLoader
 from .experiments import ExperimentRunner
 from .generation import create_generation_provider
 from .graph import CodeGraphBuilder, CodeGraphStore
-from .inspection import GrepService, RgService, TreeService
+from .inspection import GrepService, ReadExcerptService, RgService, SymbolsService, TreeService
 from .metrics import ClickHouseClient, ClickHouseDockerClient, ClickHouseMetricsRepository, ExperimentMetricsMapper
 from .orchestration import OrchestratedCodebaseScanner
 from .pi import PiRunner
@@ -81,6 +81,17 @@ def build_parser() -> argparse.ArgumentParser:
     rg.add_argument(OptionName.PATH.value, default=None)
     rg.add_argument(OptionName.LIMIT.value, type=int, default=100)
     rg.set_defaults(func=cmd_rg)
+
+    read = subparsers.add_parser(CommandName.READ.value, help="Read a bounded, gitignore-aware file excerpt.")
+    read.add_argument("file")
+    read.add_argument(OptionName.START_LINE.value, type=int, default=1)
+    read.add_argument(OptionName.LINES.value, type=int, default=80)
+    read.set_defaults(func=cmd_read)
+
+    symbols = subparsers.add_parser(CommandName.SYMBOLS.value, help="List parsed source symbols.")
+    symbols.add_argument(OptionName.PATH.value, default=None)
+    symbols.add_argument(OptionName.LIMIT.value, type=int, default=200)
+    symbols.set_defaults(func=cmd_symbols)
 
     open_result = subparsers.add_parser(
         CommandName.OPEN.value, help="Open the best search result in the configured editor."
@@ -153,6 +164,16 @@ def cmd_grep(args: argparse.Namespace, config: AppConfig) -> int:
 
 def cmd_rg(args: argparse.Namespace, config: AppConfig) -> int:
     print(RgService(config.root).search(args.pattern, path=args.path, limit=args.limit))
+    return 0
+
+
+def cmd_read(args: argparse.Namespace, config: AppConfig) -> int:
+    print(ReadExcerptService(config.root).render(args.file, start_line=args.start_line, lines=args.lines))
+    return 0
+
+
+def cmd_symbols(args: argparse.Namespace, config: AppConfig) -> int:
+    print(SymbolsService(config.root).render(path=args.path, limit=args.limit))
     return 0
 
 
@@ -287,6 +308,7 @@ def make_codebase_scanner(config: AppConfig):
         exclude=config.scanner.exclude,
         max_file_bytes=config.scanner.max_file_bytes,
         chunk_lines=config.scanner.chunk_lines,
+        symbol_chunks=config.scanner.symbol_chunks,
     )
     mode = config.indexing.mode
     if mode == "scanner":

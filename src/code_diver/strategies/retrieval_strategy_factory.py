@@ -7,6 +7,7 @@ from ..orchestration import OrchestratedRetrievalStrategy
 from ..providers import EmbeddingProvider
 from ..settings import RetrievalStrategyId
 from ..store import VectorStore
+from ..tracing import TraceLogger
 from .graph_retrieval_strategy import GraphRetrievalStrategy
 from .recursive_retrieval_strategy import RecursiveRetrievalStrategy
 from .retrieval_strategy import RetrievalStrategy
@@ -29,6 +30,7 @@ class RetrievalStrategyFactory:
                 vector_store,
                 create_generation_provider(config),
                 per_query_limit=config.search.limit,
+                trace_logger=TraceLogger(config.trace),
             )
         if strategy_id is RetrievalStrategyId.VECTOR:
             return vector

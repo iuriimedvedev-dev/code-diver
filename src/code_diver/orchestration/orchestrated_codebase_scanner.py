@@ -8,6 +8,7 @@ from ..generation import GenerationProvider
 from ..services import CodebaseScanner
 from ..tracing import TraceLogger
 from .index_plan_orchestrator import IndexPlanOrchestrator
+from .index_plan_sanitizer import IndexPlanSanitizer
 
 
 class OrchestratedCodebaseScanner:
@@ -27,9 +28,18 @@ class OrchestratedCodebaseScanner:
         plan = IndexPlanOrchestrator(self.generation_provider, self.trace_logger).plan(
             root, self.config, self.base_scanner
         )
-        include = plan.include or self.config.scanner.include
+        safe_additions, rejected_additions = IndexPlanSanitizer().safe_include_additions(
+            root,
+            plan.include,
+            self.base_scanner.exclude,
+            max_added_files=max(self.config.indexing.ai.max_files, 200),
+        )
+        include = self._merge_patterns(self.config.scanner.include, safe_additions)
         exclude = [*self.config.scanner.exclude, *plan.exclude]
         chunk_lines = plan.chunk_lines or self.config.scanner.chunk_lines
+        symbol_chunks = plan.symbol_chunks if plan.symbol_chunks is not None else self.config.scanner.symbol_chunks
+        if rejected_additions:
+            self.trace_logger.write("index_plan_rejected_include", {"include": rejected_additions})
         self.trace_logger.write(
             "index_scanner_config_selected",
             {
@@ -37,6 +47,7 @@ class OrchestratedCodebaseScanner:
                 "exclude": exclude,
                 "max_file_bytes": self.config.scanner.max_file_bytes,
                 "chunk_lines": chunk_lines,
+                "symbol_chunks": symbol_chunks,
             },
         )
         scanner = CodebaseScanner(
@@ -44,5 +55,13 @@ class OrchestratedCodebaseScanner:
             exclude=exclude,
             max_file_bytes=self.config.scanner.max_file_bytes,
             chunk_lines=chunk_lines,
+            symbol_chunks=symbol_chunks,
         )
         return scanner.scan(root)
+
+    def _merge_patterns(self, base: list[str], additions: list[str]) -> list[str]:
+        merged: list[str] = []
+        for pattern in [*base, *additions]:
+            if pattern not in merged:
+                merged.append(pattern)
+        return merged

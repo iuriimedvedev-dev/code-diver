@@ -47,6 +47,8 @@ pi:
     - code_diver_tree
     - code_diver_grep
     - code_diver_rg
+    - code_diver_read
+    - code_diver_symbols
   extra_args: []
 
 scanner:
@@ -68,6 +70,7 @@ scanner:
     - "*.db"
   max_file_bytes: 1000000
   chunk_lines: 120
+  symbol_chunks: false
 
 search:
   limit: 10

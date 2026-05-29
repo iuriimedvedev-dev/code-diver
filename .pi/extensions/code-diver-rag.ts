@@ -30,6 +30,17 @@ type TreeProbe = {
   limit?: number;
 };
 
+type ReadProbe = {
+  file: string;
+  startLine?: number;
+  lines?: number;
+};
+
+type SymbolsProbe = {
+  path?: string;
+  limit?: number;
+};
+
 export default function (pi: ExtensionAPI) {
   pi.registerTool({
     name: "code_diver_index",
@@ -105,10 +116,36 @@ export default function (pi: ExtensionAPI) {
           { maxItems: 8 },
         ),
       ),
+      reads: Type.Optional(
+        Type.Array(
+          Type.Object({
+            file: Type.String({ description: "Relative file path inside the repository." }),
+            startLine: Type.Optional(Type.Integer({ minimum: 1, description: "First line to read." })),
+            lines: Type.Optional(Type.Integer({ minimum: 1, maximum: 400, description: "Number of lines to read." })),
+          }),
+          { maxItems: 8 },
+        ),
+      ),
+      symbols: Type.Optional(
+        Type.Array(
+          Type.Object({
+            path: Type.Optional(Type.String({ description: "Relative path inside the repository." })),
+            limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 1000, description: "Maximum number of symbols." })),
+          }),
+          { maxItems: 8 },
+        ),
+      ),
     }),
     execute: async (
       _toolCallId,
-      params: { searches?: SearchProbe[]; regexes?: TextProbe[]; literals?: TextProbe[]; trees?: TreeProbe[] },
+      params: {
+        searches?: SearchProbe[];
+        regexes?: TextProbe[];
+        literals?: TextProbe[];
+        trees?: TreeProbe[];
+        reads?: ReadProbe[];
+        symbols?: SymbolsProbe[];
+      },
       signal,
       _onUpdate,
       ctx: ToolContext,
@@ -143,6 +180,21 @@ export default function (pi: ExtensionAPI) {
           args.push("--limit", String(tree.limit));
         }
         tasks.push(labelResult(`tree: ${tree.path ?? "."}`, runCodeDiver(ctx.cwd, args, signal)));
+      }
+      for (const read of params.reads ?? []) {
+        const args = ["read", read.file];
+        if (read.startLine) {
+          args.push("--start-line", String(read.startLine));
+        }
+        if (read.lines) {
+          args.push("--lines", String(read.lines));
+        }
+        tasks.push(labelResult(`read: ${read.file}`, runCodeDiver(ctx.cwd, args, signal)));
+      }
+      for (const symbol of params.symbols ?? []) {
+        const args = ["symbols"];
+        appendPathAndLimit(args, symbol.path, symbol.limit);
+        tasks.push(labelResult(`symbols: ${symbol.path ?? "."}`, runCodeDiver(ctx.cwd, args, signal)));
       }
       if (!tasks.length) {
         return textResult("No probes requested.");
@@ -271,6 +323,44 @@ export default function (pi: ExtensionAPI) {
       if (params.limit) {
         args.push("--limit", String(params.limit));
       }
+      const result = await runCodeDiver(ctx.cwd, args, signal);
+      return textResult(result.stdout || result.stderr);
+    },
+  });
+
+  pi.registerTool({
+    name: "code_diver_read",
+    label: "Code Diver Read",
+    description: "Read-only bounded source excerpt with line numbers. Does not edit files.",
+    parameters: Type.Object({
+      file: Type.String({ description: "Relative file path inside the repository." }),
+      startLine: Type.Optional(Type.Integer({ minimum: 1, description: "First line to read." })),
+      lines: Type.Optional(Type.Integer({ minimum: 1, maximum: 400, description: "Number of lines to read." })),
+    }),
+    execute: async (_toolCallId, params: { file: string; startLine?: number; lines?: number }, signal, _onUpdate, ctx: ToolContext) => {
+      const args = ["read", params.file];
+      if (params.startLine) {
+        args.push("--start-line", String(params.startLine));
+      }
+      if (params.lines) {
+        args.push("--lines", String(params.lines));
+      }
+      const result = await runCodeDiver(ctx.cwd, args, signal);
+      return textResult(result.stdout || result.stderr);
+    },
+  });
+
+  pi.registerTool({
+    name: "code_diver_symbols",
+    label: "Code Diver Symbols",
+    description: "Read-only symbol listing for source files. Useful before precise grep/read probes.",
+    parameters: Type.Object({
+      path: Type.Optional(Type.String({ description: "Relative path inside the repository." })),
+      limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 1000, description: "Maximum number of symbols." })),
+    }),
+    execute: async (_toolCallId, params: { path?: string; limit?: number }, signal, _onUpdate, ctx: ToolContext) => {
+      const args = ["symbols"];
+      appendPathAndLimit(args, params.path, params.limit);
       const result = await runCodeDiver(ctx.cwd, args, signal);
       return textResult(result.stdout || result.stderr);
     },

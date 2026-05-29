@@ -22,3 +22,5 @@ def test_default_pi_tools_exclude_write_capable_escape_hatches() -> None:
     assert "code_diver_tree" in config.pi.tools
     assert "code_diver_grep" in config.pi.tools
     assert "code_diver_rg" in config.pi.tools
+    assert "code_diver_read" in config.pi.tools
+    assert "code_diver_symbols" in config.pi.tools

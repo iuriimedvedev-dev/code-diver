@@ -11,8 +11,10 @@ class CommandName(StrEnum):
     GREP = "grep"
     INDEX = "index"
     OPEN = "open"
+    READ = "read"
     RG = "rg"
     SEARCH = "search"
+    SYMBOLS = "symbols"
     TREE = "tree"
 
 
@@ -30,4 +32,6 @@ class OptionName(StrEnum):
     PROVIDER = "--provider"
     RANK = "--rank"
     REINDEX = "--reindex"
+    START_LINE = "--start-line"
     TOOLS = "--tools"
+    LINES = "--lines"
