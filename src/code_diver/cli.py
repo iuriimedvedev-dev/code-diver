@@ -135,7 +135,13 @@ def cmd_index(_: argparse.Namespace, config: AppConfig) -> int:
         plugin_config={"config": config},
     )
     if config.graph.enabled:
-        GraphIndexingService(CodeGraphBuilder(), CodeGraphStore(config.graph.artifact)).build(config.root, items)
+        GraphIndexingService(
+            CodeGraphBuilder(ast_enabled=config.graph.ast_enabled),
+            CodeGraphStore(config.graph.artifact),
+        ).build(
+            config.root,
+            items,
+        )
     print(
         f"Indexed {len(items)} items -> {store_label(config)} "
         f"({provider.name}, model={provider.model}, dimensions={provider.dimensions})"

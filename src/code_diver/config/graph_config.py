@@ -12,3 +12,4 @@ class GraphConfig:
     artifact: Path = Defaults.GRAPH_ARTIFACT
     expansion_depth: int = Defaults.GRAPH_EXPANSION_DEPTH
     neighbor_limit: int = Defaults.GRAPH_NEIGHBOR_LIMIT
+    ast_enabled: bool = Defaults.GRAPH_AST_ENABLED

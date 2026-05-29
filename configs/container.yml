@@ -18,12 +18,14 @@ embedding:
 
 generation:
   provider: gemini
-  model: gemini-3-flash-preview
+  model: gemini-3.5-flash
   fallback_models:
+    - gemini-3-flash-preview
     - gemini-2.5-flash
   temperature: 0
   thinking_budget: 1024
   api_version: v1alpha
+  timeout_ms: 20000
 
 indexing:
   mode: scanner
@@ -36,7 +38,7 @@ pi:
   extension: /app/.pi/extensions/code-diver-rag.ts
   prompt_template: /app/.pi/prompts/code-diver-rag.md
   provider: google
-  model: gemini-3-flash-preview
+  model: gemini-3.5-flash
   tools:
     - code_diver_index
     - code_diver_search
@@ -85,6 +87,7 @@ recursive_search:
 graph:
   enabled: true
   artifact: /artifacts/graph.json
+  ast_enabled: true
   expansion_depth: 1
   neighbor_limit: 20
 

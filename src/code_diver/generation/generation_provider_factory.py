@@ -18,17 +18,20 @@ def create_generation_provider(config: AppConfig) -> GenerationProvider:
             temperature=generation.temperature,
             thinking_budget=generation.thinking_budget,
             api_version=generation.api_version,
+            timeout_ms=generation.timeout_ms,
         )
     if generation.provider == "openai":
         return OpenAIGenerationProvider(
             model=generation.model or Defaults.OPENAI_GENERATION_MODEL,
             api_key=generation.api_key,
             url=generation.url or Defaults.OPENAI_RESPONSES_URL,
+            timeout_seconds=generation.timeout_ms / 1000,
         )
     if generation.provider == "openai_compatible":
         return OpenAICompatibleGenerationProvider(
             model=generation.model,
             api_key=generation.api_key,
             url=generation.url,
+            timeout_seconds=generation.timeout_ms / 1000,
         )
     raise ValueError(f"Unknown generation provider: {generation.provider}")

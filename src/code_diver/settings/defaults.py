@@ -19,7 +19,7 @@ class Defaults:
     QDRANT_BATCH_SIZE = 64
 
     EMBEDDING_PROVIDER = "gemini"
-    EMBEDDING_MODEL = "gemini-embedding-001"
+    EMBEDDING_MODEL = "gemini-embedding-2"
     EMBEDDING_DIMENSIONS = 768
     EMBEDDING_BATCH_SIZE = 32
     EMBEDDING_WORKERS = 1
@@ -35,14 +35,15 @@ class Defaults:
     PI_EXTENSION = Path(".pi/extensions/code-diver-rag.ts")
     PI_PROMPT_TEMPLATE = Path(".pi/prompts/code-diver-rag.md")
     PI_PROVIDER = "google"
-    PI_MODEL = "gemini-3-flash-preview"
+    PI_MODEL = "gemini-3.5-flash"
 
     GENERATION_PROVIDER = "gemini"
-    GENERATION_MODEL = "gemini-3-flash-preview"
-    GENERATION_FALLBACK_MODELS = ["gemini-2.5-flash"]
+    GENERATION_MODEL = "gemini-3.5-flash"
+    GENERATION_FALLBACK_MODELS = ["gemini-3-flash-preview", "gemini-2.5-flash"]
     GENERATION_TEMPERATURE = 0.1
     GENERATION_THINKING_BUDGET = 1024
     GENERATION_API_VERSION = "v1alpha"
+    GENERATION_TIMEOUT_MS = 20_000
     OPENAI_GENERATION_MODEL = "gpt-5.1"
     OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
     OPENAI_CHAT_COMPLETIONS_URL = "https://api.openai.com/v1/chat/completions"
@@ -86,6 +87,7 @@ class Defaults:
     RECURSIVE_PER_ROUND_LIMIT = 5
     GRAPH_EXPANSION_DEPTH = 1
     GRAPH_NEIGHBOR_LIMIT = 20
+    GRAPH_AST_ENABLED = True
 
     UI_COLOR = True
     UI_PAGER = "auto"

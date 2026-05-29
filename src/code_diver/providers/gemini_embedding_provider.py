@@ -9,6 +9,9 @@ from .embedding_provider import EmbeddingProvider
 
 
 class GeminiEmbeddingProvider(EmbeddingProvider):
+    DOCUMENT_PREFIX = "Task: retrieve relevant codebase context.\nDocument:"
+    QUERY_PREFIX = "Task: retrieve codebase documents relevant to this question.\nQuery:"
+
     def __init__(
         self,
         model: str = Defaults.EMBEDDING_MODEL,
@@ -37,28 +40,29 @@ class GeminiEmbeddingProvider(EmbeddingProvider):
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
         vectors: list[list[float]] = []
         for batch in _batches(texts, self.batch_size):
-            result = self._embed_with_retry(list(batch), "RETRIEVAL_DOCUMENT")
+            contents = self._document_contents(list(batch))
+            result = self._embed_with_retry(contents, "RETRIEVAL_DOCUMENT")
             vectors.extend(_extract_vectors(result.embeddings))
         return vectors
 
     def embed_query(self, query: str) -> list[float]:
-        result = self._embed_with_retry(query, "CODE_RETRIEVAL_QUERY")
+        result = self._embed_with_retry(self._query_content(query), "CODE_RETRIEVAL_QUERY")
         vectors = _extract_vectors(result.embeddings)
         if not vectors:
             raise RuntimeError("Gemini returned no query embedding.")
         return vectors[0]
 
-    def _embed_with_retry(self, contents: str | list[str], task_type: str):
+    def _embed_with_retry(self, contents: object, task_type: str):
         last_error: Exception | None = None
         for attempt in range(max(self.retry_attempts, 1)):
             try:
+                config_kwargs = {"output_dimensionality": self.dimensions}
+                if not self._uses_embedding_2():
+                    config_kwargs["task_type"] = task_type
                 return self.client.models.embed_content(
                     model=self.model,
                     contents=contents,
-                    config=self.types.EmbedContentConfig(
-                        output_dimensionality=self.dimensions,
-                        task_type=task_type,
-                    ),
+                    config=self.types.EmbedContentConfig(**config_kwargs),
                 )
             except Exception as exc:
                 last_error = exc
@@ -66,6 +70,22 @@ class GeminiEmbeddingProvider(EmbeddingProvider):
                     break
                 time.sleep(self.retry_delay_seconds * (attempt + 1))
         raise last_error or RuntimeError("Gemini embedding request failed.")
+
+    def _document_contents(self, texts: list[str]) -> object:
+        if not self._uses_embedding_2():
+            return texts
+        return [self._content(f"{self.DOCUMENT_PREFIX}\n{text}") for text in texts]
+
+    def _query_content(self, query: str) -> object:
+        if not self._uses_embedding_2():
+            return query
+        return self._content(f"{self.QUERY_PREFIX}\n{query}")
+
+    def _content(self, text: str):
+        return self.types.Content(parts=[self.types.Part.from_text(text=text)])
+
+    def _uses_embedding_2(self) -> bool:
+        return self.model == "gemini-embedding-2"
 
 
 def _extract_vectors(embeddings: Iterable[object]) -> list[list[float]]:

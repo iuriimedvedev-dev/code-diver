@@ -63,6 +63,7 @@ recursive_search:
 graph:
   enabled: true
   artifact: .code-diver/protogen-baseline-graph.json
+  ast_enabled: true
   expansion_depth: 1
   neighbor_limit: 20
 

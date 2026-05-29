@@ -7,13 +7,18 @@ from pathlib import Path
 from ..domain import CodeItem
 from ..settings import EdgeKind
 from .code_graph import CodeGraph
+from .graph_containment_builder import GraphContainmentBuilder
 from .graph_edge import GraphEdge
+from .python_ast_call_graph_builder import PythonAstCallGraphBuilder
 
 TS_IMPORT_RE = re.compile(r"""from\s+['"]([^'"]+)['"]|import\s*\([^)]*['"]([^'"]+)['"][^)]*\)""")
 IDENTIFIER_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 
 class CodeGraphBuilder:
+    def __init__(self, ast_enabled: bool = True):
+        self.ast_enabled = ast_enabled
+
     def build(self, root: Path, items: list[CodeItem]) -> CodeGraph:
         by_id = {item.id: item for item in items}
         by_path: dict[str, list[CodeItem]] = {}
@@ -24,6 +29,9 @@ class CodeGraphBuilder:
         edges.extend(self._same_file_edges(by_path))
         edges.extend(self._import_edges(root, by_path))
         edges.extend(self._reference_edges(items))
+        if self.ast_enabled:
+            edges.extend(GraphContainmentBuilder().build(by_path))
+            edges.extend(PythonAstCallGraphBuilder().build(root, by_path))
         return CodeGraph(items=by_id, edges=self._dedupe_edges(edges))
 
     def _same_file_edges(self, by_path: dict[str, list[CodeItem]]) -> list[GraphEdge]:
@@ -40,11 +48,15 @@ class CodeGraphBuilder:
         for path, chunks in by_path.items():
             imports = self._imports_for_file(root, path)
             target_paths = [target for target in imports if target in known_paths]
+            target_items = [self._path_representative(by_path[target_path]) for target_path in target_paths]
             for source in chunks:
-                for target_path in target_paths:
-                    for target in by_path[target_path]:
-                        edges.append(GraphEdge(source=source.id, target=target.id, kind=EdgeKind.IMPORTS.value, weight=0.8))
+                for target in target_items:
+                    edges.append(GraphEdge(source=source.id, target=target.id, kind=EdgeKind.IMPORTS.value, weight=0.8))
         return edges
+
+    def _path_representative(self, items: list[CodeItem]) -> CodeItem:
+        sorted_items = sorted(items, key=lambda item: (self._symbol_name(item) != "", item.start_line or 0, item.id))
+        return sorted_items[0]
 
     def _imports_for_file(self, root: Path, rel_path: str) -> set[str]:
         path = root / rel_path
@@ -101,7 +113,7 @@ class CodeGraphBuilder:
                     )
                     break
                 if len(edges) > len(items) * 20:
-                    continue
+                    break
         return edges
 
     def _symbol_name(self, item: CodeItem) -> str:

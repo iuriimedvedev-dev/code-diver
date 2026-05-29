@@ -14,6 +14,7 @@ class GeminiGenerationProvider:
         temperature: float = Defaults.GENERATION_TEMPERATURE,
         thinking_budget: int | None = Defaults.GENERATION_THINKING_BUDGET,
         api_version: str | None = Defaults.GENERATION_API_VERSION,
+        timeout_ms: int = Defaults.GENERATION_TIMEOUT_MS,
     ):
         try:
             from google import genai
@@ -26,8 +27,10 @@ class GeminiGenerationProvider:
         self.fallback_models = fallback_models or []
         self.temperature = temperature
         self.thinking_budget = thinking_budget
+        self.timeout_ms = timeout_ms
         resolved_key = api_key or os.environ.get(EnvironmentVariable.GEMINI_API_KEY.value)
-        client_kwargs = {"http_options": {"api_version": api_version}} if api_version else {}
+        http_options = types.HttpOptions(api_version=api_version, timeout=timeout_ms)
+        client_kwargs = {"http_options": http_options}
         if resolved_key:
             client_kwargs["api_key"] = resolved_key
         self.client = genai.Client(**client_kwargs)

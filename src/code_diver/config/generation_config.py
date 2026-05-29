@@ -15,3 +15,4 @@ class GenerationConfig:
     temperature: float = Defaults.GENERATION_TEMPERATURE
     thinking_budget: int | None = Defaults.GENERATION_THINKING_BUDGET
     api_version: str | None = Defaults.GENERATION_API_VERSION
+    timeout_ms: int = Defaults.GENERATION_TIMEOUT_MS

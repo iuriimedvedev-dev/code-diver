@@ -36,6 +36,7 @@ generation:
   temperature: 0.2
   thinking_budget: 256
   api_version: v1alpha
+  timeout_ms: 12345
 indexing:
   mode: ai
   ai:
@@ -60,6 +61,7 @@ recursive_search:
 graph:
   artifact: {tmp_path}/graph.json
   expansion_depth: 2
+  ast_enabled: false
 trace:
   enabled: true
   artifact: {tmp_path}/trace.jsonl
@@ -109,6 +111,7 @@ plugins:
     assert config.generation.temperature == 0.2
     assert config.generation.thinking_budget == 256
     assert config.generation.api_version == "v1alpha"
+    assert config.generation.timeout_ms == 12345
     assert config.indexing.mode == "ai"
     assert config.indexing.ai.max_files == 5
     assert config.indexing.ai.max_items == 8
@@ -126,6 +129,7 @@ plugins:
     assert config.recursive_search.limit == 4
     assert config.graph.artifact == tmp_path / "graph.json"
     assert config.graph.expansion_depth == 2
+    assert config.graph.ast_enabled is False
     assert config.trace.enabled is True
     assert config.trace.artifact == tmp_path / "trace.jsonl"
     assert config.trace.include_prompts is False

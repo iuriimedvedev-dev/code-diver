@@ -11,7 +11,7 @@ storage:
 
 embedding:
   provider: gemini
-  model: gemini-embedding-001
+  model: gemini-embedding-2
   dimensions: 768
   batch_size: 4
   workers: 1
@@ -21,12 +21,14 @@ embedding:
 
 generation:
   provider: gemini
-  model: gemini-3-flash-preview
+  model: gemini-3.5-flash
   fallback_models:
+    - gemini-3-flash-preview
     - gemini-2.5-flash
   temperature: 0.1
   thinking_budget: 1024
   api_version: v1alpha
+  timeout_ms: 20000
 
 indexing:
   mode: orchestrated
@@ -57,7 +59,7 @@ pi:
   extension: .pi/extensions/code-diver-rag.ts
   prompt_template: .pi/prompts/code-diver-rag.md
   provider: google
-  model: gemini-3-flash-preview
+  model: gemini-3.5-flash
   tools:
     - code_diver_index
     - code_diver_search
@@ -119,6 +121,7 @@ recursive_search:
 graph:
   enabled: true
   artifact: .code-diver/protogen-ai-graph.json
+  ast_enabled: true
   expansion_depth: 1
   neighbor_limit: 20
 

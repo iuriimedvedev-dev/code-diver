@@ -37,6 +37,21 @@ Selection rules:
 - Prefer symbol_chunks=false only for documentation/config-heavy repositories where fixed line windows are more useful.
 - Use chunk_lines as a fallback window for files without symbols; 80-180 is usually better for dense code, 180-360 for prose/config.
 - Do not return paths that are not visible in the observations.
+- Favor a plan that helps downstream AST GraphRAG: preserve files with import graphs, public APIs, routing, CLI commands, schemas, and tests.
+- Do not include secrets, local state, generated folders, dependency caches, or build artifacts.
+
+Read-only toolkit available to the Pi assistant after an index exists:
+- code_diver_index: build or refresh the index artifact.
+- code_diver_search: vector, recursive, orchestrated, or graph-backed query retrieval.
+- code_diver_inspect: run independent search, rg, grep, tree, read, and symbols probes concurrently.
+- code_diver_tree: gitignore-aware repository tree.
+- code_diver_symbols: language-agnostic symbol signatures.
+- code_diver_read: bounded file excerpts.
+- code_diver_grep: literal gitignore-aware search.
+- code_diver_rg: regex gitignore-aware search.
+- code_diver_open: open a retrieved result in the configured editor.
+- code_diver_evaluate and code_diver_experiment: reproducible retrieval metrics.
+This planning response cannot call more tools; reason from the observations below.
 
 Current config:
 - include: {config.scanner.include}

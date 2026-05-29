@@ -116,6 +116,7 @@ class ConfigLoader:
             temperature=float(mapping.get("temperature", Defaults.GENERATION_TEMPERATURE)),
             thinking_budget=self._optional_int(mapping.get("thinking_budget", Defaults.GENERATION_THINKING_BUDGET)),
             api_version=mapping.get("api_version", Defaults.GENERATION_API_VERSION),
+            timeout_ms=int(mapping.get("timeout_ms", Defaults.GENERATION_TIMEOUT_MS)),
         )
 
     def _indexing(self, data: Any) -> IndexingConfig:
@@ -184,6 +185,7 @@ class ConfigLoader:
             artifact=Path(mapping.get("artifact", Defaults.GRAPH_ARTIFACT)),
             expansion_depth=int(mapping.get("expansion_depth", Defaults.GRAPH_EXPANSION_DEPTH)),
             neighbor_limit=int(mapping.get("neighbor_limit", Defaults.GRAPH_NEIGHBOR_LIMIT)),
+            ast_enabled=bool(mapping.get("ast_enabled", Defaults.GRAPH_AST_ENABLED)),
         )
 
     def _trace(self, data: Any) -> TraceConfig:
