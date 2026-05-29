@@ -1,6 +1,6 @@
 # Code Diver
 
-`code-diver` is a small CLI sandbox for codebase RAG experiments. The CLI is the entrypoint, while Pi is the assistant backbone: `chat` and `ask` launch Pi with a local Code Diver extension that exposes indexing, search, open, and evaluation as Pi tools.
+`code-diver` is a small CLI sandbox for codebase RAG experiments. The CLI is the entrypoint. Reproducible evals use a direct provider-backed orchestrator; `chat` and `ask` still launch the optional Pi interactive backend.
 
 ## Setup
 
@@ -9,7 +9,7 @@ uv sync
 export GEMINI_API_KEY="..."
 ```
 
-By default the config launches Pi through `npx -y @earendil-works/pi-coding-agent`.
+By default `chat` and `ask` launch Pi through `npx -y @earendil-works/pi-coding-agent`.
 Secrets can also live in `.env`; the CLI loads it before creating providers. `.env` is ignored by git.
 
 Gemini-backed defaults:
@@ -39,6 +39,8 @@ uv run code-diver open "where is authentication configured?"
 uv run code-diver chat
 uv run code-diver ask "summarize the retrieval pipeline"
 uv run code-diver evaluate
+uv run code-diver evaluate-indexing
+uv run code-diver evaluate-search-tools
 uv run code-diver experiment
 ```
 
@@ -153,6 +155,8 @@ ARTIFACTS_PATH=/absolute/path/to/artifacts \
 docker compose -f ops/runtime/docker-compose.yml run --rm code-diver index
 ```
 
+`evaluate-indexing` and `evaluate-search-tools` run the direct orchestrator against YAML hypotheses and write full JSONL transcripts under `.code-diver/traces`.
+
 `chat` starts interactive Pi. `ask` runs Pi in print mode. Both load `.pi/extensions/code-diver-rag.ts`, which registers:
 
 - `code_diver_index`
@@ -186,7 +190,7 @@ pi:
     - code_diver_search
 ```
 
-The Pi tool allowlist should stay read-only. Do not add `bash` or editing tools for this assistant; use the `code_diver_*` tools for repository inspection.
+The tool allowlist should stay read-only. Do not add `bash` or editing tools for this assistant; use the `code_diver_*` tools for repository inspection.
 
 `search` renders colored, syntax-highlighted snippets and uses a pager for larger result sets. Editor opening is configured in `code-diver.yml`:
 

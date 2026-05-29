@@ -1,0 +1,79 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+
+from code_diver.agent import DirectSearchOrchestrator
+from code_diver.generation import GenerationResult
+
+
+pytestmark = pytest.mark.unit
+
+
+class FakeSearchGenerationProvider:
+    name = "fake"
+    model = "fake-model"
+
+    def __init__(self, responses: list[str]):
+        self.responses = responses
+        self.prompts: list[str] = []
+
+    def generate_json_result(self, prompt: str) -> GenerationResult:
+        self.prompts.append(prompt)
+        return GenerationResult(
+            text=self.responses.pop(0),
+            model=self.model,
+            input_tokens=7,
+            output_tokens=3,
+            total_tokens=10,
+        )
+
+    def generate_json(self, prompt: str) -> str:
+        return self.generate_json_result(prompt).text
+
+
+def test_direct_search_orchestrator_uses_read_only_tools_and_returns_paths(tmp_path: Path) -> None:
+    source = tmp_path / "src" / "commands.py"
+    source.parent.mkdir()
+    source.write_text("def create_command():\n    return 'cmd'\n", encoding="utf-8")
+    log_path = tmp_path / "search.jsonl"
+    provider = FakeSearchGenerationProvider(
+        [
+            json.dumps(
+                {
+                    "reason": "search command creation",
+                    "tool_calls": [
+                        {"name": "code_diver_rg", "arguments": {"pattern": "create_command", "path": "src"}}
+                    ],
+                }
+            ),
+            json.dumps(
+                {
+                    "reason": "found command factory",
+                    "results": [{"path": "src/commands.py", "startLine": 1, "reason": "factory function"}],
+                    "final": "found command creation",
+                }
+            ),
+        ]
+    )
+
+    result = DirectSearchOrchestrator(
+        root=tmp_path,
+        generation_provider=provider,
+        allowed_tools=["code_diver_rg"],
+        log_path=log_path,
+    ).search(hypothesis_name="rg_only", case_id="case-1", query="where is command created?", limit=10)
+
+    assert result.error is None
+    assert result.retrieved == ["src/commands.py"]
+    assert result.model_calls == 2
+    assert result.tool_calls == 1
+    assert result.total_tokens == 20
+    assert "where is command created?" in provider.prompts[0]
+
+    events = [json.loads(line)["event"] for line in log_path.read_text(encoding="utf-8").splitlines()]
+    assert "tool_call" in events
+    assert "tool_result" in events
+    assert "search_case_completed" in events

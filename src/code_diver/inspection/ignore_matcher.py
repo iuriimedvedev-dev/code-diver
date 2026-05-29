@@ -5,9 +5,9 @@ from pathlib import Path
 
 
 class IgnoreMatcher:
-    def __init__(self, root: Path):
+    def __init__(self, root: Path, extra_patterns: list[str] | None = None):
         self.root = root
-        self.patterns = self._load_patterns(root)
+        self.patterns = [*self._load_patterns(root), *(extra_patterns or [])]
 
     def ignored(self, path: Path) -> bool:
         rel_path = path.relative_to(self.root).as_posix()
@@ -16,6 +16,11 @@ class IgnoreMatcher:
     def _matches(self, rel_path: str, pattern: str) -> bool:
         if pattern.endswith("/"):
             directory = pattern.rstrip("/")
+            return rel_path == directory or rel_path.startswith(directory + "/")
+        if pattern.endswith("/**"):
+            directory = pattern[:-3]
+            if "/" not in directory and directory in rel_path.split("/"):
+                return True
             return rel_path == directory or rel_path.startswith(directory + "/")
         return (
             fnmatch.fnmatch(rel_path, pattern)

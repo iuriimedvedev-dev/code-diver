@@ -7,10 +7,10 @@ from .path_guard import PathGuard
 
 
 class TreeService:
-    def __init__(self, root: Path):
+    def __init__(self, root: Path, exclude: list[str] | None = None):
         self.root = root.resolve()
         self.guard = PathGuard(self.root)
-        self.ignore = IgnoreMatcher(self.root)
+        self.ignore = IgnoreMatcher(self.root, exclude)
 
     def render(self, path: str | None = None, max_depth: int = 3, limit: int = 200) -> str:
         start = self.guard.resolve(path)

@@ -7,6 +7,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from ..settings import Defaults, EnvironmentVariable
+from .generation_result import GenerationResult
 
 
 class OpenAIGenerationProvider:
@@ -26,6 +27,9 @@ class OpenAIGenerationProvider:
             raise RuntimeError("OPENAI_API_KEY is required for OpenAI generation.")
 
     def generate_json(self, prompt: str) -> str:
+        return self.generate_json_result(prompt).text
+
+    def generate_json_result(self, prompt: str) -> GenerationResult:
         payload: dict[str, Any] = {
             "model": self.model,
             "input": prompt,
@@ -37,7 +41,17 @@ class OpenAIGenerationProvider:
         text = response.get("output_text") or self._extract_text(response)
         if not text:
             raise RuntimeError("OpenAI returned an empty indexing response.")
-        return str(text)
+        usage = response.get("usage") or {}
+        input_tokens = int(usage.get("input_tokens") or usage.get("prompt_tokens") or 0)
+        output_tokens = int(usage.get("output_tokens") or usage.get("completion_tokens") or 0)
+        total_tokens = int(usage.get("total_tokens") or input_tokens + output_tokens)
+        return GenerationResult(
+            text=str(text),
+            model=str(response.get("model") or self.model),
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            total_tokens=total_tokens,
+        )
 
     def _post(self, payload: dict[str, Any]) -> dict[str, Any]:
         request = Request(

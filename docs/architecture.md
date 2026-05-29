@@ -1,6 +1,6 @@
 # Code Diver Architecture
 
-Code Diver is a config-first sandbox for codebase search experiments. The CLI is the stable entrypoint; Pi is currently one agent backend that can call Code Diver tools.
+Code Diver is a config-first sandbox for codebase search experiments. The CLI is the stable entrypoint. Research evals use a direct provider-backed orchestrator; Pi remains an optional interactive `ask`/`chat` backend.
 
 ## Main Flow
 
@@ -13,18 +13,18 @@ Code Diver is a config-first sandbox for codebase search experiments. The CLI is
 
 | Layer | Responsibility |
 | --- | --- |
-| Config | YAML-owned provider, storage, scanner, graph, Pi, and experiment settings. |
+| Config | YAML-owned provider, storage, scanner, graph, agent, and experiment settings. |
 | Providers | Provider-agnostic embedding and generation implementations. |
 | Stores | JSON and Qdrant vector persistence. Local Qdrant is the default serious store. |
 | Inspection | Read-only repo tools: tree, symbols, grep, rg, read, inspect. |
 | Indexing | Scanner index, AI-selected index, plugins, AST GraphRAG graph build. |
 | Retrieval | Vector, recursive, graph, and orchestrated retrieval strategies. |
 | Evaluation | Dataset loading, metric computation, experiment and indexing-hypothesis runs. |
-| Pi Extension | Exposes Code Diver tools to the Pi agent without source editing capabilities. |
+| Pi Extension | Optional interactive backend for `ask`/`chat`; not used by reproducible eval runs. |
 
 ## Agent Tool Modes
 
-Pi receives only the tools allowed by the selected hypothesis:
+The direct orchestrator receives only the tools allowed by the selected hypothesis:
 
 - `vector_search`: vector search plus read-only verification tools.
 - `grep_search`: tree, symbols, grep, rg, read, inspect; no vector search.
@@ -45,21 +45,26 @@ This prevents later AI runs from benefiting from earlier runs.
 
 ## Logging
 
-Every `evaluate-indexing` Pi run writes a JSONL log:
+Every `evaluate-indexing` direct orchestrator run writes a JSONL log:
 
 ```text
 .code-diver/traces/orchestrator-indexing/<run_id>/<hypothesis>.jsonl
 ```
 
-The log contains Pi JSON events, assistant messages, tool results, usage/cost records, stderr events, fallback events, and runner command boundaries.
+The log contains the full direct orchestrator transcript: prompts, model JSON responses, tool calls, tool results, usage/cost estimates, selected index items, and persistence events.
 
-## Pi Backbone Decision
+`evaluate-search-tools` writes similar logs under:
 
-Pi is useful as the interactive CLI backbone because it already handles model routing, tool registration, sessions, and user-facing agent UX. It is less ideal as the only research runner because we need stable logs, exact cost accounting, timeout control, and reproducible tool-call traces.
+```text
+.code-diver/traces/orchestrator-search/<run_id>/<hypothesis>.jsonl
+```
 
-The architecture should keep Pi as one backend, not the backend. The next clean step is an `AgentRunner` abstraction with:
+## Pi Decision
 
-- `PiAgentRunner` for interactive use and compatibility with Pi tools.
-- `DirectGeminiAgentRunner` using Google GenAI function calling for controlled evals.
+Pi is no longer the research backbone. It is useful for interactive UX, but evals need stable logs, direct provider control, reproducible tool traces, and consistent metrics.
 
-That lets us compare the same tool manifests through Pi and through direct provider APIs while keeping metrics and logs consistent.
+The current eval backbone is direct:
+
+- `DirectIndexingOrchestrator` for selected-index construction.
+- `DirectSearchOrchestrator` for tool-only search comparisons.
+- `DirectToolExecutor` for read-only, gitignore-aware tools.

@@ -11,11 +11,11 @@ from .selected_index_result import SelectedIndexResult
 
 
 class SelectedCodeItemBuilder:
-    def __init__(self, root: Path, max_lines: int):
+    def __init__(self, root: Path, max_lines: int, exclude: list[str] | None = None):
         self.root = root.resolve()
         self.max_lines = max(max_lines, 1)
         self.path_guard = PathGuard(self.root)
-        self.ignore_matcher = IgnoreMatcher(self.root)
+        self.ignore_matcher = IgnoreMatcher(self.root, exclude)
 
     def build(self, selections: list[SelectedIndexItem]) -> SelectedIndexResult:
         items: list[CodeItem] = []

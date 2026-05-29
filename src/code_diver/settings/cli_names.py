@@ -8,6 +8,7 @@ class CommandName(StrEnum):
     CHAT = "chat"
     EVALUATE = "evaluate"
     EVALUATE_INDEXING = "evaluate-indexing"
+    EVALUATE_SEARCH_TOOLS = "evaluate-search-tools"
     EXPERIMENT = "experiment"
     GREP = "grep"
     INDEX = "index"

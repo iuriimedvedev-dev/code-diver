@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import re
+import shutil
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -16,12 +18,24 @@ class GrepMatch:
 
 
 class GrepService:
-    def __init__(self, root: Path):
+    def __init__(
+        self,
+        root: Path,
+        exclude: list[str] | None = None,
+        max_file_bytes: int = 1_000_000,
+        max_files: int = 10_000,
+        timeout_seconds: float = 10.0,
+    ):
         self.root = root.resolve()
         self.guard = PathGuard(self.root)
-        self.ignore = IgnoreMatcher(self.root)
+        self.ignore = IgnoreMatcher(self.root, exclude)
+        self.max_file_bytes = max_file_bytes
+        self.max_files = max_files
+        self.timeout_seconds = timeout_seconds
 
     def search(self, pattern: str, path: str | None = None, limit: int = 100, regex: bool = False) -> list[GrepMatch]:
+        if not regex and shutil.which("rg") is not None:
+            return self._rg_fixed_search(pattern, path, limit)
         compiled = re.compile(pattern) if regex else None
         matches: list[GrepMatch] = []
         for file_path in self._files(self.guard.resolve(path)):
@@ -48,9 +62,13 @@ class GrepService:
             if not self.ignore.ignored(start):
                 yield start
             return
+        file_count = 0
         for path in sorted(start.rglob("*")):
-            if path.is_file() and not self.ignore.ignored(path) and not self._binary(path):
+            if path.is_file() and not self.ignore.ignored(path) and self._readable(path):
                 yield path
+                file_count += 1
+                if file_count >= self.max_files:
+                    return
 
     def _lines(self, path: Path):
         try:
@@ -63,8 +81,55 @@ class GrepService:
             return bool(compiled.search(line))
         return pattern in line
 
-    def _binary(self, path: Path) -> bool:
+    def _rg_fixed_search(self, pattern: str, path: str | None, limit: int) -> list[GrepMatch]:
+        target = self.guard.resolve(path)
+        command = [
+            "rg",
+            "--fixed-strings",
+            "--with-filename",
+            "--line-number",
+            "--color",
+            "never",
+            "--max-count",
+            str(limit),
+            "--max-filesize",
+            str(self.max_file_bytes),
+            *self._exclude_args(),
+            pattern,
+            str(target.relative_to(self.root) if target != self.root else "."),
+        ]
         try:
-            return b"\x00" in path.read_bytes()[:2048]
+            completed = subprocess.run(
+                command,
+                cwd=self.root,
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=self.timeout_seconds,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError(f"grep timed out after {self.timeout_seconds}s") from exc
+        if completed.returncode not in (0, 1):
+            raise RuntimeError(completed.stderr.strip() or "grep failed")
+        matches: list[GrepMatch] = []
+        for line in completed.stdout.splitlines()[:limit]:
+            parts = line.split(":", 2)
+            if len(parts) != 3:
+                continue
+            path_text, line_number, text = parts
+            matches.append(GrepMatch(path=path_text.removeprefix("./"), line=int(line_number), text=text))
+        return matches
+
+    def _exclude_args(self) -> list[str]:
+        args: list[str] = []
+        for pattern in self.ignore.patterns:
+            args.extend(["--glob", f"!{pattern}"])
+        return args
+
+    def _readable(self, path: Path) -> bool:
+        try:
+            if path.stat().st_size > self.max_file_bytes:
+                return False
+            return b"\x00" not in path.read_bytes()[:2048]
         except OSError:
-            return True
+            return False

@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 
 from ..settings import Defaults, EnvironmentVariable
+from .generation_result import GenerationResult
 
 
 class GeminiGenerationProvider:
@@ -37,6 +38,9 @@ class GeminiGenerationProvider:
         self.types = types
 
     def generate_json(self, prompt: str) -> str:
+        return self.generate_json_result(prompt).text
+
+    def generate_json_result(self, prompt: str) -> GenerationResult:
         errors: list[str] = []
         for model in [self.model, *self.fallback_models]:
             try:
@@ -45,7 +49,7 @@ class GeminiGenerationProvider:
                 errors.append(f"{model}: {exc}")
         raise RuntimeError("Gemini generation failed for all configured models: " + " | ".join(errors))
 
-    def _generate_json(self, model: str, prompt: str) -> str:
+    def _generate_json(self, model: str, prompt: str) -> GenerationResult:
         config_kwargs = {
             "temperature": self.temperature,
             "response_mime_type": "application/json",
@@ -61,4 +65,22 @@ class GeminiGenerationProvider:
         text = getattr(response, "text", None)
         if not text:
             raise RuntimeError("Gemini returned an empty indexing response.")
-        return str(text)
+        usage = getattr(response, "usage_metadata", None)
+        input_tokens = int(
+            getattr(usage, "prompt_token_count", 0)
+            or getattr(usage, "input_token_count", 0)
+            or 0
+        )
+        output_tokens = int(
+            getattr(usage, "candidates_token_count", 0)
+            or getattr(usage, "output_token_count", 0)
+            or 0
+        )
+        total_tokens = int(getattr(usage, "total_token_count", 0) or input_tokens + output_tokens)
+        return GenerationResult(
+            text=str(text),
+            model=model,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            total_tokens=total_tokens,
+        )

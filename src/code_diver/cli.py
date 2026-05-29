@@ -10,8 +10,9 @@ from time import perf_counter
 from typing import Any
 
 from .config import AppConfig, ConfigLoader
+from .agent import DirectIndexingOrchestrator, DirectSearchOrchestrator
 from .ai_indexing import AiCodebaseScanner, HybridCodebaseScanner
-from .domain import SearchResult
+from .domain import EvalResult, SearchResult
 from .env import EnvFileLoader
 from .experiments import ExperimentRunner
 from .generation import create_generation_provider
@@ -19,7 +20,7 @@ from .graph import CodeGraphBuilder, CodeGraphStore
 from .inspection import GrepService, ReadExcerptService, RgService, SymbolsService, TreeService
 from .metrics import ClickHouseClient, ClickHouseDockerClient, ClickHouseMetricsRepository, ExperimentMetricsMapper
 from .orchestration import OrchestratedCodebaseScanner
-from .pi import PiRunLogParser, PiRunner
+from .pi import PiRunner
 from .plugins import PluginManager
 from .providers import create_embedding_provider
 from .settings import (
@@ -39,6 +40,7 @@ from .services import (
     SelectedIndexPayloadParser,
     SelectedIndexingService,
 )
+from .services.codebase_scanner import DEFAULT_EXCLUDES
 from .services.evaluation_service import EvaluationService
 from .strategies import RetrievalStrategyFactory
 from .store import create_vector_store
@@ -140,13 +142,24 @@ def build_parser() -> argparse.ArgumentParser:
 
     evaluate_indexing = subparsers.add_parser(
         CommandName.EVALUATE_INDEXING.value,
-        help="Ask Pi indexing hypotheses to build isolated indexes, then evaluate retrieval metrics.",
+        help="Run direct AI indexing hypotheses, then evaluate retrieval metrics.",
     )
     evaluate_indexing.add_argument(OptionName.LIMIT.value, type=int, default=None)
     evaluate_indexing.add_argument(OptionName.HYPOTHESIS.value, action="append", default=[])
     evaluate_indexing.add_argument(OptionName.DETAILS.value, action="store_true")
     evaluate_indexing.add_argument(OptionName.JSON.value, action="store_true")
     evaluate_indexing.set_defaults(func=cmd_evaluate_indexing)
+
+    evaluate_search_tools = subparsers.add_parser(
+        CommandName.EVALUATE_SEARCH_TOOLS.value,
+        help="Run direct AI search-tool hypotheses on the configured dataset.",
+    )
+    evaluate_search_tools.add_argument(OptionName.DATASET.value, type=Path, default=None)
+    evaluate_search_tools.add_argument(OptionName.LIMIT.value, type=int, default=None)
+    evaluate_search_tools.add_argument(OptionName.HYPOTHESIS.value, action="append", default=[])
+    evaluate_search_tools.add_argument(OptionName.DETAILS.value, action="store_true")
+    evaluate_search_tools.add_argument(OptionName.JSON.value, action="store_true")
+    evaluate_search_tools.set_defaults(func=cmd_evaluate_search_tools)
 
     experiment = subparsers.add_parser(
         CommandName.EXPERIMENT.value,
@@ -185,7 +198,11 @@ def cmd_index(_: argparse.Namespace, config: AppConfig) -> int:
 
 def cmd_index_selected(args: argparse.Namespace, config: AppConfig) -> int:
     selections = SelectedIndexPayloadParser().parse(sys.stdin.read())
-    built = SelectedCodeItemBuilder(config.root, config.scanner.chunk_lines).build(selections)
+    built = SelectedCodeItemBuilder(
+        config.root,
+        config.scanner.chunk_lines,
+        inspection_exclude_patterns(config),
+    ).build(selections)
     if not built.items:
         payload = {"indexed": 0, "skipped": built.skipped, "store": store_label(config), "items": []}
         print(json.dumps(payload, indent=2) if args.json else "Indexed 0 selected items.")
@@ -233,27 +250,57 @@ def cmd_search(args: argparse.Namespace, config: AppConfig) -> int:
 
 
 def cmd_tree(args: argparse.Namespace, config: AppConfig) -> int:
-    print(TreeService(config.root).render(path=args.path, max_depth=args.depth, limit=args.limit))
+    print(
+        TreeService(config.root, inspection_exclude_patterns(config)).render(
+            path=args.path, max_depth=args.depth, limit=args.limit
+        )
+    )
     return 0
 
 
 def cmd_grep(args: argparse.Namespace, config: AppConfig) -> int:
-    print(GrepService(config.root).render(args.pattern, path=args.path, limit=args.limit))
+    print(
+        GrepService(
+            config.root,
+            inspection_exclude_patterns(config),
+            config.scanner.max_file_bytes,
+        ).render(args.pattern, path=args.path, limit=args.limit)
+    )
     return 0
 
 
 def cmd_rg(args: argparse.Namespace, config: AppConfig) -> int:
-    print(RgService(config.root).search(args.pattern, path=args.path, limit=args.limit))
+    print(
+        RgService(
+            config.root,
+            inspection_exclude_patterns(config),
+            config.scanner.max_file_bytes,
+        ).search(args.pattern, path=args.path, limit=args.limit)
+    )
     return 0
 
 
 def cmd_read(args: argparse.Namespace, config: AppConfig) -> int:
-    print(ReadExcerptService(config.root).render(args.file, start_line=args.start_line, lines=args.lines))
+    print(
+        ReadExcerptService(
+            config.root,
+            inspection_exclude_patterns(config),
+            config.scanner.max_file_bytes,
+        ).render(
+            args.file, start_line=args.start_line, lines=args.lines
+        )
+    )
     return 0
 
 
 def cmd_symbols(args: argparse.Namespace, config: AppConfig) -> int:
-    print(SymbolsService(config.root).render(path=args.path, limit=args.limit))
+    print(
+        SymbolsService(
+            config.root,
+            inspection_exclude_patterns(config),
+            config.scanner.max_file_bytes,
+        ).render(path=args.path, limit=args.limit)
+    )
     return 0
 
 
@@ -325,31 +372,49 @@ def cmd_evaluate_indexing(args: argparse.Namespace, config: AppConfig) -> int:
     for hypothesis in indexing_hypotheses(config, args.hypothesis):
         eval_config = config_for_indexing_hypothesis(config, hypothesis.name, run_id)
         log_path = indexing_hypothesis_log_path(config, hypothesis.name, run_id)
-        prompt = indexing_hypothesis_prompt(hypothesis.name, cases)
+        tools = resolve_hypothesis_tools(config, hypothesis.name)
+        vector_store = create_vector_store(eval_config)
+        embedding_provider = make_embedding_provider(eval_config)
+        graph_indexer = make_graph_indexer(eval_config)
         started = perf_counter()
-        exit_code = PiRunner().run_print_logged(
-            eval_config,
-            args.config,
-            prompt,
-            log_path,
-            hypothesis=hypothesis.name,
-        )
+        indexing_result = DirectIndexingOrchestrator(
+            root=eval_config.root,
+            generation_provider=create_generation_provider(eval_config),
+            embedding_provider=embedding_provider,
+            vector_store=vector_store,
+            allowed_tools=tools,
+            max_lines=eval_config.scanner.chunk_lines,
+            indexing_options=IndexingOptions(
+                embedding_batch_size=eval_config.embedding.batch_size,
+                embedding_workers=eval_config.embedding.workers,
+                embedding_max_input_chars=eval_config.embedding.max_input_chars,
+                progress=True,
+            ),
+            log_path=log_path,
+            include_prompts=eval_config.trace.include_prompts,
+            exclude=inspection_exclude_patterns(eval_config),
+            max_file_bytes=eval_config.scanner.max_file_bytes,
+            graph_indexer=graph_indexer,
+        ).run(hypothesis.name, cases)
+        close_vector_store(vector_store)
+        vector_store = create_vector_store(eval_config)
         indexing_duration_ms = (perf_counter() - started) * 1000
-        pi_usage = PiRunLogParser().parse(log_path)
         row: dict[str, Any] = {
             "hypothesis": hypothesis.name,
             "collection": eval_config.storage.qdrant.collection,
-            "tools": resolve_hypothesis_tools(config, hypothesis.name),
+            "tools": tools,
             "log_path": str(log_path),
-            "indexing_exit_code": exit_code,
+            "orchestrator": "direct",
+            "indexing_exit_code": indexing_result.exit_code,
             "indexing_duration_ms": indexing_duration_ms,
-            "pi_usage": pi_usage.to_json(),
+            "orchestrator_usage": indexing_result.to_usage_json(),
+            "indexed_items": indexing_result.indexed_items,
+            "error": indexing_result.error,
         }
-        if exit_code != 0:
-            row["error"] = "pi_indexing_failed"
+        if indexing_result.exit_code != 0:
+            close_vector_store(vector_store)
             rows.append(row)
             continue
-        vector_store = create_vector_store(eval_config)
         if not vector_store.exists():
             row["error"] = "index_not_found"
             close_vector_store(vector_store)
@@ -380,9 +445,9 @@ def cmd_evaluate_indexing(args: argparse.Namespace, config: AppConfig) -> int:
         print(f"  tools: {', '.join(row['tools'])}")
         print(f"  log_path: {row['log_path']}")
         print(f"  indexing_duration_ms: {row['indexing_duration_ms']:.1f}")
-        usage = row["pi_usage"]
+        usage = row["orchestrator_usage"]
         print(
-            "  pi_usage: "
+            "  orchestrator_usage: "
             f"tokens={usage['total_tokens']} "
             f"input={usage['input_tokens']} output={usage['output_tokens']} "
             f"cost=${usage['total_cost']:.6f} tool_calls={usage['tool_calls']}"
@@ -391,6 +456,83 @@ def cmd_evaluate_indexing(args: argparse.Namespace, config: AppConfig) -> int:
             print(f"  error: {row['error']} exit_code={row['indexing_exit_code']}")
             continue
         print(f"  indexed_items: {row.get('indexed_items', 'unknown')}")
+        for name, value in row["metrics"].items():
+            print(f"  {name}: {value:.4f}" if isinstance(value, float) else f"  {name}: {value}")
+    return 0
+
+
+def cmd_evaluate_search_tools(args: argparse.Namespace, config: AppConfig) -> int:
+    cases = DatasetLoader().load(args.dataset or config.evaluation.dataset)
+    limit = args.limit or config.evaluation.limit
+    run_id = uuid.uuid4().hex[:12]
+    rows: list[dict[str, Any]] = []
+    for hypothesis in search_tool_hypotheses(config, args.hypothesis):
+        tools = resolve_hypothesis_tools(config, hypothesis.name)
+        log_path = search_hypothesis_log_path(config, hypothesis.name, run_id)
+        search_handler = make_search_tool_handler(config) if "code_diver_search" in tools else None
+        orchestrator = DirectSearchOrchestrator(
+            root=config.root,
+            generation_provider=create_generation_provider(config),
+            allowed_tools=tools,
+            log_path=log_path,
+            include_prompts=config.trace.include_prompts,
+            search_handler=search_handler,
+            exclude=inspection_exclude_patterns(config),
+            max_file_bytes=config.scanner.max_file_bytes,
+        )
+        eval_results = []
+        durations_ms: list[float] = []
+        usage = empty_agent_usage()
+        started = perf_counter()
+        errors: list[str] = []
+        for case in cases:
+            case_started = perf_counter()
+            search_result = orchestrator.search(
+                hypothesis_name=hypothesis.name,
+                case_id=case.id,
+                query=case.query,
+                limit=limit,
+            )
+            durations_ms.append((perf_counter() - case_started) * 1000)
+            merge_agent_usage(usage, search_result.usage_json())
+            if search_result.error:
+                errors.append(f"{case.id}: {search_result.error}")
+            eval_results.append(direct_search_eval_result(case, search_result.retrieved, limit))
+        metrics = direct_search_metrics(eval_results, durations_ms, limit)
+        metrics["duration_ms"] = (perf_counter() - started) * 1000
+        row: dict[str, Any] = {
+            "hypothesis": hypothesis.name,
+            "tools": tools,
+            "log_path": str(log_path),
+            "orchestrator": "direct",
+            "orchestrator_usage": usage,
+            "metrics": metrics,
+            "errors": errors[:20],
+            "error_count": len(errors),
+        }
+        if args.details:
+            row["results"] = [eval_result_to_json(result) for result in eval_results]
+        rows.append(row)
+
+    if args.json:
+        print(json.dumps({"run_id": run_id, "results": rows}, indent=2))
+        return 0
+
+    print(f"run_id: {run_id}")
+    for row in rows:
+        print()
+        print(row["hypothesis"])
+        print(f"  tools: {', '.join(row['tools'])}")
+        print(f"  log_path: {row['log_path']}")
+        usage = row["orchestrator_usage"]
+        print(
+            "  orchestrator_usage: "
+            f"tokens={usage['total_tokens']} "
+            f"input={usage['input_tokens']} output={usage['output_tokens']} "
+            f"cost=${usage['total_cost']:.6f} tool_calls={usage['tool_calls']}"
+        )
+        if row["error_count"]:
+            print(f"  error_count: {row['error_count']}")
         for name, value in row["metrics"].items():
             print(f"  {name}: {value:.4f}" if isinstance(value, float) else f"  {name}: {value}")
     return 0
@@ -526,6 +668,17 @@ def indexing_hypotheses(config: AppConfig, names: list[str] | None = None):
     ]
 
 
+def search_tool_hypotheses(config: AppConfig, names: list[str] | None = None):
+    selected_names = set(names or [])
+    return [
+        hypothesis
+        for hypothesis in config.experiments.hypotheses
+        if not selected_names or hypothesis.name in selected_names
+        if resolve_hypothesis_tools(config, hypothesis.name)
+        if "code_diver_index_selected" not in resolve_hypothesis_tools(config, hypothesis.name)
+    ]
+
+
 def resolve_hypothesis_tools(config: AppConfig, hypothesis_name: str) -> list[str]:
     hypothesis = next(
         (candidate for candidate in config.experiments.hypotheses if candidate.name == hypothesis_name),
@@ -545,12 +698,26 @@ def config_for_indexing_hypothesis(config: AppConfig, hypothesis_name: str, run_
         config.storage.qdrant,
         collection=f"{config.storage.qdrant.collection}_{hypothesis_name}_{run_id}",
     )
-    return replace(config, storage=replace(config.storage, qdrant=qdrant))
+    graph_artifact = config.graph.artifact
+    if graph_artifact:
+        graph_artifact = graph_artifact.with_name(
+            f"{graph_artifact.stem}_{hypothesis_name}_{run_id}{graph_artifact.suffix}"
+        )
+    return replace(
+        config,
+        storage=replace(config.storage, qdrant=qdrant),
+        graph=replace(config.graph, artifact=graph_artifact),
+    )
 
 
 def indexing_hypothesis_log_path(config: AppConfig, hypothesis_name: str, run_id: str) -> Path:
     base = config.trace.artifact.parent if config.trace.artifact else Path(".code-diver/traces")
     return base / "orchestrator-indexing" / run_id / f"{hypothesis_name}.jsonl"
+
+
+def search_hypothesis_log_path(config: AppConfig, hypothesis_name: str, run_id: str) -> Path:
+    base = config.trace.artifact.parent if config.trace.artifact else Path(".code-diver/traces")
+    return base / "orchestrator-search" / run_id / f"{hypothesis_name}.jsonl"
 
 
 def indexing_hypothesis_prompt(hypothesis_name: str, cases: list[Any]) -> str:
@@ -563,6 +730,126 @@ def indexing_hypothesis_prompt(hypothesis_name: str, cases: list[Any]) -> str:
         f"{queries}\n"
         "Final answer: one short line with the number of indexed ranges."
     )
+
+
+def make_graph_indexer(config: AppConfig):
+    if not config.graph.enabled:
+        return None
+
+    def build(items: list[Any]) -> None:
+        GraphIndexingService(
+            CodeGraphBuilder(ast_enabled=config.graph.ast_enabled),
+            CodeGraphStore(config.graph.artifact),
+        ).build(config.root, items)
+
+    return build
+
+
+def make_search_tool_handler(config: AppConfig):
+    def handle(query: str, limit: int) -> str:
+        vector_store = create_vector_store(config)
+        try:
+            provider = make_embedding_provider(config, vector_store.metadata())
+            results = make_retrieval_strategy(config, provider, vector_store).search(query, limit)
+            return json.dumps(
+                [
+                    {
+                        "id": result.item.id,
+                        "path": result.item.path,
+                        "title": result.item.title,
+                        "startLine": result.item.start_line,
+                        "endLine": result.item.end_line,
+                        "score": result.score,
+                    }
+                    for result in results
+                ],
+                indent=2,
+            )
+        finally:
+            close_vector_store(vector_store)
+
+    return handle
+
+
+def inspection_exclude_patterns(config: AppConfig) -> list[str]:
+    return [*DEFAULT_EXCLUDES, *config.scanner.exclude]
+
+
+def direct_search_eval_result(case: Any, retrieved: list[str], limit: int):
+    matched_ranks = [
+        rank for rank, value in enumerate(retrieved[:limit], start=1) if direct_search_matches_any(value, case.expected)
+    ]
+    hit = bool(matched_ranks)
+    reciprocal_rank = 1.0 / matched_ranks[0] if matched_ranks else 0.0
+    match_count = len(matched_ranks)
+    return EvalResult(
+        case_id=case.id,
+        query=case.query,
+        expected=case.expected,
+        retrieved=retrieved[:limit],
+        hit=hit,
+        reciprocal_rank=reciprocal_rank,
+        precision=match_count / max(len(retrieved[:limit]), 1),
+        recall=min(match_count / max(len(case.expected), 1), 1.0),
+    )
+
+
+def direct_search_matches_any(path: str, expected: list[str]) -> bool:
+    return any(direct_search_matches(path, value) for value in expected)
+
+
+def direct_search_matches(path: str, expected: str) -> bool:
+    normalized = expected.strip()
+    return path == normalized or path.startswith(normalized + "#") or path.startswith(normalized.rstrip("/") + "/")
+
+
+def direct_search_metrics(results: list[Any], durations_ms: list[float], limit: int) -> dict[str, Any]:
+    return {
+        "cases": len(results),
+        f"hit_rate@{limit}": mean(1.0 if result.hit else 0.0 for result in results),
+        f"mrr@{limit}": mean(result.reciprocal_rank for result in results),
+        f"precision@{limit}": mean(result.precision for result in results),
+        f"recall@{limit}": mean(result.recall for result in results),
+        "search_duration_ms_total": sum(durations_ms),
+        "search_duration_ms_mean": mean(durations_ms),
+        "search_duration_ms_p95": percentile(durations_ms, 0.95),
+    }
+
+
+def empty_agent_usage() -> dict[str, Any]:
+    return {
+        "model_calls": 0,
+        "tool_calls": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0,
+        "total_cost": 0.0,
+        "models": [],
+    }
+
+
+def merge_agent_usage(target: dict[str, Any], source: dict[str, Any]) -> None:
+    for key in ["model_calls", "tool_calls", "input_tokens", "output_tokens", "total_tokens"]:
+        target[key] += int(source.get(key) or 0)
+    target["total_cost"] += float(source.get("total_cost") or 0.0)
+    for model in source.get("models") or []:
+        if model not in target["models"]:
+            target["models"].append(model)
+
+
+def mean(values: Any) -> float:
+    materialized = list(values)
+    if not materialized:
+        return 0.0
+    return sum(materialized) / len(materialized)
+
+
+def percentile(values: list[float], quantile: float) -> float:
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    index = min(int(round((len(ordered) - 1) * quantile)), len(ordered) - 1)
+    return ordered[index]
 
 
 def make_metrics_repository(config: AppConfig) -> ClickHouseMetricsRepository:

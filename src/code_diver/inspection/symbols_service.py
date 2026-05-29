@@ -8,11 +8,12 @@ from .path_guard import PathGuard
 
 
 class SymbolsService:
-    def __init__(self, root: Path):
+    def __init__(self, root: Path, exclude: list[str] | None = None, max_file_bytes: int = 1_000_000):
         self.root = root.resolve()
         self.guard = PathGuard(self.root)
-        self.ignore = IgnoreMatcher(self.root)
+        self.ignore = IgnoreMatcher(self.root, exclude)
         self.extractor = CodeSymbolExtractor()
+        self.max_file_bytes = max_file_bytes
 
     def render(self, path: str | None = None, limit: int = 200) -> str:
         rows: list[str] = []
@@ -34,8 +35,19 @@ class SymbolsService:
                 yield start
             return
         for path in sorted(start.rglob("*")):
-            if path.is_file() and not self.ignore.ignored(path) and path.suffix.lower() in self._suffixes():
+            if (
+                path.is_file()
+                and not self.ignore.ignored(path)
+                and path.suffix.lower() in self._suffixes()
+                and self._within_size_limit(path)
+            ):
                 yield path
 
     def _suffixes(self) -> set[str]:
         return {".go", ".java", ".js", ".jsx", ".kt", ".py", ".rs", ".ts", ".tsx"}
+
+    def _within_size_limit(self, path: Path) -> bool:
+        try:
+            return path.stat().st_size <= self.max_file_bytes
+        except OSError:
+            return False

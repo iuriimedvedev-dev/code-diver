@@ -4,6 +4,7 @@ import json
 from typing import Any
 
 from ..settings import Defaults
+from .generation_result import GenerationResult
 from .openai_generation_provider import OpenAIGenerationProvider
 
 
@@ -24,6 +25,9 @@ class OpenAICompatibleGenerationProvider(OpenAIGenerationProvider):
         self.name = "openai_compatible"
 
     def generate_json(self, prompt: str) -> str:
+        return self.generate_json_result(prompt).text
+
+    def generate_json_result(self, prompt: str) -> GenerationResult:
         payload: dict[str, Any] = {
             "model": self.model,
             "messages": [
@@ -38,7 +42,17 @@ class OpenAICompatibleGenerationProvider(OpenAIGenerationProvider):
         text = self._extract_chat_text(response)
         if not text:
             raise RuntimeError("OpenAI-compatible server returned an empty response.")
-        return text
+        usage = response.get("usage") or {}
+        input_tokens = int(usage.get("prompt_tokens") or usage.get("input_tokens") or 0)
+        output_tokens = int(usage.get("completion_tokens") or usage.get("output_tokens") or 0)
+        total_tokens = int(usage.get("total_tokens") or input_tokens + output_tokens)
+        return GenerationResult(
+            text=text,
+            model=str(response.get("model") or self.model),
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            total_tokens=total_tokens,
+        )
 
     def _headers(self) -> dict[str, str]:
         headers = {"Content-Type": "application/json"}
