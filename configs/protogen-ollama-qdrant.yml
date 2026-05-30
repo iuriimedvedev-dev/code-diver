@@ -192,6 +192,33 @@ experiments:
         - code_diver_search
         - code_diver_read
       description: Direct orchestrator finds candidates with vector search and reads selected source ranges.
+    - name: ai_search_vector_rg
+      tools:
+        - code_diver_search
+        - code_diver_rg
+      description: Direct orchestrator combines vector candidates with explicit regex probes, without source reads.
+    - name: ai_search_vector_symbols
+      tools:
+        - code_diver_search
+        - code_diver_symbols
+      description: Direct orchestrator combines vector candidates with symbol discovery.
+    - name: ai_search_vector_inspect
+      tools:
+        - code_diver_search
+        - code_diver_inspect
+      description: Direct orchestrator combines vector candidates with the structured inspect tool.
+    - name: ai_search_vector_rg_read
+      tools:
+        - code_diver_search
+        - code_diver_rg
+        - code_diver_read
+      description: Direct orchestrator combines vector candidates, explicit regex probes, and bounded reads.
+    - name: ai_search_vector_symbols_read
+      tools:
+        - code_diver_search
+        - code_diver_symbols
+        - code_diver_read
+      description: Direct orchestrator combines vector candidates, symbols, and bounded reads.
     - name: ai_selected_index
       toolset: indexing
       description: Direct orchestrator inspects the repository and saves selected file ranges into Qdrant.

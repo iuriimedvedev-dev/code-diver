@@ -358,3 +358,25 @@ Proposals:
 3. Implement normalized `Candidate` domain model and `HybridCandidateService` combining vector + lexical/path/symbol signals.
 4. Add one-shot LLM rerank mode and an `ai_search_hybrid_rerank` hypothesis.
 5. Add per-stage metrics, task-type metrics, and Qdrant payload indexes/filters.
+
+## New Hypotheses To Test Next
+
+These are intentionally narrower than the previous mixed toolsets:
+
+| Hypothesis | Tools | Goal |
+| --- | --- | --- |
+| `ai_search_vector_rg` | `search`, `rg` | Test whether regex probes add recall when vector candidates are already available. |
+| `ai_search_vector_symbols` | `search`, `symbols` | Test whether symbol inventory helps rank CLI/service entrypoints without source reads. |
+| `ai_search_vector_inspect` | `search`, `inspect` | Test whether the composite inspect tool helps when anchored by vector candidates. |
+| `ai_search_vector_rg_read` | `search`, `rg`, `read` | Test controlled source reads after vector and regex candidate generation. |
+| `ai_search_vector_symbols_read` | `search`, `symbols`, `read` | Test whether symbol-guided reads beat raw regex-guided reads. |
+
+Recommended run order on the 10-case smoke dataset:
+
+```bash
+uv run code-diver --config configs/protogen-ollama-qdrant.yml evaluate-search-tools --dataset datasets/protogen_eval.jsonl --hypothesis ai_search_vector_rg --hypothesis ai_search_vector_symbols --json
+uv run code-diver --config configs/protogen-ollama-qdrant.yml evaluate-search-tools --dataset datasets/protogen_eval.jsonl --hypothesis ai_search_vector_inspect --json
+uv run code-diver --config configs/protogen-ollama-qdrant.yml evaluate-search-tools --dataset datasets/protogen_eval.jsonl --hypothesis ai_search_vector_rg_read --hypothesis ai_search_vector_symbols_read --json
+```
+
+Promote only hypotheses that beat `ai_search_vector_only` on either `hit@10` or `mrr@10` without exceeding its token budget by more than 2x. If none do, move directly to deterministic hybrid candidate generation plus one-shot reranking.
