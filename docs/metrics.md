@@ -124,6 +124,32 @@ The isolated hypotheses use explicit `tools` in YAML, so the agent cannot silent
 | `4b31e8155061` | `vector_qdrant` mixed toolset | `search`, `inspect`, `open`, `tree`, `symbols`, `grep`, `rg`, `read`, `evaluate` | 0.50 | 0.450 | 0.275 | 0.467 | 37 | 46 | 245,192 | $0.4119 | 124.6s | 12.46s | 42.55s | 1 |
 | `7c70dd0eeb44` | `ai_grep_only` mixed toolset | `inspect`, `tree`, `symbols`, `grep`, `rg`, `read` | 0.40 | 0.400 | 0.250 | 0.400 | 44 | 55 | 370,271 | $0.6098 | 159.1s | 15.91s | 28.64s | 3 |
 
+### Autonomous Hybrid Toolset Run
+
+Run `a5210403d9b6` was executed on 2026-05-30 after the audit fixes were applied. It tested the new vector-plus-tool hypotheses on the same 10-case live smoke dataset. Trace logs live under `.code-diver/traces/orchestrator-search/a5210403d9b6/`.
+
+| Run id | Hypothesis | Tools | Hit@10 | MRR@10 | Precision@10 | Recall@10 | Model calls | Tool calls | Tokens | Cost est. | Total time | Mean/query | P95/query | Errors |
+| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `a5210403d9b6` | `ai_search_vector_only` | `search` | 0.80 | 0.683 | 0.573 | 0.717 | 24 | 15 | 37,849 | $0.0888 | 88.1s | 8.81s | 39.10s | 2 |
+| `a5210403d9b6` | `ai_search_vector_rg` | `search`, `rg` | 0.40 | 0.400 | 0.270 | 0.400 | 36 | 36 | 66,095 | $0.1318 | 140.3s | 14.03s | 48.77s | 5 |
+| `a5210403d9b6` | `ai_search_vector_symbols` | `search`, `symbols` | 0.70 | 0.700 | 0.523 | 0.617 | 31 | 25 | 59,901 | $0.1287 | 131.9s | 13.19s | 54.28s | 3 |
+| `a5210403d9b6` | `ai_search_vector_inspect` | `search`, `inspect` | 0.60 | 0.600 | 0.600 | 0.550 | 40 | 34 | 93,870 | $0.1799 | 105.5s | 10.55s | 23.99s | 3 |
+| `a5210403d9b6` | `ai_search_vector_rg_read` | `search`, `rg`, `read` | 0.30 | 0.300 | 0.300 | 0.300 | 44 | 56 | 119,565 | $0.2201 | 109.3s | 10.93s | 24.01s | 6 |
+| `a5210403d9b6` | `ai_search_vector_symbols_read` | `search`, `symbols`, `read` | 0.60 | 0.600 | 0.600 | 0.550 | 38 | 37 | 98,139 | $0.1818 | 90.3s | 9.03s | 28.04s | 3 |
+
+Because the control row in `a5210403d9b6` had two model-loop failures and used a fallback model in the trace, it was repeated alone as run `6b87e3eef745`. The repeat is the better control measurement for the current code path:
+
+| Run id | Hypothesis | Tools | Hit@10 | MRR@10 | Precision@10 | Recall@10 | Model calls | Tool calls | Tokens | Cost est. | Total time | Mean/query | P95/query | Errors |
+| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `6b87e3eef745` | `ai_search_vector_only` | `search` | 1.00 | 0.867 | 0.582 | 0.917 | 20 | 10 | 28,719 | $0.0776 | 45.8s | 4.58s | 5.75s | 0 |
+
+Hybrid run conclusion:
+
+- None of the new mixed toolsets beat the clean `ai_search_vector_only` repeat on `hit@10`, `mrr@10`, recall, tokens, cost, latency, or error count.
+- `ai_search_vector_symbols` had slightly higher MRR than the noisy control row in `a5210403d9b6`, but it lost to the clean repeat and used about 2.1x tokens.
+- Adding `rg` consistently hurt quality. Adding `read` increased tool calls and cost without improving recall.
+- The next experiment should not expose more raw tools to the open-ended agent loop. Build deterministic hybrid candidate generation, then use one bounded LLM rerank/verification turn.
+
 What changed after the prompt/history fix:
 
 - `ai_search_vector_only` improved from `hit@10=0.90` to `1.00`, removed the only error, and slightly reduced tokens and latency. The important improvement is stability and ranking quality, not raw speed.

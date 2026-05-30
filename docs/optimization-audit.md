@@ -25,6 +25,22 @@ Run metadata:
 
 Claude's audit confirmed the main local findings and added three concrete issues this report originally missed: JSON-store indexing-eval isolation, reopening Qdrant/provider per `code_diver_search` tool call, and model-agnostic cost estimation.
 
+Follow-up status:
+
+| Commit | Change |
+| --- | --- |
+| `d6abef1` | Fixed JSON-store indexing artifact isolation, reused vector provider/store/strategy per search-tool hypothesis, made cost estimates model-aware, compacted search prompt history, and added unit coverage. |
+| `798e59b` | Added isolated hybrid search hypotheses for `search+rg`, `search+symbols`, `search+inspect`, and bounded read variants. |
+
+Verification after those commits:
+
+| Check | Result |
+| --- | --- |
+| Full test suite | `73 passed in 11.57s` |
+| Config smoke load | 24 hypotheses loaded; new vector hybrid hypotheses present |
+| Live hybrid eval | Run `a5210403d9b6`, 6 hypotheses, completed |
+| Live control repeat | Run `6b87e3eef745`, `ai_search_vector_only`, completed with 0 errors |
+
 ## Executive Summary
 
 The current system already has the right experimental shape: config-first CLI, Qdrant, reproducible datasets, trace logs, direct provider orchestration, and isolated tool hypotheses. The strongest measured path is also clear: expose a structured vector candidate tool to the model, not raw `rg` as the primary search loop.
@@ -36,13 +52,13 @@ Highest-leverage optimizations:
 3. Make GraphRAG deterministic and query-aware: AST/LSP/tree-sitter graph edges first, bounded traversal second, LLM graph extraction last if ever.
 4. Replace fixed line-window chunks with typed, multi-granularity code items: file summaries, symbols, routes/commands/configs, tests, and chunk windows.
 5. Move the eval harness out of `cli.py` into services so experiments are easier to parallelize, persist, and test.
-6. Fix correctness issues found by Claude before running more large comparisons: JSON-store eval isolation, per-tool-call Qdrant reopen, and model-aware cost accounting.
+6. Completed the correctness fixes found by Claude before running the latest comparison: JSON-store eval isolation, per-tool-call Qdrant reopen, and model-aware cost accounting.
 
-The latest 10-case live eval strongly supports this direction:
+The latest stable 10-case live eval strongly supports this direction:
 
 | Hypothesis | Hit@10 | MRR@10 | Tokens | Duration | Errors |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| `ai_search_vector_only` | 1.00 | 0.867 | 32.1k | 53.6s | 0 |
+| `ai_search_vector_only` | 1.00 | 0.867 | 28.7k | 45.8s | 0 |
 | `ai_search_rg_only` | 0.30 | 0.300 | 134.9k | 134.8s | 6 |
 | `ai_search_vector_read` | 0.80 | 0.800 | 110.0k | 113.4s | 1 |
 | `ai_search_rg_read` | 0.40 | 0.400 | 279.8k | 116.2s | 2 |
@@ -99,6 +115,8 @@ Evidence:
 - `QdrantVectorStore` opens embedded/local Qdrant in its constructor around `src/code_diver/store/qdrant_vector_store.py:31`.
 
 Proposal: build the vector store, provider, and retrieval strategy once per hypothesis run, inject the handler, and close the store after the hypothesis completes.
+
+Status: fixed in `d6abef1` for search-tool evaluation. The handler now accepts an injected retrieval strategy, and the eval command owns provider/store lifecycle per hypothesis.
 
 ### 2. Direct Agent Search Is Still An Open-Ended Loop
 
@@ -205,6 +223,8 @@ Evidence:
 
 Proposal: suffix the JSON artifact path with `<hypothesis>_<run_id>` exactly like the Qdrant collection. Add a unit test covering Qdrant and JSON configs.
 
+Status: fixed in `d6abef1`. JSON artifacts, Qdrant collections, and graph artifacts are isolated by hypothesis and run id.
+
 ## Search Orchestration Issues
 
 ### Raw `rg` Is Too Low-Level For The Agent
@@ -243,17 +263,17 @@ Proposal:
 2. Prompt history still grows by round, even after compression.
 3. Mixed toolsets increase planning ambiguity and tool-call volume.
 4. Vertex embeddings currently embed one content at a time.
-5. Search-tool vector access reopens the vector store/provider per tool call.
+5. Search-tool vector access used to reopen the vector store/provider per tool call; this is fixed for search-tool evaluation in `d6abef1`.
 6. Full trace prompts are useful for audits but expensive if replayed into subsequent prompts.
-7. Cost estimates are currently model-agnostic and can mislead experiment selection.
+7. Cost estimates are now model-aware for the configured Gemini, OpenAI, Claude, and local model families, but the price table should still move to config before serious cost accounting.
 
 Evidence:
 
 - Search-tool eval loops cases serially in `src/code_diver/cli.py:488`.
 - The orchestrator itself runs each case as a model/tool loop in `src/code_diver/agent/direct_search_orchestrator.py:68`.
 - Vertex document embeddings call the parent provider once per text in `src/code_diver/providers/vertex_embedding_provider.py:48`.
-- `make_search_tool_handler` creates a fresh vector store/provider inside every tool call.
-- `ModelCostEstimator` uses flat pricing regardless of actual model.
+- Historical versions of `make_search_tool_handler` created a fresh vector store/provider inside every tool call.
+- Historical versions of `ModelCostEstimator` used flat pricing regardless of actual model.
 
 Proposals:
 
@@ -262,7 +282,7 @@ Proposals:
 - Add one-shot rerank mode with max one generation call per case.
 - Add provider-level rate limiter and retry policy with backoff/jitter.
 - Batch Vertex embeddings if the SDK/API path supports it; if not, document expected time and expose higher safe concurrency.
-- Make `ModelCostEstimator` model-aware through a YAML/model registry and persist the price table version in metrics.
+- Move `ModelCostEstimator` pricing to a YAML/model registry and persist the price table version in metrics.
 
 ## Evaluation And Metrics Improvements
 
@@ -298,7 +318,7 @@ The 100-case dataset should become the default for quality decisions. The 10-cas
 
 1. Defaults point at `gemini-3.5-flash` and `gemini-embedding-2`, but provider availability and model names move quickly.
 2. The generation provider uses `v1alpha` and `thinking_budget`; this should be tested regularly against live API behavior.
-3. Cost estimates are currently model-agnostic and can drift badly across providers/models.
+3. Cost estimates are model-aware for known model families now, but prices can still drift and should move to configuration with a recorded price-table version.
 4. Vertex auth is ADC/project/location based; AI Studio API keys are not Vertex credentials.
 5. OpenAI-compatible local embedding paths should be treated as local provider profiles, not as OpenAI proper.
 
@@ -313,11 +333,11 @@ Proposals:
 
 ### Quick Wins Under 1 Day
 
-1. Fix search history resend: pass latest compressed observation plus scratchpad, not full history.
-2. Make `ModelCostEstimator` model-aware via a small pricing registry.
-3. Reuse vector store/provider/retrieval strategy per search-tool hypothesis instead of reopening per tool call.
-4. Isolate JSON-store indexing-eval artifacts by hypothesis and run id.
-5. Delete dead `indexing_hypothesis_prompt` from `cli.py`.
+1. Done: compact search prompt history and keep full traces out of repeated model turns.
+2. Done: make `ModelCostEstimator` model-aware for current provider families.
+3. Done: reuse vector store/provider/retrieval strategy per search-tool hypothesis instead of reopening per tool call.
+4. Done: isolate JSON-store indexing-eval artifacts by hypothesis and run id.
+5. Done: delete dead `indexing_hypothesis_prompt` from `cli.py`.
 
 ### Medium Changes Under 1 Week
 
@@ -341,13 +361,13 @@ Proposals:
 | Severity | Risk | Evidence | Proposal |
 | --- | --- | --- | --- |
 | High | Open-ended search-tool loops are too expensive and unstable. | `DirectSearchOrchestrator.MAX_ROUNDS=5`; `rg_only` produced 6 errors on 10 cases. | Add one-shot candidate/rerank mode and make it default. |
-| High | JSON-backed indexing evals are not isolated by hypothesis. | `config_for_indexing_hypothesis` suffixes Qdrant collection and graph artifact, but not `config.artifact`. | Suffix JSON artifact per `<hypothesis>_<run_id>` and test it. |
+| Fixed | JSON-backed indexing evals were not isolated by hypothesis. | `config_for_indexing_hypothesis` originally suffixed Qdrant collection and graph artifact, but not `config.artifact`. | Fixed in `d6abef1`; JSON artifacts are now suffixed per `<hypothesis>_<run_id>` and covered by tests. |
 | High | AI-selected indexing undercovers the repo. | `ai_index_inspect_only` indexed 7 items and scored `hit@10=0.0`. | Use deterministic base index; AI only annotates or augments. |
 | Medium | Graph expansion is query-agnostic. | Static weights in `GraphRetrievalStrategy`; edge kinds are not interpreted by query type. | Add graph traversal profiles and stage metrics. |
 | Medium | Qdrant search cannot filter/rank by structured metadata. | Store payload keeps most metadata inside serialized `CodeItem`. | Promote payload fields and add indexes. |
-| Medium | `code_diver_search` reopens vector store/provider per tool call. | `make_search_tool_handler` constructs both inside the nested handler. | Inject a per-hypothesis retrieval strategy and close once. |
+| Fixed | `code_diver_search` reopened vector store/provider per tool call. | Historical `make_search_tool_handler` constructed both inside the nested handler. | Fixed in `d6abef1`; eval now injects a per-hypothesis retrieval strategy and closes once. |
 | Medium | Vertex embedding path is serial per text. | `VertexEmbeddingProvider.embed_documents` loops one text at a time. | Batch or parallelize with rate limits. |
-| Medium | Cost reporting is model-agnostic. | `ModelCostEstimator` uses flat pricing independent of `result.model`. | Add model pricing registry and tests. |
+| Fixed | Cost reporting was model-agnostic. | Historical `ModelCostEstimator` used flat pricing independent of `result.model`. | Fixed in `d6abef1` with model-aware pricing and tests; move the table to YAML later. |
 | Medium | CLI command handlers own too much application logic. | `cli.py` constructs providers/stores and runs eval loops. | Extract services and command objects. |
 | Low | `rg` confidence is match-count heuristic. | `RgService._candidates` computes confidence only from count. | Add query term coverage, path/kind boosts, and exact-symbol boosts. |
 
@@ -380,3 +400,33 @@ uv run code-diver --config configs/protogen-ollama-qdrant.yml evaluate-search-to
 ```
 
 Promote only hypotheses that beat `ai_search_vector_only` on either `hit@10` or `mrr@10` without exceeding its token budget by more than 2x. If none do, move directly to deterministic hybrid candidate generation plus one-shot reranking.
+
+## New Hypotheses Run Result
+
+Executed on 2026-05-30 with run id `a5210403d9b6`; control repeat run id `6b87e3eef745`.
+
+| Hypothesis | Tools | Hit@10 | MRR@10 | Tokens | Time | Errors | Result |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | --- |
+| `ai_search_vector_only` | `search` | 1.00 | 0.867 | 28.7k | 45.8s | 0 | Keep as current control. |
+| `ai_search_vector_rg` | `search`, `rg` | 0.40 | 0.400 | 66.1k | 140.3s | 5 | Reject. Regex exploration hurt quality and latency. |
+| `ai_search_vector_symbols` | `search`, `symbols` | 0.70 | 0.700 | 59.9k | 131.9s | 3 | Reject as default. Symbol inventory may be useful as deterministic signal, not as an agent tool. |
+| `ai_search_vector_inspect` | `search`, `inspect` | 0.60 | 0.600 | 93.9k | 105.5s | 3 | Reject as default. Composite inspection is too broad for open-ended loops. |
+| `ai_search_vector_rg_read` | `search`, `rg`, `read` | 0.30 | 0.300 | 119.6k | 109.3s | 6 | Reject. Worst balance of quality, tool calls, and failures. |
+| `ai_search_vector_symbols_read` | `search`, `symbols`, `read` | 0.60 | 0.600 | 98.1k | 90.3s | 3 | Reject as default. Reads should be controlled verification, not exploratory search. |
+
+The tested hybrids show that simply giving the orchestrator more tools is the wrong default. The useful pieces are still valuable, but they should be combined below the agent boundary:
+
+1. Deterministic candidate service: vector + lexical + path + symbol + graph signals merged into one ranked schema.
+2. One LLM rerank turn over top candidates with a strict token budget.
+3. Optional verification reads for the top 3 to 5 ranges only.
+4. Per-stage metrics so vector, lexical, graph, rerank, and read costs are visible separately.
+
+Next hypotheses:
+
+| Hypothesis | Shape | Expected benefit |
+| --- | --- | --- |
+| `hybrid_candidates_no_llm` | Deterministic vector + lexical/path/symbol fusion. | Better recall than vector-only with near-zero token cost. |
+| `hybrid_candidates_graph_boost` | Fusion plus query-aware AST/import/call graph boosts. | Better workflow and architecture queries. |
+| `hybrid_candidates_rerank_once` | Fusion plus one Gemini rerank turn. | Better MRR without multi-round search cost. |
+| `hybrid_candidates_verify_top3` | Fusion + rerank + bounded reads for top 3. | Better precision and answer evidence with controlled token growth. |
+| `adaptive_identifier_fast_path` | Detect identifier/path queries and use lexical/symbol search before vectors. | Faster exact-code lookups. |
