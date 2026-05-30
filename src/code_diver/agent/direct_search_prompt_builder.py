@@ -5,7 +5,7 @@ from typing import Any
 
 
 class DirectSearchPromptBuilder:
-    MAX_HISTORY_CHARS = 50_000
+    MAX_HISTORY_CHARS = 16_000
 
     def build(
         self,
@@ -79,7 +79,27 @@ When ready, return up to {limit} results:
     def _history(self, history: list[dict[str, Any]]) -> str:
         if not history:
             return "[]"
-        text = json.dumps(history, indent=2, ensure_ascii=False)
+        text = json.dumps(self._compact_history(history), indent=2, ensure_ascii=False)
         if len(text) <= self.MAX_HISTORY_CHARS:
             return text
         return "... truncated history ...\n" + text[-self.MAX_HISTORY_CHARS :]
+
+    def _compact_history(self, history: list[dict[str, Any]]) -> Any:
+        if len(history) <= 2:
+            return history
+        summaries: list[dict[str, Any]] = []
+        for entry in history[:-2]:
+            assistant = entry.get("assistant")
+            if not isinstance(assistant, dict):
+                continue
+            tool_calls = assistant.get("tool_calls")
+            results = assistant.get("results")
+            summaries.append(
+                {
+                    "round": entry.get("round"),
+                    "reason": assistant.get("reason"),
+                    "toolCallCount": len(tool_calls) if isinstance(tool_calls, list) else 0,
+                    "resultCount": len(results) if isinstance(results, list) else 0,
+                }
+            )
+        return {"previousRounds": summaries[-6:], "recent": history[-2:]}

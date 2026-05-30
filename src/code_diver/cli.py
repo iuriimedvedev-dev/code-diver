@@ -469,35 +469,46 @@ def cmd_evaluate_search_tools(args: argparse.Namespace, config: AppConfig) -> in
     for hypothesis in search_tool_hypotheses(config, args.hypothesis):
         tools = resolve_hypothesis_tools(config, hypothesis.name)
         log_path = search_hypothesis_log_path(config, hypothesis.name, run_id)
-        search_handler = make_search_tool_handler(config) if "code_diver_search" in tools else None
-        orchestrator = DirectSearchOrchestrator(
-            root=config.root,
-            generation_provider=create_generation_provider(config),
-            allowed_tools=tools,
-            log_path=log_path,
-            include_prompts=config.trace.include_prompts,
-            search_handler=search_handler,
-            exclude=inspection_exclude_patterns(config),
-            max_file_bytes=config.scanner.max_file_bytes,
-        )
-        eval_results = []
-        durations_ms: list[float] = []
-        usage = empty_agent_usage()
-        started = perf_counter()
-        errors: list[str] = []
-        for case in cases:
-            case_started = perf_counter()
-            search_result = orchestrator.search(
-                hypothesis_name=hypothesis.name,
-                case_id=case.id,
-                query=case.query,
-                limit=limit,
+        search_vector_store = None
+        try:
+            search_handler = None
+            if "code_diver_search" in tools:
+                search_vector_store = create_vector_store(config)
+                search_provider = make_embedding_provider(config, search_vector_store.metadata())
+                search_handler = make_search_tool_handler(
+                    make_retrieval_strategy(config, search_provider, search_vector_store)
+                )
+            orchestrator = DirectSearchOrchestrator(
+                root=config.root,
+                generation_provider=create_generation_provider(config),
+                allowed_tools=tools,
+                log_path=log_path,
+                include_prompts=config.trace.include_prompts,
+                search_handler=search_handler,
+                exclude=inspection_exclude_patterns(config),
+                max_file_bytes=config.scanner.max_file_bytes,
             )
-            durations_ms.append((perf_counter() - case_started) * 1000)
-            merge_agent_usage(usage, search_result.usage_json())
-            if search_result.error:
-                errors.append(f"{case.id}: {search_result.error}")
-            eval_results.append(direct_search_eval_result(case, search_result.retrieved, limit))
+            eval_results = []
+            durations_ms: list[float] = []
+            usage = empty_agent_usage()
+            started = perf_counter()
+            errors: list[str] = []
+            for case in cases:
+                case_started = perf_counter()
+                search_result = orchestrator.search(
+                    hypothesis_name=hypothesis.name,
+                    case_id=case.id,
+                    query=case.query,
+                    limit=limit,
+                )
+                durations_ms.append((perf_counter() - case_started) * 1000)
+                merge_agent_usage(usage, search_result.usage_json())
+                if search_result.error:
+                    errors.append(f"{case.id}: {search_result.error}")
+                eval_results.append(direct_search_eval_result(case, search_result.retrieved, limit))
+        finally:
+            if search_vector_store is not None:
+                close_vector_store(search_vector_store)
         metrics = direct_search_metrics(eval_results, durations_ms, limit)
         metrics["duration_ms"] = (perf_counter() - started) * 1000
         row: dict[str, Any] = {
@@ -698,15 +709,11 @@ def config_for_indexing_hypothesis(config: AppConfig, hypothesis_name: str, run_
         config.storage.qdrant,
         collection=f"{config.storage.qdrant.collection}_{hypothesis_name}_{run_id}",
     )
-    graph_artifact = config.graph.artifact
-    if graph_artifact:
-        graph_artifact = graph_artifact.with_name(
-            f"{graph_artifact.stem}_{hypothesis_name}_{run_id}{graph_artifact.suffix}"
-        )
     return replace(
         config,
+        artifact=suffixed_artifact_path(config.artifact, hypothesis_name, run_id),
         storage=replace(config.storage, qdrant=qdrant),
-        graph=replace(config.graph, artifact=graph_artifact),
+        graph=replace(config.graph, artifact=suffixed_artifact_path(config.graph.artifact, hypothesis_name, run_id)),
     )
 
 
@@ -718,18 +725,6 @@ def indexing_hypothesis_log_path(config: AppConfig, hypothesis_name: str, run_id
 def search_hypothesis_log_path(config: AppConfig, hypothesis_name: str, run_id: str) -> Path:
     base = config.trace.artifact.parent if config.trace.artifact else Path(".code-diver/traces")
     return base / "orchestrator-search" / run_id / f"{hypothesis_name}.jsonl"
-
-
-def indexing_hypothesis_prompt(hypothesis_name: str, cases: list[Any]) -> str:
-    queries = "\n".join(f"- {case.query}" for case in cases)
-    return (
-        f"Evaluate indexing hypothesis `{hypothesis_name}`. Build a compact selected index for this repository "
-        "using only the available tools. Use code_diver_index_selected exactly once after inspection. "
-        "Index up to 30 high-value ranges that should help later retrieval for these task-style queries. "
-        "Do not include expected file paths unless you discovered them with tools. Queries:\n"
-        f"{queries}\n"
-        "Final answer: one short line with the number of indexed ranges."
-    )
 
 
 def make_graph_indexer(config: AppConfig):
@@ -745,28 +740,27 @@ def make_graph_indexer(config: AppConfig):
     return build
 
 
-def make_search_tool_handler(config: AppConfig):
+def suffixed_artifact_path(path: Path, hypothesis_name: str, run_id: str) -> Path:
+    return path.with_name(f"{path.stem}_{hypothesis_name}_{run_id}{path.suffix}")
+
+
+def make_search_tool_handler(strategy: Any):
     def handle(query: str, limit: int) -> str:
-        vector_store = create_vector_store(config)
-        try:
-            provider = make_embedding_provider(config, vector_store.metadata())
-            results = make_retrieval_strategy(config, provider, vector_store).search(query, limit)
-            return json.dumps(
-                [
-                    {
-                        "id": result.item.id,
-                        "path": result.item.path,
-                        "title": result.item.title,
-                        "startLine": result.item.start_line,
-                        "endLine": result.item.end_line,
-                        "score": result.score,
-                    }
-                    for result in results
-                ],
-                indent=2,
-            )
-        finally:
-            close_vector_store(vector_store)
+        results = strategy.search(query, limit)
+        return json.dumps(
+            [
+                {
+                    "id": result.item.id,
+                    "path": result.item.path,
+                    "title": result.item.title,
+                    "startLine": result.item.start_line,
+                    "endLine": result.item.end_line,
+                    "score": result.score,
+                }
+                for result in results
+            ],
+            indent=2,
+        )
 
     return handle
 
