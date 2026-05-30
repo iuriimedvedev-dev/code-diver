@@ -8,7 +8,22 @@ Requested command: run Claude Code CLI with `claude-opus-4-8` for a long read-on
 
 Local Claude Code is installed (`2.1.112`) and supports the needed flags: `--model`, `--effort`, `--allowedTools`, `--disallowedTools`, and `--output-format json`.
 
-The external Claude run was blocked by the execution policy because it would transmit private repository contents to Anthropic. The attempted command used read-only tools and explicitly disallowed edit/write tools, but policy still rejected the external disclosure. This report is therefore a local audit by Codex plus web research, not a Claude-generated audit.
+The external Claude run was approved after explicit user confirmation and completed successfully.
+
+Run metadata:
+
+| Field | Value |
+| --- | --- |
+| Model | `claude-opus-4-8` |
+| CLI | Claude Code `2.1.112` |
+| Mode | read-only audit, `Edit`/`Write`/`MultiEdit` disallowed |
+| Output | `.code-diver/claude-opus-audit.json` |
+| Duration | 204.1s |
+| Turns | 30 |
+| Cost | $4.3753 |
+| Terminal reason | `completed` |
+
+Claude's audit confirmed the main local findings and added three concrete issues this report originally missed: JSON-store indexing-eval isolation, reopening Qdrant/provider per `code_diver_search` tool call, and model-agnostic cost estimation.
 
 ## Executive Summary
 
@@ -21,6 +36,7 @@ Highest-leverage optimizations:
 3. Make GraphRAG deterministic and query-aware: AST/LSP/tree-sitter graph edges first, bounded traversal second, LLM graph extraction last if ever.
 4. Replace fixed line-window chunks with typed, multi-granularity code items: file summaries, symbols, routes/commands/configs, tests, and chunk windows.
 5. Move the eval harness out of `cli.py` into services so experiments are easier to parallelize, persist, and test.
+6. Fix correctness issues found by Claude before running more large comparisons: JSON-store eval isolation, per-tool-call Qdrant reopen, and model-aware cost accounting.
 
 The latest 10-case live eval strongly supports this direction:
 
@@ -72,6 +88,17 @@ Proposal: extract:
 - `SearchToolEvaluationService`
 - `IndexingHypothesisRunner`
 - `AppFactory` or explicit provider/store factories
+
+### 1.1 Search Tool Handler Reopens Qdrant Per Tool Call
+
+Claude found that `make_search_tool_handler` constructs a new vector store and embedding provider for every `code_diver_search` call. On embedded Qdrant this reopens the on-disk client repeatedly; under concurrency it is both slow and a potential file-lock hazard.
+
+Evidence:
+
+- `make_search_tool_handler` builds the store/provider inside the nested `handle` function around `src/code_diver/cli.py:748`.
+- `QdrantVectorStore` opens embedded/local Qdrant in its constructor around `src/code_diver/store/qdrant_vector_store.py:31`.
+
+Proposal: build the vector store, provider, and retrieval strategy once per hypothesis run, inject the handler, and close the store after the hypothesis completes.
 
 ### 2. Direct Agent Search Is Still An Open-Ended Loop
 
@@ -167,6 +194,17 @@ Proposal:
 - Add sparse/BM25-style vectors or a sidecar lexical index.
 - Add named vectors when testing multiple embedding models or item representations.
 
+### Indexing Eval Isolation Only Covers Qdrant
+
+Claude identified a correctness bug: `config_for_indexing_hypothesis` only suffixes the Qdrant collection and graph artifact. If a JSON store config is used with `evaluate-indexing`, all hypotheses share `config.artifact`, overwrite each other's index, and can contaminate results.
+
+Evidence:
+
+- `config_for_indexing_hypothesis` changes only `storage.qdrant.collection` and `graph.artifact` around `src/code_diver/cli.py:696`.
+- `store_label` still points JSON-backed stores at `config.artifact`.
+
+Proposal: suffix the JSON artifact path with `<hypothesis>_<run_id>` exactly like the Qdrant collection. Add a unit test covering Qdrant and JSON configs.
+
 ## Search Orchestration Issues
 
 ### Raw `rg` Is Too Low-Level For The Agent
@@ -205,13 +243,17 @@ Proposal:
 2. Prompt history still grows by round, even after compression.
 3. Mixed toolsets increase planning ambiguity and tool-call volume.
 4. Vertex embeddings currently embed one content at a time.
-5. Full trace prompts are useful for audits but expensive if replayed into subsequent prompts.
+5. Search-tool vector access reopens the vector store/provider per tool call.
+6. Full trace prompts are useful for audits but expensive if replayed into subsequent prompts.
+7. Cost estimates are currently model-agnostic and can mislead experiment selection.
 
 Evidence:
 
 - Search-tool eval loops cases serially in `src/code_diver/cli.py:488`.
 - The orchestrator itself runs each case as a model/tool loop in `src/code_diver/agent/direct_search_orchestrator.py:68`.
 - Vertex document embeddings call the parent provider once per text in `src/code_diver/providers/vertex_embedding_provider.py:48`.
+- `make_search_tool_handler` creates a fresh vector store/provider inside every tool call.
+- `ModelCostEstimator` uses flat pricing regardless of actual model.
 
 Proposals:
 
@@ -220,6 +262,7 @@ Proposals:
 - Add one-shot rerank mode with max one generation call per case.
 - Add provider-level rate limiter and retry policy with backoff/jitter.
 - Batch Vertex embeddings if the SDK/API path supports it; if not, document expected time and expose higher safe concurrency.
+- Make `ModelCostEstimator` model-aware through a YAML/model registry and persist the price table version in metrics.
 
 ## Evaluation And Metrics Improvements
 
@@ -255,7 +298,7 @@ The 100-case dataset should become the default for quality decisions. The 10-cas
 
 1. Defaults point at `gemini-3.5-flash` and `gemini-embedding-2`, but provider availability and model names move quickly.
 2. The generation provider uses `v1alpha` and `thinking_budget`; this should be tested regularly against live API behavior.
-3. Cost estimates are model-name based and can drift.
+3. Cost estimates are currently model-agnostic and can drift badly across providers/models.
 4. Vertex auth is ADC/project/location based; AI Studio API keys are not Vertex credentials.
 5. OpenAI-compatible local embedding paths should be treated as local provider profiles, not as OpenAI proper.
 
@@ -270,11 +313,11 @@ Proposals:
 
 ### Quick Wins Under 1 Day
 
-1. Extract eval loops from `cli.py` into services.
-2. Add isolated `hybrid_candidates` tool that calls vector + lexical and returns one normalized candidate list.
-3. Add per-stage timing and candidate counts to `evaluate-search-tools`.
-4. Add task type field to `EvalCase` and dataset generator.
-5. Add default one-shot `vector_candidates -> final results` agent mode.
+1. Fix search history resend: pass latest compressed observation plus scratchpad, not full history.
+2. Make `ModelCostEstimator` model-aware via a small pricing registry.
+3. Reuse vector store/provider/retrieval strategy per search-tool hypothesis instead of reopening per tool call.
+4. Isolate JSON-store indexing-eval artifacts by hypothesis and run id.
+5. Delete dead `indexing_hypothesis_prompt` from `cli.py`.
 
 ### Medium Changes Under 1 Week
 
@@ -298,17 +341,20 @@ Proposals:
 | Severity | Risk | Evidence | Proposal |
 | --- | --- | --- | --- |
 | High | Open-ended search-tool loops are too expensive and unstable. | `DirectSearchOrchestrator.MAX_ROUNDS=5`; `rg_only` produced 6 errors on 10 cases. | Add one-shot candidate/rerank mode and make it default. |
+| High | JSON-backed indexing evals are not isolated by hypothesis. | `config_for_indexing_hypothesis` suffixes Qdrant collection and graph artifact, but not `config.artifact`. | Suffix JSON artifact per `<hypothesis>_<run_id>` and test it. |
 | High | AI-selected indexing undercovers the repo. | `ai_index_inspect_only` indexed 7 items and scored `hit@10=0.0`. | Use deterministic base index; AI only annotates or augments. |
 | Medium | Graph expansion is query-agnostic. | Static weights in `GraphRetrievalStrategy`; edge kinds are not interpreted by query type. | Add graph traversal profiles and stage metrics. |
 | Medium | Qdrant search cannot filter/rank by structured metadata. | Store payload keeps most metadata inside serialized `CodeItem`. | Promote payload fields and add indexes. |
+| Medium | `code_diver_search` reopens vector store/provider per tool call. | `make_search_tool_handler` constructs both inside the nested handler. | Inject a per-hypothesis retrieval strategy and close once. |
 | Medium | Vertex embedding path is serial per text. | `VertexEmbeddingProvider.embed_documents` loops one text at a time. | Batch or parallelize with rate limits. |
+| Medium | Cost reporting is model-agnostic. | `ModelCostEstimator` uses flat pricing independent of `result.model`. | Add model pricing registry and tests. |
 | Medium | CLI command handlers own too much application logic. | `cli.py` constructs providers/stores and runs eval loops. | Extract services and command objects. |
 | Low | `rg` confidence is match-count heuristic. | `RgService._candidates` computes confidence only from count. | Add query term coverage, path/kind boosts, and exact-symbol boosts. |
 
 ## Next Five Commits
 
-1. Extract `SearchToolEvaluationService` and `IndexingHypothesisRunner` from `cli.py` without behavior changes.
-2. Implement normalized `Candidate` domain model and `HybridCandidateService` combining vector + lexical/path/symbol signals.
-3. Add one-shot LLM rerank mode and an `ai_search_hybrid_rerank` hypothesis.
-4. Add per-stage metrics and task-type metrics to eval output and ClickHouse rows.
-5. Add Qdrant payload indexes/filters plus payload fields for path, kind, language, symbol, start/end lines.
+1. Correctness patch: isolate JSON-store indexing artifacts, reuse vector store/provider per search-tool hypothesis, and make cost estimates model-aware.
+2. Refactor: extract `SearchToolEvaluationService` and `IndexingHypothesisRunner` from `cli.py` without behavior changes.
+3. Implement normalized `Candidate` domain model and `HybridCandidateService` combining vector + lexical/path/symbol signals.
+4. Add one-shot LLM rerank mode and an `ai_search_hybrid_rerank` hypothesis.
+5. Add per-stage metrics, task-type metrics, and Qdrant payload indexes/filters.
