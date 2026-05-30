@@ -101,7 +101,46 @@ Current direct-provider runs on `configs/protogen-ollama-qdrant.yml` with Gemini
 | search-tools | `protogen_eval.jsonl` | `vector_qdrant` | 10 cases | 0.70 | 0.65 | 0.500 | 0.700 | 143,310 | $0.2616 | 193.1s |
 | baseline | `protogen_eval.jsonl` | direct vector retrieval | 10 cases | 0.90 | 0.663 | 0.310 | 0.900 | 0 | $0.0000 | 0.39s |
 
-Early read: query-time grep/rg orchestration can beat vector retrieval on MRR for a small 10-case dataset, but it is orders of magnitude slower and much more expensive. For indexing, the composite `inspect` tool is currently the best single-tool hypothesis, while all-tools selection did not improve quality.
+The first `ai_grep_only` row above is a historical mixed-tool run. Despite the name, the configured `grep_search` toolset exposed `inspect`, `tree`, `symbols`, `grep`, `rg`, and `read`, so it is not a clean single-tool comparison.
+
+### Structured Agent Tool Comparison
+
+Fresh comparison from 2026-05-30, same config and 10-case historical dataset:
+
+```bash
+uv run code-diver --config configs/protogen-ollama-qdrant.yml evaluate-search-tools --dataset datasets/protogen_eval.jsonl --hypothesis <name> --json
+```
+
+The isolated hypotheses use explicit `tools` in YAML, so the agent cannot silently mix unrelated tools. `ai_search_vector_only` exposes only `code_diver_search`; `ai_search_rg_only` exposes only `code_diver_rg`; `*_read` adds bounded source reading. The "after prompt/history fix" rows include dynamic prompt examples for the actually available tools and compressed structured tool observations in the next model turn. Full raw tool results are still kept in the JSONL trace logs.
+
+| Run id | Hypothesis | Tools | Hit@10 | MRR@10 | Precision@10 | Recall@10 | Model calls | Tool calls | Tokens | Cost est. | Total time | Mean/query | P95/query | Errors |
+| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `91deebc3b17f` | `ai_search_vector_only` before prompt/history fix | `search` | 0.90 | 0.850 | 0.492 | 0.867 | 22 | 12 | 32,930 | $0.0839 | 54.6s | 5.46s | 7.79s | 1 |
+| `78c4cf2e8594` | `ai_search_vector_only` after prompt/history fix | `search` | 1.00 | 0.867 | 0.632 | 0.917 | 21 | 11 | 32,147 | $0.0811 | 53.6s | 5.36s | 6.63s | 0 |
+| `91deebc3b17f` | `ai_search_rg_only` before prompt/history fix | `rg` | 0.30 | 0.300 | 0.095 | 0.233 | 43 | 36 | 157,767 | $0.2735 | 119.8s | 11.98s | 26.01s | 3 |
+| `64aabc11d0b5` | `ai_search_rg_only` after prompt/history fix | `rg` | 0.30 | 0.300 | 0.117 | 0.300 | 44 | 45 | 134,921 | $0.2405 | 134.8s | 13.48s | 29.82s | 6 |
+| `7f5aaad434dc` | `ai_search_vector_read` | `search`, `read` | 0.80 | 0.800 | 0.633 | 0.767 | 34 | 31 | 109,992 | $0.2094 | 113.4s | 11.34s | 27.25s | 1 |
+| `7f5aaad434dc` | `ai_search_rg_read` | `rg`, `read` | 0.40 | 0.400 | 0.350 | 0.400 | 44 | 45 | 279,758 | $0.4675 | 116.2s | 11.62s | 27.05s | 2 |
+| `4b31e8155061` | `vector_qdrant` mixed toolset | `search`, `inspect`, `open`, `tree`, `symbols`, `grep`, `rg`, `read`, `evaluate` | 0.50 | 0.450 | 0.275 | 0.467 | 37 | 46 | 245,192 | $0.4119 | 124.6s | 12.46s | 42.55s | 1 |
+| `7c70dd0eeb44` | `ai_grep_only` mixed toolset | `inspect`, `tree`, `symbols`, `grep`, `rg`, `read` | 0.40 | 0.400 | 0.250 | 0.400 | 44 | 55 | 370,271 | $0.6098 | 159.1s | 15.91s | 28.64s | 3 |
+
+What changed after the prompt/history fix:
+
+- `ai_search_vector_only` improved from `hit@10=0.90` to `1.00`, removed the only error, and slightly reduced tokens and latency. The important improvement is stability and ranking quality, not raw speed.
+- `ai_search_rg_only` used fewer tokens after dropping the raw `matches` array from prompt history (`157.8k` to `134.9k`), but quality did not improve. The agent still burns rounds inventing broad regexes and frequently hits `max_rounds_exceeded`.
+- Adding `read` to vector search increased precision but hurt total quality, cost, and latency. Source reading is useful for final verification, but exposing it as a free multi-round search tool makes the agent over-invest in reading.
+- Mixed toolsets performed worse than the isolated vector tool. More tools increased planning ambiguity, token volume, and tail latency.
+
+Current interpretation:
+
+1. `code_diver_search` is the best agent-facing candidate tool in this benchmark. It gives the model ranked structured candidates with paths, titles, line ranges, and scores.
+2. Free-form LLM-controlled `rg` is not a good primary retrieval loop for informal code-search queries. It can be useful when the query contains concrete identifiers, but it is weak for questions like "where is authorization handled?" because the model must guess lexical anchors.
+3. `read` should be a controlled verification/rerank phase over a small candidate set, not an always-available exploratory tool.
+4. The next architecture should be two-stage: deterministic/vector candidate generation first, then one bounded LLM rerank/answer turn with optional targeted reads. Avoid open-ended multi-round search for the default interactive path.
+
+### AI Indexing Follow-Up
+
+The parser fix also made `ai_index_inspect_only` complete instead of failing on Gemini output with trailing JSON. The fresh run `6893a890d162` indexed only 7 items in 10.2s with 18,535 tokens and scored `hit@10=0.0` on the 100-case dataset. This is an infrastructure success but a strategy failure: a tiny LLM-selected index undercovers the repository. For indexing, the agent needs either a deterministic base index plus AI annotations, or a much more systematic planner that covers modules, symbols, routes, commands, configs, and workflows before selecting vector payloads.
 
 ## Local Vs API Read
 
@@ -118,7 +157,8 @@ Practical conclusion right now:
 
 ## Known Measurement Limits
 
-- Current dataset has only 10 cases.
+- `datasets/protogen_eval.jsonl` has only 10 cases and is useful for quick live API checks, not final confidence.
+- `datasets/protogen_eval_100.jsonl` has 100 informal intent cases and is the primary dataset for broader quality comparisons.
 - Metrics evaluate retrieval, not final answer correctness.
 - `duration_ms` includes Python implementation overhead and JSON vector store scans.
 - Recursive search currently increases latency significantly and does not always improve quality over strong embeddings.
