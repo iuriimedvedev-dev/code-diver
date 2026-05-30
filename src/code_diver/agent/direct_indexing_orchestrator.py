@@ -22,6 +22,7 @@ from .direct_tool_executor import DirectToolExecutor
 from .json_response_parser import JsonResponseParser
 from .model_cost_estimator import ModelCostEstimator
 from .tool_call import ToolCall
+from .tool_observation_compressor import ToolObservationCompressor
 from .tool_result import ToolResult
 
 
@@ -59,6 +60,7 @@ class DirectIndexingOrchestrator:
         self.logger = DirectAgentLogger(log_path, include_prompts=include_prompts)
         self.prompt_builder = DirectIndexingPromptBuilder()
         self.response_parser = JsonResponseParser()
+        self.observation_compressor = ToolObservationCompressor()
         self.cost_estimator = ModelCostEstimator()
 
     def run(self, hypothesis_name: str, cases: list[Any]) -> DirectIndexingResult:
@@ -104,7 +106,11 @@ class DirectIndexingOrchestrator:
                     {
                         "round": round_index,
                         "tool_results": [
-                            {"name": result.name, "ok": result.ok, "content": result.content}
+                            {
+                                "name": result.name,
+                                "ok": result.ok,
+                                "content": self.observation_compressor.compress(result.content),
+                            }
                             for result in tool_results
                         ],
                     }

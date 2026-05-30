@@ -13,6 +13,7 @@ from .direct_tool_executor import DirectToolExecutor
 from .json_response_parser import JsonResponseParser
 from .model_cost_estimator import ModelCostEstimator
 from .tool_call import ToolCall
+from .tool_observation_compressor import ToolObservationCompressor
 from .tool_result import ToolResult
 
 
@@ -41,6 +42,7 @@ class DirectSearchOrchestrator:
         self.logger = DirectAgentLogger(log_path, include_prompts=include_prompts)
         self.prompt_builder = DirectSearchPromptBuilder()
         self.response_parser = JsonResponseParser()
+        self.observation_compressor = ToolObservationCompressor()
         self.cost_estimator = ModelCostEstimator()
 
     def search(self, *, hypothesis_name: str, case_id: str, query: str, limit: int) -> DirectSearchResult:
@@ -91,7 +93,7 @@ class DirectSearchOrchestrator:
                     {
                         "round": round_index,
                         "tool_results": [
-                            {"name": item.name, "ok": item.ok, "content": item.content}
+                            {"name": item.name, "ok": item.ok, "content": self.observation_compressor.compress(item.content)}
                             for item in tool_results
                         ],
                     }

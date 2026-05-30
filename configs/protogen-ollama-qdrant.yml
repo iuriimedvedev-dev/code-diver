@@ -158,6 +158,40 @@ experiments:
     - name: ai_grep_only
       toolset: grep_search
       description: Direct orchestrator searches through grep, rg, tree, symbols, and read without vector search.
+    - name: ai_search_vector_only
+      tools:
+        - code_diver_search
+      description: Direct orchestrator searches only through the existing vector index.
+    - name: ai_search_rg_only
+      tools:
+        - code_diver_rg
+      description: Direct orchestrator searches only through structured regex matches.
+    - name: ai_search_grep_only
+      tools:
+        - code_diver_grep
+      description: Direct orchestrator searches only through structured literal grep matches.
+    - name: ai_search_symbols_only
+      tools:
+        - code_diver_symbols
+      description: Direct orchestrator searches only through structured symbol discovery.
+    - name: ai_search_tree_only
+      tools:
+        - code_diver_tree
+      description: Direct orchestrator searches only through gitignore-aware tree discovery.
+    - name: ai_search_inspect_only
+      tools:
+        - code_diver_inspect
+      description: Direct orchestrator searches only through the concurrent inspect summary tool.
+    - name: ai_search_rg_read
+      tools:
+        - code_diver_rg
+        - code_diver_read
+      description: Direct orchestrator finds candidates with rg and reads selected source ranges.
+    - name: ai_search_vector_read
+      tools:
+        - code_diver_search
+        - code_diver_read
+      description: Direct orchestrator finds candidates with vector search and reads selected source ranges.
     - name: ai_selected_index
       toolset: indexing
       description: Direct orchestrator inspects the repository and saves selected file ranges into Qdrant.
