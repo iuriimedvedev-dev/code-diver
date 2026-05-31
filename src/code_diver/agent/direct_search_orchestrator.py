@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from time import perf_counter
 from typing import Any, Callable
@@ -20,6 +21,7 @@ from .tool_result import ToolResult
 class DirectSearchOrchestrator:
     MAX_ROUNDS = 5
     MAX_PARALLEL_TOOLS = 6
+    MAX_READ_CALLS = 10
 
     def __init__(
         self,
@@ -65,6 +67,7 @@ class DirectSearchOrchestrator:
             },
         )
         try:
+            read_calls_used = 0
             for round_index in range(1, self.MAX_ROUNDS + 1):
                 prompt = self.prompt_builder.build(
                     hypothesis_name=hypothesis_name,
@@ -88,7 +91,13 @@ class DirectSearchOrchestrator:
                 if not calls:
                     result.error = "agent_returned_no_tool_calls_or_results"
                     return result
-                tool_results = self._execute_tools(executor, calls, result, case_id)
+                tool_results, read_calls_used = self._execute_tools(
+                    executor,
+                    calls,
+                    result,
+                    case_id,
+                    read_calls_used,
+                )
                 history.append(
                     {
                         "round": round_index,
@@ -174,17 +183,46 @@ class DirectSearchOrchestrator:
         calls: list[ToolCall],
         usage: DirectSearchResult,
         case_id: str,
-    ) -> list[ToolResult]:
-        for call in calls:
+        read_calls_used: int,
+    ) -> tuple[list[ToolResult], int]:
+        executable: list[tuple[int, ToolCall]] = []
+        results_by_index: dict[int, ToolResult] = {}
+        for index, call in enumerate(calls):
             self.logger.write("tool_call", {"case_id": case_id, "name": call.name, "arguments": call.arguments})
-        results = ParallelToolExecutor(self.MAX_PARALLEL_TOOLS).execute(calls, executor.execute)
+            if call.name == "code_diver_read":
+                if read_calls_used >= self.MAX_READ_CALLS:
+                    results_by_index[index] = self._read_budget_exceeded_result()
+                    continue
+                read_calls_used += 1
+            executable.append((index, call))
+        executed_results = ParallelToolExecutor(self.MAX_PARALLEL_TOOLS).execute(
+            [call for _, call in executable],
+            executor.execute,
+        )
+        for (index, _), result in zip(executable, executed_results):
+            results_by_index[index] = result
+        results = [results_by_index[index] for index in range(len(calls))]
         usage.tool_calls += len(results)
         for result in results:
             self.logger.write(
                 "tool_result",
                 {"case_id": case_id, "name": result.name, "ok": result.ok, "content": result.content},
             )
-        return results
+        return results, read_calls_used
+
+    def _read_budget_exceeded_result(self) -> ToolResult:
+        return ToolResult(
+            "code_diver_read",
+            json.dumps(
+                {
+                    "tool": "code_diver_read",
+                    "ok": False,
+                    "error": f"read_budget_exceeded: max {self.MAX_READ_CALLS} code_diver_read calls per case",
+                    "metrics": {"maxReadCalls": self.MAX_READ_CALLS},
+                }
+            ),
+            ok=False,
+        )
 
     def _parse_results(self, values: Any, limit: int) -> list[str]:
         if not isinstance(values, list):

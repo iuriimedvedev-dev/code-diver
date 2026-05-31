@@ -97,6 +97,8 @@ The intended model behavior is a hybrid plan, not a fixed codebase-specific scri
 
 The model can put several cheap probes in the same `tool_calls` array. The runtime preserves result ordering while executing those probes asynchronously, so a hybrid first round can gather vector, lexical, symbol, and repository-map signals without extra model turns.
 
+Search verification reads are budgeted. `DirectSearchOrchestrator` allows at most 10 `code_diver_read` calls per case; extra reads return a structured budget error while other tools in the batch still run. The intended flow is candidate generation through `code_diver_search`, cheap verification through `grep`/`rg` or scoped symbols, and only then small targeted reads for final evidence.
+
 ## Qdrant Isolation
 
 Indexing evals must not share a collection. `evaluate-indexing` creates a collection per hypothesis and run id:

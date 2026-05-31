@@ -52,6 +52,8 @@ def test_search_prompt_describes_hybrid_tool_routing_policy() -> None:
     assert "Class/function/method/command/handler/service/model/schema" in prompt
     assert "multiple signals or by direct read evidence" in prompt
     assert "Never call code_diver_symbols without path" in prompt
+    assert "code_diver_read has a hard budget of 10 calls per case" in prompt
+    assert "Verify cheaply with code_diver_grep/code_diver_rg" in prompt
 
 
 def test_search_prompt_compacts_old_history_but_keeps_recent_observation() -> None:

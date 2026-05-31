@@ -77,9 +77,16 @@ class ToolManifestBuilder:
                 "name": "code_diver_read",
                 "stage": "verification",
                 "parallel_safe": True,
-                "best_for": ["verifying top candidates", "reading exact ranges before final answer"],
-                "avoid_for": ["first-pass discovery", "reading many files before candidate generation"],
-                "returns": "bounded source text lines for one known file/range",
-                "args": {"file": "relative file path", "startLine": 1, "lines": 80},
+                "best_for": [
+                    "targeted verification of top candidates",
+                    "reading one exact symbol, route, handler, setting, or match range",
+                ],
+                "avoid_for": [
+                    "first-pass discovery",
+                    "reading many files before candidate generation",
+                    "whole-file reading when grep/rg can verify the anchor",
+                ],
+                "returns": "bounded source text lines for one known file/range; hard budget 10 calls per case",
+                "args": {"file": "relative file path", "startLine": 1, "lines": "20-60 preferred, 80 max"},
             },
         ]

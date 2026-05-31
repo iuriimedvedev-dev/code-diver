@@ -47,6 +47,8 @@ The universal orchestrator now gets the same tool matrix as machine-readable con
 
 `code_diver_read` should stay out of the first pass unless the query already names an exact file and line range. It is a verification tool after candidates exist. When tools disagree, prefer files supported by multiple structured signals or by direct bounded read evidence.
 
+The runtime enforces a hard budget of 10 `code_diver_read` calls per search case. This protects the hybrid orchestrator from turning verification into a source-reading loop while preserving enough room to inspect several top candidates. `grep` and `rg` remain available for cheaper anchor checks before reading source ranges.
+
 ## Hybrid Index Types
 
 `code-diver index` can now persist three item types into the same vector store:

@@ -173,4 +173,6 @@ Immediate implementation follow-up from this run:
 
 - `code_diver_symbols` without `path` is now rejected when `code_diver_search` is available, preventing accidental full-repo symbol scans inside hybrid search.
 - The prompt now explicitly says never to call `code_diver_symbols` without a path when vector search is available.
-- Next guard should cap verification reads, for example max 3 `code_diver_read` calls per case unless the query names exact files.
+- `code_diver_read` now has a hard runtime budget of 10 calls per case. Extra read calls return a structured `read_budget_exceeded` tool result instead of reading more source.
+- The prompt now tells the agent to use the intended flow: `code_diver_search` for candidates, `grep`/`rg` or scoped symbols for fast verification, and small targeted `read` ranges only for final evidence.
+- Next guard should cap total observation bytes per round and prefer at most 3 reads by prompt unless the query names exact files.
