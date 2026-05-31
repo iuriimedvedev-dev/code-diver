@@ -152,6 +152,18 @@ BM25/RRF follow-up:
 | `hybrid_candidates_bm25_weighted` | 0.27 | 0.47 | 0.91 | 0.721 | 0.520 | 0.775 | 0.679 | 0.605 | Better than RRF for hit@1, still worse than coverage hybrid. |
 | `hybrid_candidates_bm25_rrf_vector` | 0.15 | 0.45 | 0.92 | 0.738 | 0.540 | 0.770 | 0.684 | 0.611 | Best coverage, still bad first-rank quality. |
 
+Router follow-up after `tool_router_v1`:
+
+| Strategy | Hit@1 | Hit@3 | File Hit@10 | File MRR@10 | File Precision@R | File Recall@10 | nDCG@10 | MAP@10 | Mean/query | Read |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| `vector_qdrant` | 0.29 | 0.50 | 0.89 | 0.735 | 0.525 | 0.760 | 0.682 | 0.614 | 30ms | Fast control. |
+| `hybrid_candidates_no_llm` | 0.28 | 0.53 | 0.90 | 0.753 | 0.575 | 0.755 | 0.692 | 0.627 | 119ms | Best file cleanliness and MAP. |
+| `hybrid_candidates_graph_boost` | 0.30 | 0.53 | 0.90 | 0.747 | 0.545 | 0.755 | 0.685 | 0.616 | 121ms | Better first rank, weaker overall file ordering. |
+| `hybrid_candidates_bm25_rrf` | 0.15 | 0.46 | 0.91 | 0.716 | 0.505 | 0.770 | 0.670 | 0.592 | 129ms | Global BM25/RRF over-expands lexical matches. |
+| `hybrid_candidates_bm25_weighted` | 0.27 | 0.47 | 0.91 | 0.721 | 0.520 | 0.775 | 0.679 | 0.605 | 129ms | Weighted BM25 preserves hit@1 better than RRF but still loses rank quality. |
+| `hybrid_candidates_bm25_rrf_vector` | 0.15 | 0.45 | 0.92 | 0.738 | 0.540 | 0.770 | 0.684 | 0.611 | 129ms | Best coverage, bad first-screen quality. |
+| `hybrid_candidates_routed` | 0.30 | 0.52 | 0.91 | 0.753 | 0.540 | 0.770 | 0.694 | 0.624 | 125ms | Best nDCG and good coverage/rank tradeoff; not yet cleaner than no-router hybrid. |
+
 Interpretation:
 
 - Hybrid improves the practical first-screen metrics: `hit@3`, file MRR, file precision@R, nDCG, and MAP.
@@ -159,6 +171,7 @@ Interpretation:
 - `hybrid_candidates_graph_boost` has the best `hit@1` and chunk-level precision, but it gives up a little nDCG/MAP versus `hybrid_candidates_no_llm`.
 - File recall is lower than old chunk-level recall because chunk-level recall counted repeated chunks from the same expected file. File-level recall is the more honest coverage metric.
 - BM25 improves candidate coverage but hurts top-rank quality when applied globally. This is evidence for deterministic query routing: use BM25 strongly for exact/path/symbol queries, not for every informal semantic query.
+- Router v1 confirms the direction: it beats global BM25 profiles on rank metrics and reaches the best `ndcg@10`, but it still needs route-bucket metrics and narrower triggers before it should replace `hybrid_candidates_no_llm`.
 
 ## Direct Orchestrator Tool Runs
 

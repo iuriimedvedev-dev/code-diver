@@ -102,6 +102,7 @@ class Defaults:
     HYBRID_RRF_K = 60
     HYBRID_BM25_K1 = 1.2
     HYBRID_BM25_B = 0.75
+    HYBRID_ROUTING_ENABLED = False
     HYBRID_MIN_TOKEN_LENGTH = 3
     HYBRID_STOP_WORDS = [
         "where",

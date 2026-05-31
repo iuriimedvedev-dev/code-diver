@@ -137,3 +137,28 @@ Result: it improves coverage but hurts ranking.
 | `hybrid_candidates_bm25_rrf_vector` | 0.92 | 0.738 | 0.540 | 0.770 | 0.684 |
 
 Interpretation: BM25 should become a routed signal, not a global rank replacement. It is likely correct for exact/path/symbol queries and harmful for broad semantic queries. The next quality lever is `tool_router_v1`, not more global weight tuning.
+
+## Router V1 First Result
+
+`tool_router_v1` was implemented as `hybrid_candidates_routed`. It keeps the deterministic search path token-free and selects a profile by query shape:
+
+- path/config/package terms: BM25 + path weighting;
+- identifiers/symbol terms: BM25 + symbol/path weighting;
+- workflow verbs: deeper graph expansion;
+- broad semantic queries: baseline hybrid weights.
+
+Fresh 100-case result:
+
+| Strategy | Hit@1 | Hit@3 | File Hit@10 | File MRR@10 | File Precision@R | File Recall@10 | nDCG@10 | MAP@10 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `hybrid_candidates_no_llm` | 0.28 | 0.53 | 0.90 | 0.753 | 0.575 | 0.755 | 0.692 | 0.627 |
+| `hybrid_candidates_bm25_rrf_vector` | 0.15 | 0.45 | 0.92 | 0.738 | 0.540 | 0.770 | 0.684 | 0.611 |
+| `hybrid_candidates_routed` | 0.30 | 0.52 | 0.91 | 0.753 | 0.540 | 0.770 | 0.694 | 0.624 |
+
+Interpretation:
+
+- The router is a better hybridization pattern than global BM25: it keeps the BM25 coverage gain while recovering almost all baseline rank quality.
+- It has the best current `ndcg@10` and tied best `hit@1`, which is a useful signal for answer quality under a tight context budget.
+- It is not the default winner yet because `file_precision@R` regresses from `0.575` to `0.540`. The likely issue is over-broad symbol/path/workflow triggers.
+- Current route split on the 100-case dataset is 39 workflow cases, 31 path/symbol cases, and 30 semantic cases.
+- Next improvement should add route labels to per-case eval output, then tune by bucket instead of changing global weights.

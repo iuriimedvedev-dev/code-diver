@@ -257,6 +257,21 @@ experiments:
         bm25_b: 0.75
         min_token_length: 3
       description: BM25/RRF profile biased toward vector rank to protect hit@1 and MRR.
+    - name: hybrid_candidates_routed
+      strategy: hybrid
+      hybrid_search:
+        candidate_limit: 80
+        lexical_candidate_limit: 120
+        vector_weight: 0.6
+        lexical_weight: 0.18
+        path_weight: 0.12
+        symbol_weight: 0.05
+        graph_weight: 0.05
+        graph_depth: 1
+        graph_neighbor_limit: 20
+        routing_enabled: true
+        min_token_length: 3
+      description: Deterministic router selects stronger lexical/path/symbol or graph weighting by query shape.
     - name: hybrid_candidates_path_symbol
       strategy: hybrid
       hybrid_search:

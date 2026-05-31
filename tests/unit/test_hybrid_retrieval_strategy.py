@@ -97,6 +97,55 @@ def test_hybrid_strategy_adds_graph_neighbors(tmp_path: Path) -> None:
     assert [result.item.path for result in results] == ["src/commands.py", "src/strategies.py"]
 
 
+def test_hybrid_strategy_applies_routed_graph_depth(tmp_path: Path) -> None:
+    seed_item = CodeItem(
+        id="src/commands.py#1",
+        path="src/commands.py",
+        title="command dispatcher",
+        content="def dispatch_command(): return handler()",
+    )
+    handler_item = CodeItem(
+        id="src/handlers.py#1",
+        path="src/handlers.py",
+        title="command handler",
+        content="def handle_command(): return workflow()",
+    )
+    workflow_item = CodeItem(
+        id="src/workflow.py#1",
+        path="src/workflow.py",
+        title="workflow runner",
+        content="def workflow(): pass",
+    )
+    graph_store = _graph_store(
+        tmp_path,
+        [seed_item, handler_item, workflow_item],
+        [
+            GraphEdge(source=seed_item.id, target=handler_item.id, kind="calls", weight=0.9),
+            GraphEdge(source=handler_item.id, target=workflow_item.id, kind="calls", weight=0.9),
+        ],
+    )
+    strategy = HybridRetrievalStrategy(
+        FakeRetrievalStrategy([SearchResult(seed_item, 0.8)]),
+        graph_store,
+        HybridSearchConfig(
+            candidate_limit=5,
+            lexical_candidate_limit=5,
+            routing_enabled=True,
+            vector_weight=0.1,
+            lexical_weight=0.0,
+            path_weight=0.0,
+            symbol_weight=0.0,
+            graph_weight=0.9,
+            graph_depth=1,
+            graph_neighbor_limit=5,
+        ),
+    )
+
+    results = strategy.search("where is command created and dispatched", limit=3)
+
+    assert "src/workflow.py" in [result.item.path for result in results]
+
+
 def test_hybrid_lexical_index_bm25_prefers_rare_exact_terms() -> None:
     target = CodeItem(
         id="target",

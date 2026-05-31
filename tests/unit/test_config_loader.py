@@ -82,6 +82,7 @@ hybrid_search:
   rrf_k: 42
   bm25_k1: 1.5
   bm25_b: 0.4
+  routing_enabled: true
   min_token_length: 4
   stop_words: [where, handled]
 graph:
@@ -189,6 +190,7 @@ plugins:
     assert config.hybrid_search.rrf_k == 42
     assert config.hybrid_search.bm25_k1 == 1.5
     assert config.hybrid_search.bm25_b == 0.4
+    assert config.hybrid_search.routing_enabled is True
     assert config.hybrid_search.min_token_length == 4
     assert config.hybrid_search.stop_words == ["where", "handled"]
     assert config.graph.artifact == tmp_path / "graph.json"

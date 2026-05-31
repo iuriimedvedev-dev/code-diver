@@ -21,5 +21,6 @@ class HybridSearchConfig:
     rrf_k: int = Defaults.HYBRID_RRF_K
     bm25_k1: float = Defaults.HYBRID_BM25_K1
     bm25_b: float = Defaults.HYBRID_BM25_B
+    routing_enabled: bool = Defaults.HYBRID_ROUTING_ENABLED
     min_token_length: int = Defaults.HYBRID_MIN_TOKEN_LENGTH
     stop_words: list[str] = field(default_factory=lambda: list(Defaults.HYBRID_STOP_WORDS))

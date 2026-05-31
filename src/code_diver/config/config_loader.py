@@ -211,6 +211,7 @@ class ConfigLoader:
             rrf_k=int(mapping.get("rrf_k", Defaults.HYBRID_RRF_K)),
             bm25_k1=float(mapping.get("bm25_k1", Defaults.HYBRID_BM25_K1)),
             bm25_b=float(mapping.get("bm25_b", Defaults.HYBRID_BM25_B)),
+            routing_enabled=bool(mapping.get("routing_enabled", Defaults.HYBRID_ROUTING_ENABLED)),
             min_token_length=int(mapping.get("min_token_length", Defaults.HYBRID_MIN_TOKEN_LENGTH)),
             stop_words=self._string_list(mapping.get("stop_words")) or list(Defaults.HYBRID_STOP_WORDS),
         )
