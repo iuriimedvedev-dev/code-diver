@@ -32,6 +32,7 @@ Follow-up status:
 | `d6abef1` | Fixed JSON-store indexing artifact isolation, reused vector provider/store/strategy per search-tool hypothesis, made cost estimates model-aware, compacted search prompt history, and added unit coverage. |
 | `798e59b` | Added isolated hybrid search hypotheses for `search+rg`, `search+symbols`, `search+inspect`, and bounded read variants. |
 | this change | Added deterministic hybrid retrieval below the agent boundary, graph fallback/perf fixes, and YAML hypothesis overrides. |
+| this change | Added deep quality-doubling research with Claude Opus brainstorm and external paper synthesis. |
 
 Verification after those commits:
 
@@ -42,6 +43,7 @@ Verification after those commits:
 | Live hybrid eval | Run `a5210403d9b6`, 6 hypotheses, completed |
 | Live control repeat | Run `6b87e3eef745`, `ai_search_vector_only`, completed with 0 errors |
 | Deterministic hybrid eval | 100-case local run: best hybrid `hit@10=0.90`, `mrr@10=0.734`, `precision@10=0.448`, `recall@10=0.865` |
+| Quality doubling audit | Claude Opus read-only brainstorm completed in 197.1s, 28 turns, $3.6095 |
 
 ## Executive Summary
 
@@ -72,6 +74,8 @@ The latest 100-case local eval shows the first deterministic hybrid win:
 | `vector_qdrant` | 0.89 | 0.723 | 0.405 | 0.855 | 29ms | 0 |
 | `hybrid_candidates_no_llm` | 0.90 | 0.734 | 0.448 | 0.865 | 78ms | 0 |
 | `hybrid_candidates_graph_boost` | 0.90 | 0.734 | 0.469 | 0.865 | 80ms | 0 |
+
+Precision note: `precision@10=0.469` is close to the structural ceiling for this dataset shape because most cases expect only one or two files but the metric divides by a fixed 10 result slots. The next metrics commit should add file-level precision@R, nDCG@10, MAP, hit@1, and hit@3 before optimizing aggressively for precision.
 
 ## External Research Notes
 
