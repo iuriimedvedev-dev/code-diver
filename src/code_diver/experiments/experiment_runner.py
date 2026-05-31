@@ -31,6 +31,8 @@ class ExperimentRunner:
             if not hypothesis.strategy:
                 continue
             strategy_config = replace(config, search=replace(config.search, strategy=hypothesis.strategy))
+            if hypothesis.hybrid_search is not None:
+                strategy_config = replace(strategy_config, hybrid_search=hypothesis.hybrid_search)
             retrieval_strategy = self.strategy_factory.create(
                 hypothesis.strategy,
                 strategy_config,

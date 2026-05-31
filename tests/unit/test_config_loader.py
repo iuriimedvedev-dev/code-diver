@@ -67,10 +67,24 @@ recursive_search:
   rounds: 3
   branch_limit: 2
   limit: 4
+hybrid_search:
+  candidate_limit: 44
+  lexical_candidate_limit: 33
+  vector_weight: 0.51
+  lexical_weight: 0.22
+  path_weight: 0.13
+  symbol_weight: 0.07
+  graph_weight: 0.09
+  graph_depth: 2
+  graph_neighbor_limit: 11
+  min_token_length: 4
+  stop_words: [where, handled]
 graph:
   artifact: {tmp_path}/graph.json
   expansion_depth: 2
   ast_enabled: false
+  reference_edges_enabled: false
+  call_edges_enabled: false
 trace:
   enabled: true
   artifact: {tmp_path}/trace.jsonl
@@ -91,6 +105,11 @@ experiments:
     - name: vector_qdrant
       strategy: vector
       tools: [code_diver_search, code_diver_read]
+    - name: hybrid_lexical
+      strategy: hybrid
+      hybrid_search:
+        vector_weight: 0.3
+        lexical_weight: 0.5
 metrics:
   enabled: true
   url: http://clickhouse:8123
@@ -151,9 +170,22 @@ plugins:
     assert config.recursive_search.rounds == 3
     assert config.recursive_search.branch_limit == 2
     assert config.recursive_search.limit == 4
+    assert config.hybrid_search.candidate_limit == 44
+    assert config.hybrid_search.lexical_candidate_limit == 33
+    assert config.hybrid_search.vector_weight == 0.51
+    assert config.hybrid_search.lexical_weight == 0.22
+    assert config.hybrid_search.path_weight == 0.13
+    assert config.hybrid_search.symbol_weight == 0.07
+    assert config.hybrid_search.graph_weight == 0.09
+    assert config.hybrid_search.graph_depth == 2
+    assert config.hybrid_search.graph_neighbor_limit == 11
+    assert config.hybrid_search.min_token_length == 4
+    assert config.hybrid_search.stop_words == ["where", "handled"]
     assert config.graph.artifact == tmp_path / "graph.json"
     assert config.graph.expansion_depth == 2
     assert config.graph.ast_enabled is False
+    assert config.graph.reference_edges_enabled is False
+    assert config.graph.call_edges_enabled is False
     assert config.trace.enabled is True
     assert config.trace.artifact == tmp_path / "trace.jsonl"
     assert config.trace.include_prompts is False
@@ -166,6 +198,10 @@ plugins:
     assert config.experiments.hypotheses[0].toolset == "grep_only"
     assert config.experiments.hypotheses[1].strategy == "vector"
     assert config.experiments.hypotheses[1].tools == ["code_diver_search", "code_diver_read"]
+    assert config.experiments.hypotheses[2].name == "hybrid_lexical"
+    assert config.experiments.hypotheses[2].hybrid_search is not None
+    assert config.experiments.hypotheses[2].hybrid_search.vector_weight == 0.3
+    assert config.experiments.hypotheses[2].hybrid_search.lexical_weight == 0.5
     assert config.metrics.enabled is True
     assert config.metrics.url == "http://clickhouse:8123"
     assert config.metrics.database == "metrics_db"

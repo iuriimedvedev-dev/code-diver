@@ -16,6 +16,7 @@ from .experiments_config import ExperimentsConfig
 from .generation_config import GenerationConfig
 from .graph_config import GraphConfig
 from .ai_index_config import AiIndexConfig
+from .hybrid_search_config import HybridSearchConfig
 from .indexing_config import IndexingConfig
 from .metrics_config import MetricsConfig
 from .pi_config import PiConfig
@@ -44,6 +45,7 @@ class ConfigLoader:
             scanner=self._scanner(data.get("scanner")),
             search=self._search(data.get("search")),
             recursive_search=self._recursive_search(data.get("recursive_search")),
+            hybrid_search=self._hybrid_search(data.get("hybrid_search")),
             graph=self._graph(data.get("graph")),
             trace=self._trace(data.get("trace")),
             ui=self._ui(data.get("ui")),
@@ -190,6 +192,24 @@ class ConfigLoader:
             limit=int(mapping.get("limit", Defaults.RECURSIVE_PER_ROUND_LIMIT)),
         )
 
+    def _hybrid_search(self, data: Any) -> HybridSearchConfig:
+        mapping = self._mapping(data)
+        return HybridSearchConfig(
+            candidate_limit=int(mapping.get("candidate_limit", Defaults.HYBRID_CANDIDATE_LIMIT)),
+            lexical_candidate_limit=int(
+                mapping.get("lexical_candidate_limit", Defaults.HYBRID_LEXICAL_CANDIDATE_LIMIT)
+            ),
+            vector_weight=float(mapping.get("vector_weight", Defaults.HYBRID_VECTOR_WEIGHT)),
+            lexical_weight=float(mapping.get("lexical_weight", Defaults.HYBRID_LEXICAL_WEIGHT)),
+            path_weight=float(mapping.get("path_weight", Defaults.HYBRID_PATH_WEIGHT)),
+            symbol_weight=float(mapping.get("symbol_weight", Defaults.HYBRID_SYMBOL_WEIGHT)),
+            graph_weight=float(mapping.get("graph_weight", Defaults.HYBRID_GRAPH_WEIGHT)),
+            graph_depth=int(mapping.get("graph_depth", Defaults.HYBRID_GRAPH_DEPTH)),
+            graph_neighbor_limit=int(mapping.get("graph_neighbor_limit", Defaults.HYBRID_GRAPH_NEIGHBOR_LIMIT)),
+            min_token_length=int(mapping.get("min_token_length", Defaults.HYBRID_MIN_TOKEN_LENGTH)),
+            stop_words=self._string_list(mapping.get("stop_words")) or list(Defaults.HYBRID_STOP_WORDS),
+        )
+
     def _graph(self, data: Any) -> GraphConfig:
         mapping = self._mapping(data)
         return GraphConfig(
@@ -198,6 +218,10 @@ class ConfigLoader:
             expansion_depth=int(mapping.get("expansion_depth", Defaults.GRAPH_EXPANSION_DEPTH)),
             neighbor_limit=int(mapping.get("neighbor_limit", Defaults.GRAPH_NEIGHBOR_LIMIT)),
             ast_enabled=bool(mapping.get("ast_enabled", Defaults.GRAPH_AST_ENABLED)),
+            reference_edges_enabled=bool(
+                mapping.get("reference_edges_enabled", Defaults.GRAPH_REFERENCE_EDGES_ENABLED)
+            ),
+            call_edges_enabled=bool(mapping.get("call_edges_enabled", Defaults.GRAPH_CALL_EDGES_ENABLED)),
         )
 
     def _trace(self, data: Any) -> TraceConfig:
@@ -256,6 +280,9 @@ class ConfigLoader:
                     strategy=self._optional_string(mapping.get("strategy")),
                     toolset=self._optional_string(mapping.get("toolset")),
                     tools=self._string_list(mapping.get("tools")),
+                    hybrid_search=self._hybrid_search(mapping.get("hybrid_search"))
+                    if mapping.get("hybrid_search") is not None
+                    else None,
                     description=self._optional_string(mapping.get("description")),
                 )
             )

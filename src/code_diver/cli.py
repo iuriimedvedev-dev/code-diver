@@ -182,7 +182,11 @@ def cmd_index(_: argparse.Namespace, config: AppConfig) -> int:
     )
     if config.graph.enabled:
         GraphIndexingService(
-            CodeGraphBuilder(ast_enabled=config.graph.ast_enabled),
+            CodeGraphBuilder(
+                ast_enabled=config.graph.ast_enabled,
+                reference_edges_enabled=config.graph.reference_edges_enabled,
+                call_edges_enabled=config.graph.call_edges_enabled,
+            ),
             CodeGraphStore(config.graph.artifact),
         ).build(
             config.root,
@@ -221,7 +225,11 @@ def cmd_index_selected(args: argparse.Namespace, config: AppConfig) -> int:
     items = service.build(config.root, provider, built.items)
     if config.graph.enabled:
         GraphIndexingService(
-            CodeGraphBuilder(ast_enabled=config.graph.ast_enabled),
+            CodeGraphBuilder(
+                ast_enabled=config.graph.ast_enabled,
+                reference_edges_enabled=config.graph.reference_edges_enabled,
+                call_edges_enabled=config.graph.call_edges_enabled,
+            ),
             CodeGraphStore(config.graph.artifact),
         ).build(config.root, items)
     close_vector_store(service.vector_store)
@@ -733,7 +741,11 @@ def make_graph_indexer(config: AppConfig):
 
     def build(items: list[Any]) -> None:
         GraphIndexingService(
-            CodeGraphBuilder(ast_enabled=config.graph.ast_enabled),
+            CodeGraphBuilder(
+                ast_enabled=config.graph.ast_enabled,
+                reference_edges_enabled=config.graph.reference_edges_enabled,
+                call_edges_enabled=config.graph.call_edges_enabled,
+            ),
             CodeGraphStore(config.graph.artifact),
         ).build(config.root, items)
 

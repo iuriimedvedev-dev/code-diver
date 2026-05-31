@@ -13,3 +13,5 @@ class GraphConfig:
     expansion_depth: int = Defaults.GRAPH_EXPANSION_DEPTH
     neighbor_limit: int = Defaults.GRAPH_NEIGHBOR_LIMIT
     ast_enabled: bool = Defaults.GRAPH_AST_ENABLED
+    reference_edges_enabled: bool = Defaults.GRAPH_REFERENCE_EDGES_ENABLED
+    call_edges_enabled: bool = Defaults.GRAPH_CALL_EDGES_ENABLED

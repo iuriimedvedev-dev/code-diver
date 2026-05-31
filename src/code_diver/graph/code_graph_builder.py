@@ -13,11 +13,21 @@ from .python_ast_call_graph_builder import PythonAstCallGraphBuilder
 
 TS_IMPORT_RE = re.compile(r"""from\s+['"]([^'"]+)['"]|import\s*\([^)]*['"]([^'"]+)['"][^)]*\)""")
 IDENTIFIER_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+REFERENCE_EDGE_FACTOR = 5
+REFERENCE_EDGES_PER_SOURCE = 3
+REFERENCE_TOKEN_LIMIT = 256
 
 
 class CodeGraphBuilder:
-    def __init__(self, ast_enabled: bool = True):
+    def __init__(
+        self,
+        ast_enabled: bool = True,
+        reference_edges_enabled: bool = True,
+        call_edges_enabled: bool = True,
+    ):
         self.ast_enabled = ast_enabled
+        self.reference_edges_enabled = reference_edges_enabled
+        self.call_edges_enabled = call_edges_enabled
 
     def build(self, root: Path, items: list[CodeItem]) -> CodeGraph:
         by_id = {item.id: item for item in items}
@@ -28,10 +38,12 @@ class CodeGraphBuilder:
         edges: list[GraphEdge] = []
         edges.extend(self._same_file_edges(by_path))
         edges.extend(self._import_edges(root, by_path))
-        edges.extend(self._reference_edges(items))
+        if self.reference_edges_enabled:
+            edges.extend(self._reference_edges(items))
         if self.ast_enabled:
             edges.extend(GraphContainmentBuilder().build(by_path))
-            edges.extend(PythonAstCallGraphBuilder().build(root, by_path))
+            if self.call_edges_enabled:
+                edges.extend(PythonAstCallGraphBuilder().build(root, by_path))
         return CodeGraph(items=by_id, edges=self._dedupe_edges(edges))
 
     def _same_file_edges(self, by_path: dict[str, list[CodeItem]]) -> list[GraphEdge]:
@@ -102,8 +114,12 @@ class CodeGraphBuilder:
             if name and len(name) >= 3:
                 by_name.setdefault(name, []).append(item)
         edges: list[GraphEdge] = []
+        max_edges = len(items) * REFERENCE_EDGE_FACTOR
         for source in items:
-            tokens = set(IDENTIFIER_RE.findall(f"{source.title}\n{source.content}"))
+            if len(edges) >= max_edges:
+                break
+            source_edges = 0
+            tokens = self._reference_tokens(source)
             for name in tokens.intersection(by_name):
                 for target in by_name[name]:
                     if source.id == target.id:
@@ -111,10 +127,20 @@ class CodeGraphBuilder:
                     edges.append(
                         GraphEdge(source=source.id, target=target.id, kind=EdgeKind.REFERENCES.value, weight=0.7)
                     )
+                    source_edges += 1
                     break
-                if len(edges) > len(items) * 20:
+                if source_edges >= REFERENCE_EDGES_PER_SOURCE or len(edges) >= max_edges:
                     break
         return edges
+
+    def _reference_tokens(self, item: CodeItem) -> set[str]:
+        tokens: set[str] = set()
+        text = f"{item.title}\n{item.content}"
+        for index, match in enumerate(IDENTIFIER_RE.finditer(text)):
+            if index >= REFERENCE_TOKEN_LIMIT:
+                break
+            tokens.add(match.group(0))
+        return tokens
 
     def _symbol_name(self, item: CodeItem) -> str:
         metadata_symbol = item.metadata.get("symbol") if isinstance(item.metadata, dict) else None

@@ -8,3 +8,4 @@ class RetrievalStrategyId(StrEnum):
     VECTOR = "vector"
     RECURSIVE = "recursive"
     GRAPH = "graph"
+    HYBRID = "hybrid"

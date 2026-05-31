@@ -83,8 +83,44 @@ The generator intentionally prioritizes informal intent queries over symbol look
 | `configs/protogen-vertex-smoke.yml` | Vertex `gemini-embedding-2` | selected-file smoke index | recursive | 603 | 0.70 | 0.700 | 0.492 | 0.700 | 30.7s |
 | `configs/protogen-vertex-smoke.yml` | Vertex `gemini-embedding-2` | selected-file smoke index | graph | 603 | 0.70 | 0.700 | 0.470 | 0.700 | 6.3s |
 | `configs/protogen-ollama-qdrant.yml` | local `mxbai-embed-large` + embedded Qdrant | line+symbol+AST graph | vector | existing local index | 0.89 | 0.723 | 0.405 | 0.855 | 3.4s search total, 34ms/query |
+| `configs/protogen-ollama-qdrant.yml` | local `mxbai-embed-large` + embedded Qdrant | fresh line+symbol index, AST containment graph | vector | 8246 | 0.89 | 0.723 | 0.405 | 0.855 | 2.9s search total, 29ms/query |
+| `configs/protogen-ollama-qdrant.yml` | local `mxbai-embed-large` + embedded Qdrant | fresh line+symbol index, AST containment graph | graph | 8246 | 0.89 | 0.723 | 0.405 | 0.855 | 3.0s search total, 30ms/query |
+| `configs/protogen-ollama-qdrant.yml` | local `mxbai-embed-large` + embedded Qdrant | fresh line+symbol index, deterministic hybrid fusion | `hybrid_candidates_no_llm` | 8246 | 0.90 | 0.734 | 0.448 | 0.865 | 7.8s search total, 78ms/query |
+| `configs/protogen-ollama-qdrant.yml` | local `mxbai-embed-large` + embedded Qdrant | fresh line+symbol index, deterministic hybrid fusion | `hybrid_candidates_graph_boost` | 8246 | 0.90 | 0.734 | 0.469 | 0.865 | 8.0s search total, 80ms/query |
 
 `n/a` means the older run was recorded before full metric output was documented.
+
+### Deterministic Hybrid Candidate Run
+
+Run date: 2026-05-31. Dataset: `datasets/protogen_eval_100.jsonl`, 100 informal code-search cases. Config: `configs/protogen-ollama-qdrant.yml`.
+
+Implementation notes:
+
+- Added `hybrid` retrieval strategy below the agent boundary. It fuses vector scores, lexical term coverage, path coverage, symbol metadata, and graph neighbor scores into one ranked `SearchResult` list.
+- Added YAML-configurable weights through `hybrid_search`, plus hypothesis-level overrides for comparing profiles.
+- Added an inverted lexical index and cached item token profiles so hybrid search does not rescan and retokenize every item for every query.
+- Fixed GraphRAG stale-artifact behavior so vector seed results are preserved when graph artifacts do not contain matching ids.
+- Cached GraphRAG adjacency so graph retrieval no longer reloads the graph or scans every edge per query.
+- Made broad reference edges and AST call edges configurable. For the protogen sandbox they are disabled because they made fresh indexing spend minutes of CPU after embeddings; the current graph keeps same-file, import, and AST containment edges.
+
+Fresh benchmark after a local reindex:
+
+| Strategy | Hit@10 | MRR@10 | Precision@10 | Recall@10 | Total search | Mean/query | P95/query | Notes |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| `vector_qdrant` | 0.89 | 0.723 | 0.405 | 0.855 | 2.9s | 29ms | 32ms | Control. |
+| `recursive_qdrant` | 0.88 | 0.712 | 0.450 | 0.850 | 12.8s | 128ms | 145ms | More precise but lower hit/MRR/recall. |
+| `graph_ast_qdrant` | 0.89 | 0.723 | 0.405 | 0.855 | 3.0s | 30ms | 31ms | After adjacency cache; current graph edges do not change ranking. |
+| `hybrid_candidates_no_llm` | 0.90 | 0.734 | 0.448 | 0.865 | 7.8s | 78ms | 48ms | Best overall quality in this run. |
+| `hybrid_candidates_lexical` | 0.89 | 0.714 | 0.460 | 0.865 | 7.8s | 78ms | 54ms | Better precision/recall than vector, worse MRR. |
+| `hybrid_candidates_graph_boost` | 0.90 | 0.734 | 0.469 | 0.865 | 8.0s | 80ms | 50ms | Best precision among high-hit hybrid profiles. |
+| `hybrid_candidates_path_symbol` | 0.89 | 0.722 | 0.450 | 0.855 | 7.7s | 77ms | 54ms | Path/symbol weighting alone is not enough. |
+
+Interpretation:
+
+- Deterministic hybrid fusion finally beats vector-only on the 100-case dataset: `+0.01 hit@10`, `+0.011 MRR`, `+0.043 precision`, and `+0.010 recall`, with zero LLM tokens.
+- The gain is modest but meaningful because the previous agent-controlled hybrid toolsets were slower, more expensive, and less accurate.
+- The current hybrid implementation is still not fast enough as the default interactive path. Most overhead is local Python scoring/index warmup, not model latency.
+- Next optimization should move the lexical index into the persisted artifact or Qdrant payload/sparse vectors, so the first query does not pay the full build cost.
 
 ## Direct Orchestrator Tool Runs
 
@@ -188,4 +224,5 @@ Practical conclusion right now:
 - Metrics evaluate retrieval, not final answer correctness.
 - `duration_ms` includes Python implementation overhead and JSON vector store scans.
 - Recursive search currently increases latency significantly and does not always improve quality over strong embeddings.
-- Graph retrieval currently expands useful AST/import neighbors, but still needs path/symbol boosts and reranking to beat vector search consistently.
+- Graph retrieval currently expands useful same-file/import/AST containment neighbors, but still needs query-aware edge policies to beat vector search consistently.
+- The protogen GraphRAG config currently disables broad reference edges and AST call edges because they are too expensive for blocking sandbox indexing. They should return as bounded or incremental graph-building stages.

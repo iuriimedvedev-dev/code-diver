@@ -32,6 +32,7 @@ class SchemaKey(StrEnum):
     SCORE = "score"
     SOURCE = "source"
     START_LINE = "start_line"
+    SYMBOL = "symbol"
     TARGET = "target"
     TITLE = "title"
     VECTOR = "vector"

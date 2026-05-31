@@ -7,6 +7,7 @@ import pytest
 from code_diver.domain import CodeItem
 from code_diver.graph import CodeGraphBuilder
 from code_diver.settings import EdgeKind
+from code_diver.graph.code_graph_builder import REFERENCE_EDGES_PER_SOURCE
 
 
 pytestmark = pytest.mark.unit
@@ -98,3 +99,65 @@ def save_user():
         edge.source == "method" and edge.target == "function" and edge.kind == EdgeKind.CALLS.value
         for edge in graph.edges
     )
+
+
+def test_code_graph_builder_limits_reference_edges_per_source(tmp_path: Path) -> None:
+    source = CodeItem(
+        "source",
+        "source.py",
+        "source",
+        "\n".join(f"symbol_{index}()" for index in range(20)),
+    )
+    targets = [
+        CodeItem(
+            f"target-{index}",
+            f"target_{index}.py",
+            f"target_{index}.py::symbol_{index}",
+            f"def symbol_{index}(): pass",
+            metadata={"symbol": f"symbol_{index}"},
+        )
+        for index in range(20)
+    ]
+
+    graph = CodeGraphBuilder(ast_enabled=False).build(tmp_path, [source, *targets])
+
+    reference_edges = [
+        edge for edge in graph.edges if edge.source == source.id and edge.kind == EdgeKind.REFERENCES.value
+    ]
+    assert len(reference_edges) == REFERENCE_EDGES_PER_SOURCE
+
+
+def test_code_graph_builder_can_disable_reference_edges(tmp_path: Path) -> None:
+    source = CodeItem("source", "source.py", "source", "save_user()")
+    target = CodeItem(
+        "target",
+        "repository.py",
+        "repository.py::save_user",
+        "def save_user(): pass",
+        metadata={"symbol": "save_user"},
+    )
+
+    graph = CodeGraphBuilder(ast_enabled=False, reference_edges_enabled=False).build(tmp_path, [source, target])
+
+    assert not any(edge.kind == EdgeKind.REFERENCES.value for edge in graph.edges)
+
+
+def test_code_graph_builder_can_disable_call_edges(tmp_path: Path) -> None:
+    (tmp_path / "service.py").write_text(
+        "def run():\n    save_user()\n\ndef save_user():\n    return None\n",
+        encoding="utf-8",
+    )
+    items = [
+        CodeItem("run", "service.py", "service.py::run", "def run():\n    save_user()", metadata={"symbol": "run"}),
+        CodeItem(
+            "save",
+            "service.py",
+            "service.py::save_user",
+            "def save_user():\n    return None",
+            metadata={"symbol": "save_user"},
+        ),
+    ]
+
+    graph = CodeGraphBuilder(ast_enabled=True, call_edges_enabled=False).build(tmp_path, items)
+
+    assert not any(edge.kind == EdgeKind.CALLS.value for edge in graph.edges)

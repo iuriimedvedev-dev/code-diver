@@ -65,10 +65,24 @@ recursive_search:
   branch_limit: 3
   limit: 5
 
+hybrid_search:
+  candidate_limit: 80
+  lexical_candidate_limit: 80
+  vector_weight: 0.6
+  lexical_weight: 0.18
+  path_weight: 0.12
+  symbol_weight: 0.05
+  graph_weight: 0.05
+  graph_depth: 1
+  graph_neighbor_limit: 20
+  min_token_length: 3
+
 graph:
   enabled: true
   artifact: .code-diver/protogen-ollama-qdrant-graph.json
   ast_enabled: true
+  reference_edges_enabled: false
+  call_edges_enabled: false
   expansion_depth: 1
   neighbor_limit: 20
 
@@ -142,6 +156,7 @@ experiments:
     - vector
     - recursive
     - graph
+    - hybrid
   hypotheses:
     - name: vector_qdrant
       strategy: vector
@@ -155,6 +170,51 @@ experiments:
       strategy: graph
       toolset: vector_search
       description: AST GraphRAG expansion over Qdrant results.
+    - name: hybrid_candidates_no_llm
+      strategy: hybrid
+      description: Deterministic vector, lexical, path, symbol, and graph candidate fusion without LLM turns.
+    - name: hybrid_candidates_lexical
+      strategy: hybrid
+      hybrid_search:
+        candidate_limit: 80
+        lexical_candidate_limit: 120
+        vector_weight: 0.35
+        lexical_weight: 0.35
+        path_weight: 0.2
+        symbol_weight: 0.05
+        graph_weight: 0.05
+        graph_depth: 1
+        graph_neighbor_limit: 20
+        min_token_length: 3
+      description: Deterministic fusion with stronger lexical and path signals.
+    - name: hybrid_candidates_graph_boost
+      strategy: hybrid
+      hybrid_search:
+        candidate_limit: 80
+        lexical_candidate_limit: 80
+        vector_weight: 0.5
+        lexical_weight: 0.15
+        path_weight: 0.1
+        symbol_weight: 0.05
+        graph_weight: 0.2
+        graph_depth: 2
+        graph_neighbor_limit: 30
+        min_token_length: 3
+      description: Deterministic fusion with stronger AST/import/call graph propagation.
+    - name: hybrid_candidates_path_symbol
+      strategy: hybrid
+      hybrid_search:
+        candidate_limit: 80
+        lexical_candidate_limit: 120
+        vector_weight: 0.45
+        lexical_weight: 0.2
+        path_weight: 0.25
+        symbol_weight: 0.1
+        graph_weight: 0.0
+        graph_depth: 0
+        graph_neighbor_limit: 0
+        min_token_length: 3
+      description: Deterministic fusion emphasizing file paths and symbol metadata.
     - name: ai_grep_only
       toolset: grep_search
       description: Direct orchestrator searches through grep, rg, tree, symbols, and read without vector search.

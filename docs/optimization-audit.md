@@ -31,6 +31,7 @@ Follow-up status:
 | --- | --- |
 | `d6abef1` | Fixed JSON-store indexing artifact isolation, reused vector provider/store/strategy per search-tool hypothesis, made cost estimates model-aware, compacted search prompt history, and added unit coverage. |
 | `798e59b` | Added isolated hybrid search hypotheses for `search+rg`, `search+symbols`, `search+inspect`, and bounded read variants. |
+| this change | Added deterministic hybrid retrieval below the agent boundary, graph fallback/perf fixes, and YAML hypothesis overrides. |
 
 Verification after those commits:
 
@@ -40,6 +41,7 @@ Verification after those commits:
 | Config smoke load | 24 hypotheses loaded; new vector hybrid hypotheses present |
 | Live hybrid eval | Run `a5210403d9b6`, 6 hypotheses, completed |
 | Live control repeat | Run `6b87e3eef745`, `ai_search_vector_only`, completed with 0 errors |
+| Deterministic hybrid eval | 100-case local run: best hybrid `hit@10=0.90`, `mrr@10=0.734`, `precision@10=0.448`, `recall@10=0.865` |
 
 ## Executive Summary
 
@@ -62,6 +64,14 @@ The latest stable 10-case live eval strongly supports this direction:
 | `ai_search_rg_only` | 0.30 | 0.300 | 134.9k | 134.8s | 6 |
 | `ai_search_vector_read` | 0.80 | 0.800 | 110.0k | 113.4s | 1 |
 | `ai_search_rg_read` | 0.40 | 0.400 | 279.8k | 116.2s | 2 |
+
+The latest 100-case local eval shows the first deterministic hybrid win:
+
+| Hypothesis | Hit@10 | MRR@10 | Precision@10 | Recall@10 | Mean/query | Tokens |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `vector_qdrant` | 0.89 | 0.723 | 0.405 | 0.855 | 29ms | 0 |
+| `hybrid_candidates_no_llm` | 0.90 | 0.734 | 0.448 | 0.865 | 78ms | 0 |
+| `hybrid_candidates_graph_boost` | 0.90 | 0.734 | 0.469 | 0.865 | 80ms | 0 |
 
 ## External Research Notes
 
@@ -430,3 +440,39 @@ Next hypotheses:
 | `hybrid_candidates_rerank_once` | Fusion plus one Gemini rerank turn. | Better MRR without multi-round search cost. |
 | `hybrid_candidates_verify_top3` | Fusion + rerank + bounded reads for top 3. | Better precision and answer evidence with controlled token growth. |
 | `adaptive_identifier_fast_path` | Detect identifier/path queries and use lexical/symbol search before vectors. | Faster exact-code lookups. |
+
+## Deterministic Hybrid Follow-Up
+
+Executed on 2026-05-31 against `datasets/protogen_eval_100.jsonl`.
+
+What changed:
+
+- Added `hybrid` retrieval strategy with configurable vector, lexical, path, symbol, and graph weights.
+- Added hypothesis-level `hybrid_search` YAML overrides, so experiments can compare weight profiles without code edits.
+- Added cached item token profiles and an inverted lexical index.
+- Fixed stale GraphRAG artifacts by preserving vector seed results even if the graph artifact does not contain the seed ids.
+- Cached graph adjacency in `GraphRetrievalStrategy`.
+- Made broad reference edges and AST call edges separately configurable.
+
+Result:
+
+| Strategy | Hit@10 | MRR@10 | Precision@10 | Recall@10 | Mean/query | Decision |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| `vector_qdrant` | 0.89 | 0.723 | 0.405 | 0.855 | 29ms | Keep as speed control. |
+| `graph_ast_qdrant` | 0.89 | 0.723 | 0.405 | 0.855 | 30ms | Keep as graph infrastructure check; current edges do not improve ranking. |
+| `hybrid_candidates_no_llm` | 0.90 | 0.734 | 0.448 | 0.865 | 78ms | Best quality/cost profile so far. |
+| `hybrid_candidates_graph_boost` | 0.90 | 0.734 | 0.469 | 0.865 | 80ms | Best precision among high-hit profiles. |
+
+Important finding: deterministic hybrid fusion achieved the improvement the agent-controlled tool hybrids did not. The gain is small, but it costs zero model tokens and avoids multi-round orchestration failures.
+
+Performance finding: fresh indexing exposed expensive graph construction stages. Broad reference edges and AST call edges are now disabled in `configs/protogen-ollama-qdrant.yml`; they need bounded/incremental builders before they are safe for default indexing.
+
+Next implementation hypotheses:
+
+| Hypothesis | Change | Why |
+| --- | --- | --- |
+| Persist lexical index | Store token postings in artifact or Qdrant payload/sparse vectors. | Remove first-query hybrid warmup cost. |
+| Query-aware graph profiles | Select graph edge kinds based on query intent. | Current graph edges do not improve ranking. |
+| One-shot reranker | Run Gemini once over top 20 hybrid candidates. | Test whether MRR improves without open-ended loops. |
+| Bounded verification reads | Read top 3 candidate ranges after rerank. | Improve final answer evidence without exploratory reads. |
+| Incremental call graph | Build AST call edges per changed file or with hard time budgets. | Restore useful call edges without blocking indexing. |

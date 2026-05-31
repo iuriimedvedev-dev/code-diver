@@ -88,9 +88,44 @@ class Defaults:
     RECURSIVE_ROUNDS = 2
     RECURSIVE_BRANCH_LIMIT = 3
     RECURSIVE_PER_ROUND_LIMIT = 5
+    HYBRID_CANDIDATE_LIMIT = 80
+    HYBRID_LEXICAL_CANDIDATE_LIMIT = 80
+    HYBRID_VECTOR_WEIGHT = 0.6
+    HYBRID_LEXICAL_WEIGHT = 0.18
+    HYBRID_PATH_WEIGHT = 0.12
+    HYBRID_SYMBOL_WEIGHT = 0.05
+    HYBRID_GRAPH_WEIGHT = 0.05
+    HYBRID_GRAPH_DEPTH = 1
+    HYBRID_GRAPH_NEIGHBOR_LIMIT = 20
+    HYBRID_MIN_TOKEN_LENGTH = 3
+    HYBRID_STOP_WORDS = [
+        "where",
+        "what",
+        "which",
+        "this",
+        "that",
+        "there",
+        "here",
+        "with",
+        "from",
+        "into",
+        "code",
+        "file",
+        "files",
+        "class",
+        "function",
+        "method",
+        "handled",
+        "created",
+        "creates",
+        "used",
+        "uses",
+    ]
     GRAPH_EXPANSION_DEPTH = 1
     GRAPH_NEIGHBOR_LIMIT = 20
     GRAPH_AST_ENABLED = True
+    GRAPH_REFERENCE_EDGES_ENABLED = True
+    GRAPH_CALL_EDGES_ENABLED = True
 
     UI_COLOR = True
     UI_PAGER = "auto"

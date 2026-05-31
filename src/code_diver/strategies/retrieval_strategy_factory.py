@@ -9,6 +9,7 @@ from ..settings import RetrievalStrategyId
 from ..store import VectorStore
 from ..tracing import TraceLogger
 from .graph_retrieval_strategy import GraphRetrievalStrategy
+from .hybrid_retrieval_strategy import HybridRetrievalStrategy
 from .recursive_retrieval_strategy import RecursiveRetrievalStrategy
 from .retrieval_strategy import RetrievalStrategy
 from .vector_retrieval_strategy import VectorRetrievalStrategy
@@ -50,4 +51,6 @@ class RetrievalStrategyFactory:
                 expansion_depth=graph.expansion_depth,
                 neighbor_limit=graph.neighbor_limit,
             )
+        if strategy_id is RetrievalStrategyId.HYBRID:
+            return HybridRetrievalStrategy(vector, CodeGraphStore(config.graph.artifact), config.hybrid_search)
         raise ValueError(f"Unknown retrieval strategy: {strategy}")
