@@ -7,6 +7,7 @@ from typing import Any, Callable
 
 from ..inspection import GrepService, ReadExcerptService, RgService, SymbolsService, TreeService
 from .tool_call import ToolCall
+from .tool_manifest_builder import ToolManifestBuilder
 from .tool_result import ToolResult
 
 
@@ -156,44 +157,7 @@ class DirectToolExecutor:
         }
 
     def manifest(self) -> str:
-        rows = [
-            {
-                "name": "code_diver_tree",
-                "returns": "structured entries: path, kind, depth, metrics",
-                "args": {"path": "optional relative path", "depth": 3, "limit": 200},
-            },
-            {
-                "name": "code_diver_symbols",
-                "returns": "structured symbols and file candidates, no source text",
-                "args": {"path": "optional relative path", "limit": 200},
-            },
-            {
-                "name": "code_diver_grep",
-                "returns": "structured file candidates and line numbers; source text only if includeText=true",
-                "args": {"pattern": "literal text", "path": "optional relative path", "limit": 100},
-            },
-            {
-                "name": "code_diver_rg",
-                "returns": "structured file candidates and line numbers; source text only if includeText=true",
-                "args": {"pattern": "regex", "path": "optional relative path", "limit": 100},
-            },
-            {
-                "name": "code_diver_read",
-                "returns": "bounded source text lines for one known file/range",
-                "args": {"file": "relative file path", "startLine": 1, "lines": 80},
-            },
-            {
-                "name": "code_diver_inspect",
-                "returns": "structured sections combining tree, symbols, grep, rg, and read",
-                "args": {"trees": [], "symbols": [], "literals": [], "regexes": [], "reads": []},
-            },
-            {
-                "name": "code_diver_search",
-                "returns": "structured vector candidates with scores and line ranges",
-                "args": {"query": "free-text query", "limit": 10},
-            },
-        ]
-        return json.dumps([row for row in rows if row["name"] in self.allowed_tools], indent=2)
+        return ToolManifestBuilder().build(self.allowed_tools)
 
     def _optional_str(self, value: Any) -> str | None:
         if value is None:

@@ -27,10 +27,20 @@ class DirectSearchPromptBuilder:
 
     def _instructions(self, hypothesis_name: str, limit: int, tool_call_example: dict[str, Any]) -> str:
         return f"""
-You are a code search orchestrator for hypothesis `{hypothesis_name}`.
+You are a universal hybrid code-search orchestrator for hypothesis `{hypothesis_name}`.
 Use only the listed read-only tools. Find code locations that answer the user's informal query.
 Return JSON only. Do not invent paths. Prefer precise files or code ranges with direct evidence.
 Tool observations are structured JSON. grep/rg/symbols/tree return candidates, metrics, file names, and line numbers by default; request source text only through code_diver_read or includeText=true when absolutely necessary.
+The runtime executes independent tool_calls in parallel. When several cheap probes are useful, put them in the same tool_calls array instead of waiting for another round.
+
+Hybrid tool policy:
+- Semantic or informal "where is X handled" queries: call code_diver_search first. It is the primary hybrid vector/BM25/symbol/GraphRAG candidate generator.
+- Path, config, docker, package, frontend, or filename queries: run code_diver_search and code_diver_tree/code_diver_rg in parallel.
+- Class/function/method/command/handler/service/model/schema queries: run code_diver_search and code_diver_symbols in parallel; add code_diver_rg only for concrete anchors.
+- Workflow queries such as called, created, dispatched, registered, routed, pipeline, strategy, execution: run code_diver_search with workflow terms and one structural probe such as code_diver_symbols or a narrow code_diver_rg.
+- Exact strings, config keys, CLI flags, error names: use code_diver_grep or code_diver_rg as an exact probe, preferably parallel with code_diver_search.
+- code_diver_read is for verification after candidates exist. Read only the top few bounded ranges.
+- If tool outputs disagree, prefer files supported by multiple signals or by direct read evidence.
 After any tool returns plausible candidates, prefer returning ranked results from those candidates instead of issuing another broad search.
 
 When you need more evidence:

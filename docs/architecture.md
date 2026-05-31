@@ -72,8 +72,30 @@ The direct orchestrator receives only the tools allowed by the selected hypothes
 - `grep_search`: tree, symbols, grep, rg, read, inspect; no vector search.
 - `indexing`: read-only inspection plus `code_diver_index_selected`.
 - single-tool indexing hypotheses: one discovery tool plus `code_diver_index_selected`.
+- `ai_search_hybrid_orchestrator`: the universal hybrid search hypothesis. It exposes `code_diver_search`, tree, symbols, grep, rg, read, and inspect together.
 
 `code_diver_index_selected` accepts only paths and line ranges. The model cannot inject arbitrary indexed content; the CLI reads the files from disk and enforces repository-root and gitignore guards.
+
+## Universal Hybrid Orchestrator
+
+The universal search agent is intentionally provider-agnostic. It is built from three small pieces:
+
+| Component | Role |
+| --- | --- |
+| `ToolManifestBuilder` | Emits a structured manifest for only the tools enabled by the active YAML hypothesis. Each row describes stage, parallel safety, best cases, bad cases, return shape, and arguments. |
+| `DirectSearchPromptBuilder` | Turns the manifest into a tool-routing prompt. The prompt tells the model which tool family is strongest for semantic, path/config, symbol, workflow, and exact-string queries. |
+| `ParallelToolExecutor` | Runs independent tool calls from one model response concurrently with a bounded semaphore. Search and indexing orchestrators both use it. |
+
+The intended model behavior is a hybrid plan, not a fixed codebase-specific script:
+
+- semantic or informal queries start from `code_diver_search`, which already combines vector, BM25, symbol metadata, and query-aware GraphRAG;
+- path/config/package/docker/frontend queries add `tree` or narrow `rg` probes;
+- class/function/handler/service/model queries add `symbols`;
+- workflow queries add structural probes and rely on GraphRAG candidates from `code_diver_search`;
+- exact strings, keys, flags, and error names use `grep` or `rg`;
+- `read` is reserved for bounded verification of top candidates.
+
+The model can put several cheap probes in the same `tool_calls` array. The runtime preserves result ordering while executing those probes asynchronously, so a hybrid first round can gather vector, lexical, symbol, and repository-map signals without extra model turns.
 
 ## Qdrant Isolation
 

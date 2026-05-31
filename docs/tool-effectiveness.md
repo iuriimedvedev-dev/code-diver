@@ -33,6 +33,20 @@ Direct Gemini tool-loop experiments on the 10-case smoke dataset showed the oppo
 | Read excerpts | Verifying top candidates, reranking evidence, final answer citations. | Exploratory search. Previous evals show free reads hurt cost and quality. | Only read top 3-5 ranges after deterministic candidate generation. |
 | LLM reranker | Ambiguous informal queries after vector+BM25+graph candidate generation. | Simple exact lookup; tight latency mode. | One bounded listwise call over top 20 candidates. Never open-ended multi-round search by default. |
 
+## Agent-Facing Hybrid Policy
+
+The universal orchestrator now gets the same tool matrix as machine-readable context through `ToolManifestBuilder` and as explicit prompt instructions through `DirectSearchPromptBuilder`. This keeps the policy universal: the model sees tool capabilities and query-shape guidance, not repository-specific names.
+
+| Query shape | First parallel batch |
+| --- | --- |
+| Informal semantic question | `code_diver_search` |
+| Path/config/package/docker/frontend question | `code_diver_search` + `code_diver_tree` or narrow `code_diver_rg` |
+| Class/function/method/command/handler/service/model/schema question | `code_diver_search` + `code_diver_symbols` |
+| Workflow/caller/created/registered/routed/execution question | `code_diver_search` with workflow terms + `code_diver_symbols` or narrow `code_diver_rg` |
+| Exact literal/config key/flag/error | `code_diver_grep` or `code_diver_rg` + `code_diver_search` |
+
+`code_diver_read` should stay out of the first pass unless the query already names an exact file and line range. It is a verification tool after candidates exist. When tools disagree, prefer files supported by multiple structured signals or by direct bounded read evidence.
+
 ## Hybrid Index Types
 
 `code-diver index` can now persist three item types into the same vector store:

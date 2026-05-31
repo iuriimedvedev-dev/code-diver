@@ -42,3 +42,14 @@ def test_direct_tool_executor_read_returns_bounded_source_on_request(tmp_path: P
     assert payload["ok"] is True
     assert payload["result"]["path"] == "src/service.py"
     assert payload["result"]["lines"] == [{"line": 2, "text": "line two"}]
+
+
+def test_direct_tool_executor_manifest_describes_allowed_tools(tmp_path: Path) -> None:
+    manifest = DirectToolExecutor(tmp_path, ["code_diver_search", "code_diver_rg"]).manifest()
+
+    rows = json.loads(manifest)
+    assert [row["name"] for row in rows] == ["code_diver_search", "code_diver_rg"]
+    assert all(row["parallel_safe"] is True for row in rows)
+    assert rows[0]["stage"] == "candidate_generation"
+    assert "indexKind" in rows[0]["returns"]
+    assert "best_for" in rows[1]

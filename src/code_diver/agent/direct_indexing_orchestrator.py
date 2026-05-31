@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from time import perf_counter
 from typing import Any, Callable
@@ -21,6 +20,7 @@ from .direct_indexing_result import DirectIndexingResult
 from .direct_tool_executor import DirectToolExecutor
 from .json_response_parser import JsonResponseParser
 from .model_cost_estimator import ModelCostEstimator
+from .parallel_tool_executor import ParallelToolExecutor
 from .tool_call import ToolCall
 from .tool_observation_compressor import ToolObservationCompressor
 from .tool_result import ToolResult
@@ -192,8 +192,7 @@ class DirectIndexingOrchestrator:
     ) -> list[ToolResult]:
         for call in calls:
             self.logger.write("tool_call", {"name": call.name, "arguments": call.arguments})
-        with ThreadPoolExecutor(max_workers=min(len(calls), self.MAX_PARALLEL_TOOLS)) as pool:
-            results = list(pool.map(executor.execute, calls))
+        results = ParallelToolExecutor(self.MAX_PARALLEL_TOOLS).execute(calls, executor.execute)
         usage.tool_calls += len(results)
         for result in results:
             self.logger.write(
