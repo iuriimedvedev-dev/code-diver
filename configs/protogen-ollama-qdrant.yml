@@ -201,6 +201,62 @@ experiments:
         graph_neighbor_limit: 30
         min_token_length: 3
       description: Deterministic fusion with stronger AST/import/call graph propagation.
+    - name: hybrid_candidates_bm25_rrf
+      strategy: hybrid
+      hybrid_search:
+        candidate_limit: 80
+        lexical_candidate_limit: 120
+        vector_weight: 0.55
+        lexical_weight: 0.25
+        path_weight: 0.1
+        symbol_weight: 0.05
+        graph_weight: 0.05
+        graph_depth: 1
+        graph_neighbor_limit: 20
+        lexical_scoring: bm25
+        fusion: rrf
+        rrf_k: 60
+        bm25_k1: 1.2
+        bm25_b: 0.75
+        min_token_length: 3
+      description: Deterministic BM25 lexical scoring with reciprocal rank fusion over vector, lexical, path, symbol, and graph signals.
+    - name: hybrid_candidates_bm25_weighted
+      strategy: hybrid
+      hybrid_search:
+        candidate_limit: 80
+        lexical_candidate_limit: 120
+        vector_weight: 0.6
+        lexical_weight: 0.18
+        path_weight: 0.12
+        symbol_weight: 0.05
+        graph_weight: 0.05
+        graph_depth: 1
+        graph_neighbor_limit: 20
+        lexical_scoring: bm25
+        fusion: weighted
+        bm25_k1: 1.2
+        bm25_b: 0.75
+        min_token_length: 3
+      description: BM25 lexical scoring with the existing weighted fusion baseline.
+    - name: hybrid_candidates_bm25_rrf_vector
+      strategy: hybrid
+      hybrid_search:
+        candidate_limit: 80
+        lexical_candidate_limit: 120
+        vector_weight: 0.78
+        lexical_weight: 0.1
+        path_weight: 0.06
+        symbol_weight: 0.03
+        graph_weight: 0.03
+        graph_depth: 1
+        graph_neighbor_limit: 20
+        lexical_scoring: bm25
+        fusion: rrf
+        rrf_k: 80
+        bm25_k1: 1.2
+        bm25_b: 0.75
+        min_token_length: 3
+      description: BM25/RRF profile biased toward vector rank to protect hit@1 and MRR.
     - name: hybrid_candidates_path_symbol
       strategy: hybrid
       hybrid_search:

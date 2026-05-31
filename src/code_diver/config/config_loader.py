@@ -206,6 +206,11 @@ class ConfigLoader:
             graph_weight=float(mapping.get("graph_weight", Defaults.HYBRID_GRAPH_WEIGHT)),
             graph_depth=int(mapping.get("graph_depth", Defaults.HYBRID_GRAPH_DEPTH)),
             graph_neighbor_limit=int(mapping.get("graph_neighbor_limit", Defaults.HYBRID_GRAPH_NEIGHBOR_LIMIT)),
+            lexical_scoring=str(mapping.get("lexical_scoring", Defaults.HYBRID_LEXICAL_SCORING)),
+            fusion=str(mapping.get("fusion", Defaults.HYBRID_FUSION)),
+            rrf_k=int(mapping.get("rrf_k", Defaults.HYBRID_RRF_K)),
+            bm25_k1=float(mapping.get("bm25_k1", Defaults.HYBRID_BM25_K1)),
+            bm25_b=float(mapping.get("bm25_b", Defaults.HYBRID_BM25_B)),
             min_token_length=int(mapping.get("min_token_length", Defaults.HYBRID_MIN_TOKEN_LENGTH)),
             stop_words=self._string_list(mapping.get("stop_words")) or list(Defaults.HYBRID_STOP_WORDS),
         )

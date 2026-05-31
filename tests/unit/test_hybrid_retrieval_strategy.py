@@ -7,6 +7,8 @@ import pytest
 from code_diver.config import HybridSearchConfig
 from code_diver.domain import CodeItem, SearchResult
 from code_diver.graph import CodeGraph, CodeGraphStore, GraphEdge
+from code_diver.strategies.hybrid_lexical_index import HybridLexicalIndex
+from code_diver.strategies.hybrid_item_profiler import HybridItemProfiler
 from code_diver.strategies import HybridRetrievalStrategy, RetrievalStrategy
 
 
@@ -93,6 +95,62 @@ def test_hybrid_strategy_adds_graph_neighbors(tmp_path: Path) -> None:
     results = strategy.search("where is the strategy run?", limit=2)
 
     assert [result.item.path for result in results] == ["src/commands.py", "src/strategies.py"]
+
+
+def test_hybrid_lexical_index_bm25_prefers_rare_exact_terms() -> None:
+    target = CodeItem(
+        id="target",
+        path="src/auth.py",
+        title="auth",
+        content="authorization authorization token validator",
+    )
+    generic = CodeItem(
+        id="generic",
+        path="src/misc.py",
+        title="misc",
+        content="authorization helper common common common common",
+    )
+    index = HybridLexicalIndex([target, generic], HybridItemProfiler())
+
+    scores = index.bm25_scores(("authorization", "token"), k1=1.2, b=0.75)
+
+    assert scores[target.id] > scores[generic.id]
+
+
+def test_hybrid_strategy_can_use_bm25_rrf(tmp_path: Path) -> None:
+    target = CodeItem(
+        id="target",
+        path="src/auth.py",
+        title="auth token",
+        content="authorization token validator",
+    )
+    vector_only = CodeItem(
+        id="vector",
+        path="src/vector.py",
+        title="semantic neighbor",
+        content="login flow",
+    )
+    graph_store = _graph_store(tmp_path, [target, vector_only], [])
+    strategy = HybridRetrievalStrategy(
+        FakeRetrievalStrategy([SearchResult(vector_only, 0.99)]),
+        graph_store,
+        HybridSearchConfig(
+            candidate_limit=5,
+            lexical_candidate_limit=5,
+            vector_weight=0.2,
+            lexical_weight=0.8,
+            path_weight=0.0,
+            symbol_weight=0.0,
+            graph_weight=0.0,
+            lexical_scoring="bm25",
+            fusion="rrf",
+            rrf_k=1,
+        ),
+    )
+
+    results = strategy.search("authorization token", limit=2)
+
+    assert results[0].item.path == "src/auth.py"
 
 
 def _graph_store(tmp_path: Path, items: list[CodeItem], edges: list[GraphEdge]) -> CodeGraphStore:

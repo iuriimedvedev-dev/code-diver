@@ -43,6 +43,24 @@ These rules should become deterministic router features, not hardcoded repositor
 | Top vector/BM25 candidates disagree strongly | Use one-shot reranker or verification reads. |
 | Top candidates are many chunks from one file | File aggregation/dedup before final top-k. |
 
+## BM25/RRF Follow-Up
+
+Global BM25/RRF was tested after file-level metrics were added:
+
+| Strategy | File Hit@10 | File MRR@10 | File Precision@R | File Recall@10 | Read |
+| --- | ---: | ---: | ---: | ---: | --- |
+| `hybrid_candidates_no_llm` | 0.90 | 0.753 | 0.575 | 0.755 | Best current rank quality. |
+| `hybrid_candidates_bm25_rrf` | 0.91 | 0.716 | 0.505 | 0.770 | Better coverage, poor first-rank quality. |
+| `hybrid_candidates_bm25_weighted` | 0.91 | 0.721 | 0.520 | 0.775 | Coverage win, still weaker ranking. |
+| `hybrid_candidates_bm25_rrf_vector` | 0.92 | 0.738 | 0.540 | 0.770 | Best coverage, not enough rank quality. |
+
+Conclusion: BM25 is useful, but global BM25 weighting is too blunt. It finds additional relevant files, then drags noisy lexical matches above semantically better candidates. The next implementation should be a router:
+
+- exact/path/symbol/config queries: strong BM25/path/symbol weighting;
+- informal semantic queries: vector/hybrid coverage weighting;
+- workflow queries: vector first, then graph expansion;
+- disagreement cases: one-shot reranker.
+
 ## Research Alignment
 
 Current 2026 practice is consistent across papers and products:

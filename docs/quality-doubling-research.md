@@ -122,3 +122,18 @@ Near-term realistic targets:
 - Graph edges can explode indexing time; call/reference edges need hard budgets or incremental construction.
 - Embedding comparisons are expensive because every model needs a fresh index.
 - Without task-type slices, improvements can hide regressions on auth/config/CLI/test queries.
+
+## BM25/RRF First Result
+
+Global BM25/RRF was implemented as a hypothesis after file-level metrics.
+
+Result: it improves coverage but hurts ranking.
+
+| Strategy | File Hit@10 | File MRR@10 | File Precision@R | File Recall@10 | nDCG@10 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `hybrid_candidates_no_llm` | 0.90 | 0.753 | 0.575 | 0.755 | 0.692 |
+| `hybrid_candidates_bm25_rrf` | 0.91 | 0.716 | 0.505 | 0.770 | 0.670 |
+| `hybrid_candidates_bm25_weighted` | 0.91 | 0.721 | 0.520 | 0.775 | 0.679 |
+| `hybrid_candidates_bm25_rrf_vector` | 0.92 | 0.738 | 0.540 | 0.770 | 0.684 |
+
+Interpretation: BM25 should become a routed signal, not a global rank replacement. It is likely correct for exact/path/symbol queries and harmful for broad semantic queries. The next quality lever is `tool_router_v1`, not more global weight tuning.

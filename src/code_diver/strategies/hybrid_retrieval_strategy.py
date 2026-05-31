@@ -14,6 +14,9 @@ from .hybrid_query import HybridQuery
 from .hybrid_query_analyzer import HybridQueryAnalyzer
 from .retrieval_strategy import RetrievalStrategy
 
+LEXICAL_SCORING_BM25 = "bm25"
+FUSION_RRF = "rrf"
+
 
 class HybridRetrievalStrategy(RetrievalStrategy):
     def __init__(
@@ -42,10 +45,13 @@ class HybridRetrievalStrategy(RetrievalStrategy):
         scores = self._seed_vector_scores(vector_results)
         query_profile = self.analyzer.analyze(query)
         scorer = HybridCandidateScorer(query_profile, self.item_profiler, self._item_profiles)
-        for item in self._lexical_candidates(graph, query_profile, scorer):
+        lexical_scores = self._lexical_scores(graph, query_profile)
+        normalized_lexical_scores = self._normalize(lexical_scores)
+        for item in self._lexical_candidates(graph, query_profile, scorer, normalized_lexical_scores):
             existing = scores.setdefault(item.id, HybridCandidateScore(item=item))
             lexical = scorer.score(item)
-            existing.lexical_score = max(existing.lexical_score, lexical.lexical_score)
+            lexical_score = normalized_lexical_scores.get(item.id, lexical.lexical_score)
+            existing.lexical_score = max(existing.lexical_score, lexical_score)
             existing.path_score = max(existing.path_score, lexical.path_score)
             existing.symbol_score = max(existing.symbol_score, lexical.symbol_score)
 
@@ -56,12 +62,9 @@ class HybridRetrievalStrategy(RetrievalStrategy):
             existing = scores.setdefault(item_id, HybridCandidateScore(item=item))
             existing.graph_score = max(existing.graph_score, graph_score)
 
-        ranked = sorted(
-            scores.values(),
-            key=lambda score: (score.total(self.config), score.vector_score, score.lexical_score, score.item.path),
-            reverse=True,
-        )
-        return [SearchResult(item=score.item, score=score.total(self.config)) for score in ranked[:limit]]
+        if self.config.fusion == FUSION_RRF:
+            return self._rrf_results(scores, vector_results, limit)
+        return self._weighted_results(scores, limit)
 
     def _seed_vector_scores(self, vector_results: list[SearchResult]) -> dict[str, HybridCandidateScore]:
         normalized = self._normalize({result.item.id: result.score for result in vector_results})
@@ -75,8 +78,12 @@ class HybridRetrievalStrategy(RetrievalStrategy):
         graph: CodeGraph,
         query_profile: HybridQuery,
         scorer: HybridCandidateScorer,
+        lexical_scores: dict[str, float],
     ) -> list[CodeItem]:
-        scored = [scorer.score(item) for item in self._load_lexical_index(graph).candidates(query_profile.terms)]
+        candidates = self._load_lexical_index(graph).candidates(query_profile.terms)
+        scored = [scorer.score(item) for item in candidates]
+        for score in scored:
+            score.lexical_score = max(score.lexical_score, lexical_scores.get(score.item.id, 0.0))
         scored.sort(
             key=lambda score: (score.lexical_score + score.path_score + score.symbol_score, score.item.path),
             reverse=True,
@@ -86,6 +93,15 @@ class HybridRetrievalStrategy(RetrievalStrategy):
             for score in scored[: self.config.lexical_candidate_limit]
             if score.lexical_score > 0 or score.path_score > 0 or score.symbol_score > 0
         ]
+
+    def _lexical_scores(self, graph: CodeGraph, query_profile: HybridQuery) -> dict[str, float]:
+        if self.config.lexical_scoring == LEXICAL_SCORING_BM25:
+            return self._load_lexical_index(graph).bm25_scores(
+                query_profile.terms,
+                k1=self.config.bm25_k1,
+                b=self.config.bm25_b,
+            )
+        return {}
 
     def _graph_scores(self, vector_results: list[SearchResult]) -> dict[str, float]:
         frontier_scores = self._normalize({result.item.id: result.score for result in vector_results})
@@ -142,3 +158,45 @@ class HybridRetrievalStrategy(RetrievalStrategy):
         if high == low:
             return {item_id: 1.0 for item_id in scores}
         return {item_id: (score - low) / (high - low) for item_id, score in scores.items()}
+
+    def _weighted_results(self, scores: dict[str, HybridCandidateScore], limit: int) -> list[SearchResult]:
+        ranked = sorted(
+            scores.values(),
+            key=lambda score: (score.total(self.config), score.vector_score, score.lexical_score, score.item.path),
+            reverse=True,
+        )
+        return [SearchResult(item=score.item, score=score.total(self.config)) for score in ranked[:limit]]
+
+    def _rrf_results(
+        self,
+        scores: dict[str, HybridCandidateScore],
+        vector_results: list[SearchResult],
+        limit: int,
+    ) -> list[SearchResult]:
+        rrf_scores: dict[str, float] = defaultdict(float)
+        self._add_rrf(rrf_scores, [result.item.id for result in vector_results], self.config.vector_weight)
+        self._add_rrf(
+            rrf_scores,
+            self._ranked_ids(scores, lambda score: score.lexical_score),
+            self.config.lexical_weight,
+        )
+        self._add_rrf(rrf_scores, self._ranked_ids(scores, lambda score: score.path_score), self.config.path_weight)
+        self._add_rrf(
+            rrf_scores,
+            self._ranked_ids(scores, lambda score: score.symbol_score),
+            self.config.symbol_weight,
+        )
+        self._add_rrf(rrf_scores, self._ranked_ids(scores, lambda score: score.graph_score), self.config.graph_weight)
+        ranked = sorted(rrf_scores.items(), key=lambda item: (item[1], scores[item[0]].item.path), reverse=True)
+        return [SearchResult(item=scores[item_id].item, score=score) for item_id, score in ranked[:limit]]
+
+    def _ranked_ids(self, scores: dict[str, HybridCandidateScore], value) -> list[str]:
+        ranked = [score for score in scores.values() if value(score) > 0]
+        ranked.sort(key=lambda score: (value(score), score.item.path), reverse=True)
+        return [score.item.id for score in ranked]
+
+    def _add_rrf(self, scores: dict[str, float], item_ids: list[str], weight: float) -> None:
+        if weight <= 0:
+            return
+        for rank, item_id in enumerate(item_ids, start=1):
+            scores[item_id] += weight / (self.config.rrf_k + rank)

@@ -77,6 +77,11 @@ hybrid_search:
   graph_weight: 0.09
   graph_depth: 2
   graph_neighbor_limit: 11
+  lexical_scoring: bm25
+  fusion: rrf
+  rrf_k: 42
+  bm25_k1: 1.5
+  bm25_b: 0.4
   min_token_length: 4
   stop_words: [where, handled]
 graph:
@@ -179,6 +184,11 @@ plugins:
     assert config.hybrid_search.graph_weight == 0.09
     assert config.hybrid_search.graph_depth == 2
     assert config.hybrid_search.graph_neighbor_limit == 11
+    assert config.hybrid_search.lexical_scoring == "bm25"
+    assert config.hybrid_search.fusion == "rrf"
+    assert config.hybrid_search.rrf_k == 42
+    assert config.hybrid_search.bm25_k1 == 1.5
+    assert config.hybrid_search.bm25_b == 0.4
     assert config.hybrid_search.min_token_length == 4
     assert config.hybrid_search.stop_words == ["where", "handled"]
     assert config.graph.artifact == tmp_path / "graph.json"

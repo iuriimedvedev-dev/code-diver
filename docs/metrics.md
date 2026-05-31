@@ -144,12 +144,21 @@ Run date: 2026-05-31. Same 100-case dataset and current Qdrant/graph artifacts.
 | `hybrid_candidates_graph_boost` | 0.30 | 0.53 | 0.90 | 0.754 | 0.550 | 0.755 | 0.688 | 0.619 |
 | `hybrid_candidates_path_symbol` | 0.27 | 0.50 | 0.89 | 0.737 | 0.540 | 0.750 | 0.679 | 0.610 |
 
+BM25/RRF follow-up:
+
+| Strategy | Hit@1 | Hit@3 | File Hit@10 | File MRR@10 | File Precision@R | File Recall@10 | nDCG@10 | MAP@10 | Read |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| `hybrid_candidates_bm25_rrf` | 0.15 | 0.46 | 0.91 | 0.716 | 0.505 | 0.770 | 0.670 | 0.592 | Finds more relevant files, damages rank. |
+| `hybrid_candidates_bm25_weighted` | 0.27 | 0.47 | 0.91 | 0.721 | 0.520 | 0.775 | 0.679 | 0.605 | Better than RRF for hit@1, still worse than coverage hybrid. |
+| `hybrid_candidates_bm25_rrf_vector` | 0.15 | 0.45 | 0.92 | 0.738 | 0.540 | 0.770 | 0.684 | 0.611 | Best coverage, still bad first-rank quality. |
+
 Interpretation:
 
 - Hybrid improves the practical first-screen metrics: `hit@3`, file MRR, file precision@R, nDCG, and MAP.
 - `hybrid_candidates_no_llm` has the best overall rank quality: `file_mrr@10=0.753`, `file_precision@R=0.575`, `ndcg@10=0.692`, `map@10=0.627`.
 - `hybrid_candidates_graph_boost` has the best `hit@1` and chunk-level precision, but it gives up a little nDCG/MAP versus `hybrid_candidates_no_llm`.
 - File recall is lower than old chunk-level recall because chunk-level recall counted repeated chunks from the same expected file. File-level recall is the more honest coverage metric.
+- BM25 improves candidate coverage but hurts top-rank quality when applied globally. This is evidence for deterministic query routing: use BM25 strongly for exact/path/symbol queries, not for every informal semantic query.
 
 ## Direct Orchestrator Tool Runs
 

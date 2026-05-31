@@ -97,6 +97,11 @@ class Defaults:
     HYBRID_GRAPH_WEIGHT = 0.05
     HYBRID_GRAPH_DEPTH = 1
     HYBRID_GRAPH_NEIGHBOR_LIMIT = 20
+    HYBRID_LEXICAL_SCORING = "coverage"
+    HYBRID_FUSION = "weighted"
+    HYBRID_RRF_K = 60
+    HYBRID_BM25_K1 = 1.2
+    HYBRID_BM25_B = 0.75
     HYBRID_MIN_TOKEN_LENGTH = 3
     HYBRID_STOP_WORDS = [
         "where",
