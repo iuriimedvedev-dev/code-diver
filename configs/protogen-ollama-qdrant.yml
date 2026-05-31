@@ -18,6 +18,19 @@ embedding:
   workers: 4
   max_input_chars: 400
 
+generation:
+  provider: vertex
+  model: gemini-3.5-flash
+  fallback_models:
+    - gemini-3-flash-preview
+    - gemini-2.5-flash
+  project: "236777862453"
+  location: global
+  temperature: 0
+  thinking_budget: 1024
+  api_version: v1
+  timeout_ms: 20000
+
 indexing:
   mode: scanner
 

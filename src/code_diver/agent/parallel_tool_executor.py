@@ -25,6 +25,9 @@ class ParallelToolExecutor:
 
         async def run(call: ToolCall) -> ToolResult:
             async with semaphore:
-                return await asyncio.to_thread(execute_one, call)
+                try:
+                    return await asyncio.to_thread(execute_one, call)
+                except Exception as exc:
+                    return ToolResult(call.name, str(exc), ok=False)
 
         return await asyncio.gather(*(run(call) for call in calls))

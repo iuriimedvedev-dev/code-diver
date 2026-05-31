@@ -26,3 +26,20 @@ def test_parallel_tool_executor_runs_independent_calls_concurrently() -> None:
 
     assert [result.content for result in results] == ["0", "1", "2"]
     assert elapsed < 0.25
+
+
+def test_parallel_tool_executor_preserves_partial_results_when_one_call_fails() -> None:
+    calls = [ToolCall("ok", {}), ToolCall("bad", {}), ToolCall("later", {})]
+
+    def execute(call: ToolCall) -> ToolResult:
+        if call.name == "bad":
+            raise RuntimeError("tool exploded")
+        return ToolResult(call.name, call.name)
+
+    results = ParallelToolExecutor(max_parallel=3).execute(calls, execute)
+
+    assert [(result.name, result.ok, result.content) for result in results] == [
+        ("ok", True, "ok"),
+        ("bad", False, "tool exploded"),
+        ("later", True, "later"),
+    ]
