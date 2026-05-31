@@ -176,3 +176,73 @@ Immediate implementation follow-up from this run:
 - `code_diver_read` now has a hard runtime budget of 10 calls per case. Extra read calls return a structured `read_budget_exceeded` tool result instead of reading more source.
 - The prompt now tells the agent to use the intended flow: `code_diver_search` for candidates, `grep`/`rg` or scoped symbols for fast verification, and small targeted `read` ranges only for final evidence.
 - Next guard should cap total observation bytes per round and prefer at most 3 reads by prompt unless the query names exact files.
+
+## Full 100-Case Vertex Eval
+
+Run `66fa11b0e393` evaluated the four main agent-tool hypotheses on `datasets/protogen_eval_100.jsonl` through Vertex `gemini-3.5-flash`.
+
+Command:
+
+```text
+uv run code-diver --config configs/protogen-ollama-qdrant.yml evaluate-search-tools --hypothesis ai_search_hybrid_orchestrator --hypothesis ai_search_vector_only --hypothesis ai_search_vector_rg --hypothesis ai_search_vector_symbols --json
+```
+
+### Summary
+
+| Hypothesis | Hit@10 | MRR@10 | Hit@1 | File precision@R | File recall@10 | nDCG@10 | MAP@10 | Tokens | Cost | Mean latency | p95 latency | Errors |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `ai_search_vector_only` | 0.800 | 0.748 | 0.700 | 0.580 | 0.655 | 0.653 | 0.609 | 455,876 | $0.961 | 5.13s | 10.03s | 11 |
+| `ai_search_vector_symbols` | 0.740 | 0.710 | 0.680 | 0.570 | 0.605 | 0.616 | 0.578 | 735,696 | $1.423 | 6.44s | 10.40s | 17 |
+| `ai_search_hybrid_orchestrator` | 0.650 | 0.645 | 0.640 | 0.505 | 0.510 | 0.538 | 0.505 | 1,427,533 | $2.481 | 8.97s | 24.62s | 26 |
+| `ai_search_vector_rg` | 0.600 | 0.567 | 0.540 | 0.465 | 0.510 | 0.509 | 0.481 | 786,935 | $1.499 | 7.95s | 16.07s | 35 |
+
+Full-run conclusion: exposing more tools directly to the model does not improve the 100-case benchmark. `ai_search_vector_only` is still the best agent-facing baseline. `ai_search_vector_symbols` is the least bad multi-tool variant: it is close on quality but costs 1.6x tokens and has more errors. `ai_search_vector_rg` and the full hybrid toolset both degrade quality and reliability.
+
+### Tool Use
+
+| Hypothesis | Tool calls | Result volume notes |
+| --- | ---: | --- |
+| `ai_search_vector_only` | 120 `code_diver_search` | 338.9 KiB search observations. |
+| `ai_search_vector_symbols` | 118 `code_diver_search`, 92 `code_diver_symbols` | 332.9 KiB search + 464.2 KiB symbols. |
+| `ai_search_vector_rg` | 117 `code_diver_search`, 228 `code_diver_rg` | 322.3 KiB search + 510.7 KiB rg. |
+| `ai_search_hybrid_orchestrator` | 122 search, 192 read, 32 grep, 26 rg, 17 symbols, 15 tree | 1.38 MiB structured observations; reads were the largest source at 649.5 KiB. |
+
+The read budget worked: the full hybrid run never exceeded 5 `code_diver_read` calls in a case, so the hard limit of 10 was not hit. The problem is not runaway reading anymore. The remaining failure mode is decision paralysis: the model keeps verifying and then either reaches `max_rounds_exceeded` or returns no final result.
+
+### Error Pattern
+
+| Hypothesis | `max_rounds_exceeded` | No tool calls/results | Other |
+| --- | ---: | ---: | ---: |
+| `ai_search_vector_only` | 4 | 7 | 0 |
+| `ai_search_vector_symbols` | 5 | 12 | 0 |
+| `ai_search_vector_rg` | 26 | 9 | 0 |
+| `ai_search_hybrid_orchestrator` | 13 | 13 | 1 read path error |
+
+The `rg` tool is especially risky as an agent-facing primitive. It gives the model too many opportunities to invent another regex instead of finalizing. Symbols are safer, but still produce enough extra context and turns to lose against plain `code_diver_search`.
+
+### Case-Level Pattern
+
+The full hybrid did improve some individual cases over vector-only:
+
+- `where-agent-factory`
+- `where-api-prompts`
+- `where-arena-aggregation`
+- `where-database-session`
+- `where-direct-agents`
+- `where-eval-import`
+- `where-frontend-prompts`
+- `where-platform-tools`
+- `where-prompt-templates`
+- `where-settings-api`
+
+But it also lost many cases that vector-only solved at rank 1, including operator/config/session/strategy cases such as `where-ailoop`, `where-claude-operator`, `where-gemini-operator`, `where-openai-operator`, `where-session-starts`, and `where-strategy-created`. The tools are useful, but letting the model decide an open-ended multi-round plan is too unstable.
+
+### Next Hypotheses
+
+The next promising direction is not "more agent tools"; it is deterministic hybrid candidate generation plus a bounded model step:
+
+1. Keep `code_diver_search` as the primary agent-facing tool.
+2. Move `symbols`, `rg`, `grep`, and tree/path checks below the agent boundary as deterministic reranking features.
+3. Add a strict one-shot finalizer/reranker prompt over a compact candidate table, not a multi-round tool loop.
+4. Add a "must finalize after candidate evidence" rule for direct search: after a successful `code_diver_search` result and one optional verification round, require final JSON results.
+5. Route path/config/package/docker queries deterministically; the full hybrid missed path-ish cases like `where-dev-compose` and `where-sample-apps` despite having tree/grep/read.
