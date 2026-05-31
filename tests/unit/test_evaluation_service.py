@@ -30,3 +30,36 @@ def test_evaluation_service_computes_ranked_metrics() -> None:
     assert results[0].recall == 1.0
     assert metrics["hit_rate@2"] == 1.0
     assert metrics["mrr@2"] == 0.5
+    assert metrics["hit_rate@1"] == 0.0
+    assert metrics["hit_rate@3"] == 1.0
+    assert metrics["file_hit_rate@2"] == 1.0
+    assert metrics["file_mrr@2"] == 0.5
+    assert metrics["file_precision@R"] == 0.0
+    assert metrics["file_recall@2"] == 1.0
+    assert metrics["ndcg@2"] == pytest.approx(0.6309297536)
+    assert metrics["map@2"] == 0.5
+    assert results[0].retrieved_files == ["wrong.py", "target.py"]
+    assert results[0].file_reciprocal_rank == 0.5
+
+
+class DuplicateFileStrategy(RetrievalStrategy):
+    def search(self, query: str, limit: int) -> list[SearchResult]:
+        return [
+            SearchResult(CodeItem(id="target.py#1", path="target.py", title="Target 1", content=""), 0.9),
+            SearchResult(CodeItem(id="target.py#2", path="target.py", title="Target 2", content=""), 0.8),
+            SearchResult(CodeItem(id="other.py#1", path="other.py", title="Other", content=""), 0.7),
+        ][:limit]
+
+
+def test_evaluation_service_file_metrics_dedupe_retrieved_files() -> None:
+    metrics, results = EvaluationService(DuplicateFileStrategy()).evaluate(
+        [EvalCase(id="case", query="find target", expected=["target.py"])],
+        limit=3,
+    )
+
+    assert metrics["precision@3"] == pytest.approx(2 / 3)
+    assert metrics["file_precision@R"] == 1.0
+    assert metrics["file_recall@3"] == 1.0
+    assert metrics["ndcg@3"] == 1.0
+    assert metrics["map@3"] == 1.0
+    assert results[0].retrieved_files == ["target.py", "other.py"]

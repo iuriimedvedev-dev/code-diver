@@ -21,6 +21,14 @@ An item is counted as relevant when its indexed id matches an expected id exactl
 | `mrr@10` | Mean reciprocal rank of the first relevant item in top 10. Rank 1 = `1.0`, rank 2 = `0.5`, rank 10 = `0.1`, no hit = `0`. | `1.0` | Measures ranking quality. High hit rate with low MRR means relevant files are present but buried. |
 | `precision@10` | Relevant retrieved items divided by retrieved items, averaged across cases. | `1.0` | Measures result cleanliness. Low precision means the model will waste context tokens on irrelevant snippets. |
 | `recall@10` | Expected relevant targets found in top 10, averaged across cases. | `1.0` | Measures coverage when a case has multiple expected files. |
+| `hit_rate@1` | Fraction of cases where the first retrieved item is relevant. | `1.0` | Strong proxy for whether the first answer citation will be correct. |
+| `hit_rate@3` | Fraction of cases where any of the first three retrieved items is relevant. | `1.0` | More realistic first-screen quality than top-10 hit rate. |
+| `file_hit_rate@10` | Fraction of cases where any deduplicated retrieved file matches expected files. | `1.0` | Removes repeated chunk effects from `hit_rate@10`. |
+| `file_mrr@10` | MRR over deduplicated file paths instead of chunks/symbols. | `1.0` | Measures whether the right file appears early, regardless of chunk multiplicity. |
+| `file_precision@R` | Precision over the first R deduplicated files, where R is the number of expected targets. | `1.0` | Main cleanliness metric for code search; avoids penalizing single-file answers for not filling 10 slots. |
+| `file_recall@10` | Expected file targets covered by deduplicated top-10 files. | `1.0` | More honest coverage than chunk-level recall when many chunks from one file repeat. |
+| `ndcg@10` | Normalized discounted cumulative gain over deduplicated file results. | `1.0` | Rewards ranking all expected files early and penalizes burying them. |
+| `map@10` | Mean average precision over deduplicated file results. | `1.0` | Measures file-level ranking quality across all expected targets. |
 | `duration_ms` | Wall-clock evaluation time for that strategy over all cases. | Lower is better. | Measures retrieval latency in the current implementation and storage backend. Do not compare across machines without noting hardware/backend. |
 | `search_duration_ms_total` | Sum of all per-query retrieval calls inside an evaluation. | Lower is better. | Isolates retrieval time from indexing and orchestration time. |
 | `search_duration_ms_mean` | Average retrieval latency per dataset query. | Lower is better. | Useful for comparing vector, recursive, and graph strategies under the same index. |
@@ -121,6 +129,27 @@ Interpretation:
 - The gain is modest but meaningful because the previous agent-controlled hybrid toolsets were slower, more expensive, and less accurate.
 - The current hybrid implementation is still not fast enough as the default interactive path. Most overhead is local Python scoring/index warmup, not model latency.
 - Next optimization should move the lexical index into the persisted artifact or Qdrant payload/sparse vectors, so the first query does not pay the full build cost.
+
+### File-Level Metrics Run
+
+Run date: 2026-05-31. Same 100-case dataset and current Qdrant/graph artifacts.
+
+| Strategy | Hit@1 | Hit@3 | File Hit@10 | File MRR@10 | File Precision@R | File Recall@10 | nDCG@10 | MAP@10 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `vector_qdrant` | 0.29 | 0.50 | 0.89 | 0.735 | 0.525 | 0.760 | 0.682 | 0.614 |
+| `recursive_qdrant` | 0.27 | 0.46 | 0.88 | 0.727 | 0.510 | 0.750 | 0.671 | 0.601 |
+| `graph_ast_qdrant` | 0.29 | 0.50 | 0.89 | 0.735 | 0.525 | 0.760 | 0.682 | 0.614 |
+| `hybrid_candidates_no_llm` | 0.28 | 0.53 | 0.90 | 0.753 | 0.575 | 0.755 | 0.692 | 0.627 |
+| `hybrid_candidates_lexical` | 0.29 | 0.54 | 0.89 | 0.730 | 0.530 | 0.755 | 0.675 | 0.605 |
+| `hybrid_candidates_graph_boost` | 0.30 | 0.53 | 0.90 | 0.754 | 0.550 | 0.755 | 0.688 | 0.619 |
+| `hybrid_candidates_path_symbol` | 0.27 | 0.50 | 0.89 | 0.737 | 0.540 | 0.750 | 0.679 | 0.610 |
+
+Interpretation:
+
+- Hybrid improves the practical first-screen metrics: `hit@3`, file MRR, file precision@R, nDCG, and MAP.
+- `hybrid_candidates_no_llm` has the best overall rank quality: `file_mrr@10=0.753`, `file_precision@R=0.575`, `ndcg@10=0.692`, `map@10=0.627`.
+- `hybrid_candidates_graph_boost` has the best `hit@1` and chunk-level precision, but it gives up a little nDCG/MAP versus `hybrid_candidates_no_llm`.
+- File recall is lower than old chunk-level recall because chunk-level recall counted repeated chunks from the same expected file. File-level recall is the more honest coverage metric.
 
 ## Direct Orchestrator Tool Runs
 

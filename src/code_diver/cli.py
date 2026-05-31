@@ -788,6 +788,7 @@ def direct_search_eval_result(case: Any, retrieved: list[str], limit: int):
     hit = bool(matched_ranks)
     reciprocal_rank = 1.0 / matched_ranks[0] if matched_ranks else 0.0
     match_count = len(matched_ranks)
+    file_metrics = direct_search_file_metrics(case.expected, retrieved[:limit], limit)
     return EvalResult(
         case_id=case.id,
         query=case.query,
@@ -797,6 +798,13 @@ def direct_search_eval_result(case: Any, retrieved: list[str], limit: int):
         reciprocal_rank=reciprocal_rank,
         precision=match_count / max(len(retrieved[:limit]), 1),
         recall=min(match_count / max(len(case.expected), 1), 1.0),
+        retrieved_files=file_metrics["retrieved_files"],
+        file_hit=file_metrics["file_hit"],
+        file_reciprocal_rank=file_metrics["file_mrr"],
+        file_precision_at_r=file_metrics["file_precision_at_r"],
+        file_recall=file_metrics["file_recall"],
+        ndcg=file_metrics["ndcg"],
+        average_precision=file_metrics["average_precision"],
     )
 
 
@@ -809,6 +817,80 @@ def direct_search_matches(path: str, expected: str) -> bool:
     return path == normalized or path.startswith(normalized + "#") or path.startswith(normalized.rstrip("/") + "/")
 
 
+def direct_search_file_metrics(expected: list[str], retrieved: list[str], limit: int) -> dict[str, Any]:
+    files = dedupe_preserving_order(direct_search_file_path(value) for value in retrieved[:limit])
+    matched_ranks = [
+        rank for rank, path in enumerate(files, start=1) if direct_search_matches_any(path, expected)
+    ]
+    expected_count = max(len(expected), 1)
+    matched_expected_count = sum(1 for value in expected if any(direct_search_matches(path, value) for path in files))
+    r = min(expected_count, limit)
+    top_r = files[:r]
+    return {
+        "retrieved_files": files,
+        "file_hit": bool(matched_ranks),
+        "file_mrr": 1.0 / matched_ranks[0] if matched_ranks else 0.0,
+        "file_precision_at_r": sum(1 for path in top_r if direct_search_matches_any(path, expected)) / max(r, 1),
+        "file_recall": min(matched_expected_count / expected_count, 1.0),
+        "ndcg": direct_search_ndcg(files, expected, limit),
+        "average_precision": direct_search_average_precision(files, expected),
+    }
+
+
+def direct_search_file_path(value: str) -> str:
+    return value.split("#", 1)[0].split("::", 1)[0]
+
+
+def dedupe_preserving_order(values: Any) -> list[str]:
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for value in values:
+        text = str(value)
+        if text in seen:
+            continue
+        seen.add(text)
+        deduped.append(text)
+    return deduped
+
+
+def direct_search_ndcg(files: list[str], expected: list[str], limit: int) -> float:
+    import math
+
+    dcg = 0.0
+    matched_expected: set[int] = set()
+    for rank, path in enumerate(files[:limit], start=1):
+        match_index = first_unmatched_direct_expected(path, expected, matched_expected)
+        if match_index is not None:
+            matched_expected.add(match_index)
+            dcg += 1.0 / math.log2(rank + 1)
+    ideal_relevant = min(len(expected), limit)
+    ideal = sum(1.0 / math.log2(rank + 1) for rank in range(1, ideal_relevant + 1))
+    return dcg / ideal if ideal else 0.0
+
+
+def direct_search_average_precision(files: list[str], expected: list[str]) -> float:
+    hits = 0
+    total = 0.0
+    matched_expected: set[int] = set()
+    for rank, path in enumerate(files, start=1):
+        match_index = first_unmatched_direct_expected(path, expected, matched_expected)
+        if match_index is None:
+            continue
+        matched_expected.add(match_index)
+        hits += 1
+        total += hits / rank
+    return total / max(len(expected), 1)
+
+
+def first_unmatched_direct_expected(path: str, expected: list[str], matched: set[int]) -> int | None:
+    for index, value in enumerate(expected):
+        if index in matched:
+            continue
+        if direct_search_matches(path, value):
+            return index
+    return None
+
+
 def direct_search_metrics(results: list[Any], durations_ms: list[float], limit: int) -> dict[str, Any]:
     return {
         "cases": len(results),
@@ -816,6 +898,14 @@ def direct_search_metrics(results: list[Any], durations_ms: list[float], limit: 
         f"mrr@{limit}": mean(result.reciprocal_rank for result in results),
         f"precision@{limit}": mean(result.precision for result in results),
         f"recall@{limit}": mean(result.recall for result in results),
+        "hit_rate@1": mean(1.0 if any(direct_search_matches_any(value, result.expected) for value in result.retrieved[:1]) else 0.0 for result in results),
+        "hit_rate@3": mean(1.0 if any(direct_search_matches_any(value, result.expected) for value in result.retrieved[:3]) else 0.0 for result in results),
+        f"file_hit_rate@{limit}": mean(1.0 if result.file_hit else 0.0 for result in results),
+        f"file_mrr@{limit}": mean(result.file_reciprocal_rank for result in results),
+        "file_precision@R": mean(result.file_precision_at_r for result in results),
+        f"file_recall@{limit}": mean(result.file_recall for result in results),
+        f"ndcg@{limit}": mean(result.ndcg for result in results),
+        f"map@{limit}": mean(result.average_precision for result in results),
         "search_duration_ms_total": sum(durations_ms),
         "search_duration_ms_mean": mean(durations_ms),
         "search_duration_ms_p95": percentile(durations_ms, 0.95),
@@ -905,6 +995,13 @@ def eval_result_to_json(result: Any) -> dict[str, Any]:
         SchemaKey.RECIPROCAL_RANK.value: result.reciprocal_rank,
         SchemaKey.PRECISION.value: result.precision,
         SchemaKey.RECALL.value: result.recall,
+        "retrieved_files": result.retrieved_files or [],
+        "file_hit": result.file_hit,
+        "file_reciprocal_rank": result.file_reciprocal_rank,
+        "file_precision_at_r": result.file_precision_at_r,
+        "file_recall": result.file_recall,
+        "ndcg": result.ndcg,
+        "average_precision": result.average_precision,
     }
 
 
