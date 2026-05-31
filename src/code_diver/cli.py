@@ -165,6 +165,7 @@ def build_parser() -> argparse.ArgumentParser:
         CommandName.EXPERIMENT.value,
         help="Run configured retrieval hypotheses and optionally record metrics.",
     )
+    experiment.add_argument(OptionName.HYPOTHESIS.value, action="append", default=[])
     experiment.add_argument(OptionName.JSON.value, action="store_true")
     experiment.add_argument(OptionName.REINDEX.value, action="store_true")
     experiment.set_defaults(func=cmd_experiment)
@@ -558,6 +559,18 @@ def cmd_evaluate_search_tools(args: argparse.Namespace, config: AppConfig) -> in
 
 
 def cmd_experiment(args: argparse.Namespace, config: AppConfig) -> int:
+    if args.hypothesis:
+        selected = set(args.hypothesis)
+        config = replace(
+            config,
+            experiments=replace(
+                config.experiments,
+                hypotheses=[hypothesis for hypothesis in config.experiments.hypotheses if hypothesis.name in selected],
+            ),
+        )
+        missing = selected - {hypothesis.name for hypothesis in config.experiments.hypotheses}
+        if missing:
+            raise ValueError(f"Unknown experiment hypothesis: {', '.join(sorted(missing))}")
     vector_store = None if args.reindex else create_vector_store(config)
     needs_index = args.reindex or not vector_store.exists()
     if needs_index:

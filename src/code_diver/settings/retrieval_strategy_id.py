@@ -9,3 +9,4 @@ class RetrievalStrategyId(StrEnum):
     RECURSIVE = "recursive"
     GRAPH = "graph"
     HYBRID = "hybrid"
+    HYBRID_RERANK = "hybrid_rerank"

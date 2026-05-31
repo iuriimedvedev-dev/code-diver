@@ -10,6 +10,7 @@ from ..store import VectorStore
 from ..tracing import TraceLogger
 from .graph_retrieval_strategy import GraphRetrievalStrategy
 from .hybrid_retrieval_strategy import HybridRetrievalStrategy
+from .llm_rerank_retrieval_strategy import LlmRerankRetrievalStrategy
 from .recursive_retrieval_strategy import RecursiveRetrievalStrategy
 from .retrieval_strategy import RetrievalStrategy
 from .vector_retrieval_strategy import VectorRetrievalStrategy
@@ -53,4 +54,12 @@ class RetrievalStrategyFactory:
             )
         if strategy_id is RetrievalStrategyId.HYBRID:
             return HybridRetrievalStrategy(vector, CodeGraphStore(config.graph.artifact), config.hybrid_search)
+        if strategy_id is RetrievalStrategyId.HYBRID_RERANK:
+            hybrid = HybridRetrievalStrategy(vector, CodeGraphStore(config.graph.artifact), config.hybrid_search)
+            return LlmRerankRetrievalStrategy(
+                hybrid,
+                create_generation_provider(config),
+                candidate_limit=max(config.hybrid_search.candidate_limit, config.search.limit * 3),
+                trace_logger=TraceLogger(config.trace),
+            )
         raise ValueError(f"Unknown retrieval strategy: {strategy}")

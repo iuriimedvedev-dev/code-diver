@@ -171,6 +171,7 @@ experiments:
     - recursive
     - graph
     - hybrid
+    - hybrid_rerank
   hypotheses:
     - name: vector_qdrant
       strategy: vector
@@ -345,6 +346,25 @@ experiments:
           chunk: 1.0
         min_token_length: 3
       description: "Typed AST GraphRAG with query-aware traversal over calls, references, imports, containment, summaries, and same-file edges."
+    - name: hybrid_candidates_llm_rerank
+      strategy: hybrid_rerank
+      hybrid_search:
+        candidate_limit: 40
+        lexical_candidate_limit: 80
+        vector_weight: 0.62
+        lexical_weight: 0.17
+        path_weight: 0.11
+        symbol_weight: 0.05
+        graph_weight: 0.03
+        graph_depth: 1
+        graph_neighbor_limit: 24
+        routing_enabled: true
+        item_kind_weights:
+          file_summary: 0.82
+          symbol: 1.04
+          chunk: 1.0
+        min_token_length: 3
+      description: "Deterministic hybrid candidate generation followed by one bounded Vertex/Gemini rerank call."
     - name: hybrid_candidates_path_symbol
       strategy: hybrid
       hybrid_search:

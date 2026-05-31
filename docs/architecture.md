@@ -60,7 +60,7 @@ Retrieval does not traverse all edges uniformly. `GraphExpansionProfileFactory` 
 | Stores | JSON and Qdrant vector persistence. Local Qdrant is the default serious store. |
 | Inspection | Read-only repo tools: tree, symbols, grep, rg, read, inspect. |
 | Indexing | Scanner index, AI-selected index, plugins, AST GraphRAG graph build. |
-| Retrieval | Vector, recursive, graph, and orchestrated retrieval strategies. |
+| Retrieval | Vector, recursive, graph, hybrid, and bounded LLM-rerank retrieval strategies. |
 | Evaluation | Dataset loading, metric computation, route-bucket diagnostics, item-kind diagnostics, experiment and indexing-hypothesis runs. |
 | Pi Extension | Optional interactive backend for `ask`/`chat`; not used by reproducible eval runs. |
 
@@ -98,6 +98,17 @@ The intended model behavior is a hybrid plan, not a fixed codebase-specific scri
 The model can put several cheap probes in the same `tool_calls` array. The runtime preserves result ordering while executing those probes asynchronously, so a hybrid first round can gather vector, lexical, symbol, and repository-map signals without extra model turns.
 
 Search verification reads are budgeted. `DirectSearchOrchestrator` allows at most 10 `code_diver_read` calls per case; extra reads return a structured budget error while other tools in the batch still run. The intended flow is candidate generation through `code_diver_search`, cheap verification through `grep`/`rg` or scoped symbols, and only then small targeted reads for final evidence.
+
+## Bounded LLM Rerank
+
+`hybrid_rerank` is the current highest-quality research path. It keeps candidate discovery deterministic and uses the model only once:
+
+1. `HybridRetrievalStrategy` gathers vector, lexical/BM25, path, symbol, and graph candidates.
+2. `LlmRerankPromptBuilder` sends a compact candidate table to the configured generation provider.
+3. `LlmRerankResponseParser` accepts only JSON candidate indices, ignoring invalid or invented references.
+4. `LlmRerankRetrievalStrategy` returns the selected order, then fills any remaining slots with the original hybrid order.
+
+This keeps the model below the tool boundary. It cannot read files, call grep, or continue planning; it only reranks bounded candidates. Trace events `llm_rerank_prompt`, `llm_rerank_response`, and `llm_rerank_error` record prompts, selected indices, provider usage, latency, and estimated cost.
 
 ## Qdrant Isolation
 

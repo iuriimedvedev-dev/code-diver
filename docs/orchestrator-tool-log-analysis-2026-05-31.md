@@ -246,3 +246,68 @@ The next promising direction is not "more agent tools"; it is deterministic hybr
 3. Add a strict one-shot finalizer/reranker prompt over a compact candidate table, not a multi-round tool loop.
 4. Add a "must finalize after candidate evidence" rule for direct search: after a successful `code_diver_search` result and one optional verification round, require final JSON results.
 5. Route path/config/package/docker queries deterministically; the full hybrid missed path-ish cases like `where-dev-compose` and `where-sample-apps` despite having tree/grep/read.
+
+## One-Shot Hybrid LLM Rerank
+
+Run `2714426c462a4d54baad12aadc39b517` evaluated `hybrid_candidates_llm_rerank` on the full 100-case `datasets/protogen_eval_100.jsonl` suite. This is the first bounded version of the "hybrid candidate generation plus AI finalizer" idea:
+
+- Candidate generation is deterministic: vector, lexical/BM25, path, symbol, and AST graph features produce up to 40 candidates.
+- Gemini/Vertex receives a compact candidate table and must return JSON indices only.
+- There is no multi-round tool loop, no source reads, and no open-ended grep/rg/symbol probing.
+- Full prompt/response/token/cost logs are recorded as `llm_rerank_prompt` and `llm_rerank_response` trace events.
+
+Command:
+
+```text
+uv run code-diver --config configs/protogen-ollama-qdrant.yml experiment --hypothesis hybrid_candidates_llm_rerank --json
+```
+
+### Result
+
+| Hypothesis | Hit@10 | MRR@10 | Hit@1 | Hit@3 | Precision@10 | Recall@10 | File precision@R | File recall@10 | nDCG@10 | MAP@10 | Tokens | Cost | Mean latency | p95 latency | Errors |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `hybrid_candidates_llm_rerank` | 0.930 | 0.795 | 0.270 | 0.580 | 0.517 | 0.920 | 0.620 | 0.800 | 0.743 | 0.682 | 1,192,817 | $2.051 | 4.38s | 6.13s | 0 |
+| `ai_search_vector_only` | 0.800 | 0.748 | 0.700 | 0.800 | 0.498 | 0.655 | 0.580 | 0.655 | 0.653 | 0.609 | 455,876 | $0.961 | 5.13s | 10.03s | 11 |
+| `ai_search_hybrid_orchestrator` | 0.650 | 0.645 | 0.640 | 0.650 | 0.552 | 0.510 | 0.505 | 0.510 | 0.538 | 0.505 | 1,427,533 | $2.481 | 8.97s | 24.62s | 26 |
+
+The bounded reranker is the best quality result so far by `hit@10`, `MRR@10`, `recall@10`, `file_recall@10`, `nDCG@10`, and `MAP@10`. It also removes the direct-agent failure class: no `max_rounds_exceeded`, no malformed tool calls, and no empty final answers in this run.
+
+The weakness is rank-one precision. `hit@1=0.27` is much worse than `ai_search_vector_only` at `0.70`. The model often selects a related symbol/file family correctly, but does not consistently put the exact expected item first. For developer UX this is still useful because the relevant file is usually in the first page, but it is not yet good enough for "open the exact file immediately".
+
+### Usage
+
+Trace summary for the 100 `llm_rerank_response` events:
+
+| Metric | Value |
+| --- | ---: |
+| Model calls | 100 |
+| Input tokens | 1,120,631 |
+| Output tokens | 41,118 |
+| Total tokens | 1,192,817 |
+| Estimated cost | $2.051 |
+| Mean model latency | 4.18s |
+| p95 model latency | 6.22s |
+| Model | `gemini-3.5-flash` |
+
+The cost is lower than the open-ended hybrid agent loop, but still more than 2x `ai_search_vector_only`. Most of that cost is prompt-side: 40 candidates with previews produce large prompts. The next optimization should be adaptive candidate compression, not another open tool loop.
+
+### Bucket Pattern
+
+| Bucket | Cases | Hit@10 | Hit@1 | Hit@3 | File precision@R | File recall@10 | nDCG@10 | MAP@10 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `path_symbol` | 31 | 0.935 | 0.452 | 0.742 | 0.710 | 0.806 | 0.784 | 0.736 |
+| `semantic` | 30 | 0.900 | 0.100 | 0.500 | 0.550 | 0.817 | 0.708 | 0.641 |
+| `workflow` | 39 | 0.949 | 0.256 | 0.513 | 0.603 | 0.782 | 0.737 | 0.671 |
+
+The reranker works best on path/symbol cases and worst on semantic rank-one selection. That matches the trace behavior: when path/title/symbol names are strong, the model can select useful candidates; when the query is purely informal, it preserves recall but struggles to identify the exact top answer.
+
+### Next Optimization
+
+This result changes the direction:
+
+1. Keep the bounded reranker. It is clearly better than an open-ended agent tool loop.
+2. Add adaptive candidate tables: 15-20 candidates for confident deterministic results, 40 only for low-confidence/ambiguous queries.
+3. Add file-level grouping before rerank. The reranker should first choose files, then choose best symbols/chunks inside selected files. This should improve `hit@1`.
+4. Add deterministic first-rank protection: if the base vector/hybrid top result is very strong and path/symbol evidence agrees, pin it unless the reranker has high-confidence reason to move it.
+5. Add a smaller "reason-free" rerank response schema for eval runs to reduce output tokens.
+6. Parallelize `experiment` evaluation with bounded concurrency. Current wall-clock time is dominated by 100 sequential Vertex calls even though each call is independent.
