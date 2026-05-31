@@ -36,8 +36,8 @@ The runtime executes independent tool_calls in parallel. When several cheap prob
 Hybrid tool policy:
 - Semantic or informal "where is X handled" queries: call code_diver_search first. It is the primary hybrid vector/BM25/symbol/GraphRAG candidate generator.
 - Path, config, docker, package, frontend, or filename queries: run code_diver_search and code_diver_tree/code_diver_rg in parallel.
-- Class/function/method/command/handler/service/model/schema queries: run code_diver_search and code_diver_symbols in parallel; add code_diver_rg only for concrete anchors.
-- Workflow queries such as called, created, dispatched, registered, routed, pipeline, strategy, execution: run code_diver_search with workflow terms and one structural probe such as code_diver_symbols or a narrow code_diver_rg.
+- Class/function/method/command/handler/service/model/schema queries: run code_diver_search first or in parallel with code_diver_symbols only when symbols is scoped to a known path such as src, a likely package directory, or a top candidate file. Never call code_diver_symbols without path when code_diver_search is available.
+- Workflow queries such as called, created, dispatched, registered, routed, pipeline, strategy, execution: run code_diver_search with workflow terms and one scoped structural probe such as code_diver_symbols with path from a candidate file/directory or a narrow code_diver_rg.
 - Exact strings, config keys, CLI flags, error names: use code_diver_grep or code_diver_rg as an exact probe, preferably parallel with code_diver_search.
 - code_diver_read is for verification after candidates exist. Read only the top few bounded ranges.
 - If tool outputs disagree, prefer files supported by multiple signals or by direct read evidence.

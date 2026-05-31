@@ -36,9 +36,15 @@ class ToolManifestBuilder:
                 "stage": "structure_probe",
                 "parallel_safe": True,
                 "best_for": ["classes", "functions", "methods", "commands", "handlers", "services", "models"],
-                "avoid_for": ["queries that only mention prose concepts with no structural clue"],
+                "avoid_for": [
+                    "queries that only mention prose concepts with no structural clue",
+                    "full-repo scans when code_diver_search can provide candidate paths first",
+                ],
                 "returns": "structured symbols and file candidates, no source text",
-                "args": {"path": "optional relative path", "limit": 200},
+                "args": {
+                    "path": "relative file or directory; required when code_diver_search is also available",
+                    "limit": 100,
+                },
             },
             {
                 "name": "code_diver_grep",

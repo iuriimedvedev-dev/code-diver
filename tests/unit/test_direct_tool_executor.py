@@ -53,3 +53,14 @@ def test_direct_tool_executor_manifest_describes_allowed_tools(tmp_path: Path) -
     assert rows[0]["stage"] == "candidate_generation"
     assert "indexKind" in rows[0]["returns"]
     assert "best_for" in rows[1]
+
+
+def test_direct_tool_executor_rejects_unscoped_symbols_when_search_is_available(tmp_path: Path) -> None:
+    result = DirectToolExecutor(tmp_path, ["code_diver_search", "code_diver_symbols"]).execute(
+        ToolCall("code_diver_symbols", {"limit": 100})
+    )
+
+    payload = json.loads(result.content)
+    assert result.ok is False
+    assert payload["ok"] is False
+    assert "requires a path" in payload["error"]

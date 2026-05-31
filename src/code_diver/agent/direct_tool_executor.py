@@ -47,8 +47,11 @@ class DirectToolExecutor:
                 limit=int(args.get("limit") or 200),
             )
         if call.name == "code_diver_symbols":
+            path = self._optional_str(args.get("path"))
+            if path is None and "code_diver_search" in self.allowed_tools:
+                raise ValueError("code_diver_symbols requires a path when code_diver_search is available")
             return SymbolsService(self.root, self.exclude, self.max_file_bytes).structured(
-                path=self._optional_str(args.get("path")),
+                path=path,
                 limit=int(args.get("limit") or 200),
             )
         if call.name == "code_diver_grep":

@@ -129,3 +129,48 @@ After ADC is reauthenticated:
 3. Compare it against `ai_search_vector_only`, `ai_search_vector_rg`, and `ai_search_vector_symbols`.
 4. Add per-tool timeout and aggregate observation-byte caps, then rerun the same four hypotheses.
 5. Promote only tools that improve `hit@1`, `file_mrr@10`, or `file_recall@10` without increasing tokens by more than 2x.
+
+## Vertex Follow-Up
+
+ADC was reauthenticated and the Vertex smoke call passed:
+
+| Field | Value |
+| --- | --- |
+| Provider | `vertex` |
+| Model | `gemini-3.5-flash` |
+| Smoke tokens | 267 |
+| Response | `{"ok": true, "provider": "vertex"}` |
+
+Two Vertex eval runs were then executed with `--limit 3`. Note: this CLI flag is the retrieval top-k limit, not the number of dataset cases, so each run evaluated all 10 smoke cases.
+
+| Run | Hypothesis | Hit@3 | MRR@3 | Hit@1 | File precision@R | File recall@3 | Tokens | Cost estimate | Mean latency | p95 latency | Errors |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `eaf6aa475627` | `ai_search_hybrid_orchestrator` | 0.800 | 0.800 | 0.800 | 0.767 | 0.717 | 152,829 | $0.264673 | 9.96s | 26.38s | 1 |
+| `c9b8af50d28d` | `ai_search_vector_only` | 0.600 | 0.533 | 0.500 | 0.467 | 0.517 | 37,292 | $0.083033 | 4.14s | 5.45s | 3 |
+
+The full hybrid result is the first live orchestrator run in this dataset where extra tools clearly improved quality over vector-only. The cost is still too high: 4.1x tokens and 2.4x mean latency versus vector-only.
+
+Tool usage for `eaf6aa475627`:
+
+| Tool | Calls | Result volume |
+| --- | ---: | ---: |
+| `code_diver_search` | 16 | 40.7 KiB |
+| `code_diver_read` | 20 | 73.7 KiB |
+| `code_diver_tree` | 4 | 29.9 KiB |
+| `code_diver_grep` | 5 | 5.4 KiB |
+| `code_diver_rg` | 2 | 2.3 KiB |
+| `code_diver_symbols` | 1 | 6.6 KiB |
+
+The symbols guard worked: after rejecting broad symbols when vector search is available, the completed full hybrid run used only one scoped symbols call (`path: src/sessions/service.py`). The new dominant cost driver is `code_diver_read`: 20 reads on 10 cases.
+
+Case notes for the full hybrid run:
+
+- Strong wins: `arena`, `cli`, `eval-yaml`, `openrouter`, `pipeline`, `session`, `frontend`, and `fastapi` were found at rank 1.
+- Misses: `docker-compose` returned `docker-compose.yml`, while the dataset expects `docker-compose.dev.yml` or `docker-compose.monitoring.yml`; `metrics-collector` read relevant-looking files but returned no final result.
+- Most high-latency cases used 4-5 model rounds. This should be capped by prompt and by evaluator budgets.
+
+Immediate implementation follow-up from this run:
+
+- `code_diver_symbols` without `path` is now rejected when `code_diver_search` is available, preventing accidental full-repo symbol scans inside hybrid search.
+- The prompt now explicitly says never to call `code_diver_symbols` without a path when vector search is available.
+- Next guard should cap verification reads, for example max 3 `code_diver_read` calls per case unless the query names exact files.
