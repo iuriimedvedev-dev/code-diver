@@ -4,7 +4,7 @@ import ast
 import re
 from pathlib import Path
 
-from ..domain import CodeItem
+from ..domain import CodeItem, CodeItemIndexKind, CodeItemIndexKindResolver
 from ..settings import EdgeKind
 from .code_graph import CodeGraph
 from .graph_containment_builder import GraphContainmentBuilder
@@ -28,6 +28,7 @@ class CodeGraphBuilder:
         self.ast_enabled = ast_enabled
         self.reference_edges_enabled = reference_edges_enabled
         self.call_edges_enabled = call_edges_enabled
+        self.index_kind_resolver = CodeItemIndexKindResolver()
 
     def build(self, root: Path, items: list[CodeItem]) -> CodeGraph:
         by_id = {item.id: item for item in items}
@@ -37,6 +38,7 @@ class CodeGraphBuilder:
 
         edges: list[GraphEdge] = []
         edges.extend(self._same_file_edges(by_path))
+        edges.extend(self._file_summary_edges(by_path))
         edges.extend(self._import_edges(root, by_path))
         if self.reference_edges_enabled:
             edges.extend(self._reference_edges(items))
@@ -49,9 +51,25 @@ class CodeGraphBuilder:
     def _same_file_edges(self, by_path: dict[str, list[CodeItem]]) -> list[GraphEdge]:
         edges: list[GraphEdge] = []
         for chunks in by_path.values():
-            sorted_chunks = sorted(chunks, key=lambda item: item.start_line or 0)
+            sorted_chunks = sorted(
+                [item for item in chunks if item.start_line is not None],
+                key=lambda item: (item.start_line or 0, item.end_line or 0, item.id),
+            )
             for left, right in zip(sorted_chunks, sorted_chunks[1:]):
                 edges.append(GraphEdge(source=left.id, target=right.id, kind=EdgeKind.SAME_FILE_NEXT.value, weight=0.6))
+        return edges
+
+    def _file_summary_edges(self, by_path: dict[str, list[CodeItem]]) -> list[GraphEdge]:
+        edges: list[GraphEdge] = []
+        for items in by_path.values():
+            summaries = [item for item in items if self.index_kind_resolver.resolve(item) == CodeItemIndexKind.FILE_SUMMARY]
+            if not summaries:
+                continue
+            summary = sorted(summaries, key=lambda item: item.id)[0]
+            related = [item for item in items if item.id != summary.id]
+            related.sort(key=lambda item: (item.start_line is None, item.start_line or 0, item.id))
+            for item in related[:80]:
+                edges.append(GraphEdge(source=summary.id, target=item.id, kind=EdgeKind.SUMMARIZES.value, weight=0.7))
         return edges
 
     def _import_edges(self, root: Path, by_path: dict[str, list[CodeItem]]) -> list[GraphEdge]:

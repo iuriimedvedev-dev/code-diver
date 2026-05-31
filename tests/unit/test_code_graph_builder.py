@@ -101,6 +101,39 @@ def save_user():
     )
 
 
+def test_code_graph_builder_links_file_summary_to_file_items(tmp_path: Path) -> None:
+    items = [
+        CodeItem(
+            "summary",
+            "service.py",
+            "service.py::file_summary",
+            "symbols:\n- function run",
+            metadata={"index_kind": "file_summary"},
+        ),
+        CodeItem("chunk", "service.py", "service.py", "def run(): pass", start_line=1, end_line=1),
+        CodeItem(
+            "symbol",
+            "service.py",
+            "service.py::run",
+            "def run(): pass",
+            start_line=1,
+            end_line=1,
+            metadata={"index_kind": "symbol", "symbol": "run"},
+        ),
+    ]
+
+    graph = CodeGraphBuilder(ast_enabled=False).build(tmp_path, items)
+
+    assert any(
+        edge.source == "summary" and edge.target == "chunk" and edge.kind == EdgeKind.SUMMARIZES.value
+        for edge in graph.edges
+    )
+    assert any(
+        edge.source == "summary" and edge.target == "symbol" and edge.kind == EdgeKind.SUMMARIZES.value
+        for edge in graph.edges
+    )
+
+
 def test_code_graph_builder_limits_reference_edges_per_source(tmp_path: Path) -> None:
     source = CodeItem(
         "source",

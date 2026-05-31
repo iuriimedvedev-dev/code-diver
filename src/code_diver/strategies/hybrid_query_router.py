@@ -93,7 +93,7 @@ class HybridQueryRouter:
                 lexical_weight=0.15,
                 path_weight=0.1,
                 symbol_weight=0.05,
-                graph_weight=0.18,
+                graph_weight=0.1,
                 graph_depth=max(config.graph_depth, 2),
                 graph_neighbor_limit=max(config.graph_neighbor_limit, 30),
             )
@@ -108,6 +108,13 @@ class HybridQueryRouter:
                 path_weight=0.2,
                 symbol_weight=0.08,
                 graph_weight=0.02,
+            )
+        if route_name == ROUTE_SEMANTIC:
+            return replace(
+                config,
+                graph_weight=min(config.graph_weight, 0.01),
+                graph_depth=min(config.graph_depth, 1),
+                graph_neighbor_limit=min(config.graph_neighbor_limit, 16),
             )
         return config
 

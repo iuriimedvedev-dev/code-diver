@@ -9,3 +9,4 @@ class EdgeKind(StrEnum):
     IMPORTS = "imports"
     REFERENCES = "references"
     SAME_FILE_NEXT = "same_file_next"
+    SUMMARIZES = "summarizes"

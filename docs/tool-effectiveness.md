@@ -15,6 +15,7 @@ Local deterministic retrieval on `datasets/protogen_eval_100.jsonl`:
 | `hybrid_candidates_routed` | Better coverage than no-router hybrid: `file_hit@10=0.90`, `file_recall@10=0.765`, `hit@3=0.51`. | Lower file cleanliness: `file_precision@R=0.530`. |
 | `hybrid_candidates_multi_index_guarded` | Best current file MRR/MAP after hybrid indexing: `file_mrr@10=0.750`, `map@10=0.620`; confirms summaries need downweighting. | Worse `hit@3=0.46`; guarded summaries help rank stability but not first-screen hit. |
 | `hybrid_candidates_multi_index_routed` | Tests naive three-index boosting. | Bad top-rank result: `hit@1=0.21`, `hit@3=0.43`; file summaries become noise when boosted directly. |
+| `hybrid_candidates_modern_graphrag` | Improves workflow ordering: `workflow.ndcg@10=0.646` vs `0.629` for non-graph hybrid. | Not a global rank winner yet: `hit@1=0.23`, `hit@3=0.44`; call/reference edges need reranker use, not direct rank domination. |
 | `recursive_qdrant` | Slightly higher chunk precision than vector. | Worse hit/MRR/recall and ~4x slower than vector. |
 
 Direct Gemini tool-loop experiments on the 10-case smoke dataset showed the opposite pattern: giving the orchestrator more raw tools was worse than a structured candidate tool. `search+rg`, `search+symbols`, `search+inspect`, and `read` variants increased tokens, latency, and errors without beating `ai_search_vector_only`.
@@ -112,6 +113,36 @@ After adding file summaries and route-bucket metrics, the 100-case dataset shows
 | `workflow` | Baseline/guarded hybrid is best at about 0.708 file MRR. Graph boost is not yet a win. | Vector + symbol first, then improve graph before trusting graph expansion. |
 
 This confirms the hybrid approach, but also shows the rule: different tools should own different query buckets. A single global fusion weight is not enough.
+
+## Modern GraphRAG Result
+
+The graph now has 9230 nodes and 91117 typed edges:
+
+| Edge kind | Count |
+| --- | ---: |
+| `same_file_next` | 7262 |
+| `summarizes` | 8167 |
+| `imports` | 23671 |
+| `references` | 26685 |
+| `contains` | 9081 |
+| `calls` | 16251 |
+
+Traversal is query-aware:
+
+- `semantic`: shallow, graph-light, vector-first.
+- `path_symbol`: containment/same-file/reference oriented.
+- `workflow`: deeper traversal with `calls`, `references`, and `imports`.
+
+Measured pattern:
+
+| Slice | What happened |
+| --- | --- |
+| Workflow | Improved: `workflow.ndcg@10` moved from `0.629` to `0.646`, and `workflow.file_mrr@10` from `0.691` to `0.700`. |
+| Semantic | Still vector-owned: graph/symbol pressure lowers semantic file MRR versus pure vector. |
+| Path/symbol | Graph is mostly neutral; BM25/path/symbol are the useful signals. |
+| Overall | GraphRAG increases coverage/order in workflow but hurts first-rank metrics if used directly as a global rank score. |
+
+Practical conclusion: GraphRAG should feed a second-stage reranker or verification phase with path evidence. It should not be a stronger global weight until edge precision is measured per edge kind and per query bucket.
 
 ## Research Alignment
 

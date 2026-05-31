@@ -1,9 +1,11 @@
 from __future__ import annotations
 
-from collections import defaultdict
-
 from ..domain import SearchResult
-from ..graph import CodeGraph, CodeGraphStore, GraphEdge
+from ..graph import CodeGraph, CodeGraphStore
+from .graph_candidate_expander import GraphCandidateExpander
+from .graph_expansion_profile_factory import GraphExpansionProfileFactory
+from .graph_neighbor_index import GraphNeighborIndex
+from .graph_query_classifier import GraphQueryClassifier
 from .retrieval_strategy import RetrievalStrategy
 
 
@@ -21,33 +23,29 @@ class GraphRetrievalStrategy(RetrievalStrategy):
         self.expansion_depth = expansion_depth
         self.neighbor_limit = neighbor_limit
         self._graph: CodeGraph | None = None
-        self._neighbors_by_id: dict[str, list[GraphEdge]] | None = None
+        self._neighbor_index: GraphNeighborIndex | None = None
+        self.query_classifier = GraphQueryClassifier()
+        self.profile_factory = GraphExpansionProfileFactory()
 
     def search(self, query: str, limit: int) -> list[SearchResult]:
         graph = self._load_graph()
-        seed_results = self.base_strategy.search(query, limit)
+        seed_results = self.base_strategy.search(query, max(limit, self.neighbor_limit))
         items_by_id = {**graph.items, **{result.item.id: result.item for result in seed_results}}
-        scores: dict[str, float] = defaultdict(float)
+        scores: dict[str, float] = {}
         for result in seed_results:
-            scores[result.item.id] = max(scores[result.item.id], result.score)
+            scores[result.item.id] = max(scores.get(result.item.id, 0.0), result.score)
 
-        frontier = [result.item.id for result in seed_results]
-        visited = set(frontier)
-        for depth in range(max(self.expansion_depth, 0)):
-            next_frontier: list[str] = []
-            for item_id in frontier:
-                for edge in self._neighbors(item_id)[: self.neighbor_limit]:
-                    neighbor_id = edge.target if edge.source == item_id else edge.source
-                    if neighbor_id not in items_by_id:
-                        continue
-                    base_score = scores.get(item_id, 0.0)
-                    scores[neighbor_id] = max(scores[neighbor_id], base_score * edge.weight * (0.75**depth))
-                    if neighbor_id not in visited:
-                        visited.add(neighbor_id)
-                        next_frontier.append(neighbor_id)
-            frontier = next_frontier[: self.neighbor_limit]
-            if not frontier:
-                break
+        route_name = self.query_classifier.classify(query)
+        profile = self.profile_factory.create(
+            route_name,
+            depth=self.expansion_depth,
+            neighbor_limit=self.neighbor_limit,
+        )
+        expanded_scores = GraphCandidateExpander(self._neighbors()).expand(scores, profile)
+        for item_id, score in expanded_scores.items():
+            if item_id not in items_by_id:
+                continue
+            scores[item_id] = max(scores.get(item_id, 0.0), score)
 
         results = [
             SearchResult(item=items_by_id[item_id], score=score)
@@ -62,11 +60,7 @@ class GraphRetrievalStrategy(RetrievalStrategy):
             self._graph = self.graph_store.load()
         return self._graph
 
-    def _neighbors(self, item_id: str) -> list[GraphEdge]:
-        if self._neighbors_by_id is None:
-            by_id: dict[str, list[GraphEdge]] = defaultdict(list)
-            for edge in self._load_graph().edges:
-                by_id[edge.source].append(edge)
-                by_id[edge.target].append(edge)
-            self._neighbors_by_id = by_id
-        return self._neighbors_by_id.get(item_id, [])
+    def _neighbors(self) -> GraphNeighborIndex:
+        if self._neighbor_index is None:
+            self._neighbor_index = GraphNeighborIndex(self._load_graph())
+        return self._neighbor_index

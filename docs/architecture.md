@@ -23,6 +23,34 @@ The hybrid retriever can apply `hybrid_search.item_kind_weights` after vector/le
 
 The search tool payload includes `indexKind`, so orchestrator logs can show whether a candidate came from chunk, symbol, or file-summary indexing.
 
+## Modern GraphRAG
+
+The graph artifact is deterministic and AST-derived. It is rebuilt by `code-diver index` when `graph.enabled=true`.
+
+Current node set:
+
+- all indexed `chunk`, `symbol`, and `file_summary` items;
+- plugin and AI-selected items when those indexers are used.
+
+Current typed edge set:
+
+| Edge kind | Meaning |
+| --- | --- |
+| `same_file_next` | Adjacent line-ranged items in the same file. |
+| `summarizes` | A `file_summary` item points to chunks/symbols in the same file. |
+| `imports` | Source file imports another indexed file. |
+| `references` | Item text references a known indexed symbol name under hard per-source budgets. |
+| `contains` | AST/file range containment: chunk -> symbol, class -> method. |
+| `calls` | Python AST call edge from one symbol item to another likely symbol target. |
+
+Retrieval does not traverse all edges uniformly. `GraphExpansionProfileFactory` selects a route-specific traversal profile:
+
+- `semantic`: vector-first, shallow and low graph weight;
+- `path_symbol`: containment/symbol/same-file oriented;
+- `workflow`: deeper traversal with stronger `calls`, `references`, and `imports`.
+
+`GraphCandidateExpander` is shared by standalone `graph` retrieval and hybrid retrieval. It uses directed and reverse edge weights separately, bounded depth, bounded neighbors, and score decay per hop.
+
 ## Core Boundaries
 
 | Layer | Responsibility |

@@ -221,6 +221,42 @@ Interpretation:
 - File summaries should stay as recall candidates or reranker context, not primary top-rank evidence.
 - The next real quality lever is bucket-specific fusion: vector-first for `semantic`, routed symbol/path for `path_symbol`, and a better graph traversal/index for `workflow`.
 
+### Modern GraphRAG Run
+
+Run date: 2026-05-31. Config: `configs/protogen-ollama-qdrant.yml`. The graph was rebuilt with typed edges: `same_file_next`, `summarizes`, `imports`, `references`, `contains`, and `calls`.
+
+Graph size:
+
+| Nodes | Edges | Edge distribution |
+| ---: | ---: | --- |
+| 9230 | 91117 | `same_file_next=7262`, `summarizes=8167`, `imports=23671`, `references=26685`, `contains=9081`, `calls=16251` |
+
+Overall result after query-aware typed traversal:
+
+| Strategy | Hit@1 | Hit@3 | File Hit@10 | File MRR@10 | File Precision@R | File Recall@10 | nDCG@10 | MAP@10 | Mean/query |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `vector_qdrant` | 0.29 | 0.48 | 0.88 | 0.731 | 0.525 | 0.755 | 0.679 | 0.612 | 31ms |
+| `hybrid_candidates_no_llm` | 0.28 | 0.46 | 0.89 | 0.741 | 0.555 | 0.750 | 0.683 | 0.616 | 136ms |
+| `hybrid_candidates_routed` | 0.24 | 0.48 | 0.90 | 0.740 | 0.540 | 0.765 | 0.687 | 0.619 | 138ms |
+| `hybrid_candidates_multi_index_guarded` | 0.24 | 0.45 | 0.90 | 0.737 | 0.535 | 0.760 | 0.682 | 0.613 | 140ms |
+| `hybrid_candidates_modern_graphrag` | 0.23 | 0.44 | 0.90 | 0.737 | 0.535 | 0.760 | 0.682 | 0.613 | 141ms |
+
+Bucket effect:
+
+| Bucket | Control | GraphRAG result | Read |
+| --- | ---: | ---: | --- |
+| `workflow.ndcg@10` | `hybrid_candidates_no_llm=0.629` | `modern_graphrag=0.646` | Typed graph traversal helps multi-hop workflow coverage/order. |
+| `workflow.file_mrr@10` | `hybrid_candidates_no_llm=0.691` | `modern_graphrag=0.700` | Small workflow rank gain. |
+| `semantic.file_mrr@10` | `vector_qdrant=0.797` | `modern_graphrag=0.747` | Semantic queries should stay vector-first; graph and symbol pressure hurts rank. |
+| `path_symbol.file_mrr@10` | `routed=0.774` | `modern_graphrag=0.773` | Graph is neutral; BM25/path/symbol carry this bucket. |
+
+Interpretation:
+
+- The graph implementation is now structurally useful: workflow nDCG and workflow file MRR improve versus the non-graph hybrid control.
+- It is not yet a global rank winner. Adding many call/reference edges increases symbol pressure and hurts top-1/top-3.
+- The correct next step is not higher graph weight. It is edge-quality diagnostics and graph-aware reranking: use graph paths as features after candidate generation, not as a blunt score multiplier.
+- Sweeps are now slower because each hypothesis rebuilds in-memory graph/lexical indexes. The next performance task is shared experiment-level caches or persisted lexical/neighbor indexes.
+
 ## Direct Orchestrator Tool Runs
 
 Current direct-provider runs on `configs/protogen-ollama-qdrant.yml` with Gemini orchestration and local `mxbai-embed-large` embeddings:

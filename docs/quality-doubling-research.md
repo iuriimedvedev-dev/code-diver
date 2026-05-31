@@ -182,3 +182,39 @@ Findings:
 - Guarded multi-index fusion recovers rank quality by downweighting summaries and lightly boosting symbols.
 - Symbol chunks matter: they produce more than half of first relevant hits in the routed/guarded runs.
 - The route-bucket pattern is now clear enough to optimize explicitly: vector for semantic, routed lexical/symbol for path-symbol, and a better graph index for workflow.
+
+## Modern GraphRAG First Result
+
+Modern GraphRAG was added after hybrid indexing. The graph is now typed and query-aware:
+
+- graph nodes: all indexed chunks, symbols, file summaries;
+- graph edges: `same_file_next`, `summarizes`, `imports`, `references`, `contains`, `calls`;
+- traversal profiles: semantic, path/symbol, workflow;
+- workflow traversal emphasizes calls/references/imports;
+- semantic traversal is graph-light and vector-first.
+
+The rebuilt `../protogen` graph has 9230 nodes and 91117 edges.
+
+Fresh result:
+
+| Strategy | Hit@1 | Hit@3 | File Hit@10 | File MRR@10 | File Precision@R | File Recall@10 | nDCG@10 | MAP@10 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `vector_qdrant` | 0.29 | 0.48 | 0.88 | 0.731 | 0.525 | 0.755 | 0.679 | 0.612 |
+| `hybrid_candidates_no_llm` | 0.28 | 0.46 | 0.89 | 0.741 | 0.555 | 0.750 | 0.683 | 0.616 |
+| `hybrid_candidates_routed` | 0.24 | 0.48 | 0.90 | 0.740 | 0.540 | 0.765 | 0.687 | 0.619 |
+| `hybrid_candidates_modern_graphrag` | 0.23 | 0.44 | 0.90 | 0.737 | 0.535 | 0.760 | 0.682 | 0.613 |
+
+Bucket finding:
+
+| Metric | Non-graph hybrid | Modern GraphRAG | Read |
+| --- | ---: | ---: | --- |
+| `workflow.file_mrr@10` | 0.691 | 0.700 | Small workflow rank gain. |
+| `workflow.ndcg@10` | 0.629 | 0.646 | Best current workflow ordering. |
+| `semantic.file_mrr@10` | 0.772 hybrid / 0.797 vector | 0.747 | Graph/symbol pressure still hurts semantic queries. |
+
+Interpretation:
+
+- The graph is now useful where it should be useful: workflow questions.
+- It is not yet a global rank winner. Direct graph score fusion hurts hit@1/hit@3.
+- The next quality lever is graph-aware reranking: keep graph paths and edge evidence as features for a bounded reranker instead of increasing graph weight.
+- The next speed lever is a graph-only rebuild path and shared experiment-level graph/lexical caches.

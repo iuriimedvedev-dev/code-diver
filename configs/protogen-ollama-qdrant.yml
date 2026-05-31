@@ -82,8 +82,8 @@ graph:
   enabled: true
   artifact: .code-diver/protogen-ollama-qdrant-graph.json
   ast_enabled: true
-  reference_edges_enabled: false
-  call_edges_enabled: false
+  reference_edges_enabled: true
+  call_edges_enabled: true
   expansion_depth: 1
   neighbor_limit: 20
 
@@ -313,6 +313,25 @@ experiments:
           chunk: 1.0
         min_token_length: 3
       description: "Three-index guarded fusion: summaries are recall candidates, symbols/chunks stay primary ranking evidence."
+    - name: hybrid_candidates_modern_graphrag
+      strategy: hybrid
+      hybrid_search:
+        candidate_limit: 100
+        lexical_candidate_limit: 140
+        vector_weight: 0.62
+        lexical_weight: 0.17
+        path_weight: 0.11
+        symbol_weight: 0.05
+        graph_weight: 0.03
+        graph_depth: 1
+        graph_neighbor_limit: 36
+        routing_enabled: true
+        item_kind_weights:
+          file_summary: 0.82
+          symbol: 1.04
+          chunk: 1.0
+        min_token_length: 3
+      description: "Typed AST GraphRAG with query-aware traversal over calls, references, imports, containment, summaries, and same-file edges."
     - name: hybrid_candidates_path_symbol
       strategy: hybrid
       hybrid_search:

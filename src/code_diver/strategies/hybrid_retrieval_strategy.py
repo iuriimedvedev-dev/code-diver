@@ -4,7 +4,10 @@ from collections import defaultdict
 
 from ..config import HybridSearchConfig
 from ..domain import CodeItem, CodeItemIndexKindResolver, SearchResult
-from ..graph import CodeGraph, CodeGraphStore, GraphEdge
+from ..graph import CodeGraph, CodeGraphStore
+from .graph_candidate_expander import GraphCandidateExpander
+from .graph_expansion_profile_factory import GraphExpansionProfileFactory
+from .graph_neighbor_index import GraphNeighborIndex
 from .hybrid_candidate_score import HybridCandidateScore
 from .hybrid_candidate_scorer import HybridCandidateScorer
 from .hybrid_item_profile import HybridItemProfile
@@ -33,10 +36,11 @@ class HybridRetrievalStrategy(RetrievalStrategy):
         self.router = HybridQueryRouter()
         self.item_profiler = HybridItemProfiler()
         self.item_kind_resolver = CodeItemIndexKindResolver()
+        self.graph_profile_factory = GraphExpansionProfileFactory()
         self._item_profiles: dict[str, HybridItemProfile] = {}
         self._lexical_index: HybridLexicalIndex | None = None
         self._graph: CodeGraph | None = None
-        self._neighbors_by_id: dict[str, list[GraphEdge]] | None = None
+        self._neighbor_index: GraphNeighborIndex | None = None
 
     def search(self, query: str, limit: int) -> list[SearchResult]:
         vector_limit = max(limit, self.config.candidate_limit)
@@ -59,7 +63,8 @@ class HybridRetrievalStrategy(RetrievalStrategy):
             existing.path_score = max(existing.path_score, lexical.path_score)
             existing.symbol_score = max(existing.symbol_score, lexical.symbol_score)
 
-        for item_id, graph_score in self._graph_scores(vector_results, active_config).items():
+        route_name = self.router.route_name(query, query_profile.terms)
+        for item_id, graph_score in self._graph_scores(vector_results, active_config, route_name).items():
             item = graph.items.get(item_id)
             if item is None:
                 continue
@@ -113,26 +118,19 @@ class HybridRetrievalStrategy(RetrievalStrategy):
             )
         return {}
 
-    def _graph_scores(self, vector_results: list[SearchResult], config: HybridSearchConfig) -> dict[str, float]:
-        frontier_scores = self._normalize({result.item.id: result.score for result in vector_results})
-        accumulated: dict[str, float] = defaultdict(float)
-        visited = set(frontier_scores)
-        frontier = frontier_scores
-        for depth in range(max(config.graph_depth, 0)):
-            next_frontier: dict[str, float] = {}
-            decay = 0.75**depth
-            for item_id, seed_score in frontier.items():
-                for edge in self._neighbors(item_id)[: config.graph_neighbor_limit]:
-                    neighbor_id = edge.target if edge.source == item_id else edge.source
-                    score = seed_score * edge.weight * decay
-                    accumulated[neighbor_id] = max(accumulated[neighbor_id], score)
-                    if neighbor_id not in visited:
-                        visited.add(neighbor_id)
-                        next_frontier[neighbor_id] = max(next_frontier.get(neighbor_id, 0.0), score)
-            frontier = next_frontier
-            if not frontier:
-                break
-        return self._normalize(accumulated)
+    def _graph_scores(
+        self,
+        vector_results: list[SearchResult],
+        config: HybridSearchConfig,
+        route_name: str,
+    ) -> dict[str, float]:
+        seed_scores = self._normalize({result.item.id: result.score for result in vector_results})
+        profile = self.graph_profile_factory.create(
+            route_name,
+            depth=config.graph_depth,
+            neighbor_limit=config.graph_neighbor_limit,
+        )
+        return self._normalize(GraphCandidateExpander(self._neighbors()).expand(seed_scores, profile))
 
     def _load_lexical_index(self, graph: CodeGraph) -> HybridLexicalIndex:
         if self._lexical_index is None:
@@ -140,16 +138,14 @@ class HybridRetrievalStrategy(RetrievalStrategy):
             self._item_profiles.update(self._lexical_index.profiles)
         return self._lexical_index
 
-    def _neighbors(self, item_id: str) -> list[GraphEdge]:
-        if self._neighbors_by_id is None:
+    def _neighbors(self) -> GraphNeighborIndex:
+        if self._neighbor_index is None:
             graph = self._load_graph()
-            by_id: dict[str, list[GraphEdge]] = defaultdict(list)
-            if graph is not None:
-                for edge in graph.edges:
-                    by_id[edge.source].append(edge)
-                    by_id[edge.target].append(edge)
-            self._neighbors_by_id = by_id
-        return self._neighbors_by_id.get(item_id, [])
+            if graph is None:
+                self._neighbor_index = GraphNeighborIndex(CodeGraph(items={}, edges=[]))
+            else:
+                self._neighbor_index = GraphNeighborIndex(graph)
+        return self._neighbor_index
 
     def _load_graph(self) -> CodeGraph | None:
         if self._graph is not None:

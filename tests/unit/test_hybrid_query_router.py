@@ -32,10 +32,13 @@ def test_hybrid_query_router_boosts_graph_for_workflow_queries() -> None:
     assert routed.graph_neighbor_limit == 30
 
 
-def test_hybrid_query_router_keeps_semantic_queries_unchanged() -> None:
-    config = HybridSearchConfig(routing_enabled=True)
+def test_hybrid_query_router_keeps_semantic_queries_vector_first() -> None:
+    config = HybridSearchConfig(routing_enabled=True, graph_weight=0.05, graph_depth=2, graph_neighbor_limit=30)
 
     routed = HybridQueryRouter().route("where is authorization handled", ("authorization",), config)
 
     assert HybridQueryRouter().route_name("where is authorization handled", ("authorization",)) == "semantic"
-    assert routed == config
+    assert routed.vector_weight == config.vector_weight
+    assert routed.graph_weight == 0.01
+    assert routed.graph_depth == 1
+    assert routed.graph_neighbor_limit == 16
