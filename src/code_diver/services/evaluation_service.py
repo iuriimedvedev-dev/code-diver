@@ -1,16 +1,21 @@
 from __future__ import annotations
 
 import math
+from collections import Counter
+from collections import defaultdict
 from time import perf_counter
 from typing import Any
 
-from ..domain import EvalCase, EvalResult
+from ..domain import CodeItemIndexKindResolver, EvalCase, EvalResult
 from ..strategies import RetrievalStrategy
+from .eval_case_bucket_classifier import EvalCaseBucketClassifier
 
 
 class EvaluationService:
     def __init__(self, retrieval_strategy: RetrievalStrategy):
         self.retrieval_strategy = retrieval_strategy
+        self.bucket_classifier = EvalCaseBucketClassifier()
+        self.index_kind_resolver = CodeItemIndexKindResolver()
 
     def evaluate(
         self,
@@ -24,6 +29,7 @@ class EvaluationService:
             search_results = self.retrieval_strategy.search(case.query, limit)
             durations_ms.append((perf_counter() - started) * 1000)
             retrieved = [result.item.id for result in search_results]
+            bucket = self.bucket_classifier.classify(case.query)
             matched_ranks = [
                 rank
                 for rank, result in enumerate(search_results, start=1)
@@ -35,6 +41,8 @@ class EvaluationService:
             precision = match_count / max(len(search_results), 1)
             recall = min(match_count / max(len(case.expected), 1), 1.0)
             file_metrics = self._file_metrics(search_results, case.expected, limit)
+            top_result_kind = self._top_result_kind(search_results)
+            first_relevant_kind = self._first_relevant_kind(search_results, case.expected)
             results.append(
                 EvalResult(
                     case_id=case.id,
@@ -46,6 +54,9 @@ class EvaluationService:
                     precision=precision,
                     recall=recall,
                     retrieved_files=file_metrics["retrieved_files"],
+                    bucket=bucket,
+                    top_result_kind=top_result_kind,
+                    first_relevant_kind=first_relevant_kind,
                     file_hit=bool(file_metrics["file_hit"]),
                     file_reciprocal_rank=float(file_metrics["file_mrr"]),
                     file_precision_at_r=float(file_metrics["file_precision_at_r"]),
@@ -73,7 +84,60 @@ class EvaluationService:
             "search_duration_ms_mean": self._mean(durations_ms),
             "search_duration_ms_p95": self._percentile(durations_ms, 0.95),
         }
+        metrics.update(self._bucket_metrics(results, limit))
+        metrics.update(self._item_kind_metrics(results))
         return metrics, results
+
+    def _top_result_kind(self, search_results: list[Any]) -> str:
+        if not search_results:
+            return "none"
+        return self.index_kind_resolver.resolve(search_results[0].item)
+
+    def _first_relevant_kind(self, search_results: list[Any], expected: list[str]) -> str:
+        for result in search_results:
+            if self._matches_any_expected(result.item, expected):
+                return self.index_kind_resolver.resolve(result.item)
+        return "none"
+
+    def _bucket_metrics(self, results: list[EvalResult], limit: int) -> dict[str, Any]:
+        by_bucket: dict[str, list[EvalResult]] = defaultdict(list)
+        for result in results:
+            by_bucket[result.bucket].append(result)
+        metrics: dict[str, Any] = {}
+        for bucket, bucket_results in sorted(by_bucket.items()):
+            prefix = f"bucket.{bucket}"
+            metrics[f"{prefix}.cases"] = len(bucket_results)
+            metrics[f"{prefix}.hit_rate@{limit}"] = self._mean(1.0 if result.hit else 0.0 for result in bucket_results)
+            metrics[f"{prefix}.hit_rate@1"] = self._mean(1.0 if self._hit_at(result, 1) else 0.0 for result in bucket_results)
+            metrics[f"{prefix}.hit_rate@3"] = self._mean(1.0 if self._hit_at(result, 3) else 0.0 for result in bucket_results)
+            metrics[f"{prefix}.file_hit_rate@{limit}"] = self._mean(
+                1.0 if result.file_hit else 0.0 for result in bucket_results
+            )
+            metrics[f"{prefix}.file_mrr@{limit}"] = self._mean(
+                result.file_reciprocal_rank for result in bucket_results
+            )
+            metrics[f"{prefix}.file_precision@R"] = self._mean(
+                result.file_precision_at_r for result in bucket_results
+            )
+            metrics[f"{prefix}.file_recall@{limit}"] = self._mean(result.file_recall for result in bucket_results)
+            metrics[f"{prefix}.ndcg@{limit}"] = self._mean(result.ndcg for result in bucket_results)
+            metrics[f"{prefix}.map@{limit}"] = self._mean(result.average_precision for result in bucket_results)
+        return metrics
+
+    def _item_kind_metrics(self, results: list[EvalResult]) -> dict[str, Any]:
+        metrics: dict[str, Any] = {}
+        total = max(len(results), 1)
+        hit_count = max(sum(1 for result in results if result.first_relevant_kind != "none"), 1)
+        top_counts = Counter(result.top_result_kind for result in results)
+        relevant_counts = Counter(result.first_relevant_kind for result in results)
+        for kind, count in sorted(top_counts.items()):
+            metrics[f"top_result_kind.{kind}.rate"] = count / total
+        for kind, count in sorted(relevant_counts.items()):
+            if kind == "none":
+                metrics[f"first_relevant_kind.none.rate"] = count / total
+                continue
+            metrics[f"first_relevant_kind.{kind}.rate"] = count / hit_count
+        return metrics
 
     def _matches_any_expected(self, item: object, expected: list[str]) -> bool:
         return any(self._matches_expected(item, value) for value in expected)

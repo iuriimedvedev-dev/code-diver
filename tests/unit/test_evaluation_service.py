@@ -13,8 +13,20 @@ pytestmark = pytest.mark.unit
 class StaticStrategy(RetrievalStrategy):
     def search(self, query: str, limit: int) -> list[SearchResult]:
         return [
-            SearchResult(CodeItem(id="wrong#1", path="wrong.py", title="Wrong", content=""), 0.9),
-            SearchResult(CodeItem(id="target.py#1", path="target.py", title="Target", content=""), 0.8),
+            SearchResult(
+                CodeItem(id="wrong#1", path="wrong.py", title="Wrong", content="", metadata={"index_kind": "chunk"}),
+                0.9,
+            ),
+            SearchResult(
+                CodeItem(
+                    id="target.py#1",
+                    path="target.py",
+                    title="Target",
+                    content="",
+                    metadata={"index_kind": "file_summary"},
+                ),
+                0.8,
+            ),
         ][:limit]
 
 
@@ -38,7 +50,14 @@ def test_evaluation_service_computes_ranked_metrics() -> None:
     assert metrics["file_recall@2"] == 1.0
     assert metrics["ndcg@2"] == pytest.approx(0.6309297536)
     assert metrics["map@2"] == 0.5
+    assert metrics["bucket.semantic.cases"] == 1
+    assert metrics["bucket.semantic.file_hit_rate@2"] == 1.0
+    assert metrics["top_result_kind.chunk.rate"] == 1.0
+    assert metrics["first_relevant_kind.file_summary.rate"] == 1.0
     assert results[0].retrieved_files == ["wrong.py", "target.py"]
+    assert results[0].bucket == "semantic"
+    assert results[0].top_result_kind == "chunk"
+    assert results[0].first_relevant_kind == "file_summary"
     assert results[0].file_reciprocal_rank == 0.5
 
 

@@ -54,6 +54,7 @@ scanner:
   max_file_bytes: 500000
   chunk_lines: 180
   symbol_chunks: true
+  file_summary_chunks: true
 
 search:
   limit: 10
@@ -272,6 +273,46 @@ experiments:
         routing_enabled: true
         min_token_length: 3
       description: Deterministic router selects stronger lexical/path/symbol or graph weighting by query shape.
+    - name: hybrid_candidates_multi_index_routed
+      strategy: hybrid
+      hybrid_search:
+        candidate_limit: 100
+        lexical_candidate_limit: 160
+        vector_weight: 0.58
+        lexical_weight: 0.16
+        path_weight: 0.12
+        symbol_weight: 0.06
+        graph_weight: 0.08
+        graph_depth: 1
+        graph_neighbor_limit: 24
+        routing_enabled: true
+        lexical_scoring: bm25
+        fusion: weighted
+        item_kind_weights:
+          file_summary: 1.08
+          symbol: 1.04
+          chunk: 1.0
+        min_token_length: 3
+      description: "Three-index hybrid: line chunks, symbol chunks, and file summaries with routed weighted fusion."
+    - name: hybrid_candidates_multi_index_guarded
+      strategy: hybrid
+      hybrid_search:
+        candidate_limit: 100
+        lexical_candidate_limit: 140
+        vector_weight: 0.6
+        lexical_weight: 0.18
+        path_weight: 0.12
+        symbol_weight: 0.05
+        graph_weight: 0.05
+        graph_depth: 1
+        graph_neighbor_limit: 20
+        routing_enabled: true
+        item_kind_weights:
+          file_summary: 0.82
+          symbol: 1.03
+          chunk: 1.0
+        min_token_length: 3
+      description: "Three-index guarded fusion: summaries are recall candidates, symbols/chunks stay primary ranking evidence."
     - name: hybrid_candidates_path_symbol
       strategy: hybrid
       hybrid_search:

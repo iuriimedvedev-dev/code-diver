@@ -83,6 +83,7 @@ class Defaults:
     MAX_FILE_BYTES = 1_000_000
     CHUNK_LINES = 120
     SYMBOL_CHUNKS = False
+    FILE_SUMMARY_CHUNKS = False
     SEARCH_LIMIT = 10
     PREVIEW_LINES = 8
     RECURSIVE_ROUNDS = 2
@@ -103,6 +104,7 @@ class Defaults:
     HYBRID_BM25_K1 = 1.2
     HYBRID_BM25_B = 0.75
     HYBRID_ROUTING_ENABLED = False
+    HYBRID_ITEM_KIND_WEIGHTS = {}
     HYBRID_MIN_TOKEN_LENGTH = 3
     HYBRID_STOP_WORDS = [
         "where",

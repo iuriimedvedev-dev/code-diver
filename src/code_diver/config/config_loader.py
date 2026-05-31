@@ -174,6 +174,7 @@ class ConfigLoader:
             max_file_bytes=int(mapping.get("max_file_bytes", Defaults.MAX_FILE_BYTES)),
             chunk_lines=int(mapping.get("chunk_lines", Defaults.CHUNK_LINES)),
             symbol_chunks=bool(mapping.get("symbol_chunks", Defaults.SYMBOL_CHUNKS)),
+            file_summary_chunks=bool(mapping.get("file_summary_chunks", Defaults.FILE_SUMMARY_CHUNKS)),
         )
 
     def _search(self, data: Any) -> SearchConfig:
@@ -212,6 +213,9 @@ class ConfigLoader:
             bm25_k1=float(mapping.get("bm25_k1", Defaults.HYBRID_BM25_K1)),
             bm25_b=float(mapping.get("bm25_b", Defaults.HYBRID_BM25_B)),
             routing_enabled=bool(mapping.get("routing_enabled", Defaults.HYBRID_ROUTING_ENABLED)),
+            item_kind_weights=self._float_mapping(
+                mapping.get("item_kind_weights", Defaults.HYBRID_ITEM_KIND_WEIGHTS)
+            ),
             min_token_length=int(mapping.get("min_token_length", Defaults.HYBRID_MIN_TOKEN_LENGTH)),
             stop_words=self._string_list(mapping.get("stop_words")) or list(Defaults.HYBRID_STOP_WORDS),
         )
@@ -322,6 +326,9 @@ class ConfigLoader:
         if not isinstance(value, list):
             raise ValueError("Expected a YAML list.")
         return [str(item) for item in value]
+
+    def _float_mapping(self, value: Any) -> dict[str, float]:
+        return {str(key): float(item) for key, item in self._mapping(value).items()}
 
     def _optional_int(self, value: Any) -> int | None:
         if value is None:

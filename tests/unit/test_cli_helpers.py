@@ -30,6 +30,7 @@ class FakeStrategy:
                     content="def app(): pass",
                     start_line=1,
                     end_line=10,
+                    metadata={"index_kind": "chunk"},
                 ),
                 score=0.9,
             )
@@ -60,5 +61,6 @@ def test_make_search_tool_handler_reuses_injected_strategy() -> None:
     second_payload = handler("where is cli?", 3)
 
     assert '"path": "src/app.py"' in payload
+    assert '"indexKind": "chunk"' in payload
     assert '"score": 0.9' in second_payload
     assert strategy.calls == [("where is app?", 5), ("where is cli?", 3)]

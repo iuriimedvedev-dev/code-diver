@@ -5,8 +5,9 @@ import hashlib
 import os
 from pathlib import Path
 
-from ..domain import CodeItem
+from ..domain import CodeItem, CodeItemIndexKind, CodeItemMetadata, CodeSymbol
 from .code_symbol_extractor import CodeSymbolExtractor
+from .file_summary_item_builder import FileSummaryItemBuilder
 
 DEFAULT_EXCLUDES = (
     ".git/**",
@@ -69,14 +70,18 @@ class CodebaseScanner:
         max_file_bytes: int = 1_000_000,
         chunk_lines: int = 120,
         symbol_chunks: bool = False,
+        file_summary_chunks: bool = False,
         symbol_extractor: CodeSymbolExtractor | None = None,
+        file_summary_builder: FileSummaryItemBuilder | None = None,
     ):
         self.include = include or []
         self.exclude = [*DEFAULT_EXCLUDES, *(exclude or [])]
         self.max_file_bytes = max_file_bytes
         self.chunk_lines = chunk_lines
         self.symbol_chunks = symbol_chunks
+        self.file_summary_chunks = file_summary_chunks
         self.symbol_extractor = symbol_extractor or CodeSymbolExtractor()
+        self.file_summary_builder = file_summary_builder or FileSummaryItemBuilder()
 
     def scan(self, root: Path) -> list[CodeItem]:
         root = root.resolve()
@@ -100,10 +105,13 @@ class CodebaseScanner:
         return items
 
     def _items_for_file(self, rel_path: str, text: str) -> list[CodeItem]:
-        if not self.symbol_chunks:
-            return self._chunk_file(rel_path, text)
-        symbol_items = self._symbol_items(rel_path, text)
-        return [*self._chunk_file(rel_path, text), *symbol_items]
+        symbols = self.symbol_extractor.extract(rel_path, text) if self.symbol_chunks or self.file_summary_chunks else []
+        items = self._chunk_file(rel_path, text)
+        if self.symbol_chunks:
+            items.extend(self._symbol_items(rel_path, text, symbols))
+        if self.file_summary_chunks:
+            items.append(self.file_summary_builder.build(rel_path, text, symbols))
+        return items
 
     def _should_skip_file(self, path: Path, rel_path: str) -> bool:
         if self._matches_any(rel_path, self.exclude):
@@ -157,15 +165,18 @@ class CodebaseScanner:
                     content="\n".join(chunk),
                     start_line=start_line,
                     end_line=end_line,
-                    metadata={"source": "scanner"},
+                    metadata={
+                        CodeItemMetadata.SOURCE: "scanner",
+                        CodeItemMetadata.INDEX_KIND: CodeItemIndexKind.CHUNK,
+                    },
                 )
             )
         return chunks
 
-    def _symbol_items(self, rel_path: str, text: str) -> list[CodeItem]:
+    def _symbol_items(self, rel_path: str, text: str, symbols: list[CodeSymbol] | None = None) -> list[CodeItem]:
         lines = text.splitlines()
         items: list[CodeItem] = []
-        for symbol in self.symbol_extractor.extract(rel_path, text):
+        for symbol in symbols if symbols is not None else self.symbol_extractor.extract(rel_path, text):
             start_line = max(symbol.start_line, 1)
             end_line = min(max(symbol.end_line, start_line), len(lines))
             body = "\n".join(lines[start_line - 1 : end_line])
@@ -185,7 +196,12 @@ class CodebaseScanner:
                     ),
                     start_line=start_line,
                     end_line=end_line,
-                    metadata={"source": "scanner", "kind": symbol.kind, "symbol": symbol.name},
+                    metadata={
+                        CodeItemMetadata.SOURCE: "scanner",
+                        CodeItemMetadata.INDEX_KIND: CodeItemIndexKind.SYMBOL,
+                        CodeItemMetadata.KIND: symbol.kind,
+                        CodeItemMetadata.SYMBOL: symbol.name,
+                    },
                 )
             )
         return items

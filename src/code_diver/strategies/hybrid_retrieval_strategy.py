@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections import defaultdict
 
 from ..config import HybridSearchConfig
-from ..domain import CodeItem, SearchResult
+from ..domain import CodeItem, CodeItemIndexKindResolver, SearchResult
 from ..graph import CodeGraph, CodeGraphStore, GraphEdge
 from .hybrid_candidate_score import HybridCandidateScore
 from .hybrid_candidate_scorer import HybridCandidateScorer
@@ -32,6 +32,7 @@ class HybridRetrievalStrategy(RetrievalStrategy):
         self.analyzer = HybridQueryAnalyzer(config)
         self.router = HybridQueryRouter()
         self.item_profiler = HybridItemProfiler()
+        self.item_kind_resolver = CodeItemIndexKindResolver()
         self._item_profiles: dict[str, HybridItemProfile] = {}
         self._lexical_index: HybridLexicalIndex | None = None
         self._graph: CodeGraph | None = None
@@ -176,10 +177,15 @@ class HybridRetrievalStrategy(RetrievalStrategy):
     ) -> list[SearchResult]:
         ranked = sorted(
             scores.values(),
-            key=lambda score: (score.total(config), score.vector_score, score.lexical_score, score.item.path),
+            key=lambda score: (
+                self._weighted_total(score, config),
+                score.vector_score,
+                score.lexical_score,
+                score.item.path,
+            ),
             reverse=True,
         )
-        return [SearchResult(item=score.item, score=score.total(config)) for score in ranked[:limit]]
+        return [SearchResult(item=score.item, score=self._weighted_total(score, config)) for score in ranked[:limit]]
 
     def _rrf_results(
         self,
@@ -204,7 +210,15 @@ class HybridRetrievalStrategy(RetrievalStrategy):
             config,
         )
         self._add_rrf(rrf_scores, self._ranked_ids(scores, lambda score: score.graph_score), config.graph_weight, config)
-        ranked = sorted(rrf_scores.items(), key=lambda item: (item[1], scores[item[0]].item.path), reverse=True)
+        weighted_rrf_scores = {
+            item_id: score * self._item_kind_weight(scores[item_id].item, config)
+            for item_id, score in rrf_scores.items()
+        }
+        ranked = sorted(
+            weighted_rrf_scores.items(),
+            key=lambda item: (item[1], scores[item[0]].item.path),
+            reverse=True,
+        )
         return [SearchResult(item=scores[item_id].item, score=score) for item_id, score in ranked[:limit]]
 
     def _ranked_ids(self, scores: dict[str, HybridCandidateScore], value) -> list[str]:
@@ -223,3 +237,10 @@ class HybridRetrievalStrategy(RetrievalStrategy):
             return
         for rank, item_id in enumerate(item_ids, start=1):
             scores[item_id] += weight / (config.rrf_k + rank)
+
+    def _weighted_total(self, score: HybridCandidateScore, config: HybridSearchConfig) -> float:
+        return score.total(config) * self._item_kind_weight(score.item, config)
+
+    def _item_kind_weight(self, item: CodeItem, config: HybridSearchConfig) -> float:
+        kind = self.item_kind_resolver.resolve(item)
+        return config.item_kind_weights.get(kind, 1.0)

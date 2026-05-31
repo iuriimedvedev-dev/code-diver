@@ -162,3 +162,23 @@ Interpretation:
 - It is not the default winner yet because `file_precision@R` regresses from `0.575` to `0.540`. The likely issue is over-broad symbol/path/workflow triggers.
 - Current route split on the 100-case dataset is 39 workflow cases, 31 path/symbol cases, and 30 semantic cases.
 - Next improvement should add route labels to per-case eval output, then tune by bucket instead of changing global weights.
+
+## Hybrid Indexing First Result
+
+Hybrid indexing was added after router v1. The scanner now writes line chunks, symbol chunks, and file summaries into the same Qdrant collection. The local `../protogen` index grew from 8246 to 9230 items.
+
+Fresh result:
+
+| Strategy | Hit@1 | Hit@3 | File Hit@10 | File MRR@10 | File Precision@R | File Recall@10 | nDCG@10 | MAP@10 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `hybrid_candidates_no_llm` | 0.28 | 0.49 | 0.89 | 0.747 | 0.570 | 0.745 | 0.684 | 0.619 |
+| `hybrid_candidates_routed` | 0.28 | 0.51 | 0.90 | 0.742 | 0.530 | 0.765 | 0.688 | 0.618 |
+| `hybrid_candidates_multi_index_routed` | 0.21 | 0.43 | 0.90 | 0.733 | 0.510 | 0.760 | 0.677 | 0.604 |
+| `hybrid_candidates_multi_index_guarded` | 0.28 | 0.46 | 0.90 | 0.750 | 0.535 | 0.760 | 0.689 | 0.620 |
+
+Findings:
+
+- Naively boosting all three index types is bad. `file_summary` items add recall candidates, but they are not strong first-rank evidence on this dataset.
+- Guarded multi-index fusion recovers rank quality by downweighting summaries and lightly boosting symbols.
+- Symbol chunks matter: they produce more than half of first relevant hits in the routed/guarded runs.
+- The route-bucket pattern is now clear enough to optimize explicitly: vector for semantic, routed lexical/symbol for path-symbol, and a better graph index for workflow.

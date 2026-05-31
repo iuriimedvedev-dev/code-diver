@@ -55,3 +55,25 @@ def build_app():
     assert "app.py::UserService.create_user" in titles
     assert "app.py::build_app" in titles
     assert all(item.metadata["source"] == "scanner" for item in items)
+
+
+def test_scanner_can_add_file_summary_items(tmp_path: Path) -> None:
+    (tmp_path / "app.py").write_text(
+        """
+from services.auth import authorize
+
+class UserService:
+    def create_user(self):
+        return authorize()
+""".strip(),
+        encoding="utf-8",
+    )
+
+    items = CodebaseScanner(include=["*.py"], symbol_chunks=True, file_summary_chunks=True).scan(tmp_path)
+
+    summaries = [item for item in items if item.metadata["index_kind"] == "file_summary"]
+    assert len(summaries) == 1
+    assert summaries[0].path == "app.py"
+    assert "imports:" in summaries[0].content
+    assert "symbols:" in summaries[0].content
+    assert "UserService.create_user" in summaries[0].content

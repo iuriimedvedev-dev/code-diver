@@ -12,3 +12,4 @@ class ScannerConfig:
     max_file_bytes: int = Defaults.MAX_FILE_BYTES
     chunk_lines: int = Defaults.CHUNK_LINES
     symbol_chunks: bool = Defaults.SYMBOL_CHUNKS
+    file_summary_chunks: bool = Defaults.FILE_SUMMARY_CHUNKS

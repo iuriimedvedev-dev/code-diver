@@ -9,6 +9,9 @@ from ..services.tokenizer import tokenize
 PATH_RE = re.compile(r"[/\\]|(?:^|\s)[A-Za-z0-9_-]+\.(py|ts|tsx|js|json|ya?ml|toml|md|sh)\b")
 IDENTIFIER_RE = re.compile(r"\b[A-Za-z_][A-Za-z0-9_]*(?:[A-Z_][A-Za-z0-9_]*)\b")
 LEXICAL_SCORING_BM25 = "bm25"
+ROUTE_PATH_SYMBOL = "path_symbol"
+ROUTE_SEMANTIC = "semantic"
+ROUTE_WORKFLOW = "workflow"
 
 PATH_TERMS = {
     "docker",
@@ -82,8 +85,8 @@ class HybridQueryRouter:
     def route(self, query: str, terms: tuple[str, ...], config: HybridSearchConfig) -> HybridSearchConfig:
         if not config.routing_enabled:
             return config
-        term_set = set(terms)
-        if self._workflow_query(query, term_set):
+        route_name = self.route_name(query, terms)
+        if route_name == ROUTE_WORKFLOW:
             return replace(
                 config,
                 vector_weight=0.52,
@@ -94,7 +97,7 @@ class HybridQueryRouter:
                 graph_depth=max(config.graph_depth, 2),
                 graph_neighbor_limit=max(config.graph_neighbor_limit, 30),
             )
-        if self._path_or_symbol_query(query, term_set):
+        if route_name == ROUTE_PATH_SYMBOL:
             return replace(
                 config,
                 lexical_scoring=LEXICAL_SCORING_BM25,
@@ -107,6 +110,14 @@ class HybridQueryRouter:
                 graph_weight=0.02,
             )
         return config
+
+    def route_name(self, query: str, terms: tuple[str, ...]) -> str:
+        term_set = set(terms)
+        if self._workflow_query(query, term_set):
+            return ROUTE_WORKFLOW
+        if self._path_or_symbol_query(query, term_set):
+            return ROUTE_PATH_SYMBOL
+        return ROUTE_SEMANTIC
 
     def _workflow_query(self, query: str, terms: set[str]) -> bool:
         raw_terms = set(tokenize(query))

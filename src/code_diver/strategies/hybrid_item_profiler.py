@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from ..domain import CodeItem
+from ..domain import CodeItem, CodeItemMetadata
 from ..services.tokenizer import tokenize
 from ..settings import SchemaKey
 from .hybrid_item_profile import HybridItemProfile
@@ -17,7 +17,12 @@ class HybridItemProfiler:
 
     def _metadata_terms(self, item: CodeItem) -> set[str]:
         values: list[str] = []
-        for key in (SchemaKey.KIND.value, SchemaKey.SYMBOL.value, SchemaKey.SOURCE.value):
+        for key in (
+            SchemaKey.KIND.value,
+            SchemaKey.SYMBOL.value,
+            SchemaKey.SOURCE.value,
+            CodeItemMetadata.INDEX_KIND,
+        ):
             value = item.metadata.get(key)
             if value:
                 values.append(str(value))

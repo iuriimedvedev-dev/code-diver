@@ -12,7 +12,7 @@ from typing import Any
 from .config import AppConfig, ConfigLoader
 from .agent import DirectIndexingOrchestrator, DirectSearchOrchestrator
 from .ai_indexing import AiCodebaseScanner, HybridCodebaseScanner
-from .domain import EvalResult, SearchResult
+from .domain import CodeItemIndexKindResolver, EvalResult, SearchResult
 from .env import EnvFileLoader
 from .experiments import ExperimentRunner
 from .generation import create_generation_provider
@@ -632,6 +632,7 @@ def make_codebase_scanner(config: AppConfig):
         max_file_bytes=config.scanner.max_file_bytes,
         chunk_lines=config.scanner.chunk_lines,
         symbol_chunks=config.scanner.symbol_chunks,
+        file_summary_chunks=config.scanner.file_summary_chunks,
     )
     mode = config.indexing.mode
     if mode == "scanner":
@@ -757,6 +758,8 @@ def suffixed_artifact_path(path: Path, hypothesis_name: str, run_id: str) -> Pat
 
 
 def make_search_tool_handler(strategy: Any):
+    kind_resolver = CodeItemIndexKindResolver()
+
     def handle(query: str, limit: int) -> str:
         results = strategy.search(query, limit)
         return json.dumps(
@@ -768,6 +771,7 @@ def make_search_tool_handler(strategy: Any):
                     "startLine": result.item.start_line,
                     "endLine": result.item.end_line,
                     "score": result.score,
+                    "indexKind": kind_resolver.resolve(result.item),
                 }
                 for result in results
             ],
@@ -996,6 +1000,9 @@ def eval_result_to_json(result: Any) -> dict[str, Any]:
         SchemaKey.PRECISION.value: result.precision,
         SchemaKey.RECALL.value: result.recall,
         "retrieved_files": result.retrieved_files or [],
+        "bucket": result.bucket,
+        "top_result_kind": result.top_result_kind,
+        "first_relevant_kind": result.first_relevant_kind,
         "file_hit": result.file_hit,
         "file_reciprocal_rank": result.file_reciprocal_rank,
         "file_precision_at_r": result.file_precision_at_r,

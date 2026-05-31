@@ -60,6 +60,7 @@ scanner:
   include: ["*.py"]
   chunk_lines: 10
   symbol_chunks: true
+  file_summary_chunks: true
 search:
   strategy: recursive
   limit: 7
@@ -83,6 +84,9 @@ hybrid_search:
   bm25_k1: 1.5
   bm25_b: 0.4
   routing_enabled: true
+  item_kind_weights:
+    file_summary: 1.2
+    symbol: 1.1
   min_token_length: 4
   stop_words: [where, handled]
 graph:
@@ -171,6 +175,7 @@ plugins:
     assert config.scanner.include == ["*.py"]
     assert config.scanner.chunk_lines == 10
     assert config.scanner.symbol_chunks is True
+    assert config.scanner.file_summary_chunks is True
     assert config.search.strategy == "recursive"
     assert config.search.limit == 7
     assert config.recursive_search.rounds == 3
@@ -191,6 +196,7 @@ plugins:
     assert config.hybrid_search.bm25_k1 == 1.5
     assert config.hybrid_search.bm25_b == 0.4
     assert config.hybrid_search.routing_enabled is True
+    assert config.hybrid_search.item_kind_weights == {"file_summary": 1.2, "symbol": 1.1}
     assert config.hybrid_search.min_token_length == 4
     assert config.hybrid_search.stop_words == ["where", "handled"]
     assert config.graph.artifact == tmp_path / "graph.json"

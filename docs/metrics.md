@@ -42,6 +42,9 @@ An item is counted as relevant when its indexed id matches an expected id exactl
 | `orchestrator_usage.total_cost` | Estimated provider cost from token counts and configured model class. | Lower is better at equal quality. | Main dollar-cost metric for orchestrator comparisons. |
 | `orchestrator_usage.tool_calls` | Number of direct tool calls executed by the orchestrator. | Depends. | Too few means poor inspection; too many means slow and token-heavy runs. |
 | `log_path` | JSONL trace for the full AI run. | Must exist. | Audit trail for messages, tool results, usage, stderr, fallbacks, and command boundaries. |
+| `bucket.<name>.*` | The same retrieval metrics sliced by deterministic query bucket: `semantic`, `path_symbol`, or `workflow`. | Depends on bucket. | Shows where a strategy actually wins instead of hiding regressions in the average. |
+| `top_result_kind.<kind>.rate` | Fraction of cases where the top result came from `chunk`, `symbol`, `file_summary`, or fallback kind. | Depends. | Shows which index type dominates first rank. |
+| `first_relevant_kind.<kind>.rate` | Among hit cases, fraction where the first relevant result came from that index type. | Depends. | Shows which index type actually finds correct evidence. |
 
 ## How To Read The Metrics
 
@@ -172,6 +175,51 @@ Interpretation:
 - File recall is lower than old chunk-level recall because chunk-level recall counted repeated chunks from the same expected file. File-level recall is the more honest coverage metric.
 - BM25 improves candidate coverage but hurts top-rank quality when applied globally. This is evidence for deterministic query routing: use BM25 strongly for exact/path/symbol queries, not for every informal semantic query.
 - Router v1 confirms the direction: it beats global BM25 profiles on rank metrics and reaches the best `ndcg@10`, but it still needs route-bucket metrics and narrower triggers before it should replace `hybrid_candidates_no_llm`.
+
+### Hybrid Indexing Run
+
+Run date: 2026-05-31. Config: `configs/protogen-ollama-qdrant.yml`. The scanner indexed line chunks, symbol chunks, and file summaries into the same Qdrant collection.
+
+Index size:
+
+| Index | Items | Notes |
+| --- | ---: | --- |
+| Previous line+symbol index | 8246 | Line chunks plus symbol chunks. |
+| Hybrid line+symbol+file-summary index | 9230 | Adds one `file_summary` item per indexed file. |
+
+Overall result after reindex:
+
+| Strategy | Hit@1 | Hit@3 | File Hit@10 | File MRR@10 | File Precision@R | File Recall@10 | nDCG@10 | MAP@10 | Mean/query |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `vector_qdrant` | 0.29 | 0.48 | 0.88 | 0.731 | 0.525 | 0.755 | 0.679 | 0.612 | 31ms |
+| `hybrid_candidates_no_llm` | 0.28 | 0.49 | 0.89 | 0.747 | 0.570 | 0.745 | 0.684 | 0.619 | 131ms |
+| `hybrid_candidates_routed` | 0.28 | 0.51 | 0.90 | 0.742 | 0.530 | 0.765 | 0.688 | 0.618 | 134ms |
+| `hybrid_candidates_multi_index_routed` | 0.21 | 0.43 | 0.90 | 0.733 | 0.510 | 0.760 | 0.677 | 0.604 | 141ms |
+| `hybrid_candidates_multi_index_guarded` | 0.28 | 0.46 | 0.90 | 0.750 | 0.535 | 0.760 | 0.689 | 0.620 | 136ms |
+
+Bucket result:
+
+| Bucket | Best observed strategy | Pattern |
+| --- | --- | --- |
+| `semantic` | `vector_qdrant` by file MRR: 0.797 | Dense vector search is currently best for broad informal concepts. Hybrid lexical/symbol signals can demote the right semantic candidate. |
+| `path_symbol` | `hybrid_candidates_routed` / guarded by file MRR: about 0.790 | Routed lexical/path/symbol weighting helps exact-ish and structure-aware queries. |
+| `workflow` | `hybrid_candidates_no_llm` / guarded by file MRR: 0.708 | Current graph expansion is not yet a clear win; graph edges need better call/reference coverage or query-aware traversal. |
+
+Index-kind contribution:
+
+| Strategy | Top chunk | Top symbol | Top file-summary | First relevant chunk | First relevant symbol | First relevant file-summary |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `vector_qdrant` | 0.47 | 0.52 | 0.01 | 0.466 | 0.534 | 0.000 |
+| `hybrid_candidates_routed` | 0.43 | 0.54 | 0.03 | 0.456 | 0.533 | 0.011 |
+| `hybrid_candidates_multi_index_routed` | 0.36 | 0.60 | 0.04 | 0.389 | 0.589 | 0.022 |
+| `hybrid_candidates_multi_index_guarded` | 0.41 | 0.58 | 0.01 | 0.444 | 0.556 | 0.000 |
+
+Interpretation:
+
+- Multi-indexing itself is useful instrumentation, but naive file-summary boosting hurts rank quality.
+- Symbol chunks are the strongest non-vector index type on this dataset: they account for more than half of first relevant hits.
+- File summaries should stay as recall candidates or reranker context, not primary top-rank evidence.
+- The next real quality lever is bucket-specific fusion: vector-first for `semantic`, routed symbol/path for `path_symbol`, and a better graph traversal/index for `workflow`.
 
 ## Direct Orchestrator Tool Runs
 

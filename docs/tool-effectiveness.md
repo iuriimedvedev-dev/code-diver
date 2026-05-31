@@ -10,10 +10,11 @@ Local deterministic retrieval on `datasets/protogen_eval_100.jsonl`:
 
 | Strategy | Strength | Weakness |
 | --- | --- | --- |
-| `vector_qdrant` | Fast semantic recall: `file_hit@10=0.89`, ~29ms/query. | Low first-rank quality: `hit@1=0.29`, `file_precision@R=0.525`. |
-| `hybrid_candidates_no_llm` | Best overall file rank quality: `file_mrr@10=0.753`, `file_precision@R=0.575`, `ndcg@10=0.692`, `map@10=0.627`. | Slower: ~78ms/query; still weak `hit@1=0.28`. |
-| `hybrid_candidates_graph_boost` | Best `hit@1=0.30` and chunk-level precision `0.469`. | Current graph edges do not improve recall; graph boost mostly changes ordering. |
-| `hybrid_candidates_routed` | Best current `ndcg@10=0.694`, tied best `hit@1=0.30`, better file coverage than no-router hybrid: `file_hit@10=0.91`, `file_recall@10=0.770`. | Still lower `file_precision@R=0.540` and `hit@3=0.52` than `hybrid_candidates_no_llm`; routing is promising but not the default winner yet. |
+| `vector_qdrant` | Fast semantic recall: `file_hit@10=0.88`, ~31ms/query after the 9230-item hybrid reindex. | Low first-rank quality: `hit@1=0.29`, `file_precision@R=0.525`. |
+| `hybrid_candidates_no_llm` | Best current file cleanliness: `file_precision@R=0.570`. | Slower: ~131ms/query; `file_hit@10=0.89` after summaries were added. |
+| `hybrid_candidates_routed` | Better coverage than no-router hybrid: `file_hit@10=0.90`, `file_recall@10=0.765`, `hit@3=0.51`. | Lower file cleanliness: `file_precision@R=0.530`. |
+| `hybrid_candidates_multi_index_guarded` | Best current file MRR/MAP after hybrid indexing: `file_mrr@10=0.750`, `map@10=0.620`; confirms summaries need downweighting. | Worse `hit@3=0.46`; guarded summaries help rank stability but not first-screen hit. |
+| `hybrid_candidates_multi_index_routed` | Tests naive three-index boosting. | Bad top-rank result: `hit@1=0.21`, `hit@3=0.43`; file summaries become noise when boosted directly. |
 | `recursive_qdrant` | Slightly higher chunk precision than vector. | Worse hit/MRR/recall and ~4x slower than vector. |
 
 Direct Gemini tool-loop experiments on the 10-case smoke dataset showed the opposite pattern: giving the orchestrator more raw tools was worse than a structured candidate tool. `search+rg`, `search+symbols`, `search+inspect`, and `read` variants increased tokens, latency, and errors without beating `ai_search_vector_only`.
@@ -30,6 +31,18 @@ Direct Gemini tool-loop experiments on the 10-case smoke dataset showed the oppo
 | Graph edges | "where is this called/run/created/registered", architecture tracing, cross-file workflows. | Single-file exact lookup; stale or too-broad graphs. | Use query-aware graph profiles. Build call/reference edges incrementally or with hard budgets. |
 | Read excerpts | Verifying top candidates, reranking evidence, final answer citations. | Exploratory search. Previous evals show free reads hurt cost and quality. | Only read top 3-5 ranges after deterministic candidate generation. |
 | LLM reranker | Ambiguous informal queries after vector+BM25+graph candidate generation. | Simple exact lookup; tight latency mode. | One bounded listwise call over top 20 candidates. Never open-ended multi-round search by default. |
+
+## Hybrid Index Types
+
+`code-diver index` can now persist three item types into the same vector store:
+
+| Index kind | Best cases | Current evidence |
+| --- | --- | --- |
+| `chunk` | Evidence snippets, broad semantic matches, final answer context. | After the 9230-item reindex, chunks produced about 44-47% of first relevant hits depending on fusion. |
+| `symbol` | Class/function/method, command, handler, service, model, strategy, and API queries. | Symbols produced about 53-56% of first relevant hits in the best guarded/routed runs. This is the strongest structural item type right now. |
+| `file_summary` | File-level recall and reranker context. | Naive boosting hurt ranking. In `hybrid_candidates_multi_index_routed`, summaries were only 2.2% of first relevant hits but still moved noise upward. Guarded downweighting recovered rank quality. |
+
+Current conclusion: keep all three index types, but do not let `file_summary` dominate first-stage ranking. Use summaries as a recall/rerank feature and use symbols as primary structural evidence.
 
 ## Query Routing Rules
 
@@ -87,6 +100,18 @@ Router diagnosis:
 - It beats every global BM25 profile on `hit@1`, `hit@3`, `file_mrr@10`, `ndcg@10`, and `map@10`.
 - It still gives up `file_precision@R` versus `hybrid_candidates_no_llm`, which means some path/symbol/workflow triggers are still too broad.
 - The next measurement should log the selected route per case and report metrics by route bucket. Without bucket metrics we can see the average tradeoff, but not which rule caused the win or regression.
+
+## Bucket Pattern After Hybrid Indexing
+
+After adding file summaries and route-bucket metrics, the 100-case dataset shows a concrete pattern:
+
+| Bucket | Best current behavior | Practical route |
+| --- | --- | --- |
+| `semantic` | `vector_qdrant` has the best file MRR: 0.797. | Dense vector first. Add lexical/symbol only as low-weight recall signals. |
+| `path_symbol` | Routed/guarded hybrid reaches about 0.790 file MRR and 0.903 file hit. | BM25/path/symbol boosted route. |
+| `workflow` | Baseline/guarded hybrid is best at about 0.708 file MRR. Graph boost is not yet a win. | Vector + symbol first, then improve graph before trusting graph expansion. |
+
+This confirms the hybrid approach, but also shows the rule: different tools should own different query buckets. A single global fusion weight is not enough.
 
 ## Research Alignment
 

@@ -202,6 +202,42 @@ def test_hybrid_strategy_can_use_bm25_rrf(tmp_path: Path) -> None:
     assert results[0].item.path == "src/auth.py"
 
 
+def test_hybrid_strategy_applies_item_kind_weights(tmp_path: Path) -> None:
+    chunk_item = CodeItem(
+        id="chunk",
+        path="src/auth.py",
+        title="auth chunk",
+        content="authorization token",
+        metadata={"index_kind": "chunk"},
+    )
+    summary_item = CodeItem(
+        id="summary",
+        path="src/auth.py",
+        title="auth summary",
+        content="authorization token",
+        metadata={"index_kind": "file_summary"},
+    )
+    graph_store = _graph_store(tmp_path, [chunk_item, summary_item], [])
+    strategy = HybridRetrievalStrategy(
+        FakeRetrievalStrategy([SearchResult(chunk_item, 0.9), SearchResult(summary_item, 0.9)]),
+        graph_store,
+        HybridSearchConfig(
+            candidate_limit=5,
+            lexical_candidate_limit=5,
+            vector_weight=1.0,
+            lexical_weight=0.0,
+            path_weight=0.0,
+            symbol_weight=0.0,
+            graph_weight=0.0,
+            item_kind_weights={"file_summary": 1.2, "chunk": 1.0},
+        ),
+    )
+
+    results = strategy.search("authorization token", limit=2)
+
+    assert results[0].item.id == "summary"
+
+
 def _graph_store(tmp_path: Path, items: list[CodeItem], edges: list[GraphEdge]) -> CodeGraphStore:
     store = CodeGraphStore(tmp_path / "graph.json")
     store.save(CodeGraph(items={item.id: item for item in items}, edges=edges))

@@ -14,6 +14,9 @@ class EvalResult:
     precision: float
     recall: float
     retrieved_files: list[str] | None = None
+    bucket: str = "unknown"
+    top_result_kind: str = "unknown"
+    first_relevant_kind: str = "unknown"
     file_hit: bool = False
     file_reciprocal_rank: float = 0.0
     file_precision_at_r: float = 0.0
