@@ -272,7 +272,9 @@ uv run code-diver --config configs/protogen-ollama-qdrant.yml experiment --hypot
 
 The bounded reranker is the best quality result so far by `hit@10`, `MRR@10`, `recall@10`, `file_recall@10`, `nDCG@10`, and `MAP@10`. It also removes the direct-agent failure class: no `max_rounds_exceeded`, no malformed tool calls, and no empty final answers in this run.
 
-The weakness is rank-one precision. `hit@1=0.27` is much worse than `ai_search_vector_only` at `0.70`. The model often selects a related symbol/file family correctly, but does not consistently put the exact expected item first. For developer UX this is still useful because the relevant file is usually in the first page, but it is not yet good enough for "open the exact file immediately".
+Follow-up on 2026-06-01 found a metrics bug in `hit@1`/`hit@3`: symbol ids such as `src/file.py::Class#hash` were not matched against expected file paths. After fixing the matcher, the corrected baseline is `hit@1=0.70`, `hit@3=0.87`, `MRR@10=0.785`, `nDCG@10=0.735`, and `MAP@10=0.673`. The reranker is therefore a real ranking improvement, not a rank-one regression.
+
+The remaining weakness is exact first-result ownership. The model often chooses the right file family, but can still put an adjacent model, wrapper, or prompt file above the most direct implementation file.
 
 ### Usage
 

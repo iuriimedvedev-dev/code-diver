@@ -59,7 +59,7 @@ class RetrievalStrategyFactory:
             return LlmRerankRetrievalStrategy(
                 hybrid,
                 create_generation_provider(config),
-                candidate_limit=max(config.hybrid_search.candidate_limit, config.search.limit * 3),
+                config.llm_rerank,
                 trace_logger=TraceLogger(config.trace),
             )
         raise ValueError(f"Unknown retrieval strategy: {strategy}")

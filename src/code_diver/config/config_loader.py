@@ -18,6 +18,7 @@ from .graph_config import GraphConfig
 from .ai_index_config import AiIndexConfig
 from .hybrid_search_config import HybridSearchConfig
 from .indexing_config import IndexingConfig
+from .llm_rerank_config import LlmRerankConfig
 from .metrics_config import MetricsConfig
 from .pi_config import PiConfig
 from .qdrant_config import QdrantConfig
@@ -46,6 +47,7 @@ class ConfigLoader:
             search=self._search(data.get("search")),
             recursive_search=self._recursive_search(data.get("recursive_search")),
             hybrid_search=self._hybrid_search(data.get("hybrid_search")),
+            llm_rerank=self._llm_rerank(data.get("llm_rerank")),
             graph=self._graph(data.get("graph")),
             trace=self._trace(data.get("trace")),
             ui=self._ui(data.get("ui")),
@@ -220,6 +222,21 @@ class ConfigLoader:
             stop_words=self._string_list(mapping.get("stop_words")) or list(Defaults.HYBRID_STOP_WORDS),
         )
 
+    def _llm_rerank(self, data: Any) -> LlmRerankConfig:
+        mapping = self._mapping(data)
+        return LlmRerankConfig(
+            candidate_limit=int(mapping.get("candidate_limit", Defaults.LLM_RERANK_CANDIDATE_LIMIT)),
+            max_preview_chars=int(mapping.get("max_preview_chars", Defaults.LLM_RERANK_MAX_PREVIEW_CHARS)),
+            mode=str(mapping.get("mode", Defaults.LLM_RERANK_MODE)),
+            include_reasons=bool(mapping.get("include_reasons", Defaults.LLM_RERANK_INCLUDE_REASONS)),
+            preserve_top_candidate=bool(
+                mapping.get("preserve_top_candidate", Defaults.LLM_RERANK_PRESERVE_TOP_CANDIDATE)
+            ),
+            preserve_top_score_margin=float(
+                mapping.get("preserve_top_score_margin", Defaults.LLM_RERANK_PRESERVE_TOP_SCORE_MARGIN)
+            ),
+        )
+
     def _graph(self, data: Any) -> GraphConfig:
         mapping = self._mapping(data)
         return GraphConfig(
@@ -292,6 +309,9 @@ class ConfigLoader:
                     tools=self._string_list(mapping.get("tools")),
                     hybrid_search=self._hybrid_search(mapping.get("hybrid_search"))
                     if mapping.get("hybrid_search") is not None
+                    else None,
+                    llm_rerank=self._llm_rerank(mapping.get("llm_rerank"))
+                    if mapping.get("llm_rerank") is not None
                     else None,
                     description=self._optional_string(mapping.get("description")),
                 )

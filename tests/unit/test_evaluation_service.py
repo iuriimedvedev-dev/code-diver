@@ -82,3 +82,22 @@ def test_evaluation_service_file_metrics_dedupe_retrieved_files() -> None:
     assert metrics["ndcg@3"] == 1.0
     assert metrics["map@3"] == 1.0
     assert results[0].retrieved_files == ["target.py", "other.py"]
+
+
+class SymbolIdStrategy(RetrievalStrategy):
+    def search(self, query: str, limit: int) -> list[SearchResult]:
+        return [
+            SearchResult(
+                CodeItem(id="target.py::TargetClass#abc", path="target.py", title="TargetClass", content=""),
+                0.9,
+            ),
+        ][:limit]
+
+
+def test_evaluation_service_hit_at_matches_symbol_ids_for_expected_file_paths() -> None:
+    metrics, _ = EvaluationService(SymbolIdStrategy()).evaluate(
+        [EvalCase(id="case", query="find target", expected=["target.py"])],
+        limit=1,
+    )
+
+    assert metrics["hit_rate@1"] == 1.0

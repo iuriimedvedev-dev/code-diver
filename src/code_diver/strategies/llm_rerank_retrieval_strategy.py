@@ -3,6 +3,7 @@ from __future__ import annotations
 from time import perf_counter
 
 from ..agent.model_cost_estimator import ModelCostEstimator
+from ..config.llm_rerank_config import LlmRerankConfig
 from ..domain import SearchResult
 from ..generation import GenerationProvider
 from ..tracing import TraceLogger
@@ -16,19 +17,19 @@ class LlmRerankRetrievalStrategy(RetrievalStrategy):
         self,
         base_strategy: RetrievalStrategy,
         generation_provider: GenerationProvider,
-        candidate_limit: int,
+        config: LlmRerankConfig,
         trace_logger: TraceLogger | None = None,
     ):
         self.base_strategy = base_strategy
         self.generation_provider = generation_provider
-        self.candidate_limit = candidate_limit
+        self.config = config
         self.trace_logger = trace_logger or TraceLogger.disabled()
-        self.prompt_builder = LlmRerankPromptBuilder()
+        self.prompt_builder = LlmRerankPromptBuilder(config)
         self.response_parser = LlmRerankResponseParser()
         self.cost_estimator = ModelCostEstimator()
 
     def search(self, query: str, limit: int) -> list[SearchResult]:
-        candidates = self.base_strategy.search(query, max(limit, self.candidate_limit))
+        candidates = self.base_strategy.search(query, max(limit, self.config.candidate_limit))
         if len(candidates) <= 1:
             return candidates[:limit]
         prompt = self.prompt_builder.build(query, candidates, limit)
@@ -40,6 +41,7 @@ class LlmRerankRetrievalStrategy(RetrievalStrategy):
                 "query": query,
                 "candidate_count": len(candidates),
                 "limit": limit,
+                "mode": self.config.mode,
                 **self.trace_logger.prompt_payload(prompt),
             },
         )
@@ -61,6 +63,7 @@ class LlmRerankRetrievalStrategy(RetrievalStrategy):
                     "total_tokens": response.total_tokens,
                     "estimated_cost": cost,
                     "selected_indices": selected_indices,
+                    "mode": self.config.mode,
                     "response_chars": len(response.text),
                     "response": response.text,
                 },
@@ -75,6 +78,7 @@ class LlmRerankRetrievalStrategy(RetrievalStrategy):
                     "model": self.generation_provider.model,
                     "query": query,
                     "duration_ms": duration_ms,
+                    "mode": self.config.mode,
                     "error_type": type(exc).__name__,
                     "error": str(exc),
                 },
@@ -87,4 +91,19 @@ class LlmRerankRetrievalStrategy(RetrievalStrategy):
         reranked.extend(
             candidate for index, candidate in enumerate(candidates) if index not in selected_positions
         )
+        if self._should_preserve_top(candidates, reranked):
+            reranked = [
+                candidates[0],
+                *(candidate for candidate in reranked if candidate.item.id != candidates[0].item.id),
+            ]
         return reranked[:limit]
+
+    def _should_preserve_top(self, candidates: list[SearchResult], reranked: list[SearchResult]) -> bool:
+        if not self.config.preserve_top_candidate or not candidates or not reranked:
+            return False
+        if reranked[0].item.id == candidates[0].item.id:
+            return False
+        if len(candidates) == 1:
+            return True
+        margin = candidates[0].score - candidates[1].score
+        return margin >= self.config.preserve_top_score_margin

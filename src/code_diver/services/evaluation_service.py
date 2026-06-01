@@ -230,7 +230,13 @@ class EvaluationService:
         return any(self._matches_path_or_id(value, result.expected) for value in result.retrieved[:limit])
 
     def _matches_path_or_id(self, value: str, expected: list[str]) -> bool:
-        return any(value == item or value.startswith(item + "#") or value.startswith(item.rstrip("/") + "/") for item in expected)
+        return any(
+            value == item
+            or value.startswith(item + "#")
+            or value.startswith(item + "::")
+            or value.startswith(item.rstrip("/") + "/")
+            for item in expected
+        )
 
     def _mean(self, values: Any) -> float:
         materialized = list(values)

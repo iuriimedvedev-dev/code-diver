@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from code_diver.config.trace_config import TraceConfig
+from code_diver.config.llm_rerank_config import LlmRerankConfig
 from code_diver.domain import CodeItem, SearchResult
 from code_diver.generation import GenerationResult
 from code_diver.strategies.llm_rerank_retrieval_strategy import LlmRerankRetrievalStrategy
@@ -59,7 +60,7 @@ def test_llm_rerank_reorders_candidates_and_preserves_fallbacks(tmp_path: Path) 
     strategy = LlmRerankRetrievalStrategy(
         FakeStrategy(results),
         FakeGenerationProvider('{"results":[{"index":3,"confidence":0.9,"reason":"best"}]}'),
-        candidate_limit=3,
+        LlmRerankConfig(candidate_limit=3),
         trace_logger=TraceLogger(TraceConfig(enabled=True, artifact=trace_path, include_prompts=True)),
     )
 
@@ -77,7 +78,7 @@ def test_llm_rerank_falls_back_to_base_order_on_bad_json() -> None:
     strategy = LlmRerankRetrievalStrategy(
         FakeStrategy(results),
         FakeGenerationProvider("not-json"),
-        candidate_limit=2,
+        LlmRerankConfig(candidate_limit=2),
     )
 
     reranked = strategy.search("query", 2)
@@ -92,6 +93,22 @@ def test_llm_rerank_response_parser_ignores_invalid_and_duplicate_indices() -> N
     )
 
     assert indices == [2, 1]
+
+
+def test_llm_rerank_can_preserve_confident_base_top() -> None:
+    results = [
+        _result("a", "src/a.py", 0.9),
+        _result("b", "src/b.py", 0.1),
+    ]
+    strategy = LlmRerankRetrievalStrategy(
+        FakeStrategy(results),
+        FakeGenerationProvider('{"results":[{"index":2,"confidence":0.9}]}'),
+        LlmRerankConfig(candidate_limit=2, preserve_top_candidate=True, preserve_top_score_margin=0.5),
+    )
+
+    reranked = strategy.search("query", 2)
+
+    assert [result.item.path for result in reranked] == ["src/a.py", "src/b.py"]
 
 
 def _result(item_id: str, path: str, score: float) -> SearchResult:

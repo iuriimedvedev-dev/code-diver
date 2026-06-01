@@ -89,6 +89,13 @@ hybrid_search:
     symbol: 1.1
   min_token_length: 4
   stop_words: [where, handled]
+llm_rerank:
+  candidate_limit: 22
+  max_preview_chars: 333
+  mode: file_first
+  include_reasons: false
+  preserve_top_candidate: true
+  preserve_top_score_margin: 0.2
 graph:
   artifact: {tmp_path}/graph.json
   expansion_depth: 2
@@ -120,6 +127,11 @@ experiments:
       hybrid_search:
         vector_weight: 0.3
         lexical_weight: 0.5
+    - name: hybrid_rerank
+      strategy: hybrid_rerank
+      llm_rerank:
+        candidate_limit: 12
+        mode: precision
 metrics:
   enabled: true
   url: http://clickhouse:8123
@@ -199,6 +211,12 @@ plugins:
     assert config.hybrid_search.item_kind_weights == {"file_summary": 1.2, "symbol": 1.1}
     assert config.hybrid_search.min_token_length == 4
     assert config.hybrid_search.stop_words == ["where", "handled"]
+    assert config.llm_rerank.candidate_limit == 22
+    assert config.llm_rerank.max_preview_chars == 333
+    assert config.llm_rerank.mode == "file_first"
+    assert config.llm_rerank.include_reasons is False
+    assert config.llm_rerank.preserve_top_candidate is True
+    assert config.llm_rerank.preserve_top_score_margin == 0.2
     assert config.graph.artifact == tmp_path / "graph.json"
     assert config.graph.expansion_depth == 2
     assert config.graph.ast_enabled is False
@@ -220,6 +238,9 @@ plugins:
     assert config.experiments.hypotheses[2].hybrid_search is not None
     assert config.experiments.hypotheses[2].hybrid_search.vector_weight == 0.3
     assert config.experiments.hypotheses[2].hybrid_search.lexical_weight == 0.5
+    assert config.experiments.hypotheses[3].llm_rerank is not None
+    assert config.experiments.hypotheses[3].llm_rerank.candidate_limit == 12
+    assert config.experiments.hypotheses[3].llm_rerank.mode == "precision"
     assert config.metrics.enabled is True
     assert config.metrics.url == "http://clickhouse:8123"
     assert config.metrics.database == "metrics_db"

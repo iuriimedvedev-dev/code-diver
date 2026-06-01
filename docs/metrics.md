@@ -147,7 +147,8 @@ Run date: 2026-05-31. Same 100-case dataset and current Qdrant/graph artifacts.
 | `hybrid_candidates_no_llm` | 0.28 | 0.53 | 0.90 | 0.753 | 0.575 | 0.755 | 0.692 | 0.627 |
 | `hybrid_candidates_lexical` | 0.29 | 0.54 | 0.89 | 0.730 | 0.530 | 0.755 | 0.675 | 0.605 |
 | `hybrid_candidates_graph_boost` | 0.30 | 0.53 | 0.90 | 0.754 | 0.550 | 0.755 | 0.688 | 0.619 |
-| `hybrid_candidates_llm_rerank` | 0.27 | 0.58 | 0.93 | 0.806 | 0.620 | 0.800 | 0.743 | 0.682 |
+| `hybrid_candidates_llm_rerank` | 0.70 | 0.87 | 0.93 | 0.797 | 0.605 | 0.795 | 0.735 | 0.673 |
+| `hybrid_rerank_file_first` | 0.73 | 0.88 | 0.93 | 0.818 | 0.635 | 0.800 | 0.752 | 0.694 |
 | `hybrid_candidates_path_symbol` | 0.27 | 0.50 | 0.89 | 0.737 | 0.540 | 0.750 | 0.679 | 0.610 |
 
 BM25/RRF follow-up:

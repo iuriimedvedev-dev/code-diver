@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import json
 
+from ..config.llm_rerank_config import LlmRerankConfig
 from ..domain import CodeItemIndexKindResolver, SearchResult
 
 
 class LlmRerankPromptBuilder:
-    def __init__(self, max_preview_chars: int = 700):
-        self.max_preview_chars = max_preview_chars
+    def __init__(self, config: LlmRerankConfig):
+        self.config = config
         self.kind_resolver = CodeItemIndexKindResolver()
 
     def build(self, query: str, candidates: list[SearchResult], limit: int) -> str:
@@ -25,11 +26,12 @@ Goal:
 - Use path, title, symbol kind, line range, retrieval score, and preview together.
 - Keep related implementation and test files when both are directly relevant.
 - Do not invent files, paths, indices, or evidence.
+{self._mode_instruction()}
 
 Return JSON only:
 {{
   "results": [
-    {{"index": 1, "confidence": 0.0, "reason": "short reason"}}
+    {self._result_schema()}
   ]
 }}
 
@@ -38,7 +40,7 @@ Rules:
 - Return up to "limit" results, ordered by expected usefulness.
 - Confidence is 0.0 to 1.0.
 - If no candidate is clearly relevant, still return the best available candidates with low confidence.
-- Reasons must be short and grounded in candidate fields.
+{self._reason_rule()}
 
 Input:
 {json.dumps(payload, ensure_ascii=False)}
@@ -60,6 +62,39 @@ Input:
 
     def _preview(self, content: str) -> str:
         compact = " ".join(content.split())
-        if len(compact) <= self.max_preview_chars:
+        if len(compact) <= self.config.max_preview_chars:
             return compact
-        return compact[: self.max_preview_chars].rstrip() + "..."
+        return compact[: self.config.max_preview_chars].rstrip() + "..."
+
+    def _mode_instruction(self) -> str:
+        if self.config.mode == "file_first":
+            return (
+                "- Rank repository files first: choose the file that owns the behavior, then choose the best "
+                "candidate within that file.\n"
+                "- Prefer implementation files over broad model, __init__, wrapper, or summary files unless the "
+                "query explicitly asks for models, exports, wrappers, or summaries."
+            )
+        if self.config.mode == "base_rank_prior":
+            return (
+                "- Treat the input order and retrieval score as a strong prior.\n"
+                "- Move a lower candidate above an earlier one only when path/title/preview evidence is clearly "
+                "more specific to the query."
+            )
+        if self.config.mode == "precision":
+            return (
+                "- Optimize rank 1: the first result should be the single best file/symbol to open.\n"
+                "- Prefer specific implementation files over adjacent models, wrappers, registries, or summaries."
+            )
+        if self.config.mode == "compact":
+            return "- Be terse and return only the ordered indices with confidence."
+        return "- Balance exact file ownership, behavior evidence, and retrieval score."
+
+    def _result_schema(self) -> str:
+        if not self.config.include_reasons:
+            return '{"index": 1, "confidence": 0.0}'
+        return '{"index": 1, "confidence": 0.0, "reason": "short reason"}'
+
+    def _reason_rule(self) -> str:
+        if not self.config.include_reasons:
+            return "- Do not include reasons or any fields other than index and confidence."
+        return "- Reasons must be short and grounded in candidate fields."

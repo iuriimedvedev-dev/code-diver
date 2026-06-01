@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from .hybrid_search_config import HybridSearchConfig
+from .llm_rerank_config import LlmRerankConfig
 
 
 @dataclass(slots=True)
@@ -12,4 +13,5 @@ class ExperimentHypothesisConfig:
     toolset: str | None = None
     tools: list[str] = field(default_factory=list)
     hybrid_search: HybridSearchConfig | None = None
+    llm_rerank: LlmRerankConfig | None = None
     description: str | None = None

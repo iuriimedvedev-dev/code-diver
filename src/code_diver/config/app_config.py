@@ -12,6 +12,7 @@ from .generation_config import GenerationConfig
 from .graph_config import GraphConfig
 from .hybrid_search_config import HybridSearchConfig
 from .indexing_config import IndexingConfig
+from .llm_rerank_config import LlmRerankConfig
 from .metrics_config import MetricsConfig
 from .pi_config import PiConfig
 from .recursive_search_config import RecursiveSearchConfig
@@ -36,6 +37,7 @@ class AppConfig:
     search: SearchConfig = field(default_factory=SearchConfig)
     recursive_search: RecursiveSearchConfig = field(default_factory=RecursiveSearchConfig)
     hybrid_search: HybridSearchConfig = field(default_factory=HybridSearchConfig)
+    llm_rerank: LlmRerankConfig = field(default_factory=LlmRerankConfig)
     graph: GraphConfig = field(default_factory=GraphConfig)
     trace: TraceConfig = field(default_factory=TraceConfig)
     ui: UiConfig = field(default_factory=UiConfig)

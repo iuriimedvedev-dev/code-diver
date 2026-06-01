@@ -91,6 +91,12 @@ hybrid_search:
   graph_neighbor_limit: 20
   min_token_length: 3
 
+llm_rerank:
+  candidate_limit: 40
+  max_preview_chars: 700
+  mode: file_first
+  include_reasons: true
+
 graph:
   enabled: true
   artifact: .code-diver/protogen-ollama-qdrant-graph.json
@@ -364,7 +370,134 @@ experiments:
           symbol: 1.04
           chunk: 1.0
         min_token_length: 3
-      description: "Deterministic hybrid candidate generation followed by one bounded Vertex/Gemini rerank call."
+      llm_rerank:
+        candidate_limit: 40
+        max_preview_chars: 700
+        mode: balanced
+        include_reasons: true
+      description: "Balanced baseline: deterministic hybrid candidate generation followed by one bounded Vertex/Gemini rerank call."
+    - name: hybrid_rerank_top20_compact
+      strategy: hybrid_rerank
+      hybrid_search:
+        candidate_limit: 40
+        lexical_candidate_limit: 80
+        vector_weight: 0.62
+        lexical_weight: 0.17
+        path_weight: 0.11
+        symbol_weight: 0.05
+        graph_weight: 0.03
+        graph_depth: 1
+        graph_neighbor_limit: 24
+        routing_enabled: true
+        item_kind_weights:
+          file_summary: 0.82
+          symbol: 1.04
+          chunk: 1.0
+        min_token_length: 3
+      llm_rerank:
+        candidate_limit: 20
+        max_preview_chars: 450
+        mode: compact
+        include_reasons: false
+      description: "Bounded rerank over fewer candidates with shorter previews and no reasons."
+    - name: hybrid_rerank_file_first
+      strategy: hybrid_rerank
+      hybrid_search:
+        candidate_limit: 40
+        lexical_candidate_limit: 80
+        vector_weight: 0.62
+        lexical_weight: 0.17
+        path_weight: 0.11
+        symbol_weight: 0.05
+        graph_weight: 0.03
+        graph_depth: 1
+        graph_neighbor_limit: 24
+        routing_enabled: true
+        item_kind_weights:
+          file_summary: 0.82
+          symbol: 1.04
+          chunk: 1.0
+        min_token_length: 3
+      llm_rerank:
+        candidate_limit: 40
+        max_preview_chars: 700
+        mode: file_first
+        include_reasons: true
+      description: "Reranker explicitly ranks owning files before choosing symbols/chunks."
+    - name: hybrid_rerank_base_prior
+      strategy: hybrid_rerank
+      hybrid_search:
+        candidate_limit: 40
+        lexical_candidate_limit: 80
+        vector_weight: 0.62
+        lexical_weight: 0.17
+        path_weight: 0.11
+        symbol_weight: 0.05
+        graph_weight: 0.03
+        graph_depth: 1
+        graph_neighbor_limit: 24
+        routing_enabled: true
+        item_kind_weights:
+          file_summary: 0.82
+          symbol: 1.04
+          chunk: 1.0
+        min_token_length: 3
+      llm_rerank:
+        candidate_limit: 40
+        max_preview_chars: 700
+        mode: base_rank_prior
+        include_reasons: true
+      description: "Reranker treats deterministic hybrid rank as a strong prior."
+    - name: hybrid_rerank_precision
+      strategy: hybrid_rerank
+      hybrid_search:
+        candidate_limit: 40
+        lexical_candidate_limit: 80
+        vector_weight: 0.62
+        lexical_weight: 0.17
+        path_weight: 0.11
+        symbol_weight: 0.05
+        graph_weight: 0.03
+        graph_depth: 1
+        graph_neighbor_limit: 24
+        routing_enabled: true
+        item_kind_weights:
+          file_summary: 0.82
+          symbol: 1.04
+          chunk: 1.0
+        min_token_length: 3
+      llm_rerank:
+        candidate_limit: 40
+        max_preview_chars: 700
+        mode: precision
+        include_reasons: true
+      description: "Reranker prompt optimizes rank-one precision and specific implementation ownership."
+    - name: hybrid_rerank_preserve_top
+      strategy: hybrid_rerank
+      hybrid_search:
+        candidate_limit: 40
+        lexical_candidate_limit: 80
+        vector_weight: 0.62
+        lexical_weight: 0.17
+        path_weight: 0.11
+        symbol_weight: 0.05
+        graph_weight: 0.03
+        graph_depth: 1
+        graph_neighbor_limit: 24
+        routing_enabled: true
+        item_kind_weights:
+          file_summary: 0.82
+          symbol: 1.04
+          chunk: 1.0
+        min_token_length: 3
+      llm_rerank:
+        candidate_limit: 40
+        max_preview_chars: 700
+        mode: balanced
+        include_reasons: true
+        preserve_top_candidate: true
+        preserve_top_score_margin: 0.08
+      description: "Balanced rerank with deterministic top candidate preserved when score gap is strong."
     - name: hybrid_candidates_path_symbol
       strategy: hybrid
       hybrid_search:
