@@ -12,10 +12,16 @@ def test_model_cost_estimator_uses_model_specific_prices() -> None:
     estimator = ModelCostEstimator()
 
     gemini_cost = estimator.estimate("gemini-2.5-flash", input_tokens=1_000_000, output_tokens=1_000_000)
+    gemini_31_lite_cost = estimator.estimate(
+        "gemini-3.1-flash-lite",
+        input_tokens=1_000_000,
+        output_tokens=1_000_000,
+    )
     gemini_3_flash_cost = estimator.estimate("gemini-3-flash-preview", input_tokens=1_000_000, output_tokens=1_000_000)
     opus_cost = estimator.estimate("claude-opus-4-8", input_tokens=1_000_000, output_tokens=1_000_000)
 
     assert gemini_cost == pytest.approx(2.8)
+    assert gemini_31_lite_cost == pytest.approx(1.75)
     assert gemini_3_flash_cost == pytest.approx(3.5)
     assert opus_cost == pytest.approx(90.0)
 

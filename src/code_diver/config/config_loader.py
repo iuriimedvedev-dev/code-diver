@@ -117,11 +117,15 @@ class ConfigLoader:
 
     def _generation(self, data: Any) -> GenerationConfig:
         mapping = self._mapping(data)
+        fallback_models = (
+            self._string_list(mapping.get("fallback_models"))
+            if "fallback_models" in mapping
+            else list(Defaults.GENERATION_FALLBACK_MODELS)
+        )
         return GenerationConfig(
             provider=str(mapping.get("provider", Defaults.GENERATION_PROVIDER)),
             model=str(mapping.get("model", Defaults.GENERATION_MODEL)),
-            fallback_models=self._string_list(mapping.get("fallback_models"))
-            or list(Defaults.GENERATION_FALLBACK_MODELS),
+            fallback_models=fallback_models,
             api_key=mapping.get("api_key"),
             project=mapping.get("project"),
             location=mapping.get("location"),
@@ -315,6 +319,9 @@ class ConfigLoader:
                     strategy=self._optional_string(mapping.get("strategy")),
                     toolset=self._optional_string(mapping.get("toolset")),
                     tools=self._string_list(mapping.get("tools")),
+                    generation=self._generation(mapping.get("generation"))
+                    if mapping.get("generation") is not None
+                    else None,
                     hybrid_search=self._hybrid_search(mapping.get("hybrid_search"))
                     if mapping.get("hybrid_search") is not None
                     else None,

@@ -455,6 +455,74 @@ experiments:
         mode: compact
         include_reasons: false
       description: "Bounded rerank over fewer candidates with shorter previews and no reasons."
+    - name: hybrid_rerank_flash_lite_top20_compact
+      strategy: hybrid_rerank
+      generation:
+        provider: vertex
+        model: gemini-3.1-flash-lite
+        fallback_models: []
+        project: "236777862453"
+        location: global
+        temperature: 0
+        thinking_budget: 256
+        api_version: v1
+        timeout_ms: 20000
+      hybrid_search:
+        candidate_limit: 40
+        lexical_candidate_limit: 80
+        vector_weight: 0.62
+        lexical_weight: 0.17
+        path_weight: 0.11
+        symbol_weight: 0.05
+        graph_weight: 0.03
+        graph_depth: 1
+        graph_neighbor_limit: 24
+        routing_enabled: true
+        item_kind_weights:
+          file_summary: 0.82
+          symbol: 1.04
+          chunk: 1.0
+        min_token_length: 3
+      llm_rerank:
+        candidate_limit: 20
+        max_preview_chars: 450
+        mode: compact
+        include_reasons: false
+      description: "Gemini 3.1 Flash-Lite listwise rerank over top-20 compact candidates."
+    - name: hybrid_rerank_flash_lite_file_first
+      strategy: hybrid_rerank
+      generation:
+        provider: vertex
+        model: gemini-3.1-flash-lite
+        fallback_models: []
+        project: "236777862453"
+        location: global
+        temperature: 0
+        thinking_budget: 256
+        api_version: v1
+        timeout_ms: 20000
+      hybrid_search:
+        candidate_limit: 40
+        lexical_candidate_limit: 80
+        vector_weight: 0.62
+        lexical_weight: 0.17
+        path_weight: 0.11
+        symbol_weight: 0.05
+        graph_weight: 0.03
+        graph_depth: 1
+        graph_neighbor_limit: 24
+        routing_enabled: true
+        item_kind_weights:
+          file_summary: 0.82
+          symbol: 1.04
+          chunk: 1.0
+        min_token_length: 3
+      llm_rerank:
+        candidate_limit: 40
+        max_preview_chars: 700
+        mode: file_first
+        include_reasons: true
+      description: "Gemini 3.1 Flash-Lite file-first listwise rerank over the full top-40 candidate set."
     - name: hybrid_rerank_file_first
       strategy: hybrid_rerank
       hybrid_search:

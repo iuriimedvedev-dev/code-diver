@@ -133,6 +133,11 @@ experiments:
         lexical_weight: 0.5
     - name: hybrid_rerank
       strategy: hybrid_rerank
+      generation:
+        provider: vertex
+        model: gemini-3.1-flash-lite
+        fallback_models: []
+        thinking_budget: 256
       llm_rerank:
         candidate_limit: 12
         mode: precision
@@ -247,6 +252,11 @@ plugins:
     assert config.experiments.hypotheses[2].hybrid_search.vector_weight == 0.3
     assert config.experiments.hypotheses[2].hybrid_search.lexical_weight == 0.5
     assert config.experiments.hypotheses[3].llm_rerank is not None
+    assert config.experiments.hypotheses[3].generation is not None
+    assert config.experiments.hypotheses[3].generation.provider == "vertex"
+    assert config.experiments.hypotheses[3].generation.model == "gemini-3.1-flash-lite"
+    assert config.experiments.hypotheses[3].generation.fallback_models == []
+    assert config.experiments.hypotheses[3].generation.thinking_budget == 256
     assert config.experiments.hypotheses[3].llm_rerank.candidate_limit == 12
     assert config.experiments.hypotheses[3].llm_rerank.mode == "precision"
     assert config.metrics.enabled is True

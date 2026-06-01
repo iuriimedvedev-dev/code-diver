@@ -12,6 +12,7 @@ class ModelPrice:
 class ModelCostEstimator:
     DEFAULT_PRICE = ModelPrice(input_per_million=1.50, output_per_million=9.00)
     MODEL_PRICES = {
+        "gemini-3.1-flash-lite": ModelPrice(input_per_million=0.25, output_per_million=1.50),
         "gemini-3.5-flash": DEFAULT_PRICE,
         "gemini-3-flash-preview": ModelPrice(input_per_million=0.50, output_per_million=3.00),
         "gemini-2.5-flash": ModelPrice(input_per_million=0.30, output_per_million=2.50),
