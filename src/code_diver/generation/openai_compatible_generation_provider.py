@@ -23,22 +23,21 @@ class OpenAICompatibleGenerationProvider(OpenAIGenerationProvider):
             timeout_seconds=timeout_seconds,
         )
         self.name = "openai_compatible"
+        self._response_format_supported = True
 
     def generate_json(self, prompt: str) -> str:
         return self.generate_json_result(prompt).text
 
     def generate_json_result(self, prompt: str) -> GenerationResult:
-        payload: dict[str, Any] = {
-            "model": self.model,
-            "messages": [
-                {"role": "system", "content": "Return JSON only."},
-                {"role": "user", "content": prompt},
-            ],
-            "temperature": 0,
-            "response_format": {"type": "json_object"},
-            "stream": False,
-        }
-        response = self._post(payload)
+        payload = self._payload(prompt, response_format=self._response_format_supported)
+        try:
+            response = self._post(payload)
+        except RuntimeError as exc:
+            if not self._response_format_supported or not self._is_response_format_error(str(exc)):
+                raise
+            self._response_format_supported = False
+            payload = self._payload(prompt, response_format=False)
+            response = self._post(payload)
         text = self._extract_chat_text(response)
         if not text:
             raise RuntimeError("OpenAI-compatible server returned an empty response.")
@@ -54,6 +53,24 @@ class OpenAICompatibleGenerationProvider(OpenAIGenerationProvider):
             total_tokens=total_tokens,
         )
 
+    def _payload(self, prompt: str, response_format: bool) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": "Return JSON only."},
+                {"role": "user", "content": prompt},
+            ],
+            "temperature": 0,
+            "stream": False,
+        }
+        if response_format:
+            payload["response_format"] = {"type": "json_object"}
+        return payload
+
+    def _is_response_format_error(self, message: str) -> bool:
+        normalized = message.lower()
+        return "response_format" in normalized or "json_object" in normalized
+
     def _headers(self) -> dict[str, str]:
         headers = {"Content-Type": "application/json"}
         if self.api_key:
@@ -66,6 +83,18 @@ class OpenAICompatibleGenerationProvider(OpenAIGenerationProvider):
             return ""
         message = choices[0].get("message") or {}
         content = message.get("content")
-        if isinstance(content, str):
+        if isinstance(content, str) and content:
             return content
+        if isinstance(content, list):
+            return "".join(
+                str(part.get("text", ""))
+                for part in content
+                if isinstance(part, dict) and part.get("type") in {"text", "output_text"}
+            )
+        reasoning = message.get("reasoning_content") or message.get("reasoning")
+        if isinstance(reasoning, str):
+            return reasoning
+        text = choices[0].get("text")
+        if isinstance(text, str):
+            return text
         return json.dumps(content) if content else ""

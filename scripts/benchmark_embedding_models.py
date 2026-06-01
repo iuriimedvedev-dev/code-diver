@@ -21,6 +21,7 @@ from code_diver.cli import (
 from code_diver.config import ConfigLoader
 from code_diver.domain import CodeItem
 from code_diver.env import EnvFileLoader
+from code_diver.providers.query_caching_embedding_provider import QueryCachingEmbeddingProvider
 from code_diver.services import DatasetLoader, IndexCompositionAnalyzer
 from code_diver.services.evaluation_service import EvaluationService
 from code_diver.store import create_vector_store
@@ -85,7 +86,7 @@ class EmbeddingBenchmarkRunner:
             count_items = getattr(vector_store, "count_items", None)
             if callable(count_items):
                 row["index"]["stored_items"] = count_items()
-            provider = make_embedding_provider(config, vector_store.metadata())
+            provider = QueryCachingEmbeddingProvider(make_embedding_provider(config, vector_store.metadata()))
             cases = DatasetLoader().load(config.evaluation.dataset)
             plugin_manager = make_plugin_manager(config)
             for case in cases:

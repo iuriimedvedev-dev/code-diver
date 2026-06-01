@@ -84,6 +84,36 @@ def test_openai_compatible_generation_provider_uses_chat_completions(monkeypatch
     assert calls[0]["response_format"]["type"] == "json_object"
 
 
+def test_openai_compatible_generation_provider_retries_without_response_format(monkeypatch) -> None:
+    provider = OpenAICompatibleGenerationProvider(model="local-model", api_key="local")
+    calls: list[dict] = []
+
+    def fake_post(payload):
+        calls.append(payload)
+        if len(calls) == 1:
+            raise RuntimeError("HTTP 400: unsupported response_format json_object")
+        return {"choices": [{"message": {"content": '{"results":[]}'}}]}
+
+    monkeypatch.setattr(provider, "_post", fake_post)
+
+    assert provider.generate_json("rank") == '{"results":[]}'
+    assert provider.generate_json("rank again") == '{"results":[]}'
+    assert "response_format" in calls[0]
+    assert "response_format" not in calls[1]
+    assert "response_format" not in calls[2]
+
+
+def test_openai_compatible_generation_provider_accepts_reasoning_content(monkeypatch) -> None:
+    provider = OpenAICompatibleGenerationProvider(model="local-model", api_key="local")
+
+    def fake_post(payload):
+        return {"choices": [{"message": {"content": "", "reasoning_content": '{"results":[]}'}}]}
+
+    monkeypatch.setattr(provider, "_post", fake_post)
+
+    assert provider.generate_json("rank") == '{"results":[]}'
+
+
 def test_openai_compatible_embedding_provider_allows_local_api_key(monkeypatch) -> None:
     provider = OpenAICompatibleEmbeddingProvider(model="embed", dimensions=None, api_key=None)
 
