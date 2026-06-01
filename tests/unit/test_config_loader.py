@@ -78,6 +78,7 @@ hybrid_search:
   lexical_weight: 0.22
   path_weight: 0.13
   symbol_weight: 0.07
+  symbol_match_weight: 0.08
   graph_weight: 0.09
   file_vote_weight: 0.04
   vector_kind_limits:
@@ -218,6 +219,7 @@ plugins:
     assert config.hybrid_search.lexical_weight == 0.22
     assert config.hybrid_search.path_weight == 0.13
     assert config.hybrid_search.symbol_weight == 0.07
+    assert config.hybrid_search.symbol_match_weight == 0.08
     assert config.hybrid_search.graph_weight == 0.09
     assert config.hybrid_search.file_vote_weight == 0.04
     assert config.hybrid_search.vector_kind_limits == {"chunk": 20, "symbol": 10}

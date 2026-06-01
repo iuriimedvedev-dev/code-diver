@@ -95,15 +95,16 @@ hybrid_search:
   lexical_weight: 0.17
   path_weight: 0.11
   symbol_weight: 0.05
+  symbol_match_weight: 0.08
   graph_weight: 0.03
   file_vote_weight: 0.04
   graph_depth: 1
   graph_neighbor_limit: 48
   vector_kind_multipliers:
-    chunk: 0.45
-    symbol: 0.30
+    chunk: 0.40
+    symbol: 0.40
     file_summary: 0.10
-    structural_chunk: 0.15
+    structural_chunk: 0.10
   routing_enabled: true
   lexical_scoring: bm25
   fusion: weighted
@@ -111,9 +112,9 @@ hybrid_search:
   vector_top_score_margin: 0.03
   item_kind_weights:
     file_summary: 0.82
-    symbol: 1.04
-    structural_chunk: 0.72
-    chunk: 1.05
+    symbol: 1.08
+    structural_chunk: 0.70
+    chunk: 1.03
   min_token_length: 3
 
 llm_rerank:

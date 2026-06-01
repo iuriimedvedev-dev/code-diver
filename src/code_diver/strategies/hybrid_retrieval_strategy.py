@@ -5,6 +5,7 @@ from collections import defaultdict
 from ..config import HybridSearchConfig
 from ..domain import CodeItem, CodeItemIndexKindResolver, SearchResult
 from ..graph import CodeGraph, CodeGraphStore
+from ..tracing import TraceLogger
 from .graph_candidate_expander import GraphCandidateExpander
 from .graph_expansion_profile_factory import GraphExpansionProfileFactory
 from .graph_neighbor_index import GraphNeighborIndex
@@ -20,6 +21,7 @@ from .retrieval_strategy import RetrievalStrategy
 
 LEXICAL_SCORING_BM25 = "bm25"
 FUSION_RRF = "rrf"
+TRACE_CANDIDATE_LIMIT = 60
 
 
 class HybridRetrievalStrategy(RetrievalStrategy):
@@ -28,10 +30,12 @@ class HybridRetrievalStrategy(RetrievalStrategy):
         base_strategy: RetrievalStrategy,
         graph_store: CodeGraphStore,
         config: HybridSearchConfig,
+        trace_logger: TraceLogger | None = None,
     ):
         self.base_strategy = base_strategy
         self.graph_store = graph_store
         self.config = config
+        self.trace_logger = trace_logger or TraceLogger.disabled()
         self.analyzer = HybridQueryAnalyzer(config)
         self.router = HybridQueryRouter()
         self.item_profiler = HybridItemProfiler()
@@ -62,6 +66,7 @@ class HybridRetrievalStrategy(RetrievalStrategy):
             existing.lexical_score = max(existing.lexical_score, lexical_score)
             existing.path_score = max(existing.path_score, lexical.path_score)
             existing.symbol_score = max(existing.symbol_score, lexical.symbol_score)
+            existing.symbol_match_score = max(existing.symbol_match_score, lexical.symbol_match_score)
 
         route_name = self.router.route_name(query, query_profile.terms)
         for item_id, graph_score in self._graph_scores(vector_results, active_config, route_name).items():
@@ -76,7 +81,9 @@ class HybridRetrievalStrategy(RetrievalStrategy):
             results = self._rrf_results(scores, vector_results, limit, active_config)
         else:
             results = self._weighted_results(scores, limit, active_config)
-        return self._preserve_vector_top(results, vector_results, limit, active_config)
+        results = self._preserve_vector_top(results, vector_results, limit, active_config)
+        self._trace_rank_stages(query, route_name, scores, vector_results, results, active_config)
+        return results
 
     def _seed_vector_scores(self, vector_results: list[SearchResult]) -> dict[str, HybridCandidateScore]:
         normalized = self._normalize({result.item.id: result.score for result in vector_results})
@@ -198,6 +205,7 @@ class HybridRetrievalStrategy(RetrievalStrategy):
             + score.lexical_score * config.lexical_weight
             + score.path_score * config.path_weight
             + score.symbol_score * config.symbol_weight
+            + score.symbol_match_score * config.symbol_match_weight
             + score.graph_score * config.graph_weight
         )
 
@@ -262,6 +270,12 @@ class HybridRetrievalStrategy(RetrievalStrategy):
             config.symbol_weight,
             config,
         )
+        self._add_rrf(
+            rrf_scores,
+            self._ranked_ids(scores, lambda score: score.symbol_match_score),
+            config.symbol_match_weight,
+            config,
+        )
         self._add_rrf(rrf_scores, self._ranked_ids(scores, lambda score: score.graph_score), config.graph_weight, config)
         self._add_rrf(
             rrf_scores,
@@ -303,3 +317,85 @@ class HybridRetrievalStrategy(RetrievalStrategy):
     def _item_kind_weight(self, item: CodeItem, config: HybridSearchConfig) -> float:
         kind = self.item_kind_resolver.resolve(item)
         return config.item_kind_weights.get(kind, 1.0)
+
+    def _trace_rank_stages(
+        self,
+        query: str,
+        route_name: str,
+        scores: dict[str, HybridCandidateScore],
+        vector_results: list[SearchResult],
+        final_results: list[SearchResult],
+        config: HybridSearchConfig,
+    ) -> None:
+        if not self.trace_logger.config.enabled:
+            return
+        self.trace_logger.write(
+            "hybrid_rank_stages",
+            {
+                "query": query,
+                "route": route_name,
+                "fusion": config.fusion,
+                "candidate_count": len(scores),
+                "weights": {
+                    "vector": config.vector_weight,
+                    "lexical": config.lexical_weight,
+                    "path": config.path_weight,
+                    "symbol": config.symbol_weight,
+                    "symbol_match": config.symbol_match_weight,
+                    "graph": config.graph_weight,
+                    "file_vote": config.file_vote_weight,
+                },
+                "candidates": self._trace_candidates(scores, vector_results, final_results, config),
+            },
+        )
+
+    def _trace_candidates(
+        self,
+        scores: dict[str, HybridCandidateScore],
+        vector_results: list[SearchResult],
+        final_results: list[SearchResult],
+        config: HybridSearchConfig,
+    ) -> list[dict[str, object]]:
+        vector_rank = {result.item.id: rank for rank, result in enumerate(vector_results, start=1)}
+        final_rank = {result.item.id: rank for rank, result in enumerate(final_results, start=1)}
+        lexical_rank = self._rank_map(scores, lambda score: score.lexical_score)
+        path_rank = self._rank_map(scores, lambda score: score.path_score)
+        symbol_rank = self._rank_map(scores, lambda score: score.symbol_score)
+        symbol_match_rank = self._rank_map(scores, lambda score: score.symbol_match_score)
+        graph_rank = self._rank_map(scores, lambda score: score.graph_score)
+        file_vote_rank = self._rank_map(scores, lambda score: score.file_vote_score)
+        ranked_scores = sorted(scores.values(), key=lambda score: self._weighted_total(score, config), reverse=True)
+        rows: list[dict[str, object]] = []
+        for score in ranked_scores[:TRACE_CANDIDATE_LIMIT]:
+            rows.append(
+                {
+                    "id": score.item.id,
+                    "path": score.item.path,
+                    "title": score.item.title,
+                    "kind": self.item_kind_resolver.resolve(score.item),
+                    "final_rank": final_rank.get(score.item.id),
+                    "vector_rank": vector_rank.get(score.item.id),
+                    "lexical_rank": lexical_rank.get(score.item.id),
+                    "path_rank": path_rank.get(score.item.id),
+                    "symbol_rank": symbol_rank.get(score.item.id),
+                    "symbol_match_rank": symbol_match_rank.get(score.item.id),
+                    "graph_rank": graph_rank.get(score.item.id),
+                    "file_vote_rank": file_vote_rank.get(score.item.id),
+                    "scores": {
+                        "total": self._weighted_total(score, config),
+                        "vector": score.vector_score,
+                        "lexical": score.lexical_score,
+                        "path": score.path_score,
+                        "symbol": score.symbol_score,
+                        "symbol_match": score.symbol_match_score,
+                        "graph": score.graph_score,
+                        "file_vote": score.file_vote_score,
+                    },
+                }
+            )
+        return rows
+
+    def _rank_map(self, scores: dict[str, HybridCandidateScore], value) -> dict[str, int]:
+        ranked = [score for score in scores.values() if value(score) > 0]
+        ranked.sort(key=lambda score: (value(score), score.item.path), reverse=True)
+        return {score.item.id: rank for rank, score in enumerate(ranked, start=1)}

@@ -10,6 +10,8 @@ from code_diver.graph import CodeGraph, CodeGraphStore, GraphEdge
 from code_diver.strategies.hybrid_lexical_index import HybridLexicalIndex
 from code_diver.strategies.hybrid_item_profiler import HybridItemProfiler
 from code_diver.strategies import HybridRetrievalStrategy, RetrievalStrategy
+from code_diver.tracing import TraceLogger
+from code_diver.config.trace_config import TraceConfig
 
 
 pytestmark = pytest.mark.unit
@@ -288,6 +290,64 @@ def test_hybrid_strategy_promotes_file_consensus(tmp_path: Path) -> None:
     results = strategy.search("authorization token", limit=3)
 
     assert results[0].item.path == "src/auth.py"
+
+
+def test_hybrid_strategy_applies_symbol_match_prior(tmp_path: Path) -> None:
+    symbol_item = CodeItem(
+        id="symbol",
+        path="src/auth.py",
+        title="src/auth.py::AuthTokenVerifier",
+        content="class AuthTokenVerifier: pass",
+        metadata={"index_kind": "symbol", "symbol": "AuthTokenVerifier"},
+    )
+    vector_item = CodeItem(
+        id="vector",
+        path="src/vector.py",
+        title="semantic neighbor",
+        content="auth token",
+        metadata={"index_kind": "chunk"},
+    )
+    graph_store = _graph_store(tmp_path, [symbol_item, vector_item], [])
+    strategy = HybridRetrievalStrategy(
+        FakeRetrievalStrategy([SearchResult(vector_item, 0.99)]),
+        graph_store,
+        HybridSearchConfig(
+            candidate_limit=5,
+            lexical_candidate_limit=5,
+            vector_weight=0.1,
+            lexical_weight=0.0,
+            path_weight=0.0,
+            symbol_weight=0.0,
+            symbol_match_weight=0.9,
+            graph_weight=0.0,
+        ),
+    )
+
+    results = strategy.search("AuthTokenVerifier", limit=2)
+
+    assert results[0].item.id == "symbol"
+
+
+def test_hybrid_strategy_traces_rank_stage_movement(tmp_path: Path) -> None:
+    trace_path = tmp_path / "trace.jsonl"
+    item = CodeItem(
+        id="symbol",
+        path="src/auth.py",
+        title="src/auth.py::AuthTokenVerifier",
+        content="class AuthTokenVerifier: pass",
+        metadata={"index_kind": "symbol", "symbol": "AuthTokenVerifier"},
+    )
+    graph_store = _graph_store(tmp_path, [item], [])
+    strategy = HybridRetrievalStrategy(
+        FakeRetrievalStrategy([SearchResult(item, 0.99)]),
+        graph_store,
+        HybridSearchConfig(candidate_limit=5, symbol_match_weight=0.1),
+        trace_logger=TraceLogger(TraceConfig(enabled=True, artifact=trace_path, include_prompts=False)),
+    )
+
+    strategy.search("AuthTokenVerifier", limit=1)
+
+    assert "hybrid_rank_stages" in trace_path.read_text(encoding="utf-8")
 
 
 def test_hybrid_strategy_can_preserve_confident_vector_top(tmp_path: Path) -> None:

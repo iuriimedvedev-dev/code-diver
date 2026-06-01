@@ -58,12 +58,14 @@ class RetrievalStrategyFactory:
                 self._hybrid_vector_strategy(config, provider, vector_store),
                 CodeGraphStore(config.graph.artifact),
                 config.hybrid_search,
+                trace_logger=TraceLogger(config.trace),
             )
         if strategy_id is RetrievalStrategyId.HYBRID_RERANK:
             hybrid = HybridRetrievalStrategy(
                 self._hybrid_vector_strategy(config, provider, vector_store),
                 CodeGraphStore(config.graph.artifact),
                 config.hybrid_search,
+                trace_logger=TraceLogger(config.trace),
             )
             return LlmRerankRetrievalStrategy(
                 hybrid,

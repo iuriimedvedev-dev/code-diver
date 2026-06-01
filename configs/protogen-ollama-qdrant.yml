@@ -87,6 +87,7 @@ hybrid_search:
   lexical_weight: 0.18
   path_weight: 0.12
   symbol_weight: 0.05
+  symbol_match_weight: 0.0
   graph_weight: 0.05
   file_vote_weight: 0.04
   graph_depth: 1
@@ -396,6 +397,37 @@ experiments:
           chunk: 1.05
         min_token_length: 3
       description: "AST-aware structural chunks plus file-level voting across vector, lexical, symbol, summary, and graph evidence."
+    - name: hybrid_candidates_symbol_first
+      strategy: hybrid
+      hybrid_search:
+        candidate_limit: 120
+        lexical_candidate_limit: 160
+        vector_weight: 0.56
+        lexical_weight: 0.15
+        path_weight: 0.1
+        symbol_weight: 0.06
+        symbol_match_weight: 0.08
+        graph_weight: 0.02
+        file_vote_weight: 0.03
+        graph_depth: 1
+        graph_neighbor_limit: 36
+        vector_kind_multipliers:
+          chunk: 0.35
+          symbol: 0.45
+          file_summary: 0.10
+          structural_chunk: 0.10
+        routing_enabled: true
+        lexical_scoring: bm25
+        fusion: weighted
+        preserve_vector_top: true
+        vector_top_score_margin: 0.03
+        item_kind_weights:
+          file_summary: 0.82
+          symbol: 1.08
+          structural_chunk: 0.70
+          chunk: 1.03
+        min_token_length: 3
+      description: "Symbol-first deterministic lane with a symbol-name prior and scalable split-vector budgets."
     - name: hybrid_candidates_routed_vector_guard
       strategy: hybrid
       hybrid_search:

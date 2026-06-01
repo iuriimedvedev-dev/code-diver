@@ -112,6 +112,40 @@ Interpretation:
 - It slightly lowers rerank Hit@1 versus fixed absolute quotas, but avoids hard-coded small budgets and is safer for large repositories.
 - For very large repositories, deterministic split search should be the default interactive mode; LLM file-first rerank should be reserved for hard queries or eval runs.
 
+## Symbol-First Lane
+
+Follow-up change: add a deterministic symbol-name prior and a symbol-heavy split vector lane.
+
+Implementation:
+
+- `symbol_match_weight` adds a distinct prior when query tokens match `metadata.symbol`.
+- Structural chunks now store their structural span title as `metadata.symbol` for future reindexes.
+- Hybrid trace logging writes `hybrid_rank_stages` events with vector, lexical, path, symbol, symbol-match, graph, file-vote, and final ranks for the top fused candidates.
+- The trace is capped to the top 60 fused candidates per query, so it remains usable on large repositories.
+
+Run ID: `912fa4fa72b9458995b6ee4ead7bb42f`
+
+| Hypothesis | Hit@1 | Hit@3 | Hit@10 | MRR@10 | nDCG@10 | Mean ms |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `hybrid_candidates_structural_file_vote` | 0.590 | 0.800 | 0.910 | 0.709 | 0.672 | 559 |
+| `hybrid_candidates_symbol_first` | 0.610 | 0.810 | 0.910 | 0.716 | 0.684 | 555 |
+| `hybrid_candidates_modern_graphrag_vector_guard` | 0.600 | 0.760 | 0.890 | 0.693 | 0.661 | 545 |
+
+Bucket impact for `hybrid_candidates_symbol_first`:
+
+| Bucket | Hit@1 | Hit@3 | Hit@10 | nDCG@10 |
+| --- | ---: | ---: | ---: | ---: |
+| path_symbol | 0.710 | 0.839 | 0.936 | 0.705 |
+| semantic | 0.600 | 0.733 | 0.900 | 0.708 |
+| workflow | 0.538 | 0.846 | 0.897 | 0.650 |
+
+Interpretation:
+
+- Symbol-first is the best deterministic profile so far on MRR and nDCG among the structural/split candidates.
+- It converts the observed symbol signal into rank movement: `first_relevant_kind.symbol.rate` rose to 0.714.
+- The gain is real but modest. It does not remove the need for a code-specialized embedding model.
+- Stage-level traces now make regressions attributable instead of only observable.
+
 ## Interpretation
 
 Structural chunks are useful as a recall and workflow signal, but harmful when they compete directly as pure vector top-1 candidates.
@@ -133,11 +167,12 @@ Current best use:
 - Downweight `structural_chunk` as a final ranked item.
 - Use file-first rerank when structural candidates are included.
 - Use split vector retrieval by index kind when structural chunks are enabled.
+- Use symbol-first deterministic search as the cheap default candidate generator before expensive rerank.
 
 Next experiments:
 
-1. Route structural/file-vote only for workflow queries.
-2. Add per-stage candidate logs: vector rank, lexical rank, graph rank, file-vote rank, rerank rank.
-3. Test a local cross-encoder reranker on the structural candidate set.
+1. Test a code-specialized embedding model and reindex.
+2. Route structural/file-vote only for workflow queries.
+3. Test a local cross-encoder reranker on the symbol-first candidate set.
 4. Add language-specific tree-sitter spans for Kotlin/Java/TypeScript after the Python AST path is stable.
 5. Build an IntelliJ evaluation dataset before trusting large-repo quality numbers.

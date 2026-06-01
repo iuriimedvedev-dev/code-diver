@@ -215,6 +215,7 @@ class ConfigLoader:
             lexical_weight=float(mapping.get("lexical_weight", Defaults.HYBRID_LEXICAL_WEIGHT)),
             path_weight=float(mapping.get("path_weight", Defaults.HYBRID_PATH_WEIGHT)),
             symbol_weight=float(mapping.get("symbol_weight", Defaults.HYBRID_SYMBOL_WEIGHT)),
+            symbol_match_weight=float(mapping.get("symbol_match_weight", Defaults.HYBRID_SYMBOL_MATCH_WEIGHT)),
             graph_weight=float(mapping.get("graph_weight", Defaults.HYBRID_GRAPH_WEIGHT)),
             file_vote_weight=float(mapping.get("file_vote_weight", Defaults.HYBRID_FILE_VOTE_WEIGHT)),
             vector_kind_limits=self._int_mapping(

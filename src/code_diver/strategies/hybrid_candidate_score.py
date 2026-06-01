@@ -13,6 +13,7 @@ class HybridCandidateScore:
     lexical_score: float = 0.0
     path_score: float = 0.0
     symbol_score: float = 0.0
+    symbol_match_score: float = 0.0
     graph_score: float = 0.0
     file_vote_score: float = 0.0
 
@@ -22,6 +23,7 @@ class HybridCandidateScore:
             + self.lexical_score * config.lexical_weight
             + self.path_score * config.path_weight
             + self.symbol_score * config.symbol_weight
+            + self.symbol_match_score * config.symbol_match_weight
             + self.graph_score * config.graph_weight
             + self.file_vote_score * config.file_vote_weight
         )

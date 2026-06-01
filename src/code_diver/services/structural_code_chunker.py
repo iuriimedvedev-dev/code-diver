@@ -119,6 +119,7 @@ class StructuralCodeChunker:
                         CodeItemMetadata.SOURCE: "scanner",
                         CodeItemMetadata.INDEX_KIND: CodeItemIndexKind.STRUCTURAL_CHUNK,
                         CodeItemMetadata.KIND: span.kind,
+                        CodeItemMetadata.SYMBOL: span.title,
                     },
                 )
             )

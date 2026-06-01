@@ -13,6 +13,7 @@ class HybridSearchConfig:
     lexical_weight: float = Defaults.HYBRID_LEXICAL_WEIGHT
     path_weight: float = Defaults.HYBRID_PATH_WEIGHT
     symbol_weight: float = Defaults.HYBRID_SYMBOL_WEIGHT
+    symbol_match_weight: float = Defaults.HYBRID_SYMBOL_MATCH_WEIGHT
     graph_weight: float = Defaults.HYBRID_GRAPH_WEIGHT
     file_vote_weight: float = Defaults.HYBRID_FILE_VOTE_WEIGHT
     vector_kind_limits: dict[str, int] = field(default_factory=lambda: dict(Defaults.HYBRID_VECTOR_KIND_LIMITS))

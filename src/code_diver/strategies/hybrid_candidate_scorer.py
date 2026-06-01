@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from ..domain import CodeItem
+from ..domain import CodeItemMetadata
 from .hybrid_candidate_score import HybridCandidateScore
 from .hybrid_item_profile import HybridItemProfile
 from .hybrid_item_profiler import HybridItemProfiler
@@ -28,12 +29,14 @@ class HybridCandidateScorer:
         content_coverage = self._coverage(profile.content_terms)
         path_coverage = self._coverage(profile.path_terms)
         symbol_coverage = self._coverage(profile.metadata_terms)
+        symbol_match_score = self._symbol_match_score(item, profile)
 
         return HybridCandidateScore(
             item=item,
             lexical_score=min(1.0, content_coverage * 0.75 + title_coverage * 0.25),
             path_score=path_coverage,
             symbol_score=symbol_coverage,
+            symbol_match_score=symbol_match_score,
         )
 
     def _coverage(self, candidates: frozenset[str]) -> float:
@@ -48,3 +51,15 @@ class HybridCandidateScorer:
             profile = self.profiler.profile(item)
             self.profiles[item.id] = profile
         return profile
+
+    def _symbol_match_score(self, item: CodeItem, profile: HybridItemProfile) -> float:
+        symbol = str(item.metadata.get(CodeItemMetadata.SYMBOL) or "")
+        if not symbol:
+            return 0.0
+        symbol_terms = profile.metadata_terms
+        if not symbol_terms:
+            return 0.0
+        matches = sum(1 for term in self.query.terms if term in symbol_terms)
+        if matches == 0:
+            return 0.0
+        return min(1.0, matches / max(min(len(symbol_terms), len(self.query.terms)), 1))
