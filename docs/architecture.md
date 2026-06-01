@@ -7,21 +7,24 @@ Code Diver is a config-first sandbox for codebase search experiments. The CLI is
 1. `code-diver index` scans a repository, builds code items, embeds them, and stores vectors in the configured store.
 2. `code-diver search` embeds a query and retrieves relevant code items.
 3. `code-diver evaluate` runs a fixed dataset through a retrieval strategy and emits quality and latency metrics.
-4. `code-diver evaluate-indexing` asks an AI orchestrator to build an isolated selected index, then evaluates that index with the same dataset.
+4. `code-diver evaluate-search-tools` runs LLM search-orchestrator hypotheses over a fixed dataset while keeping the index fixed.
 
-## Hybrid Indexing
+## Deterministic Hybrid Indexing
+
+Indexing is intentionally deterministic. The model is not in the indexing loop for the active configs because index construction must be reproducible, cheap, parallelizable, and scalable to large repositories. LLMs are reserved for search-time routing, reranking, and bounded verification.
 
 The scanner can now build three complementary index item types in one artifact:
 
 | `index_kind` | Built from | Best role |
 | --- | --- | --- |
 | `chunk` | Fixed-size source line ranges. | Evidence snippets and broad semantic retrieval. |
+| `structural_chunk` | AST/generic symbol spans. | Boundary-aware class/function/module retrieval without splitting important blocks. |
 | `symbol` | Classes/functions/methods extracted from source. | API, command, handler, class, function, and identifier queries. |
 | `file_summary` | Per-file summary item with imports, symbols, and leading non-empty lines. | File-level recall candidate; should usually be downweighted for top-rank evidence. |
 
 The hybrid retriever can apply `hybrid_search.item_kind_weights` after vector/lexical/path/symbol/graph scoring. This lets experiments keep multiple index types in Qdrant while controlling which item type is allowed to dominate ranking.
 
-The search tool payload includes `indexKind`, so orchestrator logs can show whether a candidate came from chunk, symbol, or file-summary indexing.
+The indexing trace event `index_items_prepared` includes `items_by_kind` and `paths_by_kind`. The search tool payload includes `indexKind`, so orchestrator logs can show whether a candidate came from chunk, structural, symbol, or file-summary indexing.
 
 ## Modern GraphRAG
 
@@ -29,8 +32,8 @@ The graph artifact is deterministic and AST-derived. It is rebuilt by `code-dive
 
 Current node set:
 
-- all indexed `chunk`, `symbol`, and `file_summary` items;
-- plugin and AI-selected items when those indexers are used.
+- all indexed `chunk`, `structural_chunk`, `symbol`, and `file_summary` items;
+- plugin items when configured.
 
 Current typed edge set:
 
@@ -59,9 +62,9 @@ Retrieval does not traverse all edges uniformly. `GraphExpansionProfileFactory` 
 | Providers | Provider-agnostic embedding and generation implementations. |
 | Stores | JSON and Qdrant vector persistence. Local Qdrant is the default serious store. |
 | Inspection | Read-only repo tools: tree, symbols, grep, rg, read, inspect. |
-| Indexing | Scanner index, AI-selected index, plugins, AST GraphRAG graph build. |
+| Indexing | Deterministic scanner index, plugins, AST GraphRAG graph build. |
 | Retrieval | Vector, recursive, graph, hybrid, and bounded LLM-rerank retrieval strategies. |
-| Evaluation | Dataset loading, metric computation, route-bucket diagnostics, item-kind diagnostics, experiment and indexing-hypothesis runs. |
+| Evaluation | Dataset loading, metric computation, route-bucket diagnostics, item-kind diagnostics, retrieval experiments, and search-tool experiments. |
 | Pi Extension | Optional interactive backend for `ask`/`chat`; not used by reproducible eval runs. |
 
 ## Agent Tool Modes
@@ -70,11 +73,9 @@ The direct orchestrator receives only the tools allowed by the selected hypothes
 
 - `vector_search`: vector search plus read-only verification tools.
 - `grep_search`: tree, symbols, grep, rg, read, inspect; no vector search.
-- `indexing`: read-only inspection plus `code_diver_index_selected`.
-- single-tool indexing hypotheses: one discovery tool plus `code_diver_index_selected`.
 - `ai_search_hybrid_orchestrator`: the universal hybrid search hypothesis. It exposes `code_diver_search`, tree, symbols, grep, rg, read, and inspect together.
 
-`code_diver_index_selected` accepts only paths and line ranges. The model cannot inject arbitrary indexed content; the CLI reads the files from disk and enforces repository-root and gitignore guards.
+The active Pi/direct search toolsets do not expose `code_diver_index` or `code_diver_index_selected`. Agents can inspect and rank, but they cannot mutate the index.
 
 ## Universal Hybrid Orchestrator
 
@@ -98,6 +99,10 @@ The intended model behavior is a hybrid plan, not a fixed codebase-specific scri
 The model can put several cheap probes in the same `tool_calls` array. The runtime preserves result ordering while executing those probes asynchronously, so a hybrid first round can gather vector, lexical, symbol, and repository-map signals without extra model turns.
 
 Search verification reads are budgeted. `DirectSearchOrchestrator` allows at most 10 `code_diver_read` calls per case; extra reads return a structured budget error while other tools in the batch still run. The intended flow is candidate generation through `code_diver_search`, cheap verification through `grep`/`rg` or scoped symbols, and only then small targeted reads for final evidence.
+
+## Legacy AI Indexing
+
+The codebase still contains `evaluate-indexing`, `index-selected`, and the selected-indexing services as research artifacts. They are not part of the active configuration. The current direction is deterministic comprehensive indexing first, then LLM-assisted search over that fixed index.
 
 ## Bounded LLM Rerank
 

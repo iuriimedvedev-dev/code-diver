@@ -128,13 +128,10 @@ pi:
     - google/gemini-2.5-flash
   timeout_seconds: 90
   tools:
-    - code_diver_index
-    - code_diver_index_selected
     - code_diver_search
     - code_diver_inspect
     - code_diver_open
     - code_diver_evaluate
-    - code_diver_experiment
     - code_diver_tree
     - code_diver_grep
     - code_diver_rg
@@ -142,15 +139,6 @@ pi:
     - code_diver_symbols
     - code_diver_rerank
   toolsets:
-    indexing:
-      - code_diver_tree
-      - code_diver_symbols
-      - code_diver_grep
-      - code_diver_rg
-      - code_diver_read
-      - code_diver_inspect
-      - code_diver_index_selected
-      - code_diver_evaluate
     vector_search:
       - code_diver_search
       - code_diver_inspect
@@ -934,52 +922,6 @@ experiments:
         - code_diver_symbols
         - code_diver_read
       description: Direct orchestrator combines vector candidates, symbols, and bounded reads.
-    - name: ai_selected_index
-      toolset: indexing
-      description: Direct orchestrator inspects the repository and saves selected file ranges into Qdrant.
-    - name: ai_adaptive_selected_index
-      toolset: indexing
-      generation:
-        provider: vertex
-        model: gemini-3.1-flash-lite
-        fallback_models: []
-        project: "236777862453"
-        location: global
-        temperature: 0
-        thinking_budget: 256
-        api_version: v1
-        timeout_ms: 20000
-      description: Adaptive AI-guided indexer that uses repo-map, symbol, regex, and read evidence before saving selected ranges.
-    - name: ai_index_tree_only
-      tools:
-        - code_diver_tree
-        - code_diver_index_selected
-      description: Direct orchestrator indexes with only tree discovery plus selected persistence.
-    - name: ai_index_symbols_only
-      tools:
-        - code_diver_symbols
-        - code_diver_index_selected
-      description: Direct orchestrator indexes with only symbol listing plus selected persistence.
-    - name: ai_index_grep_only
-      tools:
-        - code_diver_grep
-        - code_diver_index_selected
-      description: Direct orchestrator indexes with only literal grep plus selected persistence.
-    - name: ai_index_rg_only
-      tools:
-        - code_diver_rg
-        - code_diver_index_selected
-      description: Direct orchestrator indexes with only regex search plus selected persistence.
-    - name: ai_index_read_only
-      tools:
-        - code_diver_read
-        - code_diver_index_selected
-      description: Direct orchestrator indexes with only bounded reads plus selected persistence.
-    - name: ai_index_inspect_only
-      tools:
-        - code_diver_inspect
-        - code_diver_index_selected
-      description: Direct orchestrator indexes with only the concurrent inspect tool plus selected persistence.
 
 metrics:
   enabled: false

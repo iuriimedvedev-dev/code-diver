@@ -35,6 +35,7 @@ from .services import (
     CodebaseScanner,
     DatasetLoader,
     GraphIndexingService,
+    IndexCompositionAnalyzer,
     IndexingOptions,
     IndexingService,
     SelectedCodeItemBuilder,
@@ -198,6 +199,7 @@ def cmd_index(_: argparse.Namespace, config: AppConfig) -> int:
         f"Indexed {len(items)} items -> {store_label(config)} "
         f"({provider.name}, model={provider.model}, dimensions={provider.dimensions})"
     )
+    print(format_index_composition(items))
     close_vector_store(indexing_service.vector_store)
     return 0
 
@@ -816,6 +818,15 @@ def make_search_tool_handler(strategy: Any):
         )
 
     return handle
+
+
+def format_index_composition(items: list[Any]) -> str:
+    composition = IndexCompositionAnalyzer().analyze(items)
+    items_by_kind = composition["items_by_kind"]
+    if not items_by_kind:
+        return "Index composition: empty"
+    pairs = ", ".join(f"{kind}={count}" for kind, count in items_by_kind.items())
+    return f"Index composition: {pairs}; unique_paths={composition['unique_paths']}"
 
 
 def make_rerank_tool_handler(config: AppConfig, generation_provider: Any):

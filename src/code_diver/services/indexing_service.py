@@ -10,6 +10,7 @@ from ..store import VectorStore
 from ..tracing import TraceLogger
 from .code_item_scanner import CodeItemScanner
 from .embedding_text_preparer import EmbeddingTextPreparer
+from .index_composition_analyzer import IndexCompositionAnalyzer
 from .indexing_options import IndexingOptions
 from .parallel_embedding_service import ParallelEmbeddingService
 
@@ -38,14 +39,14 @@ class IndexingService:
         scanned_items = self.scanner.scan(root)
         plugin_items = self.plugin_manager.collect_items(root, plugin_config or {})
         items = self.plugin_manager.transform_items(self._dedupe_items([*scanned_items, *plugin_items]))
+        composition = IndexCompositionAnalyzer().analyze(items)
         self.trace_logger.write(
             "index_items_prepared",
             {
                 "root": root,
                 "scanner_items": len(scanned_items),
                 "plugin_items": len(plugin_items),
-                "indexed_items": len(items),
-                "unique_paths": len({item.path for item in items}),
+                **composition,
                 "embedding_batch_size": self.options.embedding_batch_size,
                 "embedding_workers": self.options.embedding_workers,
                 "embedding_max_input_chars": self.options.embedding_max_input_chars,

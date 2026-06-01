@@ -19,7 +19,8 @@ def test_default_pi_tools_exclude_write_capable_escape_hatches() -> None:
     assert "find" not in config.pi.tools
     assert "ls" not in config.pi.tools
     assert "code_diver_inspect" in config.pi.tools
-    assert "code_diver_index_selected" in config.pi.tools
+    assert "code_diver_index" not in config.pi.tools
+    assert "code_diver_index_selected" not in config.pi.tools
     assert "code_diver_tree" in config.pi.tools
     assert "code_diver_grep" in config.pi.tools
     assert "code_diver_rg" in config.pi.tools
@@ -31,7 +32,4 @@ def test_default_pi_tools_exclude_write_capable_escape_hatches() -> None:
     assert "code_diver_index_selected" not in grep_tools
     assert {"code_diver_tree", "code_diver_rg", "code_diver_read"}.issubset(grep_tools)
 
-    indexing_tools = config.pi.toolsets["indexing"]
-    assert "code_diver_index_selected" in indexing_tools
-    assert "bash" not in indexing_tools
-    assert "read" not in indexing_tools
+    assert "indexing" not in config.pi.toolsets
