@@ -46,7 +46,4 @@ class VertexEmbeddingProvider(GeminiEmbeddingProvider):
         self.types = types
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
-        vectors: list[list[float]] = []
-        for text in texts:
-            vectors.extend(super().embed_documents([text]))
-        return vectors
+        return super().embed_documents(texts)

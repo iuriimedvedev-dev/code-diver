@@ -21,9 +21,15 @@ class AiCodebaseScanner:
         self.scanner = scanner
         self.generation_provider = generation_provider
         self.config = config
+        self.last_error: str | None = None
 
     def scan(self, root: Path) -> list[CodeItem]:
         context = AiIndexContextCollector(self.scanner, self.config).collect(root)
         prompt = AiIndexPromptBuilder(self.config).build(context)
-        response = self.generation_provider.generate_json(prompt)
-        return AiIndexResponseParser().parse(response, self.config.max_items)
+        try:
+            response = self.generation_provider.generate_json(prompt)
+            self.last_error = None
+            return AiIndexResponseParser().parse(response, self.config.max_items)
+        except Exception as exc:
+            self.last_error = f"{type(exc).__name__}: {exc}"
+            return self.scanner.scan(root)

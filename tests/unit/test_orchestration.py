@@ -122,6 +122,31 @@ def test_orchestrated_scanner_rejects_broad_ai_include_additions(tmp_path: Path)
     assert any(record["event"] == "index_plan_rejected_include" for record in records)
 
 
+def test_orchestrated_scanner_rejects_broad_ai_excludes(tmp_path: Path) -> None:
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "main.py").write_text("def main(): pass\n", encoding="utf-8")
+    trace_path = tmp_path / "trace.jsonl"
+    provider = FakeGenerationProvider('{"include":["*.py"],"exclude":["*.py"],"chunk_lines":50}')
+
+    scanner = OrchestratedCodebaseScanner(
+        CodebaseScanner(include=["src/*.py"]),
+        provider,
+        AppConfig(
+            root=tmp_path,
+            indexing=IndexingConfig(mode="orchestrated", ai=AiIndexConfig(tree_limit=20)),
+            scanner=ScannerConfig(include=["src/*.py"]),
+            trace=TraceConfig(enabled=True, artifact=trace_path, include_prompts=False),
+        ),
+        TraceLogger(TraceConfig(enabled=True, artifact=trace_path, include_prompts=False)),
+    )
+
+    items = scanner.scan(tmp_path)
+
+    assert [item.path for item in items] == ["src/main.py"]
+    records = [json.loads(line) for line in trace_path.read_text(encoding="utf-8").splitlines()]
+    assert any(record["event"] == "index_plan_rejected_exclude" for record in records)
+
+
 def test_orchestrated_retrieval_plans_queries_without_index_contents() -> None:
     provider = FakeGenerationProvider('{"queries":["auth config","login settings"]}')
     base = FakeBaseStrategy()

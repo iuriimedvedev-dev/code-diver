@@ -189,11 +189,12 @@ class DirectSearchOrchestrator:
         results_by_index: dict[int, ToolResult] = {}
         for index, call in enumerate(calls):
             self.logger.write("tool_call", {"case_id": case_id, "name": call.name, "arguments": call.arguments})
-            if call.name == "code_diver_read":
-                if read_calls_used >= self.MAX_READ_CALLS:
-                    results_by_index[index] = self._read_budget_exceeded_result()
+            requested_reads = self._requested_read_count(call)
+            if requested_reads:
+                if read_calls_used + requested_reads > self.MAX_READ_CALLS:
+                    results_by_index[index] = self._read_budget_exceeded_result(call.name)
                     continue
-                read_calls_used += 1
+                read_calls_used += requested_reads
             executable.append((index, call))
         executed_results = ParallelToolExecutor(self.MAX_PARALLEL_TOOLS).execute(
             [call for _, call in executable],
@@ -210,12 +211,20 @@ class DirectSearchOrchestrator:
             )
         return results, read_calls_used
 
-    def _read_budget_exceeded_result(self) -> ToolResult:
+    def _requested_read_count(self, call: ToolCall) -> int:
+        if call.name == "code_diver_read":
+            return 1
+        if call.name != "code_diver_inspect":
+            return 0
+        reads = call.arguments.get("reads") or []
+        return len(reads) if isinstance(reads, list) else 0
+
+    def _read_budget_exceeded_result(self, tool_name: str) -> ToolResult:
         return ToolResult(
-            "code_diver_read",
+            tool_name,
             json.dumps(
                 {
-                    "tool": "code_diver_read",
+                    "tool": tool_name,
                     "ok": False,
                     "error": f"read_budget_exceeded: max {self.MAX_READ_CALLS} code_diver_read calls per case",
                     "metrics": {"maxReadCalls": self.MAX_READ_CALLS},

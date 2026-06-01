@@ -26,8 +26,36 @@ class IndexPlanSanitizer:
             safe.append(pattern)
         return safe, rejected
 
+    def safe_exclude_additions(
+        self,
+        root: Path,
+        additions: list[str],
+        existing_excludes: list[str],
+        max_excluded_files: int,
+    ) -> tuple[list[str], list[str]]:
+        safe: list[str] = []
+        rejected: list[str] = []
+        for pattern in additions:
+            if self._hidden_pattern(pattern) or self._broad_exclude_pattern(pattern):
+                rejected.append(pattern)
+                continue
+            match_count = self._count_matching_files(root, pattern, existing_excludes, max_excluded_files + 1)
+            if match_count > max_excluded_files:
+                rejected.append(pattern)
+                continue
+            safe.append(pattern)
+        return safe, rejected
+
     def _hidden_pattern(self, pattern: str) -> bool:
         return pattern.startswith(".") or "/." in pattern
+
+    def _broad_exclude_pattern(self, pattern: str) -> bool:
+        normalized = pattern.strip()
+        return (
+            normalized in {"*", "**", "**/*", "./**/*"}
+            or normalized.startswith("**/*.")
+            or ("/" not in normalized and normalized.startswith("*."))
+        )
 
     def _count_matching_files(self, root: Path, pattern: str, excludes: list[str], limit: int) -> int:
         count = 0

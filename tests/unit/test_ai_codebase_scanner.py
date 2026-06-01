@@ -38,6 +38,12 @@ class FakeGenerationProvider:
 """.strip()
 
 
+class BrokenGenerationProvider(FakeGenerationProvider):
+    def generate_json(self, prompt: str) -> str:
+        self.prompt = prompt
+        raise RuntimeError("model unavailable")
+
+
 def test_ai_codebase_scanner_builds_generic_semantic_items(tmp_path: Path) -> None:
     source = tmp_path / "orders.py"
     source.write_text(
@@ -62,3 +68,20 @@ class OrderRepository:
     assert "tree(path" in provider.prompt
     assert "rg(pattern" in provider.prompt
     assert "OrderRepository" in provider.prompt
+
+
+def test_ai_codebase_scanner_falls_back_to_base_scan_on_generation_error(tmp_path: Path) -> None:
+    source = tmp_path / "orders.py"
+    source.write_text("class OrderRepository:\n    pass\n", encoding="utf-8")
+    provider = BrokenGenerationProvider()
+    scanner = AiCodebaseScanner(
+        CodebaseScanner(include=["*.py"], chunk_lines=40),
+        provider,
+        AiIndexConfig(max_files=5, max_items=10, max_context_chars=10000),
+    )
+
+    items = scanner.scan(tmp_path)
+
+    assert [item.path for item in items] == ["orders.py"]
+    assert scanner.last_error is not None
+    assert "RuntimeError" in scanner.last_error

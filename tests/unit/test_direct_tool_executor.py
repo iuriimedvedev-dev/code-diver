@@ -64,3 +64,32 @@ def test_direct_tool_executor_rejects_unscoped_symbols_when_search_is_available(
     assert result.ok is False
     assert payload["ok"] is False
     assert "requires a path" in payload["error"]
+
+
+def test_direct_tool_executor_rejects_path_escape_at_executor_boundary(tmp_path: Path) -> None:
+    result = DirectToolExecutor(tmp_path, ["code_diver_read"]).execute(
+        ToolCall("code_diver_read", {"file": "../secret.txt"})
+    )
+
+    payload = json.loads(result.content)
+    assert result.ok is False
+    assert payload["ok"] is False
+    assert "escapes repository root" in payload["error"]
+
+
+def test_direct_tool_executor_caps_inspect_reads(tmp_path: Path) -> None:
+    source = tmp_path / "src" / "service.py"
+    source.parent.mkdir()
+    source.write_text("line one\n", encoding="utf-8")
+
+    result = DirectToolExecutor(tmp_path, ["code_diver_inspect"], max_inspect_reads=1).execute(
+        ToolCall(
+            "code_diver_inspect",
+            {"reads": [{"file": "src/service.py"}, {"file": "src/service.py"}]},
+        )
+    )
+
+    payload = json.loads(result.content)
+    assert payload["ok"] is True
+    assert payload["result"]["metrics"]["readCount"] == 1
+    assert payload["result"]["sections"][1]["result"]["error"].startswith("inspect_read_budget_exceeded")

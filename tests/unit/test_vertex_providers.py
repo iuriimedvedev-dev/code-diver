@@ -92,7 +92,7 @@ def test_vertex_embedding_provider_reuses_embedding_2_contract() -> None:
         EmbedContentConfig=FakeEmbedContentConfig,
     )
 
-    assert provider.embed_documents(["a", "b"]) == [[0.0], [0.0]]
-    assert len(models.embed_calls) == 2
+    assert provider.embed_documents(["a", "b"]) == [[0.0], [1.0]]
+    assert len(models.embed_calls) == 1
     assert models.embed_calls[0]["config"].kwargs == {"output_dimensionality": 768}
     assert models.embed_calls[0]["contents"][0].parts[0].text.startswith("Task: retrieve relevant codebase context.")

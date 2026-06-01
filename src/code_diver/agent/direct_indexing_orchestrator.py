@@ -30,6 +30,7 @@ class DirectIndexingOrchestrator:
     MAX_ROUNDS = 8
     MAX_ITEMS = 40
     MAX_PARALLEL_TOOLS = 8
+    MAX_INSPECT_READS = 10
 
     def __init__(
         self,
@@ -65,7 +66,13 @@ class DirectIndexingOrchestrator:
 
     def run(self, hypothesis_name: str, cases: list[Any]) -> DirectIndexingResult:
         discovery_tools = [tool for tool in self.allowed_tools if tool != "code_diver_index_selected"]
-        executor = DirectToolExecutor(self.root, discovery_tools, exclude=self.exclude, max_file_bytes=self.max_file_bytes)
+        executor = DirectToolExecutor(
+            self.root,
+            discovery_tools,
+            exclude=self.exclude,
+            max_file_bytes=self.max_file_bytes,
+            max_inspect_reads=self.MAX_INSPECT_READS,
+        )
         history: list[dict[str, Any]] = []
         usage = DirectIndexingResult(exit_code=0)
         self.logger.write(

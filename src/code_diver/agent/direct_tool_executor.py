@@ -5,6 +5,7 @@ from pathlib import Path
 from time import perf_counter
 from typing import Any, Callable
 
+from ..inspection.path_guard import PathGuard
 from ..inspection import GrepService, ReadExcerptService, RgService, SymbolsService, TreeService
 from .tool_call import ToolCall
 from .tool_manifest_builder import ToolManifestBuilder
@@ -21,12 +22,15 @@ class DirectToolExecutor:
         search_handler: Callable[[str, int], str] | None = None,
         exclude: list[str] | None = None,
         max_file_bytes: int = 1_000_000,
+        max_inspect_reads: int = 10,
     ):
         self.root = root
+        self.guard = PathGuard(root)
         self.allowed_tools = set(allowed_tools)
         self.search_handler = search_handler
         self.exclude = exclude or []
         self.max_file_bytes = max_file_bytes
+        self.max_inspect_reads = max_inspect_reads
 
     def execute(self, call: ToolCall) -> ToolResult:
         started = perf_counter()
@@ -42,12 +46,12 @@ class DirectToolExecutor:
         args = call.arguments
         if call.name == "code_diver_tree":
             return TreeService(self.root, self.exclude).list_entries(
-                path=self._optional_str(args.get("path")),
+                path=self._validated_optional_path(args.get("path")),
                 max_depth=int(args.get("depth") or 3),
                 limit=int(args.get("limit") or 200),
             )
         if call.name == "code_diver_symbols":
-            path = self._optional_str(args.get("path"))
+            path = self._validated_optional_path(args.get("path"))
             if path is None and "code_diver_search" in self.allowed_tools:
                 raise ValueError("code_diver_symbols requires a path when code_diver_search is available")
             return SymbolsService(self.root, self.exclude, self.max_file_bytes).structured(
@@ -57,20 +61,20 @@ class DirectToolExecutor:
         if call.name == "code_diver_grep":
             return GrepService(self.root, self.exclude, self.max_file_bytes).structured(
                 str(args.get("pattern") or ""),
-                path=self._optional_str(args.get("path")),
+                path=self._validated_optional_path(args.get("path")),
                 limit=int(args.get("limit") or 100),
                 include_text=bool(args.get("includeText") or args.get("include_text") or False),
             )
         if call.name == "code_diver_rg":
             return RgService(self.root, self.exclude, self.max_file_bytes).structured(
                 str(args.get("pattern") or ""),
-                path=self._optional_str(args.get("path")),
+                path=self._validated_optional_path(args.get("path")),
                 limit=int(args.get("limit") or 100),
                 include_text=bool(args.get("includeText") or args.get("include_text") or False),
             )
         if call.name == "code_diver_read":
             return ReadExcerptService(self.root, self.exclude, self.max_file_bytes).structured(
-                str(args.get("file") or args.get("path") or ""),
+                self._validated_required_path(args.get("file") or args.get("path")),
                 start_line=int(args.get("startLine", args.get("start_line", 1)) or 1),
                 lines=int(args.get("lines") or 80),
             )
@@ -85,14 +89,16 @@ class DirectToolExecutor:
 
     def _inspect(self, args: dict[str, Any]) -> dict[str, Any]:
         sections: list[dict[str, Any]] = []
+        reads_used = 0
         for value in args.get("trees") or []:
             value = self._object_value(value, "path")
+            path = self._validated_optional_path(value.get("path"))
             sections.append(
                 {
                     "kind": "tree",
-                    "query": {"path": value.get("path") or "."},
+                    "query": {"path": path or "."},
                     "result": TreeService(self.root, self.exclude).list_entries(
-                        path=self._optional_str(value.get("path")),
+                        path=path,
                         max_depth=int(value.get("depth") or 3),
                         limit=int(value.get("limit") or 200),
                     ),
@@ -100,25 +106,27 @@ class DirectToolExecutor:
             )
         for value in args.get("symbols") or []:
             value = self._object_value(value, "path")
+            path = self._validated_optional_path(value.get("path"))
             sections.append(
                 {
                     "kind": "symbols",
-                    "query": {"path": value.get("path") or "."},
+                    "query": {"path": path or "."},
                     "result": SymbolsService(self.root, self.exclude, self.max_file_bytes).structured(
-                        path=self._optional_str(value.get("path")),
+                        path=path,
                         limit=int(value.get("limit") or 200),
                     ),
                 }
             )
         for value in args.get("literals") or []:
             value = self._object_value(value, "pattern")
+            path = self._validated_optional_path(value.get("path"))
             sections.append(
                 {
                     "kind": "grep",
-                    "query": {"pattern": value.get("pattern"), "path": value.get("path")},
+                    "query": {"pattern": value.get("pattern"), "path": path},
                     "result": GrepService(self.root, self.exclude, self.max_file_bytes).structured(
                         str(value.get("pattern") or ""),
-                        path=self._optional_str(value.get("path")),
+                        path=path,
                         limit=int(value.get("limit") or 100),
                         include_text=bool(value.get("includeText") or value.get("include_text") or False),
                     ),
@@ -126,13 +134,14 @@ class DirectToolExecutor:
             )
         for value in args.get("regexes") or []:
             value = self._object_value(value, "pattern")
+            path = self._validated_optional_path(value.get("path"))
             sections.append(
                 {
                     "kind": "rg",
-                    "query": {"pattern": value.get("pattern"), "path": value.get("path")},
+                    "query": {"pattern": value.get("pattern"), "path": path},
                     "result": RgService(self.root, self.exclude, self.max_file_bytes).structured(
                         str(value.get("pattern") or ""),
-                        path=self._optional_str(value.get("path")),
+                        path=path,
                         limit=int(value.get("limit") or 100),
                         include_text=bool(value.get("includeText") or value.get("include_text") or False),
                     ),
@@ -140,12 +149,26 @@ class DirectToolExecutor:
             )
         for value in args.get("reads") or []:
             value = self._object_value(value, "file")
+            if reads_used >= self.max_inspect_reads:
+                sections.append(
+                    {
+                        "kind": "read",
+                        "query": {"path": value.get("file") or value.get("path")},
+                        "result": {
+                            "ok": False,
+                            "error": f"inspect_read_budget_exceeded: max {self.max_inspect_reads} reads per inspect call",
+                        },
+                    }
+                )
+                continue
+            reads_used += 1
+            path = self._validated_required_path(value.get("file") or value.get("path"))
             sections.append(
                 {
                     "kind": "read",
-                    "query": {"path": value.get("file") or value.get("path")},
+                    "query": {"path": path},
                     "result": ReadExcerptService(self.root, self.exclude, self.max_file_bytes).structured(
-                        str(value.get("file") or value.get("path") or ""),
+                        path,
                         start_line=int(value.get("startLine", value.get("start_line", 1)) or 1),
                         lines=int(value.get("lines") or 80),
                     ),
@@ -155,6 +178,7 @@ class DirectToolExecutor:
             "sections": sections,
             "metrics": {
                 "sectionCount": len(sections),
+                "readCount": reads_used,
                 "empty": not sections,
             },
         }
@@ -167,6 +191,18 @@ class DirectToolExecutor:
             return None
         text = str(value).strip()
         return text or None
+
+    def _validated_optional_path(self, value: Any) -> str | None:
+        path = self._optional_str(value)
+        self.guard.resolve(path)
+        return path
+
+    def _validated_required_path(self, value: Any) -> str:
+        path = self._optional_str(value)
+        if path is None:
+            raise ValueError("path is required")
+        self.guard.resolve(path)
+        return path
 
     def _object_value(self, value: Any, key: str) -> dict[str, Any]:
         if isinstance(value, dict):

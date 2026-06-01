@@ -28,18 +28,27 @@ class OrchestratedCodebaseScanner:
         plan = IndexPlanOrchestrator(self.generation_provider, self.trace_logger).plan(
             root, self.config, self.base_scanner
         )
-        safe_additions, rejected_additions = IndexPlanSanitizer().safe_include_additions(
+        sanitizer = IndexPlanSanitizer()
+        safe_additions, rejected_additions = sanitizer.safe_include_additions(
             root,
             plan.include,
             self.base_scanner.exclude,
             max_added_files=max(self.config.indexing.ai.max_files, 200),
         )
+        safe_excludes, rejected_excludes = sanitizer.safe_exclude_additions(
+            root,
+            plan.exclude,
+            self.config.scanner.exclude,
+            max_excluded_files=max(self.config.indexing.ai.max_files, 200),
+        )
         include = self._merge_patterns(self.config.scanner.include, safe_additions)
-        exclude = [*self.config.scanner.exclude, *plan.exclude]
+        exclude = [*self.config.scanner.exclude, *safe_excludes]
         chunk_lines = plan.chunk_lines or self.config.scanner.chunk_lines
         symbol_chunks = plan.symbol_chunks if plan.symbol_chunks is not None else self.config.scanner.symbol_chunks
         if rejected_additions:
             self.trace_logger.write("index_plan_rejected_include", {"include": rejected_additions})
+        if rejected_excludes:
+            self.trace_logger.write("index_plan_rejected_exclude", {"exclude": rejected_excludes})
         self.trace_logger.write(
             "index_scanner_config_selected",
             {
