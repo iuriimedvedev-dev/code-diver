@@ -684,6 +684,8 @@ def make_embedding_provider(config: AppConfig, payload: dict[str, Any] | None = 
         batch_size=embedding.batch_size,
         retry_attempts=embedding.retry_attempts,
         retry_delay_seconds=embedding.retry_delay_seconds,
+        document_prefix=embedding.document_prefix,
+        query_prefix=embedding.query_prefix,
     )
 
 

@@ -22,6 +22,8 @@ class HybridSearchConfig:
     bm25_k1: float = Defaults.HYBRID_BM25_K1
     bm25_b: float = Defaults.HYBRID_BM25_B
     routing_enabled: bool = Defaults.HYBRID_ROUTING_ENABLED
+    preserve_vector_top: bool = Defaults.HYBRID_PRESERVE_VECTOR_TOP
+    vector_top_score_margin: float = Defaults.HYBRID_VECTOR_TOP_SCORE_MARGIN
     item_kind_weights: dict[str, float] = field(default_factory=lambda: dict(Defaults.HYBRID_ITEM_KIND_WEIGHTS))
     min_token_length: int = Defaults.HYBRID_MIN_TOKEN_LENGTH
     stop_words: list[str] = field(default_factory=lambda: list(Defaults.HYBRID_STOP_WORDS))

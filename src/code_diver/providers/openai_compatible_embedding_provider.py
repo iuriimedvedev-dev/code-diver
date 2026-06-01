@@ -13,6 +13,8 @@ class OpenAICompatibleEmbeddingProvider(OpenAIEmbeddingProvider):
         batch_size: int = 32,
         url: str | None = None,
         timeout_seconds: float = Defaults.OPENAI_TIMEOUT_SECONDS,
+        document_prefix: str | None = Defaults.EMBEDDING_DOCUMENT_PREFIX,
+        query_prefix: str | None = Defaults.EMBEDDING_QUERY_PREFIX,
     ):
         super().__init__(
             model=model,
@@ -21,6 +23,8 @@ class OpenAICompatibleEmbeddingProvider(OpenAIEmbeddingProvider):
             batch_size=batch_size,
             url=url or f"{Defaults.LOCAL_OPENAI_BASE_URL}/embeddings",
             timeout_seconds=timeout_seconds,
+            document_prefix=document_prefix,
+            query_prefix=query_prefix,
         )
         self.name = EmbeddingProviderId.OPENAI_COMPATIBLE.value
 

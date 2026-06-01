@@ -238,6 +238,76 @@ def test_hybrid_strategy_applies_item_kind_weights(tmp_path: Path) -> None:
     assert results[0].item.id == "summary"
 
 
+def test_hybrid_strategy_can_preserve_confident_vector_top(tmp_path: Path) -> None:
+    vector_top = CodeItem(
+        id="vector-top",
+        path="src/auth/token.py",
+        title="token verifier",
+        content="def verify_token(): pass",
+    )
+    lexical_top = CodeItem(
+        id="lexical-top",
+        path="src/auth/readme.py",
+        title="authorization token token token",
+        content="authorization token token token token token token token",
+    )
+    graph_store = _graph_store(tmp_path, [vector_top, lexical_top], [])
+    strategy = HybridRetrievalStrategy(
+        FakeRetrievalStrategy([SearchResult(vector_top, 0.95), SearchResult(lexical_top, 0.84)]),
+        graph_store,
+        HybridSearchConfig(
+            candidate_limit=5,
+            lexical_candidate_limit=5,
+            vector_weight=0.05,
+            lexical_weight=0.95,
+            path_weight=0.0,
+            symbol_weight=0.0,
+            graph_weight=0.0,
+            preserve_vector_top=True,
+            vector_top_score_margin=0.05,
+        ),
+    )
+
+    results = strategy.search("authorization token", limit=2)
+
+    assert results[0].item.id == "vector-top"
+
+
+def test_hybrid_strategy_does_not_preserve_vector_top_without_margin(tmp_path: Path) -> None:
+    vector_top = CodeItem(
+        id="vector-top",
+        path="src/auth/token.py",
+        title="token verifier",
+        content="def verify_token(): pass",
+    )
+    lexical_top = CodeItem(
+        id="lexical-top",
+        path="src/auth/readme.py",
+        title="authorization token token token",
+        content="authorization token token token token token token token",
+    )
+    graph_store = _graph_store(tmp_path, [vector_top, lexical_top], [])
+    strategy = HybridRetrievalStrategy(
+        FakeRetrievalStrategy([SearchResult(vector_top, 0.95), SearchResult(lexical_top, 0.94)]),
+        graph_store,
+        HybridSearchConfig(
+            candidate_limit=5,
+            lexical_candidate_limit=5,
+            vector_weight=0.05,
+            lexical_weight=0.95,
+            path_weight=0.0,
+            symbol_weight=0.0,
+            graph_weight=0.0,
+            preserve_vector_top=True,
+            vector_top_score_margin=0.05,
+        ),
+    )
+
+    results = strategy.search("authorization token", limit=2)
+
+    assert results[0].item.id == "lexical-top"
+
+
 def _graph_store(tmp_path: Path, items: list[CodeItem], edges: list[GraphEdge]) -> CodeGraphStore:
     store = CodeGraphStore(tmp_path / "graph.json")
     store.save(CodeGraph(items={item.id: item for item in items}, edges=edges))

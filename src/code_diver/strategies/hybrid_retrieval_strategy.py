@@ -72,8 +72,10 @@ class HybridRetrievalStrategy(RetrievalStrategy):
             existing.graph_score = max(existing.graph_score, graph_score)
 
         if active_config.fusion == FUSION_RRF:
-            return self._rrf_results(scores, vector_results, limit, active_config)
-        return self._weighted_results(scores, limit, active_config)
+            results = self._rrf_results(scores, vector_results, limit, active_config)
+        else:
+            results = self._weighted_results(scores, limit, active_config)
+        return self._preserve_vector_top(results, vector_results, limit, active_config)
 
     def _seed_vector_scores(self, vector_results: list[SearchResult]) -> dict[str, HybridCandidateScore]:
         normalized = self._normalize({result.item.id: result.score for result in vector_results})
@@ -182,6 +184,27 @@ class HybridRetrievalStrategy(RetrievalStrategy):
             reverse=True,
         )
         return [SearchResult(item=score.item, score=self._weighted_total(score, config)) for score in ranked[:limit]]
+
+    def _preserve_vector_top(
+        self,
+        results: list[SearchResult],
+        vector_results: list[SearchResult],
+        limit: int,
+        config: HybridSearchConfig,
+    ) -> list[SearchResult]:
+        if not config.preserve_vector_top or not results or not vector_results:
+            return results
+        if results[0].item.id == vector_results[0].item.id:
+            return results
+        if len(vector_results) > 1:
+            margin = vector_results[0].score - vector_results[1].score
+            if margin < config.vector_top_score_margin:
+                return results
+
+        vector_top = vector_results[0]
+        guarded = [SearchResult(item=vector_top.item, score=max(vector_top.score, results[0].score))]
+        guarded.extend(result for result in results if result.item.id != vector_top.item.id)
+        return guarded[:limit]
 
     def _rrf_results(
         self,

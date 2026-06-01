@@ -19,6 +19,8 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
         batch_size: int = 32,
         url: str = Defaults.OPENAI_EMBEDDINGS_URL,
         timeout_seconds: float = Defaults.OPENAI_TIMEOUT_SECONDS,
+        document_prefix: str | None = Defaults.EMBEDDING_DOCUMENT_PREFIX,
+        query_prefix: str | None = Defaults.EMBEDDING_QUERY_PREFIX,
     ):
         self.name = EmbeddingProviderId.OPENAI.value
         self.model = model
@@ -26,6 +28,8 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
         self.batch_size = batch_size
         self.url = url
         self.timeout_seconds = timeout_seconds
+        self.document_prefix = document_prefix
+        self.query_prefix = query_prefix
         self.api_key = api_key or os.environ.get(EnvironmentVariable.OPENAI_API_KEY.value)
         if not self.api_key:
             raise RuntimeError("OPENAI_API_KEY is required for OpenAI embeddings.")
@@ -33,14 +37,17 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
         vectors: list[list[float]] = []
         for batch in _batches(texts, self.batch_size):
-            vectors.extend(self._embed(list(batch)))
+            vectors.extend(self._embed([self._prefixed(self.document_prefix, text) for text in batch]))
         return vectors
 
     def embed_query(self, query: str) -> list[float]:
-        vectors = self._embed([f"task: code retrieval | query: {query}"])
+        vectors = self._embed([self._prefixed(self.query_prefix, query)])
         if not vectors:
             raise RuntimeError("OpenAI returned no query embedding.")
         return vectors[0]
+
+    def _prefixed(self, prefix: str | None, text: str) -> str:
+        return f"{prefix}{text}" if prefix else text
 
     def _embed(self, texts: list[str]) -> list[list[float]]:
         payload: dict[str, Any] = {

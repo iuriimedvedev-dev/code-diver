@@ -28,6 +28,8 @@ embedding:
   project: embed-project
   location: europe-west4
   dimensions: 64
+  document_prefix: "task: code retrieval | document: "
+  query_prefix: "task: code retrieval | query: "
   workers: 3
   max_input_chars: 4096
 generation:
@@ -84,6 +86,8 @@ hybrid_search:
   bm25_k1: 1.5
   bm25_b: 0.4
   routing_enabled: true
+  preserve_vector_top: true
+  vector_top_score_margin: 0.07
   item_kind_weights:
     file_summary: 1.2
     symbol: 1.1
@@ -161,6 +165,8 @@ plugins:
     assert config.embedding.project == "embed-project"
     assert config.embedding.location == "europe-west4"
     assert config.embedding.dimensions == 64
+    assert config.embedding.document_prefix == "task: code retrieval | document: "
+    assert config.embedding.query_prefix == "task: code retrieval | query: "
     assert config.embedding.workers == 3
     assert config.embedding.max_input_chars == 4096
     assert config.generation.provider == "openai_compatible"
@@ -208,6 +214,8 @@ plugins:
     assert config.hybrid_search.bm25_k1 == 1.5
     assert config.hybrid_search.bm25_b == 0.4
     assert config.hybrid_search.routing_enabled is True
+    assert config.hybrid_search.preserve_vector_top is True
+    assert config.hybrid_search.vector_top_score_margin == 0.07
     assert config.hybrid_search.item_kind_weights == {"file_summary": 1.2, "symbol": 1.1}
     assert config.hybrid_search.min_token_length == 4
     assert config.hybrid_search.stop_words == ["where", "handled"]

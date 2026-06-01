@@ -109,6 +109,10 @@ class ConfigLoader:
             max_input_chars=self._optional_int(mapping.get("max_input_chars", Defaults.EMBEDDING_MAX_INPUT_CHARS)),
             retry_attempts=int(mapping.get("retry_attempts", Defaults.EMBEDDING_RETRY_ATTEMPTS)),
             retry_delay_seconds=float(mapping.get("retry_delay_seconds", Defaults.EMBEDDING_RETRY_DELAY_SECONDS)),
+            document_prefix=self._optional_raw_string(
+                mapping.get("document_prefix", Defaults.EMBEDDING_DOCUMENT_PREFIX)
+            ),
+            query_prefix=self._optional_raw_string(mapping.get("query_prefix", Defaults.EMBEDDING_QUERY_PREFIX)),
         )
 
     def _generation(self, data: Any) -> GenerationConfig:
@@ -215,6 +219,10 @@ class ConfigLoader:
             bm25_k1=float(mapping.get("bm25_k1", Defaults.HYBRID_BM25_K1)),
             bm25_b=float(mapping.get("bm25_b", Defaults.HYBRID_BM25_B)),
             routing_enabled=bool(mapping.get("routing_enabled", Defaults.HYBRID_ROUTING_ENABLED)),
+            preserve_vector_top=bool(mapping.get("preserve_vector_top", Defaults.HYBRID_PRESERVE_VECTOR_TOP)),
+            vector_top_score_margin=float(
+                mapping.get("vector_top_score_margin", Defaults.HYBRID_VECTOR_TOP_SCORE_MARGIN)
+            ),
             item_kind_weights=self._float_mapping(
                 mapping.get("item_kind_weights", Defaults.HYBRID_ITEM_KIND_WEIGHTS)
             ),
@@ -360,6 +368,12 @@ class ConfigLoader:
             return None
         text = str(value).strip()
         return text or None
+
+    def _optional_raw_string(self, value: Any) -> str | None:
+        if value is None:
+            return None
+        text = str(value)
+        return text if text else None
 
     def _optional_path(self, value: Any) -> Path | None:
         if value is None:

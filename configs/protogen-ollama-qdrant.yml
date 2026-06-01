@@ -352,6 +352,61 @@ experiments:
           chunk: 1.0
         min_token_length: 3
       description: "Typed AST GraphRAG with query-aware traversal over calls, references, imports, containment, summaries, and same-file edges."
+    - name: hybrid_candidates_routed_vector_guard
+      strategy: hybrid
+      hybrid_search:
+        candidate_limit: 80
+        lexical_candidate_limit: 120
+        vector_weight: 0.6
+        lexical_weight: 0.18
+        path_weight: 0.12
+        symbol_weight: 0.05
+        graph_weight: 0.05
+        graph_depth: 1
+        graph_neighbor_limit: 20
+        routing_enabled: true
+        preserve_vector_top: true
+        vector_top_score_margin: 0.03
+        min_token_length: 3
+      description: "Route-conditional hybrid fusion with a confidence-margin guard that prevents weak secondary signals from demoting a clear vector top-1."
+    - name: hybrid_candidates_routed_vector_guard_always
+      strategy: hybrid
+      hybrid_search:
+        candidate_limit: 80
+        lexical_candidate_limit: 120
+        vector_weight: 0.6
+        lexical_weight: 0.18
+        path_weight: 0.12
+        symbol_weight: 0.05
+        graph_weight: 0.05
+        graph_depth: 1
+        graph_neighbor_limit: 20
+        routing_enabled: true
+        preserve_vector_top: true
+        vector_top_score_margin: 0.0
+        min_token_length: 3
+      description: "Ablation: always preserve the vector top-1 after routed fusion to measure the maximum possible guard effect."
+    - name: hybrid_candidates_modern_graphrag_vector_guard
+      strategy: hybrid
+      hybrid_search:
+        candidate_limit: 100
+        lexical_candidate_limit: 140
+        vector_weight: 0.62
+        lexical_weight: 0.17
+        path_weight: 0.11
+        symbol_weight: 0.05
+        graph_weight: 0.03
+        graph_depth: 1
+        graph_neighbor_limit: 36
+        routing_enabled: true
+        preserve_vector_top: true
+        vector_top_score_margin: 0.03
+        item_kind_weights:
+          file_summary: 0.82
+          symbol: 1.04
+          chunk: 1.0
+        min_token_length: 3
+      description: "Modern GraphRAG profile plus vector top-1 preservation when the embedding score margin is confident."
     - name: hybrid_candidates_llm_rerank
       strategy: hybrid_rerank
       hybrid_search:

@@ -20,6 +20,8 @@ def create_embedding_provider(
     batch_size: int = 32,
     retry_attempts: int = Defaults.EMBEDDING_RETRY_ATTEMPTS,
     retry_delay_seconds: float = Defaults.EMBEDDING_RETRY_DELAY_SECONDS,
+    document_prefix: str | None = Defaults.EMBEDDING_DOCUMENT_PREFIX,
+    query_prefix: str | None = Defaults.EMBEDDING_QUERY_PREFIX,
 ) -> EmbeddingProvider:
     provider_id = EmbeddingProviderId(provider)
     if provider_id is EmbeddingProviderId.HASH:
@@ -51,6 +53,8 @@ def create_embedding_provider(
             api_key=api_key,
             url=url or Defaults.OPENAI_EMBEDDINGS_URL,
             batch_size=batch_size,
+            document_prefix=document_prefix,
+            query_prefix=query_prefix,
         )
     if provider_id is EmbeddingProviderId.OPENAI_COMPATIBLE:
         return OpenAICompatibleEmbeddingProvider(
@@ -59,5 +63,7 @@ def create_embedding_provider(
             api_key=api_key,
             url=url,
             batch_size=batch_size,
+            document_prefix=document_prefix,
+            query_prefix=query_prefix,
         )
     raise ValueError(f"Unknown embedding provider: {provider}")

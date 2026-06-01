@@ -33,6 +33,27 @@ def test_openai_embedding_provider_posts_embedding_payload(monkeypatch) -> None:
     assert calls[0]["dimensions"] == 3
 
 
+def test_openai_embedding_provider_applies_document_and_query_prefixes(monkeypatch) -> None:
+    provider = OpenAIEmbeddingProvider(
+        api_key="key",
+        dimensions=3,
+        document_prefix="doc: ",
+        query_prefix="query: ",
+    )
+    calls: list[dict] = []
+
+    def fake_post(payload):
+        calls.append(payload)
+        return {"data": [{"index": 0, "embedding": [1, 2, 3]}]}
+
+    monkeypatch.setattr(provider, "_post", fake_post)
+
+    assert provider.embed_documents(["class Auth"]) == [[1.0, 2.0, 3.0]]
+    assert provider.embed_query("where auth") == [1.0, 2.0, 3.0]
+    assert calls[0]["input"] == ["doc: class Auth"]
+    assert calls[1]["input"] == ["query: where auth"]
+
+
 def test_openai_generation_provider_requests_json_output(monkeypatch) -> None:
     provider = OpenAIGenerationProvider(api_key="key")
     calls: list[dict] = []
