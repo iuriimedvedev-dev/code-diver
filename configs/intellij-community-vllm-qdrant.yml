@@ -1,22 +1,22 @@
 root: ../intellij-community
-artifact: .code-diver/intellij-community-ollama-qdrant-index.json
+artifact: .code-diver/intellij-community-vllm-qdrant-index.json
 
 storage:
   provider: qdrant
   qdrant:
-    location: .code-diver/qdrant-intellij-ollama
-    collection: intellij_community_ollama_embeddings
-    batch_size: 512
+    url: http://localhost:6333
+    collection: intellij_community_vllm_embeddings
+    batch_size: 1024
 
 embedding:
   provider: openai_compatible
-  model: mxbai-embed-large
+  model: mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ
   dimensions:
-  url: http://127.0.0.1:11434/v1/embeddings
-  api_key: ollama
-  batch_size: 64
-  workers: 6
-  max_input_chars: 500
+  url: http://127.0.0.1:8001/v1/embeddings
+  api_key: local
+  batch_size: 512
+  workers: 1
+  max_input_chars: 80
 
 generation:
   provider: vertex
@@ -82,11 +82,12 @@ scanner:
     - "**/*.ico"
     - "**/*.svg"
   max_file_bytes: 1000000
+  line_chunks: false
   chunk_lines: 220
   structural_chunks: false
-  symbol_chunks: true
+  symbol_chunks: false
   file_summary_chunks: true
-  max_symbols_per_file: 6
+  max_symbols_per_file: 24
 
 search:
   limit: 10
@@ -106,20 +107,14 @@ hybrid_search:
   graph_depth: 1
   graph_neighbor_limit: 48
   vector_kind_multipliers:
-    chunk: 0.40
-    symbol: 0.40
-    file_summary: 0.10
-    structural_chunk: 0.10
+    file_summary: 1.0
   routing_enabled: true
   lexical_scoring: bm25
   fusion: weighted
   preserve_vector_top: true
   vector_top_score_margin: 0.03
   item_kind_weights:
-    file_summary: 0.82
-    symbol: 1.08
-    structural_chunk: 0.70
-    chunk: 1.03
+    file_summary: 1.0
   min_token_length: 3
 
 llm_rerank:
@@ -129,8 +124,8 @@ llm_rerank:
   include_reasons: true
 
 graph:
-  enabled: true
-  artifact: .code-diver/intellij-community-ollama-qdrant-graph.json
+  enabled: false
+  artifact: .code-diver/intellij-community-vllm-qdrant-graph.json
   ast_enabled: true
   reference_edges_enabled: true
   call_edges_enabled: true
@@ -139,7 +134,7 @@ graph:
 
 trace:
   enabled: true
-  artifact: .code-diver/traces/intellij-community-ollama-qdrant-indexing.jsonl
+  artifact: .code-diver/traces/intellij-community-vllm-qdrant-indexing.jsonl
   include_prompts: false
 
 evaluation:
@@ -147,15 +142,15 @@ evaluation:
   limit: 10
 
 experiments:
-  suite: intellij-community-ollama-qdrant
+  suite: intellij-community-vllm-qdrant
   strategies:
     - hybrid
     - hybrid_rerank
   hypotheses:
-    - name: intellij_hybrid_split
+    - name: intellij_vllm_file_summary_hybrid
       strategy: hybrid
-      description: Scalable split-vector hybrid profile for IntelliJ Community.
-    - name: intellij_hybrid_rerank_file_first
+      description: Fast local vLLM file-summary hybrid profile for IntelliJ Community.
+    - name: intellij_vllm_file_summary_rerank
       strategy: hybrid_rerank
       generation:
         provider: vertex
@@ -172,7 +167,7 @@ experiments:
         max_preview_chars: 700
         mode: file_first
         include_reasons: true
-      description: File-first Flash-Lite rerank over scalable split-vector hybrid candidates.
+      description: File-first Flash-Lite rerank over local vLLM candidates.
 
 metrics:
   enabled: false

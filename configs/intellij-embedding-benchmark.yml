@@ -1,0 +1,21 @@
+base_config: configs/intellij-community-vllm-qdrant.yml
+output: .code-diver/reports/intellij-embedding-benchmark.json
+reindex: true
+strategies:
+  - hybrid
+config_overrides:
+  storage:
+    qdrant:
+      url: http://localhost:6333
+      location:
+      batch_size: 1024
+models:
+  - name: vllm_qwen3_embedding_0_6b_mlx_4bit
+    provider: openai_compatible
+    model: mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ
+    url: http://127.0.0.1:8001/v1/embeddings
+    api_key: local
+    batch_size: 512
+    workers: 1
+    max_input_chars: 80
+    cost_per_1m_tokens_usd: 0
