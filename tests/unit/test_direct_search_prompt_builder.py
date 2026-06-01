@@ -56,6 +56,21 @@ def test_search_prompt_describes_hybrid_tool_routing_policy() -> None:
     assert "Verify cheaply with code_diver_grep/code_diver_rg" in prompt
 
 
+def test_search_prompt_describes_rerank_tool_when_available() -> None:
+    prompt = DirectSearchPromptBuilder().build(
+        hypothesis_name="hybrid_rerank_tool",
+        query="where is command creation handled?",
+        tool_manifest=json.dumps([{"name": "code_diver_search"}, {"name": "code_diver_rerank"}]),
+        history=[],
+        limit=10,
+    )
+
+    assert "code_diver_rerank is an AI ranking tool" in prompt
+    assert "MUST call code_diver_rerank" in prompt
+    assert "call code_diver_rerank before final results" in prompt
+    assert "Do not call it in the same parallel batch" in prompt
+
+
 def test_search_prompt_compacts_old_history_but_keeps_recent_observation() -> None:
     history = [
         {"round": 1, "assistant": {"reason": "old search", "tool_calls": [{"name": "code_diver_search"}]}},

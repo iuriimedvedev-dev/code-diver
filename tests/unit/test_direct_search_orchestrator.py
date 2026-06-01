@@ -185,3 +185,182 @@ def test_direct_search_orchestrator_counts_inspect_reads_against_budget(tmp_path
     assert len(tool_results) == 1
     assert tool_results[0]["ok"] is False
     assert "read_budget_exceeded" in tool_results[0]["content"]
+
+
+def test_direct_search_orchestrator_counts_rerank_tool_model_usage(tmp_path: Path) -> None:
+    log_path = tmp_path / "search.jsonl"
+    provider = FakeSearchGenerationProvider(
+        [
+            json.dumps(
+                {
+                    "reason": "generate candidates",
+                    "tool_calls": [{"name": "code_diver_search", "arguments": {"query": "auth", "limit": 2}}],
+                }
+            ),
+            json.dumps(
+                {
+                    "reason": "rank candidates",
+                    "tool_calls": [{"name": "code_diver_rerank", "arguments": {"query": "auth", "limit": 2}}],
+                }
+            ),
+            json.dumps(
+                {
+                    "reason": "use reranked result",
+                    "results": [{"path": "src/b.py"}],
+                    "final": "done",
+                }
+            ),
+        ]
+    )
+
+    def search_handler(query: str, limit: int) -> str:
+        return json.dumps(
+            [
+                {"id": "a", "path": "src/a.py", "title": "A", "score": 0.9},
+                {"id": "b", "path": "src/b.py", "title": "B", "score": 0.8},
+            ]
+        )
+
+    def rerank_handler(query: str, candidates: list[dict], limit: int, args: dict) -> dict:
+        return {
+            "candidates": [candidates[1], candidates[0]],
+            "metrics": {
+                "modelCalls": 1,
+                "model": "rerank-model",
+                "inputTokens": 100,
+                "outputTokens": 20,
+                "totalTokens": 120,
+                "estimatedCost": 0.02,
+            },
+        }
+
+    result = DirectSearchOrchestrator(
+        root=tmp_path,
+        generation_provider=provider,
+        allowed_tools=["code_diver_search", "code_diver_rerank"],
+        log_path=log_path,
+        search_handler=search_handler,
+        rerank_handler=rerank_handler,
+    ).search(hypothesis_name="rerank_tool", case_id="case-1", query="where is auth?", limit=10)
+
+    assert result.error is None
+    assert result.retrieved == ["src/b.py", "src/a.py"]
+    assert result.model_calls == 4
+    assert result.input_tokens == 121
+    assert result.output_tokens == 29
+    assert result.total_tokens == 150
+    assert result.estimated_cost > 0.02
+    assert "rerank-model" in result.models
+
+
+def test_direct_search_orchestrator_forces_rerank_for_rerank_hypothesis(tmp_path: Path) -> None:
+    log_path = tmp_path / "search.jsonl"
+    provider = FakeSearchGenerationProvider(
+        [
+            json.dumps(
+                {
+                    "reason": "generate candidates",
+                    "tool_calls": [{"name": "code_diver_search", "arguments": {"query": "auth", "limit": 2}}],
+                }
+            ),
+            json.dumps(
+                {
+                    "reason": "premature final",
+                    "results": [{"path": "src/a.py"}],
+                    "final": "done",
+                }
+            ),
+            json.dumps(
+                {
+                    "reason": "use forced rerank",
+                    "results": [{"path": "src/b.py"}],
+                    "final": "done",
+                }
+            ),
+        ]
+    )
+
+    def search_handler(query: str, limit: int) -> str:
+        return json.dumps(
+            [
+                {"id": "a", "path": "src/a.py", "title": "A", "score": 0.9},
+                {"id": "b", "path": "src/b.py", "title": "B", "score": 0.8},
+            ]
+        )
+
+    def rerank_handler(query: str, candidates: list[dict], limit: int, args: dict) -> dict:
+        return {
+            "candidates": [candidates[1], candidates[0]],
+            "metrics": {"modelCalls": 1, "inputTokens": 10, "outputTokens": 2, "totalTokens": 12},
+        }
+
+    result = DirectSearchOrchestrator(
+        root=tmp_path,
+        generation_provider=provider,
+        allowed_tools=["code_diver_search", "code_diver_rerank"],
+        log_path=log_path,
+        search_handler=search_handler,
+        rerank_handler=rerank_handler,
+    ).search(hypothesis_name="ai_search_vector_rerank", case_id="case-1", query="where is auth?", limit=10)
+
+    assert result.error is None
+    assert result.retrieved == ["src/b.py", "src/a.py"]
+    events = [json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines()]
+    forced_calls = [
+        event for event in events if event["event"] == "tool_call" and event["payload"]["name"] == "code_diver_rerank"
+    ]
+    assert len(forced_calls) == 1
+
+
+def test_direct_search_orchestrator_extends_final_results_with_reranked_candidates(tmp_path: Path) -> None:
+    log_path = tmp_path / "search.jsonl"
+    provider = FakeSearchGenerationProvider(
+        [
+            json.dumps(
+                {
+                    "reason": "generate candidates",
+                    "tool_calls": [{"name": "code_diver_search", "arguments": {"query": "auth", "limit": 3}}],
+                }
+            ),
+            json.dumps(
+                {
+                    "reason": "rank candidates",
+                    "tool_calls": [{"name": "code_diver_rerank", "arguments": {"query": "auth", "limit": 3}}],
+                }
+            ),
+            json.dumps(
+                {
+                    "reason": "short final",
+                    "results": [{"path": "src/b.py"}],
+                    "final": "done",
+                }
+            ),
+        ]
+    )
+
+    def search_handler(query: str, limit: int) -> str:
+        return json.dumps(
+            [
+                {"id": "a", "path": "src/a.py", "title": "A", "score": 0.9},
+                {"id": "b", "path": "src/b.py", "title": "B", "score": 0.8},
+                {"id": "c", "path": "src/c.py", "title": "C", "score": 0.7},
+            ]
+        )
+
+    def rerank_handler(query: str, candidates: list[dict], limit: int, args: dict) -> dict:
+        return {
+            "candidates": [candidates[1], candidates[2], candidates[0]],
+            "metrics": {"modelCalls": 1, "inputTokens": 10, "outputTokens": 2, "totalTokens": 12},
+        }
+
+    result = DirectSearchOrchestrator(
+        root=tmp_path,
+        generation_provider=provider,
+        allowed_tools=["code_diver_search", "code_diver_rerank"],
+        log_path=log_path,
+        search_handler=search_handler,
+        rerank_handler=rerank_handler,
+    ).search(hypothesis_name="ai_search_vector_rerank", case_id="case-1", query="where is auth?", limit=3)
+
+    assert result.error is None
+    assert result.retrieved == ["src/b.py", "src/c.py", "src/a.py"]

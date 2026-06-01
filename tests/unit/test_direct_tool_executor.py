@@ -45,14 +45,16 @@ def test_direct_tool_executor_read_returns_bounded_source_on_request(tmp_path: P
 
 
 def test_direct_tool_executor_manifest_describes_allowed_tools(tmp_path: Path) -> None:
-    manifest = DirectToolExecutor(tmp_path, ["code_diver_search", "code_diver_rg"]).manifest()
+    manifest = DirectToolExecutor(tmp_path, ["code_diver_search", "code_diver_rg", "code_diver_rerank"]).manifest()
 
     rows = json.loads(manifest)
-    assert [row["name"] for row in rows] == ["code_diver_search", "code_diver_rg"]
-    assert all(row["parallel_safe"] is True for row in rows)
+    assert [row["name"] for row in rows] == ["code_diver_search", "code_diver_rg", "code_diver_rerank"]
+    assert rows[0]["parallel_safe"] is True
+    assert rows[2]["parallel_safe"] is False
     assert rows[0]["stage"] == "candidate_generation"
     assert "indexKind" in rows[0]["returns"]
     assert "best_for" in rows[1]
+    assert rows[2]["stage"] == "ranking"
 
 
 def test_direct_tool_executor_rejects_unscoped_symbols_when_search_is_available(tmp_path: Path) -> None:
@@ -93,3 +95,45 @@ def test_direct_tool_executor_caps_inspect_reads(tmp_path: Path) -> None:
     assert payload["ok"] is True
     assert payload["result"]["metrics"]["readCount"] == 1
     assert payload["result"]["sections"][1]["result"]["error"].startswith("inspect_read_budget_exceeded")
+
+
+def test_direct_tool_executor_reranks_previous_search_candidates(tmp_path: Path) -> None:
+    def search_handler(query: str, limit: int) -> str:
+        return json.dumps(
+            [
+                {"id": "a", "path": "src/a.py", "title": "A", "score": 0.9, "indexKind": "symbol"},
+                {"id": "b", "path": "src/b.py", "title": "B", "score": 0.8, "indexKind": "symbol"},
+            ]
+        )
+
+    def rerank_handler(query: str, candidates: list[dict], limit: int, args: dict) -> dict:
+        assert query == "where is auth?"
+        assert [candidate["id"] for candidate in candidates] == ["a", "b"]
+        return {
+            "candidates": [candidates[1], candidates[0]],
+            "metrics": {
+                "candidateCount": 2,
+                "returnedCount": 2,
+                "modelCalls": 1,
+                "inputTokens": 10,
+                "outputTokens": 2,
+                "totalTokens": 12,
+                "estimatedCost": 0.01,
+            },
+        }
+
+    executor = DirectToolExecutor(
+        tmp_path,
+        ["code_diver_search", "code_diver_rerank"],
+        search_handler=search_handler,
+        rerank_handler=rerank_handler,
+    )
+
+    search = executor.execute(ToolCall("code_diver_search", {"query": "auth", "limit": 2}))
+    rerank = executor.execute(ToolCall("code_diver_rerank", {"query": "where is auth?", "limit": 2}))
+
+    assert json.loads(search.content)["result"]["metrics"]["candidateCount"] == 2
+    payload = json.loads(rerank.content)
+    assert payload["ok"] is True
+    assert [candidate["path"] for candidate in payload["result"]["candidates"]] == ["src/b.py", "src/a.py"]
+    assert payload["metrics"]["modelCalls"] == 1

@@ -32,6 +32,7 @@ class DirectSearchOrchestrator:
         log_path: Path,
         include_prompts: bool = True,
         search_handler: Callable[[str, int], str] | None = None,
+        rerank_handler: Callable[[str, list[dict[str, Any]], int, dict[str, Any]], dict[str, Any]] | None = None,
         exclude: list[str] | None = None,
         max_file_bytes: int = 1_000_000,
     ):
@@ -39,6 +40,7 @@ class DirectSearchOrchestrator:
         self.generation_provider = generation_provider
         self.allowed_tools = allowed_tools
         self.search_handler = search_handler
+        self.rerank_handler = rerank_handler
         self.exclude = exclude or []
         self.max_file_bytes = max_file_bytes
         self.logger = DirectAgentLogger(log_path, include_prompts=include_prompts)
@@ -52,6 +54,7 @@ class DirectSearchOrchestrator:
             self.root,
             self.allowed_tools,
             search_handler=self.search_handler,
+            rerank_handler=self.rerank_handler,
             exclude=self.exclude,
             max_file_bytes=self.max_file_bytes,
         )
@@ -68,6 +71,8 @@ class DirectSearchOrchestrator:
         )
         try:
             read_calls_used = 0
+            tool_names_used: set[str] = set()
+            fallback_paths: list[str] = []
             for round_index in range(1, self.MAX_ROUNDS + 1):
                 prompt = self.prompt_builder.build(
                     hypothesis_name=hypothesis_name,
@@ -81,7 +86,35 @@ class DirectSearchOrchestrator:
                 parsed = self.response_parser.parse(response.text)
                 history.append({"round": round_index, "assistant": parsed})
                 if "results" in parsed:
-                    result.retrieved = self._parse_results(parsed["results"], limit)
+                    if self._should_force_rerank(hypothesis_name, tool_names_used):
+                        tool_results, read_calls_used = self._execute_tools(
+                            executor,
+                            [ToolCall("code_diver_rerank", {"query": query, "limit": limit})],
+                            result,
+                            case_id,
+                            read_calls_used,
+                        )
+                        tool_names_used.update(item.name for item in tool_results)
+                        fallback_paths = self._fallback_paths(tool_results) or fallback_paths
+                        history.append(
+                            {
+                                "round": round_index,
+                                "tool_results": [
+                                    {
+                                        "name": item.name,
+                                        "ok": item.ok,
+                                        "content": self.observation_compressor.compress(item.content),
+                                    }
+                                    for item in tool_results
+                                ],
+                            }
+                        )
+                        continue
+                    result.retrieved = self._with_fallback_paths(
+                        self._parse_results(parsed["results"], limit),
+                        fallback_paths,
+                        limit,
+                    )
                     self.logger.write(
                         "search_case_completed",
                         {"case_id": case_id, "retrieved": result.retrieved, "usage": result.usage_json()},
@@ -98,6 +131,8 @@ class DirectSearchOrchestrator:
                     case_id,
                     read_calls_used,
                 )
+                tool_names_used.update(item.name for item in tool_results)
+                fallback_paths = self._fallback_paths(tool_results) or fallback_paths
                 history.append(
                     {
                         "round": round_index,
@@ -107,6 +142,18 @@ class DirectSearchOrchestrator:
                         ],
                     }
                 )
+            if fallback_paths:
+                result.retrieved = fallback_paths[:limit]
+                self.logger.write(
+                    "search_case_completed",
+                    {
+                        "case_id": case_id,
+                        "retrieved": result.retrieved,
+                        "usage": result.usage_json(),
+                        "fallback": "max_rounds_last_candidates",
+                    },
+                )
+                return result
             result.error = "max_rounds_exceeded"
             self.logger.write("search_case_failed", {"case_id": case_id, "error": result.error})
             return result
@@ -114,6 +161,22 @@ class DirectSearchOrchestrator:
             result.error = str(exc)
             self.logger.write("search_case_failed", {"case_id": case_id, "error": result.error})
             return result
+
+    def _should_force_rerank(self, hypothesis_name: str, tool_names_used: set[str]) -> bool:
+        if "rerank" not in hypothesis_name:
+            return False
+        if "code_diver_rerank" not in self.allowed_tools:
+            return False
+        if "code_diver_rerank" in tool_names_used:
+            return False
+        candidate_tools = {
+            "code_diver_search",
+            "code_diver_grep",
+            "code_diver_rg",
+            "code_diver_symbols",
+            "code_diver_inspect",
+        }
+        return bool(candidate_tools & tool_names_used)
 
     def _generate(self, prompt: str, usage: DirectSearchResult) -> GenerationResult:
         started = perf_counter()
@@ -205,11 +268,34 @@ class DirectSearchOrchestrator:
         results = [results_by_index[index] for index in range(len(calls))]
         usage.tool_calls += len(results)
         for result in results:
+            self._merge_tool_usage(usage, result)
             self.logger.write(
                 "tool_result",
                 {"case_id": case_id, "name": result.name, "ok": result.ok, "content": result.content},
             )
         return results, read_calls_used
+
+    def _merge_tool_usage(self, usage: DirectSearchResult, result: ToolResult) -> None:
+        try:
+            payload = json.loads(result.content)
+        except json.JSONDecodeError:
+            return
+        metrics = payload.get("metrics") or {}
+        if not isinstance(metrics, dict):
+            return
+        model_calls = int(metrics.get("modelCalls") or metrics.get("model_calls") or 0)
+        input_tokens = int(metrics.get("inputTokens") or metrics.get("input_tokens") or 0)
+        output_tokens = int(metrics.get("outputTokens") or metrics.get("output_tokens") or 0)
+        total_tokens = int(metrics.get("totalTokens") or metrics.get("total_tokens") or input_tokens + output_tokens)
+        estimated_cost = float(metrics.get("estimatedCost") or metrics.get("estimated_cost") or 0.0)
+        usage.model_calls += model_calls
+        usage.input_tokens += input_tokens
+        usage.output_tokens += output_tokens
+        usage.total_tokens += total_tokens
+        usage.estimated_cost += estimated_cost
+        for model in metrics.get("models") or [metrics.get("model")]:
+            if model and model not in usage.models:
+                usage.models.append(str(model))
 
     def _requested_read_count(self, call: ToolCall) -> int:
         if call.name == "code_diver_read":
@@ -247,6 +333,45 @@ class DirectSearchOrchestrator:
             if path and path not in paths:
                 paths.append(path)
         return paths
+
+    def _fallback_paths(self, tool_results: list[ToolResult]) -> list[str]:
+        for result in tool_results:
+            paths = self._paths_from_tool_result(result, preferred_tool="code_diver_rerank")
+            if paths:
+                return paths
+        for result in tool_results:
+            paths = self._paths_from_tool_result(result)
+            if paths:
+                return paths
+        return []
+
+    def _paths_from_tool_result(self, result: ToolResult, preferred_tool: str | None = None) -> list[str]:
+        try:
+            payload = json.loads(result.content)
+        except json.JSONDecodeError:
+            return []
+        if preferred_tool and payload.get("tool") != preferred_tool:
+            return []
+        candidates = ((payload.get("result") or {}).get("candidates") or []) if isinstance(payload, dict) else []
+        if not isinstance(candidates, list):
+            return []
+        paths: list[str] = []
+        for candidate in candidates:
+            if not isinstance(candidate, dict):
+                continue
+            path = str(candidate.get("path") or "").strip()
+            if path and path not in paths:
+                paths.append(path)
+        return paths
+
+    def _with_fallback_paths(self, paths: list[str], fallback_paths: list[str], limit: int) -> list[str]:
+        merged = list(paths)
+        for path in fallback_paths:
+            if path not in merged:
+                merged.append(path)
+            if len(merged) >= limit:
+                break
+        return merged[:limit]
 
     def _estimate_tokens(self, text: str) -> int:
         return max(1, len(text) // 4)

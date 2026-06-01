@@ -11,6 +11,7 @@ from typing import Any
 
 from .config import AppConfig, ConfigLoader
 from .agent import DirectIndexingOrchestrator, DirectSearchOrchestrator
+from .agent.rerank_tool_handler import RerankToolHandler
 from .ai_indexing import AiCodebaseScanner, HybridCodebaseScanner
 from .domain import CodeItemIndexKindResolver, EvalResult, SearchResult
 from .env import EnvFileLoader
@@ -476,26 +477,32 @@ def cmd_evaluate_search_tools(args: argparse.Namespace, config: AppConfig) -> in
     run_id = uuid.uuid4().hex[:12]
     rows: list[dict[str, Any]] = []
     for hypothesis in search_tool_hypotheses(config, args.hypothesis):
+        eval_config = config_for_search_hypothesis(config, hypothesis)
         tools = resolve_hypothesis_tools(config, hypothesis.name)
-        log_path = search_hypothesis_log_path(config, hypothesis.name, run_id)
+        log_path = search_hypothesis_log_path(eval_config, hypothesis.name, run_id)
         search_vector_store = None
         try:
             search_handler = None
+            generation_provider = create_generation_provider(eval_config)
+            rerank_handler = (
+                make_rerank_tool_handler(eval_config, generation_provider) if "code_diver_rerank" in tools else None
+            )
             if "code_diver_search" in tools:
-                search_vector_store = create_vector_store(config)
-                search_provider = make_embedding_provider(config, search_vector_store.metadata())
+                search_vector_store = create_vector_store(eval_config)
+                search_provider = make_embedding_provider(eval_config, search_vector_store.metadata())
                 search_handler = make_search_tool_handler(
-                    make_retrieval_strategy(config, search_provider, search_vector_store)
+                    make_retrieval_strategy(eval_config, search_provider, search_vector_store)
                 )
             orchestrator = DirectSearchOrchestrator(
-                root=config.root,
-                generation_provider=create_generation_provider(config),
+                root=eval_config.root,
+                generation_provider=generation_provider,
                 allowed_tools=tools,
                 log_path=log_path,
-                include_prompts=config.trace.include_prompts,
+                include_prompts=eval_config.trace.include_prompts,
                 search_handler=search_handler,
-                exclude=inspection_exclude_patterns(config),
-                max_file_bytes=config.scanner.max_file_bytes,
+                rerank_handler=rerank_handler,
+                exclude=inspection_exclude_patterns(eval_config),
+                max_file_bytes=eval_config.scanner.max_file_bytes,
             )
             eval_results = []
             durations_ms: list[float] = []
@@ -741,6 +748,19 @@ def config_for_indexing_hypothesis(config: AppConfig, hypothesis_name: str, run_
     )
 
 
+def config_for_search_hypothesis(config: AppConfig, hypothesis: Any) -> AppConfig:
+    search_config = config
+    if getattr(hypothesis, "strategy", None):
+        search_config = replace(search_config, search=replace(search_config.search, strategy=hypothesis.strategy))
+    if getattr(hypothesis, "generation", None) is not None:
+        search_config = replace(search_config, generation=hypothesis.generation)
+    if getattr(hypothesis, "hybrid_search", None) is not None:
+        search_config = replace(search_config, hybrid_search=hypothesis.hybrid_search)
+    if getattr(hypothesis, "llm_rerank", None) is not None:
+        search_config = replace(search_config, llm_rerank=hypothesis.llm_rerank)
+    return search_config
+
+
 def indexing_hypothesis_log_path(config: AppConfig, hypothesis_name: str, run_id: str) -> Path:
     base = config.trace.artifact.parent if config.trace.artifact else Path(".code-diver/traces")
     return base / "orchestrator-indexing" / run_id / f"{hypothesis_name}.jsonl"
@@ -787,6 +807,7 @@ def make_search_tool_handler(strategy: Any):
                     "endLine": result.item.end_line,
                     "score": result.score,
                     "indexKind": kind_resolver.resolve(result.item),
+                    "preview": compact_preview(result.item.content, 360),
                 }
                 for result in results
             ],
@@ -794,6 +815,22 @@ def make_search_tool_handler(strategy: Any):
         )
 
     return handle
+
+
+def make_rerank_tool_handler(config: AppConfig, generation_provider: Any):
+    handler = RerankToolHandler(generation_provider, config.llm_rerank)
+
+    def rerank(query: str, candidates: list[dict[str, Any]], limit: int, args: dict[str, Any]) -> dict[str, Any]:
+        return handler.rerank(query, candidates, limit, args)
+
+    return rerank
+
+
+def compact_preview(text: str, limit: int) -> str:
+    compact = " ".join(text.split())
+    if len(compact) <= limit:
+        return compact
+    return compact[:limit].rstrip() + "..."
 
 
 def inspection_exclude_patterns(config: AppConfig) -> list[str]:

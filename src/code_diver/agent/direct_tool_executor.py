@@ -20,6 +20,7 @@ class DirectToolExecutor:
         root: Path,
         allowed_tools: list[str],
         search_handler: Callable[[str, int], str] | None = None,
+        rerank_handler: Callable[[str, list[dict[str, Any]], int, dict[str, Any]], dict[str, Any]] | None = None,
         exclude: list[str] | None = None,
         max_file_bytes: int = 1_000_000,
         max_inspect_reads: int = 10,
@@ -28,9 +29,11 @@ class DirectToolExecutor:
         self.guard = PathGuard(root)
         self.allowed_tools = set(allowed_tools)
         self.search_handler = search_handler
+        self.rerank_handler = rerank_handler
         self.exclude = exclude or []
         self.max_file_bytes = max_file_bytes
         self.max_inspect_reads = max_inspect_reads
+        self.candidate_bank: list[dict[str, Any]] = []
 
     def execute(self, call: ToolCall) -> ToolResult:
         started = perf_counter()
@@ -38,6 +41,7 @@ class DirectToolExecutor:
             return ToolResult(call.name, self._json_error(call.name, "tool_not_allowed", started), ok=False)
         try:
             result = self._execute_allowed(call)
+            self._remember_candidates(result)
             return ToolResult(call.name, self._json_result(call.name, result, started))
         except Exception as exc:
             return ToolResult(call.name, self._json_error(call.name, str(exc), started), ok=False)
@@ -85,6 +89,15 @@ class DirectToolExecutor:
                 raise ValueError("code_diver_search is not available without a search handler")
             raw = self.search_handler(str(args.get("query") or ""), int(args.get("limit") or 10))
             return self._search_payload(raw)
+        if call.name == "code_diver_rerank":
+            if self.rerank_handler is None:
+                raise ValueError("code_diver_rerank is not available without a rerank handler")
+            candidates = args.get("candidates")
+            if not isinstance(candidates, list) or not candidates:
+                candidates = self.candidate_bank
+            candidates = self._filtered_candidates(candidates, args.get("candidateIds") or args.get("candidate_ids"))
+            query = str(args.get("query") or "")
+            return self.rerank_handler(query, candidates, int(args.get("limit") or 10), args)
         raise ValueError(f"Unsupported direct tool: {call.name}")
 
     def _inspect(self, args: dict[str, Any]) -> dict[str, Any]:
@@ -223,6 +236,37 @@ class DirectToolExecutor:
                 "source": "vector",
             },
         }
+
+    def _remember_candidates(self, result: dict[str, Any]) -> None:
+        candidates = result.get("candidates")
+        if not isinstance(candidates, list):
+            return
+        for candidate in candidates:
+            if isinstance(candidate, dict):
+                self.candidate_bank.append(candidate)
+        self.candidate_bank = self._dedupe_candidates(self.candidate_bank)[-200:]
+
+    def _filtered_candidates(self, candidates: list[Any], candidate_ids: Any) -> list[dict[str, Any]]:
+        rows = [candidate for candidate in candidates if isinstance(candidate, dict)]
+        if not isinstance(candidate_ids, list) or not candidate_ids:
+            return self._dedupe_candidates(rows)
+        wanted = {str(value) for value in candidate_ids}
+        return [
+            candidate
+            for candidate in self._dedupe_candidates(rows)
+            if str(candidate.get("id") or candidate.get("path") or "") in wanted
+        ]
+
+    def _dedupe_candidates(self, candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        seen: set[str] = set()
+        deduped: list[dict[str, Any]] = []
+        for candidate in candidates:
+            key = str(candidate.get("id") or f"{candidate.get('path')}:{candidate.get('startLine')}")
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append(candidate)
+        return deduped
 
     def _json_result(self, name: str, result: dict[str, Any], started: float) -> str:
         envelope = {

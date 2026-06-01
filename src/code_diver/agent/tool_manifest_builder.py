@@ -74,6 +74,28 @@ class ToolManifestBuilder:
                 "args": {"trees": [], "symbols": [], "literals": [], "regexes": [], "reads": []},
             },
             {
+                "name": "code_diver_rerank",
+                "stage": "ranking",
+                "parallel_safe": False,
+                "best_for": [
+                    "ranking candidates after code_diver_search, rg, grep, or symbols produced plausible matches",
+                    "semantic/workflow ambiguity where final ordering matters",
+                    "choosing the best owning file/symbol before read verification",
+                ],
+                "avoid_for": [
+                    "first-pass discovery",
+                    "same parallel batch as the search call that should produce its candidates",
+                ],
+                "returns": "reranked structured candidates with confidence, model usage metrics, file names, and line numbers",
+                "args": {
+                    "query": "original user query",
+                    "limit": 10,
+                    "mode": "compact|file_first|precision|base_rank_prior",
+                    "candidateIds": "optional IDs from previous candidate observations; omit to rerank current candidate bank",
+                    "candidates": "optional explicit structured candidate list",
+                },
+            },
+            {
                 "name": "code_diver_read",
                 "stage": "verification",
                 "parallel_safe": True,

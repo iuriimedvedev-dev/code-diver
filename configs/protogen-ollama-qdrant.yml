@@ -132,6 +132,7 @@ pi:
     - code_diver_rg
     - code_diver_read
     - code_diver_symbols
+    - code_diver_rerank
   toolsets:
     indexing:
       - code_diver_tree
@@ -152,6 +153,7 @@ pi:
       - code_diver_rg
       - code_diver_read
       - code_diver_evaluate
+      - code_diver_rerank
     grep_search:
       - code_diver_inspect
       - code_diver_tree
@@ -672,6 +674,47 @@ experiments:
         - code_diver_search
         - code_diver_read
       description: Direct orchestrator finds candidates with vector search and reads selected source ranges.
+    - name: ai_search_vector_rerank
+      tools:
+        - code_diver_search
+        - code_diver_rerank
+      generation:
+        provider: vertex
+        model: gemini-3.1-flash-lite
+        fallback_models: []
+        project: "236777862453"
+        location: global
+        temperature: 0
+        thinking_budget: 256
+        api_version: v1
+        timeout_ms: 20000
+      llm_rerank:
+        candidate_limit: 20
+        max_preview_chars: 450
+        mode: compact
+        include_reasons: false
+      description: Direct orchestrator generates structured vector/hybrid candidates, then delegates final ordering to the AI rerank tool.
+    - name: ai_search_vector_rerank_read
+      tools:
+        - code_diver_search
+        - code_diver_rerank
+        - code_diver_read
+      generation:
+        provider: vertex
+        model: gemini-3.1-flash-lite
+        fallback_models: []
+        project: "236777862453"
+        location: global
+        temperature: 0
+        thinking_budget: 256
+        api_version: v1
+        timeout_ms: 20000
+      llm_rerank:
+        candidate_limit: 20
+        max_preview_chars: 450
+        mode: compact
+        include_reasons: false
+      description: Direct orchestrator uses vector candidates, AI reranking, then bounded read verification.
     - name: ai_search_vector_rg
       tools:
         - code_diver_search
@@ -696,6 +739,7 @@ experiments:
         - code_diver_rg
         - code_diver_read
         - code_diver_inspect
+        - code_diver_rerank
       description: Universal hybrid orchestrator with vector/BM25/symbol/GraphRAG candidates plus read-only parallel inspection tools.
     - name: ai_search_vector_rg_read
       tools:
