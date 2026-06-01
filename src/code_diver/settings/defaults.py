@@ -83,10 +83,12 @@ class Defaults:
     ]
 
     MAX_FILE_BYTES = 1_000_000
+    LINE_CHUNKS = True
     CHUNK_LINES = 120
     STRUCTURAL_CHUNKS = False
     SYMBOL_CHUNKS = False
     FILE_SUMMARY_CHUNKS = False
+    MAX_SYMBOLS_PER_FILE = None
     SEARCH_LIMIT = 10
     PREVIEW_LINES = 8
     RECURSIVE_ROUNDS = 2

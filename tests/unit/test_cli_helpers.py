@@ -4,8 +4,9 @@ from pathlib import Path
 
 import pytest
 
-from code_diver.cli import config_for_indexing_hypothesis, make_search_tool_handler
+from code_diver.cli import config_for_indexing_hypothesis, make_embedding_provider, make_search_tool_handler
 from code_diver.config import AppConfig
+from code_diver.config.embedding_config import EmbeddingConfig
 from code_diver.config.graph_config import GraphConfig
 from code_diver.config.qdrant_config import QdrantConfig
 from code_diver.config.storage_config import StorageConfig
@@ -64,3 +65,20 @@ def test_make_search_tool_handler_reuses_injected_strategy() -> None:
     assert '"indexKind": "chunk"' in payload
     assert '"score": 0.9' in second_payload
     assert strategy.calls == [("where is app?", 5), ("where is cli?", 3)]
+
+
+def test_openai_compatible_provider_does_not_inherit_store_dimensions() -> None:
+    config = AppConfig(
+        embedding=EmbeddingConfig(
+            provider="openai_compatible",
+            model="local-embed",
+            dimensions=None,
+            api_key="local",
+            url="http://127.0.0.1:8001/v1/embeddings",
+        )
+    )
+
+    provider = make_embedding_provider(config, {"dimensions": 1024})
+
+    assert provider.dimensions == 0
+    assert provider.send_dimensions is False

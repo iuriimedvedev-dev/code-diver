@@ -53,24 +53,7 @@ class IndexingService:
             },
         )
         preparer = EmbeddingTextPreparer(self.options.embedding_max_input_chars)
-        texts = [preparer.prepare(item) for item in items]
-        vectors = ParallelEmbeddingService(
-            provider,
-            batch_size=self.options.embedding_batch_size,
-            workers=self.options.embedding_workers,
-            on_batch_complete=self._progress_callback(len(texts)),
-        ).embed_documents(texts)
-        dimensions = provider.dimensions or (len(vectors[0]) if vectors else 0)
-        if not provider.dimensions and dimensions:
-            provider.dimensions = dimensions
-        self.vector_store.save(
-            root=root,
-            provider=provider.name,
-            model=provider.model,
-            dimensions=dimensions,
-            items=items,
-            vectors=vectors,
-        )
+        dimensions = self._embed_and_save(root, provider, items, preparer)
         self.trace_logger.write(
             "index_vectors_saved",
             {
@@ -78,10 +61,76 @@ class IndexingService:
                 "provider": provider.name,
                 "model": provider.model,
                 "dimensions": dimensions,
-                "vectors": len(vectors),
+                "vectors": len(items),
             },
         )
         return items
+
+    def _embed_and_save(
+        self,
+        root: Path,
+        provider: EmbeddingProvider,
+        items: list[CodeItem],
+        preparer: EmbeddingTextPreparer,
+    ) -> int:
+        append = getattr(self.vector_store, "append", None)
+        if not callable(append):
+            texts = [preparer.prepare(item) for item in items]
+            vectors = ParallelEmbeddingService(
+                provider,
+                batch_size=self.options.embedding_batch_size,
+                workers=self.options.embedding_workers,
+                on_batch_complete=self._progress_callback(len(texts)),
+            ).embed_documents(texts)
+            dimensions = provider.dimensions or (len(vectors[0]) if vectors else 0)
+            if not provider.dimensions and dimensions:
+                provider.dimensions = dimensions
+            self.vector_store.save(
+                root=root,
+                provider=provider.name,
+                model=provider.model,
+                dimensions=dimensions,
+                items=items,
+                vectors=vectors,
+            )
+            return dimensions
+
+        block_size = max(self.options.embedding_batch_size * self.options.embedding_workers * 8, 1)
+        total_batches = max((len(items) + self.options.embedding_batch_size - 1) // self.options.embedding_batch_size, 1)
+        progress = self._streaming_progress_callback(len(items), total_batches)
+        dimensions = provider.dimensions or 0
+        first_batch = True
+        for item_batch in self._item_batches(items, block_size):
+            texts = [preparer.prepare(item) for item in item_batch]
+            vectors = ParallelEmbeddingService(
+                provider,
+                batch_size=self.options.embedding_batch_size,
+                workers=self.options.embedding_workers,
+                on_batch_complete=progress,
+            ).embed_documents(texts)
+            if not dimensions and vectors:
+                dimensions = len(vectors[0])
+                provider.dimensions = dimensions
+            save = self.vector_store.save if first_batch else append
+            save(
+                root=root,
+                provider=provider.name,
+                model=provider.model,
+                dimensions=dimensions,
+                items=item_batch,
+                vectors=vectors,
+            )
+            first_batch = False
+        if first_batch:
+            self.vector_store.save(
+                root=root,
+                provider=provider.name,
+                model=provider.model,
+                dimensions=dimensions,
+                items=[],
+                vectors=[],
+            )
+        return dimensions
 
     def _progress_callback(self, total_items: int):
         if not self.options.progress:
@@ -104,6 +153,32 @@ class IndexingService:
             )
 
         return callback
+
+    def _streaming_progress_callback(self, total_items: int, total_batches: int):
+        if not self.options.progress:
+            return None
+        completed = 0
+        last_reported = -1
+
+        def callback(_: int, __: int) -> None:
+            nonlocal completed, last_reported
+            completed += 1
+            percent = int((completed / total_batches) * 100)
+            should_report = completed == total_batches or percent >= last_reported + 5
+            if not should_report:
+                return
+            last_reported = percent
+            print(
+                f"embedding batches: {completed}/{total_batches} "
+                f"({percent}%, items={total_items})",
+                file=sys.stderr,
+            )
+
+        return callback
+
+    def _item_batches(self, items: list[CodeItem], size: int):
+        for offset in range(0, len(items), size):
+            yield items[offset : offset + size]
 
     def _dedupe_items(self, items: list[CodeItem]) -> list[CodeItem]:
         seen: set[str] = set()

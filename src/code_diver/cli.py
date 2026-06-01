@@ -27,6 +27,7 @@ from .providers import create_embedding_provider
 from .settings import (
     CommandName,
     Defaults,
+    EmbeddingProviderId,
     OptionName,
     SchemaKey,
     VectorStoreProviderId,
@@ -652,10 +653,12 @@ def make_codebase_scanner(config: AppConfig):
         include=config.scanner.include,
         exclude=config.scanner.exclude,
         max_file_bytes=config.scanner.max_file_bytes,
+        line_chunks=config.scanner.line_chunks,
         chunk_lines=config.scanner.chunk_lines,
         structural_chunks=config.scanner.structural_chunks,
         symbol_chunks=config.scanner.symbol_chunks,
         file_summary_chunks=config.scanner.file_summary_chunks,
+        max_symbols_per_file=config.scanner.max_symbols_per_file,
     )
     mode = config.indexing.mode
     if mode == "scanner":
@@ -682,7 +685,9 @@ def make_embedding_provider(config: AppConfig, payload: dict[str, Any] | None = 
     embedding = config.embedding
     provider_name = embedding.provider or str((payload or {}).get(SchemaKey.PROVIDER.value, Defaults.EMBEDDING_PROVIDER))
     model = embedding.model or (payload or {}).get(SchemaKey.MODEL.value)
-    dimensions = embedding.dimensions or (payload or {}).get(SchemaKey.DIMENSIONS.value)
+    dimensions = embedding.dimensions
+    if dimensions is None and provider_name != EmbeddingProviderId.OPENAI_COMPATIBLE.value:
+        dimensions = (payload or {}).get(SchemaKey.DIMENSIONS.value)
     return create_embedding_provider(
         provider_name,
         model=model,

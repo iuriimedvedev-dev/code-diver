@@ -21,6 +21,22 @@ def test_scanner_chunks_text_files_and_preserves_line_ranges(tmp_path: Path) -> 
     assert all(item.path == "sample.py" for item in items)
 
 
+def test_scanner_can_disable_line_chunks(tmp_path: Path) -> None:
+    (tmp_path / "app.py").write_text(
+        """
+class UserService:
+    def create_user(self):
+        return "created"
+""".strip(),
+        encoding="utf-8",
+    )
+
+    items = CodebaseScanner(include=["*.py"], line_chunks=False, file_summary_chunks=True).scan(tmp_path)
+
+    assert [item.metadata["index_kind"] for item in items] == ["file_summary"]
+    assert items[0].path == "app.py"
+
+
 def test_scanner_skips_binary_and_excluded_paths(tmp_path: Path) -> None:
     (tmp_path / "keep.py").write_text("print('ok')\n", encoding="utf-8")
     (tmp_path / "skip.py").write_text("print('skip')\n", encoding="utf-8")
@@ -105,3 +121,19 @@ class UserService:
     assert "imports:" in summaries[0].content
     assert "symbols:" in summaries[0].content
     assert "UserService.create_user" in summaries[0].content
+
+
+def test_scanner_can_limit_symbols_per_file(tmp_path: Path) -> None:
+    (tmp_path / "app.kt").write_text(
+        """
+class UserService
+fun createUser() = Unit
+fun deleteUser() = Unit
+""".strip(),
+        encoding="utf-8",
+    )
+
+    items = CodebaseScanner(include=["*.kt"], symbol_chunks=True, max_symbols_per_file=2).scan(tmp_path)
+
+    symbol_items = [item for item in items if item.metadata["index_kind"] == "symbol"]
+    assert [item.metadata["symbol"] for item in symbol_items] == ["UserService", "createUser"]

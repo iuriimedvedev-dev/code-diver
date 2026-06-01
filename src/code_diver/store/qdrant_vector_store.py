@@ -159,19 +159,19 @@ class QdrantVectorStore(VectorStore):
     ) -> None:
         from qdrant_client import models
 
-        points = [
-            models.PointStruct(
-                id=self._point_id(item.id),
-                vector=vector,
-                payload={
-                    SchemaKey.ITEM.value: item.to_json(),
-                    SchemaKey.ROOT.value: str(root.resolve()),
-                    SchemaKey.PROVIDER.value: provider,
-                    SchemaKey.MODEL.value: model,
-                    SchemaKey.DIMENSIONS.value: dimensions,
-                },
-            )
-            for item, vector in zip(items, vectors)
-        ]
-        for offset in range(0, len(points), self.batch_size):
-            self.client.upsert(collection_name=self.collection, points=points[offset : offset + self.batch_size])
+        for offset in range(0, len(items), self.batch_size):
+            points = [
+                models.PointStruct(
+                    id=self._point_id(item.id),
+                    vector=vector,
+                    payload={
+                        SchemaKey.ITEM.value: item.to_json(),
+                        SchemaKey.ROOT.value: str(root.resolve()),
+                        SchemaKey.PROVIDER.value: provider,
+                        SchemaKey.MODEL.value: model,
+                        SchemaKey.DIMENSIONS.value: dimensions,
+                    },
+                )
+                for item, vector in zip(items[offset : offset + self.batch_size], vectors[offset : offset + self.batch_size])
+            ]
+            self.client.upsert(collection_name=self.collection, points=points)

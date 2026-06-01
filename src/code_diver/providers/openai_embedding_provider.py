@@ -21,6 +21,7 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
         timeout_seconds: float = Defaults.OPENAI_TIMEOUT_SECONDS,
         document_prefix: str | None = Defaults.EMBEDDING_DOCUMENT_PREFIX,
         query_prefix: str | None = Defaults.EMBEDDING_QUERY_PREFIX,
+        send_dimensions: bool = True,
     ):
         self.name = EmbeddingProviderId.OPENAI.value
         self.model = model
@@ -30,6 +31,7 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
         self.timeout_seconds = timeout_seconds
         self.document_prefix = document_prefix
         self.query_prefix = query_prefix
+        self.send_dimensions = send_dimensions
         self.api_key = api_key or os.environ.get(EnvironmentVariable.OPENAI_API_KEY.value)
         if not self.api_key:
             raise RuntimeError("OPENAI_API_KEY is required for OpenAI embeddings.")
@@ -55,7 +57,7 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
             "input": texts,
             "encoding_format": "float",
         }
-        if self.dimensions:
+        if self.send_dimensions and self.dimensions:
             payload["dimensions"] = self.dimensions
         response = self._post(payload)
         rows = sorted(response.get("data", []), key=lambda row: int(row.get("index", 0)))

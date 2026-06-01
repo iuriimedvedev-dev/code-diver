@@ -25,6 +25,7 @@ class OpenAICompatibleEmbeddingProvider(OpenAIEmbeddingProvider):
             timeout_seconds=timeout_seconds,
             document_prefix=document_prefix,
             query_prefix=query_prefix,
+            send_dimensions=bool(dimensions),
         )
         self.name = EmbeddingProviderId.OPENAI_COMPATIBLE.value
 

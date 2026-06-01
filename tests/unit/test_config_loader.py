@@ -60,10 +60,12 @@ pi:
     grep_only: [code_diver_tree, code_diver_rg, code_diver_read]
 scanner:
   include: ["*.py"]
+  line_chunks: false
   chunk_lines: 10
   structural_chunks: true
   symbol_chunks: true
   file_summary_chunks: true
+  max_symbols_per_file: 5
 search:
   strategy: recursive
   limit: 7
@@ -204,10 +206,12 @@ plugins:
     assert config.pi.tools == ["read", "code_diver_search"]
     assert config.pi.toolsets["grep_only"] == ["code_diver_tree", "code_diver_rg", "code_diver_read"]
     assert config.scanner.include == ["*.py"]
+    assert config.scanner.line_chunks is False
     assert config.scanner.chunk_lines == 10
     assert config.scanner.structural_chunks is True
     assert config.scanner.symbol_chunks is True
     assert config.scanner.file_summary_chunks is True
+    assert config.scanner.max_symbols_per_file == 5
     assert config.search.strategy == "recursive"
     assert config.search.limit == 7
     assert config.recursive_search.rounds == 3

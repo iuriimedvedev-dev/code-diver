@@ -182,10 +182,12 @@ class ConfigLoader:
             include=self._string_list(mapping.get("include")),
             exclude=self._string_list(mapping.get("exclude")),
             max_file_bytes=int(mapping.get("max_file_bytes", Defaults.MAX_FILE_BYTES)),
+            line_chunks=bool(mapping.get("line_chunks", Defaults.LINE_CHUNKS)),
             chunk_lines=int(mapping.get("chunk_lines", Defaults.CHUNK_LINES)),
             structural_chunks=bool(mapping.get("structural_chunks", Defaults.STRUCTURAL_CHUNKS)),
             symbol_chunks=bool(mapping.get("symbol_chunks", Defaults.SYMBOL_CHUNKS)),
             file_summary_chunks=bool(mapping.get("file_summary_chunks", Defaults.FILE_SUMMARY_CHUNKS)),
+            max_symbols_per_file=self._optional_int(mapping.get("max_symbols_per_file")),
         )
 
     def _search(self, data: Any) -> SearchConfig:
