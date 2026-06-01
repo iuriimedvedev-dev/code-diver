@@ -30,6 +30,8 @@ class ExperimentMetricsMapper:
             "scanner_symbol_chunks": config.scanner.symbol_chunks,
             "storage_provider": config.storage.provider,
             "hybrid_file_vote_weight": config.hybrid_search.file_vote_weight,
+            "hybrid_vector_kind_limits": config.hybrid_search.vector_kind_limits,
+            "hybrid_vector_kind_multipliers": config.hybrid_search.vector_kind_multipliers,
         }
         metric_rows: list[MetricRow] = []
         case_rows: list[CaseMetricRow] = []

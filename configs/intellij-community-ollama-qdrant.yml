@@ -1,0 +1,174 @@
+root: ../intellij-community
+artifact: .code-diver/intellij-community-ollama-qdrant-index.json
+
+storage:
+  provider: qdrant
+  qdrant:
+    location: .code-diver/qdrant-intellij-ollama
+    collection: intellij_community_ollama_embeddings
+    batch_size: 512
+
+embedding:
+  provider: openai_compatible
+  model: mxbai-embed-large
+  dimensions:
+  url: http://127.0.0.1:11434/v1/embeddings
+  api_key: ollama
+  batch_size: 1
+  workers: 8
+  max_input_chars: 500
+
+generation:
+  provider: vertex
+  model: gemini-3.5-flash
+  fallback_models:
+    - gemini-3-flash-preview
+    - gemini-2.5-flash
+  project: "236777862453"
+  location: global
+  temperature: 0
+  thinking_budget: 1024
+  api_version: v1
+  timeout_ms: 30000
+
+indexing:
+  mode: scanner
+
+scanner:
+  include:
+    - README.md
+    - CONTRIBUTING.md
+    - build.gradle
+    - build.gradle.kts
+    - settings.gradle
+    - settings.gradle.kts
+    - "**/*.java"
+    - "**/*.kt"
+    - "**/*.kts"
+    - "**/*.xml"
+    - "**/*.properties"
+    - "**/*.gradle"
+    - "**/*.gradle.kts"
+    - "**/*.md"
+    - "**/*.json"
+    - "**/*.yaml"
+    - "**/*.yml"
+  exclude:
+    - .idea/**
+    - .gradle/**
+    - .ijwb/**
+    - bazel-*/**
+    - build/**
+    - out/**
+    - dist/**
+    - target/**
+    - "**/build/**"
+    - "**/out/**"
+    - "**/generated/**"
+    - "**/gen/**"
+    - "**/.cache/**"
+    - "**/node_modules/**"
+    - "**/*.class"
+    - "**/*.jar"
+    - "**/*.zip"
+    - "**/*.png"
+    - "**/*.jpg"
+    - "**/*.jpeg"
+    - "**/*.gif"
+    - "**/*.ico"
+    - "**/*.svg"
+  max_file_bytes: 1000000
+  chunk_lines: 220
+  structural_chunks: true
+  symbol_chunks: true
+  file_summary_chunks: true
+
+search:
+  limit: 10
+  preview_lines: 10
+  strategy: hybrid
+
+hybrid_search:
+  candidate_limit: 220
+  lexical_candidate_limit: 320
+  vector_weight: 0.6
+  lexical_weight: 0.17
+  path_weight: 0.11
+  symbol_weight: 0.05
+  graph_weight: 0.03
+  file_vote_weight: 0.04
+  graph_depth: 1
+  graph_neighbor_limit: 48
+  vector_kind_multipliers:
+    chunk: 0.45
+    symbol: 0.30
+    file_summary: 0.10
+    structural_chunk: 0.15
+  routing_enabled: true
+  lexical_scoring: bm25
+  fusion: weighted
+  preserve_vector_top: true
+  vector_top_score_margin: 0.03
+  item_kind_weights:
+    file_summary: 0.82
+    symbol: 1.04
+    structural_chunk: 0.72
+    chunk: 1.05
+  min_token_length: 3
+
+llm_rerank:
+  candidate_limit: 40
+  max_preview_chars: 700
+  mode: file_first
+  include_reasons: true
+
+graph:
+  enabled: true
+  artifact: .code-diver/intellij-community-ollama-qdrant-graph.json
+  ast_enabled: true
+  reference_edges_enabled: true
+  call_edges_enabled: true
+  expansion_depth: 1
+  neighbor_limit: 48
+
+trace:
+  enabled: true
+  artifact: .code-diver/traces/intellij-community-ollama-qdrant-indexing.jsonl
+  include_prompts: false
+
+evaluation:
+  dataset: datasets/intellij_eval.jsonl
+  limit: 10
+
+experiments:
+  suite: intellij-community-ollama-qdrant
+  strategies:
+    - hybrid
+    - hybrid_rerank
+  hypotheses:
+    - name: intellij_hybrid_split
+      strategy: hybrid
+      description: Scalable split-vector hybrid profile for IntelliJ Community.
+    - name: intellij_hybrid_rerank_file_first
+      strategy: hybrid_rerank
+      generation:
+        provider: vertex
+        model: gemini-3.1-flash-lite
+        fallback_models: []
+        project: "236777862453"
+        location: global
+        temperature: 0
+        thinking_budget: 256
+        api_version: v1
+        timeout_ms: 30000
+      llm_rerank:
+        candidate_limit: 40
+        max_preview_chars: 700
+        mode: file_first
+        include_reasons: true
+      description: File-first Flash-Lite rerank over scalable split-vector hybrid candidates.
+
+metrics:
+  enabled: false
+
+plugins: []

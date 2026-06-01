@@ -80,6 +80,11 @@ hybrid_search:
   symbol_weight: 0.07
   graph_weight: 0.09
   file_vote_weight: 0.04
+  vector_kind_limits:
+    chunk: 20
+    symbol: 10
+  vector_kind_multipliers:
+    file_summary: 0.25
   graph_depth: 2
   graph_neighbor_limit: 11
   lexical_scoring: bm25
@@ -215,6 +220,8 @@ plugins:
     assert config.hybrid_search.symbol_weight == 0.07
     assert config.hybrid_search.graph_weight == 0.09
     assert config.hybrid_search.file_vote_weight == 0.04
+    assert config.hybrid_search.vector_kind_limits == {"chunk": 20, "symbol": 10}
+    assert config.hybrid_search.vector_kind_multipliers == {"file_summary": 0.25}
     assert config.hybrid_search.graph_depth == 2
     assert config.hybrid_search.graph_neighbor_limit == 11
     assert config.hybrid_search.lexical_scoring == "bm25"

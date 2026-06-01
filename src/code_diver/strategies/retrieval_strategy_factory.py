@@ -11,6 +11,7 @@ from ..tracing import TraceLogger
 from .graph_retrieval_strategy import GraphRetrievalStrategy
 from .hybrid_retrieval_strategy import HybridRetrievalStrategy
 from .llm_rerank_retrieval_strategy import LlmRerankRetrievalStrategy
+from .multi_index_vector_retrieval_strategy import MultiIndexVectorRetrievalStrategy
 from .recursive_retrieval_strategy import RecursiveRetrievalStrategy
 from .retrieval_strategy import RetrievalStrategy
 from .vector_retrieval_strategy import VectorRetrievalStrategy
@@ -53,9 +54,17 @@ class RetrievalStrategyFactory:
                 neighbor_limit=graph.neighbor_limit,
             )
         if strategy_id is RetrievalStrategyId.HYBRID:
-            return HybridRetrievalStrategy(vector, CodeGraphStore(config.graph.artifact), config.hybrid_search)
+            return HybridRetrievalStrategy(
+                self._hybrid_vector_strategy(config, provider, vector_store),
+                CodeGraphStore(config.graph.artifact),
+                config.hybrid_search,
+            )
         if strategy_id is RetrievalStrategyId.HYBRID_RERANK:
-            hybrid = HybridRetrievalStrategy(vector, CodeGraphStore(config.graph.artifact), config.hybrid_search)
+            hybrid = HybridRetrievalStrategy(
+                self._hybrid_vector_strategy(config, provider, vector_store),
+                CodeGraphStore(config.graph.artifact),
+                config.hybrid_search,
+            )
             return LlmRerankRetrievalStrategy(
                 hybrid,
                 create_generation_provider(config),
@@ -63,3 +72,18 @@ class RetrievalStrategyFactory:
                 trace_logger=TraceLogger(config.trace),
             )
         raise ValueError(f"Unknown retrieval strategy: {strategy}")
+
+    def _hybrid_vector_strategy(
+        self,
+        config: AppConfig,
+        provider: EmbeddingProvider,
+        vector_store: VectorStore,
+    ) -> RetrievalStrategy:
+        if config.hybrid_search.vector_kind_limits or config.hybrid_search.vector_kind_multipliers:
+            return MultiIndexVectorRetrievalStrategy(
+                provider,
+                vector_store,
+                config.hybrid_search.vector_kind_limits,
+                config.hybrid_search.vector_kind_multipliers,
+            )
+        return VectorRetrievalStrategy(provider, vector_store)

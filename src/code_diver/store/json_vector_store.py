@@ -62,6 +62,26 @@ class JsonVectorStore(VectorStore):
 
     def search(self, query_vector: list[float], limit: int) -> list[SearchResult]:
         _, items, vectors = self.load_items_and_vectors()
+        return self._search_items(query_vector, items, vectors, limit)
+
+    def search_by_index_kind(self, query_vector: list[float], limit: int, index_kind: str) -> list[SearchResult]:
+        _, items, vectors = self.load_items_and_vectors()
+        filtered_items: list[CodeItem] = []
+        filtered_vectors: list[list[float]] = []
+        for item, vector in zip(items, vectors):
+            if str(item.metadata.get("index_kind") or "") != index_kind:
+                continue
+            filtered_items.append(item)
+            filtered_vectors.append(vector)
+        return self._search_items(query_vector, filtered_items, filtered_vectors, limit)
+
+    def _search_items(
+        self,
+        query_vector: list[float],
+        items: list[CodeItem],
+        vectors: list[list[float]],
+        limit: int,
+    ) -> list[SearchResult]:
         normalized_query = normalize(query_vector)
         scored = [
             SearchResult(item=item, score=dot(normalized_query, normalize(vector)))

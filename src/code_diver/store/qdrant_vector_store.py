@@ -108,9 +108,31 @@ class QdrantVectorStore(VectorStore):
             limit=limit,
             with_payload=True,
         )
+        return self._results_from_points(response.points)
+
+    def search_by_index_kind(self, query_vector: list[float], limit: int, index_kind: str) -> list[SearchResult]:
+        from qdrant_client import models
+
+        response = self.client.query_points(
+            collection_name=self.collection,
+            query=query_vector,
+            query_filter=models.Filter(
+                must=[
+                    models.FieldCondition(
+                        key=f"{SchemaKey.ITEM.value}.{SchemaKey.METADATA.value}.index_kind",
+                        match=models.MatchValue(value=index_kind),
+                    )
+                ]
+            ),
+            limit=limit,
+            with_payload=True,
+        )
+        return self._results_from_points(response.points)
+
+    def _results_from_points(self, points: Any) -> list[SearchResult]:
         return [
             SearchResult(item=CodeItem.from_json((point.payload or {})[SchemaKey.ITEM.value]), score=float(point.score))
-            for point in response.points
+            for point in points
         ]
 
     def close(self) -> None:

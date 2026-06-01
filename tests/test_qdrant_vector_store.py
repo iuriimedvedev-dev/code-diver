@@ -33,3 +33,29 @@ def test_qdrant_vector_store_searches_embedded_path_collection(tmp_path) -> None
 
     assert store.exists()
     assert store.search([1.0, 0.0], limit=1)[0].item.path == "auth.py"
+
+
+def test_qdrant_vector_store_searches_by_index_kind(tmp_path) -> None:
+    store = QdrantVectorStore(location=":memory:", collection="test_code_diver_kind")
+    items = [
+        CodeItem(
+            id="chunk",
+            path="auth.py",
+            title="auth chunk",
+            content="authorize",
+            metadata={"index_kind": "chunk"},
+        ),
+        CodeItem(
+            id="summary",
+            path="auth.py",
+            title="auth summary",
+            content="authorize",
+            metadata={"index_kind": "file_summary"},
+        ),
+    ]
+
+    store.save(root=tmp_path, provider="hash", model="test", dimensions=2, items=items, vectors=[[1.0, 0.0], [1.0, 0.0]])
+
+    results = store.search_by_index_kind([1.0, 0.0], limit=5, index_kind="file_summary")
+
+    assert [result.item.id for result in results] == ["summary"]

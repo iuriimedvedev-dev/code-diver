@@ -68,6 +68,50 @@ Run ID: `8cfe58bb288144069b73ee4c239a7113`
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | `hybrid_rerank_flash_lite_structural_file_first` | 0.770 | 0.900 | 0.920 | 0.835 | 0.750 | 3709 | 9134 |
 
+## Split Vector Retrieval
+
+Follow-up change: structural candidates should not compete in the same vector top-k pool as line chunks and symbols. The hybrid factory now supports split vector retrieval by index kind.
+
+Two budget modes exist:
+
+- `vector_kind_limits`: absolute per-kind limits, useful for controlled ablations.
+- `vector_kind_multipliers`: per-kind limits derived from the active `candidate_limit`, useful for large repositories.
+
+The protogen structural hypotheses now use multipliers:
+
+| Kind | Multiplier |
+| --- | ---: |
+| `chunk` | 0.45-0.46 |
+| `symbol` | 0.30 |
+| `file_summary` | 0.10-0.12 |
+| `structural_chunk` | 0.12-0.15 |
+
+This keeps the budget scalable: for an IntelliJ-sized repository, raise `candidate_limit` and the per-kind budgets grow without code changes.
+
+Deterministic split-vector run:
+
+Run ID: `26112a76562948deb95d0f88052b0db8`
+
+| Hypothesis | Hit@1 | Hit@3 | Hit@10 | MRR@10 | nDCG@10 | Mean ms |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `hybrid_candidates_structural_file_vote` | 0.590 | 0.800 | 0.910 | 0.709 | 0.672 | 561 |
+| `hybrid_candidates_modern_graphrag_vector_guard` | 0.600 | 0.760 | 0.890 | 0.693 | 0.661 | 554 |
+
+File-first split-vector rerank:
+
+Run ID: `63aefacfb0c448d98691a4071a16db1b`
+
+| Hypothesis | Hit@1 | Hit@3 | Hit@10 | MRR@10 | nDCG@10 | Mean ms | P95 ms |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `hybrid_rerank_flash_lite_structural_file_first` | 0.760 | 0.890 | 0.920 | 0.828 | 0.747 | 3546 | 8787 |
+
+Interpretation:
+
+- Split retrieval removes structural chunks from rank-one dominance in deterministic structural runs.
+- It improves deterministic recall and Hit@10 versus the unsplit structural profile.
+- It slightly lowers rerank Hit@1 versus fixed absolute quotas, but avoids hard-coded small budgets and is safer for large repositories.
+- For very large repositories, deterministic split search should be the default interactive mode; LLM file-first rerank should be reserved for hard queries or eval runs.
+
 ## Interpretation
 
 Structural chunks are useful as a recall and workflow signal, but harmful when they compete directly as pure vector top-1 candidates.
@@ -88,11 +132,12 @@ Current best use:
 - Enable structural chunks for recall-oriented hybrid/rerank experiments.
 - Downweight `structural_chunk` as a final ranked item.
 - Use file-first rerank when structural candidates are included.
+- Use split vector retrieval by index kind when structural chunks are enabled.
 
 Next experiments:
 
-1. Split vector retrieval by index kind instead of mixing all item types in one top-k pool.
-2. Route structural/file-vote only for workflow queries.
-3. Add per-stage candidate logs: vector rank, lexical rank, graph rank, file-vote rank, rerank rank.
-4. Test a local cross-encoder reranker on the structural candidate set.
-5. Add language-specific tree-sitter spans for TypeScript/JavaScript after the Python AST path is stable.
+1. Route structural/file-vote only for workflow queries.
+2. Add per-stage candidate logs: vector rank, lexical rank, graph rank, file-vote rank, rerank rank.
+3. Test a local cross-encoder reranker on the structural candidate set.
+4. Add language-specific tree-sitter spans for Kotlin/Java/TypeScript after the Python AST path is stable.
+5. Build an IntelliJ evaluation dataset before trusting large-repo quality numbers.

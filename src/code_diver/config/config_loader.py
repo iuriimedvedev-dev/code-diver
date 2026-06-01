@@ -217,6 +217,12 @@ class ConfigLoader:
             symbol_weight=float(mapping.get("symbol_weight", Defaults.HYBRID_SYMBOL_WEIGHT)),
             graph_weight=float(mapping.get("graph_weight", Defaults.HYBRID_GRAPH_WEIGHT)),
             file_vote_weight=float(mapping.get("file_vote_weight", Defaults.HYBRID_FILE_VOTE_WEIGHT)),
+            vector_kind_limits=self._int_mapping(
+                mapping.get("vector_kind_limits", Defaults.HYBRID_VECTOR_KIND_LIMITS)
+            ),
+            vector_kind_multipliers=self._float_mapping(
+                mapping.get("vector_kind_multipliers", Defaults.HYBRID_VECTOR_KIND_MULTIPLIERS)
+            ),
             graph_depth=int(mapping.get("graph_depth", Defaults.HYBRID_GRAPH_DEPTH)),
             graph_neighbor_limit=int(mapping.get("graph_neighbor_limit", Defaults.HYBRID_GRAPH_NEIGHBOR_LIMIT)),
             lexical_scoring=str(mapping.get("lexical_scoring", Defaults.HYBRID_LEXICAL_SCORING)),
@@ -366,6 +372,9 @@ class ConfigLoader:
 
     def _float_mapping(self, value: Any) -> dict[str, float]:
         return {str(key): float(item) for key, item in self._mapping(value).items()}
+
+    def _int_mapping(self, value: Any) -> dict[str, int]:
+        return {str(key): int(item) for key, item in self._mapping(value).items()}
 
     def _optional_int(self, value: Any) -> int | None:
         if value is None:

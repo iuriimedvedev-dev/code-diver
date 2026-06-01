@@ -32,3 +32,10 @@ class VectorStore(ABC):
     @abstractmethod
     def search(self, query_vector: list[float], limit: int) -> list[SearchResult]:
         raise NotImplementedError
+
+    def search_by_index_kind(self, query_vector: list[float], limit: int, index_kind: str) -> list[SearchResult]:
+        return [
+            result
+            for result in self.search(query_vector, limit * 10)
+            if str(result.item.metadata.get("index_kind") or "") == index_kind
+        ][:limit]
