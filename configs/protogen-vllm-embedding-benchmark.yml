@@ -1,0 +1,72 @@
+base_config: configs/protogen-ollama-qdrant.yml
+output: .code-diver/reports/protogen-vllm-embedding-benchmark.json
+reindex: true
+hypotheses:
+  - hybrid_candidates_symbol_first
+  - hybrid_rerank_flash_lite_top20_compact
+  - hybrid_rerank_flash_lite_file_first
+config_overrides:
+  storage:
+    qdrant:
+      url: http://localhost:6333
+      location:
+      collection: protogen_vllm_embeddings
+      batch_size: 512
+  trace:
+    include_prompts: false
+search_config_overrides:
+  generation:
+    provider: gemini
+    model: gemini-3.1-flash-lite
+    fallback_models:
+      - gemini-2.5-flash
+    temperature: 0
+    thinking_budget: 256
+    api_version: v1beta
+    timeout_ms: 20000
+models:
+  - name: vllm_mxbai_embed_large_v1
+    provider: openai_compatible
+    model: mlx-community/mxbai-embed-large-v1
+    url: http://127.0.0.1:8001/v1/embeddings
+    api_key: local
+    batch_size: 64
+    workers: 1
+    max_input_chars: 400
+    cost_per_1m_tokens_usd: 0
+  - name: vllm_qwen3_embedding_0_6b_mlx_4bit
+    provider: openai_compatible
+    model: mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ
+    url: http://127.0.0.1:8001/v1/embeddings
+    api_key: local
+    batch_size: 64
+    workers: 1
+    max_input_chars: 400
+    cost_per_1m_tokens_usd: 0
+  - name: vllm_qwen3_embedding_4b_mlx_4bit
+    provider: openai_compatible
+    model: mlx-community/Qwen3-Embedding-4B-4bit-DWQ
+    url: http://127.0.0.1:8001/v1/embeddings
+    api_key: local
+    batch_size: 64
+    workers: 1
+    max_input_chars: 400
+    cost_per_1m_tokens_usd: 0
+  - name: vllm_bge_m3_mlx_4bit
+    provider: openai_compatible
+    model: mlx-community/bge-m3-mlx-4bit
+    url: http://127.0.0.1:8001/v1/embeddings
+    api_key: local
+    batch_size: 64
+    workers: 1
+    max_input_chars: 400
+    cost_per_1m_tokens_usd: 0
+  - name: vllm_nomic_modernbert_embed_base_4bit
+    provider: openai_compatible
+    model: mlx-community/nomicai-modernbert-embed-base-4bit
+    url: http://127.0.0.1:8001/v1/embeddings
+    api_key: local
+    batch_size: 64
+    workers: 1
+    max_input_chars: 400
+    cost_per_1m_tokens_usd: 0

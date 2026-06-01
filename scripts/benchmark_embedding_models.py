@@ -12,6 +12,7 @@ import yaml
 
 from code_diver.cli import (
     close_vector_store,
+    config_for_search_hypothesis,
     make_embedding_provider,
     make_indexing_service,
     make_plugin_manager,
@@ -19,6 +20,7 @@ from code_diver.cli import (
 )
 from code_diver.config import ConfigLoader
 from code_diver.domain import CodeItem
+from code_diver.env import EnvFileLoader
 from code_diver.services import DatasetLoader, IndexCompositionAnalyzer
 from code_diver.services.evaluation_service import EvaluationService
 from code_diver.store import create_vector_store
@@ -32,6 +34,7 @@ class EmbeddingBenchmarkRunner:
             ConfigLoader().load(Path(self.suite["base_config"])),
             self.suite.get("config_overrides") or {},
         )
+        EnvFileLoader().load(self.base_config.env_file.path, self.base_config.env_file.override)
         self.run_id = str(self.suite.get("run_id") or uuid.uuid4().hex[:12])
 
     def run(self) -> dict[str, Any]:
@@ -87,8 +90,7 @@ class EmbeddingBenchmarkRunner:
             plugin_manager = make_plugin_manager(config)
             for case in cases:
                 case.query = plugin_manager.prepare_query(case.query)
-            for strategy_name in self.suite.get("strategies", ["hybrid"]):
-                strategy_config = replace(config, search=replace(config.search, strategy=strategy_name))
+            for strategy_name, strategy_config in self._strategy_configs(config):
                 trace_offset = self._trace_size(strategy_config.trace.artifact)
                 started = time.perf_counter()
                 metrics, _ = EvaluationService(
@@ -102,6 +104,25 @@ class EmbeddingBenchmarkRunner:
         finally:
             close_vector_store(vector_store)
         return row
+
+    def _strategy_configs(self, config: Any):
+        if self.suite.get("hypotheses"):
+            hypotheses = {hypothesis.name: hypothesis for hypothesis in config.experiments.hypotheses}
+            for hypothesis_name in self.suite["hypotheses"]:
+                hypothesis = hypotheses.get(hypothesis_name)
+                if hypothesis is None:
+                    raise ValueError(f"Unknown experiment hypothesis: {hypothesis_name}")
+                yield hypothesis_name, self._apply_search_config_overrides(
+                    config_for_search_hypothesis(config, hypothesis)
+                )
+            return
+        for strategy_name in self.suite.get("strategies", ["hybrid"]):
+            yield strategy_name, self._apply_search_config_overrides(
+                replace(config, search=replace(config.search, strategy=strategy_name))
+            )
+
+    def _apply_search_config_overrides(self, config: Any) -> Any:
+        return self._apply_config_overrides(config, self.suite.get("search_config_overrides") or {})
 
     def _config_for_model(self, model: dict[str, Any]):
         embedding = replace(
