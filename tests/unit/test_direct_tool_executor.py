@@ -137,3 +137,32 @@ def test_direct_tool_executor_reranks_previous_search_candidates(tmp_path: Path)
     assert payload["ok"] is True
     assert [candidate["path"] for candidate in payload["result"]["candidates"]] == ["src/b.py", "src/a.py"]
     assert payload["metrics"]["modelCalls"] == 1
+
+
+def test_direct_tool_executor_reranks_candidates_from_batched_inspect(tmp_path: Path) -> None:
+    source = tmp_path / "src" / "service.py"
+    source.parent.mkdir()
+    source.write_text("class AuthService:\n    def login(self):\n        return True\n", encoding="utf-8")
+
+    def rerank_handler(query: str, candidates: list[dict], limit: int, args: dict) -> dict:
+        assert candidates
+        assert candidates[0]["path"] == "src/service.py"
+        return {"candidates": candidates[:limit], "metrics": {"modelCalls": 1}}
+
+    executor = DirectToolExecutor(
+        tmp_path,
+        ["code_diver_inspect", "code_diver_rerank"],
+        rerank_handler=rerank_handler,
+    )
+
+    executor.execute(
+        ToolCall(
+            "code_diver_inspect",
+            {"regexes": [{"pattern": "AuthService|login", "path": "src", "limit": 10}]},
+        )
+    )
+    rerank = executor.execute(ToolCall("code_diver_rerank", {"query": "where is auth?", "limit": 1}))
+
+    payload = json.loads(rerank.content)
+    assert payload["ok"] is True
+    assert payload["result"]["candidates"][0]["path"] == "src/service.py"

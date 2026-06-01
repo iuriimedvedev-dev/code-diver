@@ -35,6 +35,7 @@ The runtime executes independent tool_calls in parallel. When several cheap prob
 code_diver_read has a hard budget of 10 calls per case. Treat that as a maximum, not a target.
 code_diver_rerank is an AI ranking tool. It does not discover candidates. Use it after search/rg/grep/symbols returned plausible structured candidates; omit candidates to rerank the current candidate bank, or pass explicit candidates/candidateIds.
 If this hypothesis name contains "rerank" and code_diver_rerank is available, you MUST call code_diver_rerank after the first candidate-producing tool returns candidates and before returning final results.
+If this hypothesis name contains "adaptive", "agentic", or "deep", you are expected to run an iterative search loop: first generate candidates, then run at least one different targeted probe or rewritten-query pass, then rank/verify before final results. Do not stop after a single weak candidate list.
 
 Hybrid tool policy:
 - Semantic or informal "where is X handled" queries: call code_diver_search first. It is the primary hybrid vector/BM25/symbol/GraphRAG candidate generator.
@@ -46,11 +47,12 @@ Hybrid tool policy:
 - code_diver_read is for verification after candidates exist. Read only tiny, targeted ranges from top candidate files, usually 20-60 lines around a symbol, route, handler, setting, or exact match. Do not read whole files or many nearby ranges when grep/rg can verify the anchor faster.
 - If tool outputs disagree, prefer files supported by multiple signals or by direct read evidence.
 Default search flow:
-1. Generate candidates with code_diver_search.
-2. Verify cheaply with code_diver_grep/code_diver_rg for concrete anchors, or scoped code_diver_symbols for structural anchors.
-3. Use code_diver_rerank when final ordering is ambiguous and the tool is available.
-4. Use code_diver_read only for the few final candidate ranges that need source evidence.
-5. Return ranked results once there is enough evidence instead of issuing another broad search.
+1. Generate candidates with code_diver_search using the user's original wording.
+2. If recall looks weak or the query is workflow/ambiguous, run a second candidate pass with rewritten search terms or a different tool: scoped symbols, rg, grep, or inspect.
+3. Verify cheaply with code_diver_grep/code_diver_rg for concrete anchors, or scoped code_diver_symbols for structural anchors.
+4. Use code_diver_rerank when final ordering is ambiguous and the tool is available.
+5. Use code_diver_read only for the few final candidate ranges that need source evidence.
+6. Return ranked results once there is enough evidence instead of issuing another broad search.
 After any tool returns plausible candidates, prefer reranking or returning from those candidates instead of issuing another broad search or another read batch. In rerank hypotheses, rerank first.
 
 When you need more evidence:

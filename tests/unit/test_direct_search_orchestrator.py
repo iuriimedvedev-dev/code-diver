@@ -364,3 +364,57 @@ def test_direct_search_orchestrator_extends_final_results_with_reranked_candidat
 
     assert result.error is None
     assert result.retrieved == ["src/b.py", "src/c.py", "src/a.py"]
+
+
+def test_direct_search_orchestrator_requires_adaptive_evidence_before_final(tmp_path: Path) -> None:
+    log_path = tmp_path / "search.jsonl"
+    provider = FakeSearchGenerationProvider(
+        [
+            json.dumps(
+                {
+                    "reason": "premature guess",
+                    "results": [{"path": "src/guess.py"}],
+                    "final": "done",
+                }
+            ),
+            json.dumps(
+                {
+                    "reason": "generate candidates",
+                    "tool_calls": [{"name": "code_diver_search", "arguments": {"query": "auth", "limit": 2}}],
+                }
+            ),
+            json.dumps(
+                {
+                    "reason": "rank candidates",
+                    "tool_calls": [{"name": "code_diver_rerank", "arguments": {"query": "auth", "limit": 2}}],
+                }
+            ),
+            json.dumps(
+                {
+                    "reason": "grounded final",
+                    "results": [{"path": "src/auth.py"}],
+                    "final": "done",
+                }
+            ),
+        ]
+    )
+
+    def search_handler(query: str, limit: int) -> str:
+        return json.dumps([{"id": "auth", "path": "src/auth.py", "title": "Auth", "score": 0.9}])
+
+    def rerank_handler(query: str, candidates: list[dict], limit: int, args: dict) -> dict:
+        return {"candidates": candidates, "metrics": {"modelCalls": 1, "inputTokens": 1, "outputTokens": 1}}
+
+    result = DirectSearchOrchestrator(
+        root=tmp_path,
+        generation_provider=provider,
+        allowed_tools=["code_diver_search", "code_diver_rerank"],
+        log_path=log_path,
+        search_handler=search_handler,
+        rerank_handler=rerank_handler,
+    ).search(hypothesis_name="adaptive_agentic_search", case_id="case-1", query="where is auth?", limit=10)
+
+    assert result.error is None
+    assert result.retrieved == ["src/auth.py"]
+    events = [json.loads(line)["event"] for line in log_path.read_text(encoding="utf-8").splitlines()]
+    assert "adaptive_evidence_required" in events

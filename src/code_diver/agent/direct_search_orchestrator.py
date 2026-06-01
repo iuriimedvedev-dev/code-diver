@@ -73,6 +73,7 @@ class DirectSearchOrchestrator:
             read_calls_used = 0
             tool_names_used: set[str] = set()
             fallback_paths: list[str] = []
+            candidate_tool_calls = 0
             for round_index in range(1, self.MAX_ROUNDS + 1):
                 prompt = self.prompt_builder.build(
                     hypothesis_name=hypothesis_name,
@@ -86,6 +87,34 @@ class DirectSearchOrchestrator:
                 parsed = self.response_parser.parse(response.text)
                 history.append({"round": round_index, "assistant": parsed})
                 if "results" in parsed:
+                    if self._should_continue_for_adaptive_evidence(
+                        hypothesis_name,
+                        candidate_tool_calls,
+                        tool_names_used,
+                    ):
+                        history.append(
+                            {
+                                "round": round_index,
+                                "runtime_feedback": {
+                                    "reason": "adaptive_evidence_required",
+                                    "instruction": (
+                                        "Do at least one more targeted candidate-producing pass with a different "
+                                        "tool or rewritten query, then rerank or verify before final results."
+                                    ),
+                                    "candidateToolCalls": candidate_tool_calls,
+                                    "toolsUsed": sorted(tool_names_used),
+                                },
+                            }
+                        )
+                        self.logger.write(
+                            "adaptive_evidence_required",
+                            {
+                                "case_id": case_id,
+                                "candidate_tool_calls": candidate_tool_calls,
+                                "tools_used": sorted(tool_names_used),
+                            },
+                        )
+                        continue
                     if self._should_force_rerank(hypothesis_name, tool_names_used):
                         tool_results, read_calls_used = self._execute_tools(
                             executor,
@@ -132,6 +161,7 @@ class DirectSearchOrchestrator:
                     read_calls_used,
                 )
                 tool_names_used.update(item.name for item in tool_results)
+                candidate_tool_calls += self._candidate_tool_count(tool_results)
                 fallback_paths = self._fallback_paths(tool_results) or fallback_paths
                 history.append(
                     {
@@ -163,7 +193,7 @@ class DirectSearchOrchestrator:
             return result
 
     def _should_force_rerank(self, hypothesis_name: str, tool_names_used: set[str]) -> bool:
-        if "rerank" not in hypothesis_name:
+        if "rerank" not in hypothesis_name and not self._adaptive_hypothesis(hypothesis_name):
             return False
         if "code_diver_rerank" not in self.allowed_tools:
             return False
@@ -177,6 +207,27 @@ class DirectSearchOrchestrator:
             "code_diver_inspect",
         }
         return bool(candidate_tools & tool_names_used)
+
+    def _adaptive_hypothesis(self, hypothesis_name: str) -> bool:
+        lowered = hypothesis_name.lower()
+        return "adaptive" in lowered or "agentic" in lowered or "deep" in lowered
+
+    def _should_continue_for_adaptive_evidence(
+        self,
+        hypothesis_name: str,
+        candidate_tool_calls: int,
+        tool_names_used: set[str],
+    ) -> bool:
+        if not self._adaptive_hypothesis(hypothesis_name):
+            return False
+        if candidate_tool_calls < 2:
+            return True
+        if "code_diver_rerank" in self.allowed_tools and "code_diver_rerank" not in tool_names_used:
+            return True
+        return False
+
+    def _candidate_tool_count(self, tool_results: list[ToolResult]) -> int:
+        return sum(1 for result in tool_results if self._paths_from_tool_result(result))
 
     def _generate(self, prompt: str, usage: DirectSearchResult) -> GenerationResult:
         started = perf_counter()

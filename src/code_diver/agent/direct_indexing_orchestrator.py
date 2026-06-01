@@ -103,6 +103,24 @@ class DirectIndexingOrchestrator:
 
                 index_values = parsed.get("index_items") or parsed.get("items")
                 if index_values:
+                    if not self._has_tool_evidence(history):
+                        history.append(
+                            {
+                                "round": round_index,
+                                "runtime_feedback": {
+                                    "reason": "indexing_evidence_required",
+                                    "instruction": (
+                                        "Use read-only discovery tools before selecting index_items. "
+                                        "Gather tree/symbol/rg/grep/read evidence, then persist grounded ranges."
+                                    ),
+                                },
+                            }
+                        )
+                        self.logger.write(
+                            "indexing_evidence_required",
+                            {"round": round_index, "requested_items": len(index_values) if isinstance(index_values, list) else 0},
+                        )
+                        continue
                     return self._persist_index(index_values, usage)
 
                 tool_calls = self._parse_tool_calls(parsed)
@@ -207,6 +225,13 @@ class DirectIndexingOrchestrator:
                 {"name": result.name, "ok": result.ok, "content": result.content},
             )
         return results
+
+    def _has_tool_evidence(self, history: list[dict[str, Any]]) -> bool:
+        for entry in history:
+            results = entry.get("tool_results")
+            if isinstance(results, list) and any(isinstance(item, dict) and item.get("ok") for item in results):
+                return True
+        return False
 
     def _persist_index(self, values: Any, usage: DirectIndexingResult) -> DirectIndexingResult:
         if not isinstance(values, list):

@@ -896,6 +896,32 @@ experiments:
         - code_diver_inspect
         - code_diver_rerank
       description: Universal hybrid orchestrator with vector/BM25/symbol/GraphRAG candidates plus read-only parallel inspection tools.
+    - name: ai_search_adaptive_agentic_rerank
+      tools:
+        - code_diver_search
+        - code_diver_tree
+        - code_diver_symbols
+        - code_diver_grep
+        - code_diver_rg
+        - code_diver_read
+        - code_diver_inspect
+        - code_diver_rerank
+      generation:
+        provider: vertex
+        model: gemini-3.1-flash-lite
+        fallback_models: []
+        project: "236777862453"
+        location: global
+        temperature: 0
+        thinking_budget: 256
+        api_version: v1
+        timeout_ms: 20000
+      llm_rerank:
+        candidate_limit: 30
+        max_preview_chars: 550
+        mode: file_first
+        include_reasons: false
+      description: Adaptive direct orchestrator that must do multiple candidate/evidence passes, then AI-rerank before final results.
     - name: ai_search_vector_rg_read
       tools:
         - code_diver_search
@@ -911,6 +937,19 @@ experiments:
     - name: ai_selected_index
       toolset: indexing
       description: Direct orchestrator inspects the repository and saves selected file ranges into Qdrant.
+    - name: ai_adaptive_selected_index
+      toolset: indexing
+      generation:
+        provider: vertex
+        model: gemini-3.1-flash-lite
+        fallback_models: []
+        project: "236777862453"
+        location: global
+        temperature: 0
+        thinking_budget: 256
+        api_version: v1
+        timeout_ms: 20000
+      description: Adaptive AI-guided indexer that uses repo-map, symbol, regex, and read evidence before saving selected ranges.
     - name: ai_index_tree_only
       tools:
         - code_diver_tree

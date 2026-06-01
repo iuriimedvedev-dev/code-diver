@@ -135,3 +135,70 @@ def test_direct_indexing_orchestrator_uses_tools_and_persists_selected_ranges(tm
     assert "tool_call" in events
     assert "tool_result" in events
     assert "index_saved" in events
+
+
+def test_direct_indexing_orchestrator_requires_tool_evidence_before_saving(tmp_path: Path) -> None:
+    source = tmp_path / "src" / "app.py"
+    source.parent.mkdir()
+    source.write_text("class AuthService:\n    pass\n", encoding="utf-8")
+    log_path = tmp_path / "logs" / "agent.jsonl"
+    generation = FakeGenerationProvider(
+        [
+            json.dumps(
+                {
+                    "reason": "premature index",
+                    "index_items": [
+                        {
+                            "path": "src/app.py",
+                            "startLine": 1,
+                            "endLine": 2,
+                            "title": "Auth service",
+                            "reason": "guess",
+                            "kind": "class",
+                        }
+                    ],
+                }
+            ),
+            json.dumps(
+                {
+                    "reason": "gather evidence",
+                    "tool_calls": [
+                        {"name": "code_diver_read", "arguments": {"file": "src/app.py", "startLine": 1, "lines": 5}}
+                    ],
+                }
+            ),
+            json.dumps(
+                {
+                    "reason": "persist grounded range",
+                    "index_items": [
+                        {
+                            "path": "src/app.py",
+                            "startLine": 1,
+                            "endLine": 2,
+                            "title": "Auth service",
+                            "reason": "read evidence",
+                            "kind": "class",
+                        }
+                    ],
+                }
+            ),
+        ]
+    )
+    store = FakeVectorStore()
+
+    result = DirectIndexingOrchestrator(
+        root=tmp_path,
+        generation_provider=generation,
+        embedding_provider=FakeEmbeddingProvider(),
+        vector_store=store,
+        allowed_tools=["code_diver_read", "code_diver_index_selected"],
+        max_lines=50,
+        indexing_options=IndexingOptions(progress=False),
+        log_path=log_path,
+    ).run("ai_selected_index", [SimpleNamespace(query="where is auth?")])
+
+    assert result.exit_code == 0
+    assert result.indexed_items == 1
+    assert result.model_calls == 3
+    events = [json.loads(line)["event"] for line in log_path.read_text(encoding="utf-8").splitlines()]
+    assert "indexing_evidence_required" in events

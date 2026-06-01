@@ -71,6 +71,19 @@ def test_search_prompt_describes_rerank_tool_when_available() -> None:
     assert "Do not call it in the same parallel batch" in prompt
 
 
+def test_search_prompt_describes_adaptive_multi_pass_policy() -> None:
+    prompt = DirectSearchPromptBuilder().build(
+        hypothesis_name="adaptive_agentic_search",
+        query="where is command creation handled?",
+        tool_manifest=json.dumps([{"name": "code_diver_search"}, {"name": "code_diver_rg"}]),
+        history=[],
+        limit=10,
+    )
+
+    assert "iterative search loop" in prompt
+    assert "different targeted probe or rewritten-query pass" in prompt
+
+
 def test_search_prompt_compacts_old_history_but_keeps_recent_observation() -> None:
     history = [
         {"round": 1, "assistant": {"reason": "old search", "tool_calls": [{"name": "code_diver_search"}]}},

@@ -238,13 +238,25 @@ class DirectToolExecutor:
         }
 
     def _remember_candidates(self, result: dict[str, Any]) -> None:
-        candidates = result.get("candidates")
-        if not isinstance(candidates, list):
-            return
-        for candidate in candidates:
+        for candidate in self._candidate_rows(result):
             if isinstance(candidate, dict):
                 self.candidate_bank.append(candidate)
         self.candidate_bank = self._dedupe_candidates(self.candidate_bank)[-200:]
+
+    def _candidate_rows(self, value: Any) -> list[Any]:
+        if not isinstance(value, dict):
+            return []
+        rows: list[Any] = []
+        candidates = value.get("candidates")
+        if isinstance(candidates, list):
+            rows.extend(candidates)
+        sections = value.get("sections")
+        if isinstance(sections, list):
+            for section in sections:
+                if not isinstance(section, dict):
+                    continue
+                rows.extend(self._candidate_rows(section.get("result")))
+        return rows
 
     def _filtered_candidates(self, candidates: list[Any], candidate_ids: Any) -> list[dict[str, Any]]:
         rows = [candidate for candidate in candidates if isinstance(candidate, dict)]

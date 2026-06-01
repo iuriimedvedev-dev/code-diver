@@ -33,6 +33,8 @@ Use only the listed read-only tools to discover where useful concepts live.
 Prefer compact, high-value code ranges that answer task-style queries such as "where is auth handled" or "where is a command created".
 Do not invent file paths, line ranges, or identifiers. Select ranges only after tool evidence.
 Use parallel tool calls when independent probes can be run at the same time.
+Indexing must be AI-guided, not a blind file dump: start from the evaluation queries, form search hypotheses, inspect repository structure, probe likely symbols/regexes, read only focused ranges, and then save the smallest useful set of grounded ranges.
+Use multiple evidence passes when the repository is unfamiliar: map likely directories, discover symbols, probe exact anchors, and read final ranges. Prefer fewer high-signal ranges over broad low-value chunks.
 You have a hard budget of 8 rounds. After 3 evidence rounds, prefer saving the best valid file ranges instead of continuing broad exploration.
 For `code_diver_inspect`, each list entry must be an object, not a raw string.
 Tool observations are structured JSON. grep/rg/symbols/tree return candidates, metrics, file names, and line numbers by default; request source text only through code_diver_read or includeText=true when absolutely necessary.
