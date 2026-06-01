@@ -14,6 +14,7 @@ class HybridCandidateScore:
     path_score: float = 0.0
     symbol_score: float = 0.0
     graph_score: float = 0.0
+    file_vote_score: float = 0.0
 
     def total(self, config: HybridSearchConfig) -> float:
         return (
@@ -22,4 +23,5 @@ class HybridCandidateScore:
             + self.path_score * config.path_weight
             + self.symbol_score * config.symbol_weight
             + self.graph_score * config.graph_weight
+            + self.file_vote_score * config.file_vote_weight
         )

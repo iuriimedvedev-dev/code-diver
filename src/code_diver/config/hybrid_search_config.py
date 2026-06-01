@@ -14,6 +14,7 @@ class HybridSearchConfig:
     path_weight: float = Defaults.HYBRID_PATH_WEIGHT
     symbol_weight: float = Defaults.HYBRID_SYMBOL_WEIGHT
     graph_weight: float = Defaults.HYBRID_GRAPH_WEIGHT
+    file_vote_weight: float = Defaults.HYBRID_FILE_VOTE_WEIGHT
     graph_depth: int = Defaults.HYBRID_GRAPH_DEPTH
     graph_neighbor_limit: int = Defaults.HYBRID_GRAPH_NEIGHBOR_LIMIT
     lexical_scoring: str = Defaults.HYBRID_LEXICAL_SCORING

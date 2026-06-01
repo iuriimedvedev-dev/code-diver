@@ -8,6 +8,7 @@ from pathlib import Path
 from ..domain import CodeItem, CodeItemIndexKind, CodeItemMetadata, CodeSymbol
 from .code_symbol_extractor import CodeSymbolExtractor
 from .file_summary_item_builder import FileSummaryItemBuilder
+from .structural_code_chunker import StructuralCodeChunker
 
 DEFAULT_EXCLUDES = (
     ".git/**",
@@ -69,19 +70,23 @@ class CodebaseScanner:
         exclude: list[str] | None = None,
         max_file_bytes: int = 1_000_000,
         chunk_lines: int = 120,
+        structural_chunks: bool = False,
         symbol_chunks: bool = False,
         file_summary_chunks: bool = False,
         symbol_extractor: CodeSymbolExtractor | None = None,
         file_summary_builder: FileSummaryItemBuilder | None = None,
+        structural_chunker: StructuralCodeChunker | None = None,
     ):
         self.include = include or []
         self.exclude = [*DEFAULT_EXCLUDES, *(exclude or [])]
         self.max_file_bytes = max_file_bytes
         self.chunk_lines = chunk_lines
+        self.structural_chunks = structural_chunks
         self.symbol_chunks = symbol_chunks
         self.file_summary_chunks = file_summary_chunks
         self.symbol_extractor = symbol_extractor or CodeSymbolExtractor()
         self.file_summary_builder = file_summary_builder or FileSummaryItemBuilder()
+        self.structural_chunker = structural_chunker or StructuralCodeChunker(chunk_lines, self.symbol_extractor)
 
     def scan(self, root: Path) -> list[CodeItem]:
         root = root.resolve()
@@ -149,6 +154,14 @@ class CodebaseScanner:
             return raw.decode("utf-8", errors="replace")
 
     def _chunk_file(self, rel_path: str, text: str) -> list[CodeItem]:
+        line_chunks = self._line_chunks(rel_path, text)
+        if self.structural_chunks:
+            structural_items = self.structural_chunker.chunk(rel_path, text)
+            if structural_items:
+                return [*line_chunks, *structural_items]
+        return line_chunks
+
+    def _line_chunks(self, rel_path: str, text: str) -> list[CodeItem]:
         lines = text.splitlines()
         chunks: list[CodeItem] = []
         for offset in range(0, len(lines), self.chunk_lines):

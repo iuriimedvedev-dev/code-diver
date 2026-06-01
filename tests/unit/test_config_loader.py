@@ -61,6 +61,7 @@ pi:
 scanner:
   include: ["*.py"]
   chunk_lines: 10
+  structural_chunks: true
   symbol_chunks: true
   file_summary_chunks: true
 search:
@@ -78,6 +79,7 @@ hybrid_search:
   path_weight: 0.13
   symbol_weight: 0.07
   graph_weight: 0.09
+  file_vote_weight: 0.04
   graph_depth: 2
   graph_neighbor_limit: 11
   lexical_scoring: bm25
@@ -197,6 +199,7 @@ plugins:
     assert config.pi.toolsets["grep_only"] == ["code_diver_tree", "code_diver_rg", "code_diver_read"]
     assert config.scanner.include == ["*.py"]
     assert config.scanner.chunk_lines == 10
+    assert config.scanner.structural_chunks is True
     assert config.scanner.symbol_chunks is True
     assert config.scanner.file_summary_chunks is True
     assert config.search.strategy == "recursive"
@@ -211,6 +214,7 @@ plugins:
     assert config.hybrid_search.path_weight == 0.13
     assert config.hybrid_search.symbol_weight == 0.07
     assert config.hybrid_search.graph_weight == 0.09
+    assert config.hybrid_search.file_vote_weight == 0.04
     assert config.hybrid_search.graph_depth == 2
     assert config.hybrid_search.graph_neighbor_limit == 11
     assert config.hybrid_search.lexical_scoring == "bm25"

@@ -57,6 +57,34 @@ def build_app():
     assert all(item.metadata["source"] == "scanner" for item in items)
 
 
+def test_scanner_can_use_structural_chunks(tmp_path: Path) -> None:
+    (tmp_path / "app.py").write_text(
+        """
+import os
+
+
+class UserService:
+    def create_user(self):
+        return os.getenv("USER")
+
+
+def build_app():
+    return UserService()
+""".strip(),
+        encoding="utf-8",
+    )
+
+    items = CodebaseScanner(include=["*.py"], chunk_lines=20, structural_chunks=True).scan(tmp_path)
+
+    structural = [item for item in items if item.metadata["index_kind"] == "structural_chunk"]
+    assert [item.title for item in structural] == [
+        "app.py::module preamble",
+        "app.py::UserService",
+        "app.py::build_app",
+    ]
+    assert [(item.start_line, item.end_line) for item in structural] == [(1, 3), (4, 6), (9, 10)]
+
+
 def test_scanner_can_add_file_summary_items(tmp_path: Path) -> None:
     (tmp_path / "app.py").write_text(
         """

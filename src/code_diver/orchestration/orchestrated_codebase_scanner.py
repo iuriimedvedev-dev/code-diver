@@ -56,6 +56,7 @@ class OrchestratedCodebaseScanner:
                 "exclude": exclude,
                 "max_file_bytes": self.config.scanner.max_file_bytes,
                 "chunk_lines": chunk_lines,
+                "structural_chunks": self.config.scanner.structural_chunks,
                 "symbol_chunks": symbol_chunks,
             },
         )
@@ -64,7 +65,9 @@ class OrchestratedCodebaseScanner:
             exclude=exclude,
             max_file_bytes=self.config.scanner.max_file_bytes,
             chunk_lines=chunk_lines,
+            structural_chunks=self.config.scanner.structural_chunks,
             symbol_chunks=symbol_chunks,
+            file_summary_chunks=self.config.scanner.file_summary_chunks,
         )
         return scanner.scan(root)
 

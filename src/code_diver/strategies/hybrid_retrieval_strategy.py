@@ -71,6 +71,7 @@ class HybridRetrievalStrategy(RetrievalStrategy):
             existing = scores.setdefault(item_id, HybridCandidateScore(item=item))
             existing.graph_score = max(existing.graph_score, graph_score)
 
+        self._apply_file_vote_scores(scores, active_config)
         if active_config.fusion == FUSION_RRF:
             results = self._rrf_results(scores, vector_results, limit, active_config)
         else:
@@ -167,6 +168,39 @@ class HybridRetrievalStrategy(RetrievalStrategy):
             return {item_id: 1.0 for item_id in scores}
         return {item_id: (score - low) / (high - low) for item_id, score in scores.items()}
 
+    def _apply_file_vote_scores(
+        self,
+        scores: dict[str, HybridCandidateScore],
+        config: HybridSearchConfig,
+    ) -> None:
+        if config.file_vote_weight <= 0 or not scores:
+            return
+        raw_votes: dict[str, float] = defaultdict(float)
+        for path, path_scores in self._scores_by_path(scores).items():
+            ranked = sorted((self._base_total(score, config) for score in path_scores), reverse=True)
+            raw_votes[path] = sum(value * (0.5**index) for index, value in enumerate(ranked[:4]))
+        normalized_votes = self._normalize(raw_votes)
+        for score in scores.values():
+            score.file_vote_score = normalized_votes.get(score.item.path, 0.0)
+
+    def _scores_by_path(
+        self,
+        scores: dict[str, HybridCandidateScore],
+    ) -> dict[str, list[HybridCandidateScore]]:
+        by_path: dict[str, list[HybridCandidateScore]] = defaultdict(list)
+        for score in scores.values():
+            by_path[score.item.path].append(score)
+        return by_path
+
+    def _base_total(self, score: HybridCandidateScore, config: HybridSearchConfig) -> float:
+        return (
+            score.vector_score * config.vector_weight
+            + score.lexical_score * config.lexical_weight
+            + score.path_score * config.path_weight
+            + score.symbol_score * config.symbol_weight
+            + score.graph_score * config.graph_weight
+        )
+
     def _weighted_results(
         self,
         scores: dict[str, HybridCandidateScore],
@@ -229,6 +263,12 @@ class HybridRetrievalStrategy(RetrievalStrategy):
             config,
         )
         self._add_rrf(rrf_scores, self._ranked_ids(scores, lambda score: score.graph_score), config.graph_weight, config)
+        self._add_rrf(
+            rrf_scores,
+            self._ranked_ids(scores, lambda score: score.file_vote_score),
+            config.file_vote_weight,
+            config,
+        )
         weighted_rrf_scores = {
             item_id: score * self._item_kind_weight(scores[item_id].item, config)
             for item_id, score in rrf_scores.items()

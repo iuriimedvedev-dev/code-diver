@@ -238,6 +238,58 @@ def test_hybrid_strategy_applies_item_kind_weights(tmp_path: Path) -> None:
     assert results[0].item.id == "summary"
 
 
+def test_hybrid_strategy_promotes_file_consensus(tmp_path: Path) -> None:
+    vector_top = CodeItem(
+        id="vector-top",
+        path="src/other.py",
+        title="other",
+        content="authorization",
+    )
+    target_symbol = CodeItem(
+        id="target-symbol",
+        path="src/auth.py",
+        title="AuthService",
+        content="token validator",
+    )
+    target_summary = CodeItem(
+        id="target-summary",
+        path="src/auth.py",
+        title="auth summary",
+        content="authorization flow",
+    )
+    vector_floor = CodeItem(
+        id="vector-floor",
+        path="src/floor.py",
+        title="floor",
+        content="misc",
+    )
+    graph_store = _graph_store(tmp_path, [vector_top, target_symbol, target_summary, vector_floor], [])
+    strategy = HybridRetrievalStrategy(
+        FakeRetrievalStrategy(
+            [
+                SearchResult(vector_top, 0.99),
+                SearchResult(target_symbol, 0.985),
+                SearchResult(vector_floor, 0.9),
+            ]
+        ),
+        graph_store,
+        HybridSearchConfig(
+            candidate_limit=5,
+            lexical_candidate_limit=5,
+            vector_weight=0.1,
+            lexical_weight=0.1,
+            path_weight=0.0,
+            symbol_weight=0.0,
+            graph_weight=0.0,
+            file_vote_weight=0.8,
+        ),
+    )
+
+    results = strategy.search("authorization token", limit=3)
+
+    assert results[0].item.path == "src/auth.py"
+
+
 def test_hybrid_strategy_can_preserve_confident_vector_top(tmp_path: Path) -> None:
     vector_top = CodeItem(
         id="vector-top",

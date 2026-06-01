@@ -8,6 +8,7 @@ from .indexing_service import IndexingService
 from .selected_code_item_builder import SelectedCodeItemBuilder
 from .selected_indexing_service import SelectedIndexingService
 from .selected_index_payload_parser import SelectedIndexPayloadParser
+from .structural_code_chunker import StructuralCodeChunker
 
 __all__ = [
     "CodebaseScanner",
@@ -20,4 +21,5 @@ __all__ = [
     "SelectedCodeItemBuilder",
     "SelectedIndexingService",
     "SelectedIndexPayloadParser",
+    "StructuralCodeChunker",
 ]

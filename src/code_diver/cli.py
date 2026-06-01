@@ -651,6 +651,7 @@ def make_codebase_scanner(config: AppConfig):
         exclude=config.scanner.exclude,
         max_file_bytes=config.scanner.max_file_bytes,
         chunk_lines=config.scanner.chunk_lines,
+        structural_chunks=config.scanner.structural_chunks,
         symbol_chunks=config.scanner.symbol_chunks,
         file_summary_chunks=config.scanner.file_summary_chunks,
     )

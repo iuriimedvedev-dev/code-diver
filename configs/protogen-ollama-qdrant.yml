@@ -66,6 +66,7 @@ scanner:
     - ".env*"
   max_file_bytes: 500000
   chunk_lines: 180
+  structural_chunks: true
   symbol_chunks: true
   file_summary_chunks: true
 
@@ -87,8 +88,14 @@ hybrid_search:
   path_weight: 0.12
   symbol_weight: 0.05
   graph_weight: 0.05
+  file_vote_weight: 0.04
   graph_depth: 1
   graph_neighbor_limit: 20
+  item_kind_weights:
+    file_summary: 0.82
+    symbol: 1.04
+    structural_chunk: 0.72
+    chunk: 1.05
   min_token_length: 3
 
 llm_rerank:
@@ -354,6 +361,31 @@ experiments:
           chunk: 1.0
         min_token_length: 3
       description: "Typed AST GraphRAG with query-aware traversal over calls, references, imports, containment, summaries, and same-file edges."
+    - name: hybrid_candidates_structural_file_vote
+      strategy: hybrid
+      hybrid_search:
+        candidate_limit: 120
+        lexical_candidate_limit: 160
+        vector_weight: 0.6
+        lexical_weight: 0.17
+        path_weight: 0.11
+        symbol_weight: 0.05
+        graph_weight: 0.03
+        file_vote_weight: 0.04
+        graph_depth: 1
+        graph_neighbor_limit: 36
+        routing_enabled: true
+        lexical_scoring: bm25
+        fusion: weighted
+        preserve_vector_top: true
+        vector_top_score_margin: 0.03
+        item_kind_weights:
+          file_summary: 0.82
+          symbol: 1.04
+          structural_chunk: 0.72
+          chunk: 1.05
+        min_token_length: 3
+      description: "AST-aware structural chunks plus file-level voting across vector, lexical, symbol, summary, and graph evidence."
     - name: hybrid_candidates_routed_vector_guard
       strategy: hybrid
       hybrid_search:
@@ -525,6 +557,82 @@ experiments:
         mode: file_first
         include_reasons: true
       description: "Gemini 3.1 Flash-Lite file-first listwise rerank over the full top-40 candidate set."
+    - name: hybrid_rerank_flash_lite_structural_file_vote
+      strategy: hybrid_rerank
+      generation:
+        provider: vertex
+        model: gemini-3.1-flash-lite
+        fallback_models: []
+        project: "236777862453"
+        location: global
+        temperature: 0
+        thinking_budget: 256
+        api_version: v1
+        timeout_ms: 20000
+      hybrid_search:
+        candidate_limit: 40
+        lexical_candidate_limit: 100
+        vector_weight: 0.6
+        lexical_weight: 0.17
+        path_weight: 0.11
+        symbol_weight: 0.05
+        graph_weight: 0.03
+        file_vote_weight: 0.04
+        graph_depth: 1
+        graph_neighbor_limit: 36
+        routing_enabled: true
+        lexical_scoring: bm25
+        fusion: weighted
+        item_kind_weights:
+          file_summary: 0.82
+          symbol: 1.04
+          structural_chunk: 0.72
+          chunk: 1.05
+        min_token_length: 3
+      llm_rerank:
+        candidate_limit: 20
+        max_preview_chars: 450
+        mode: compact
+        include_reasons: false
+      description: "Flash-Lite rerank over structural multi-index candidates with file-level consensus voting."
+    - name: hybrid_rerank_flash_lite_structural_file_first
+      strategy: hybrid_rerank
+      generation:
+        provider: vertex
+        model: gemini-3.1-flash-lite
+        fallback_models: []
+        project: "236777862453"
+        location: global
+        temperature: 0
+        thinking_budget: 256
+        api_version: v1
+        timeout_ms: 20000
+      hybrid_search:
+        candidate_limit: 40
+        lexical_candidate_limit: 100
+        vector_weight: 0.6
+        lexical_weight: 0.17
+        path_weight: 0.11
+        symbol_weight: 0.05
+        graph_weight: 0.03
+        file_vote_weight: 0.04
+        graph_depth: 1
+        graph_neighbor_limit: 36
+        routing_enabled: true
+        lexical_scoring: bm25
+        fusion: weighted
+        item_kind_weights:
+          file_summary: 0.82
+          symbol: 1.04
+          structural_chunk: 0.72
+          chunk: 1.05
+        min_token_length: 3
+      llm_rerank:
+        candidate_limit: 40
+        max_preview_chars: 700
+        mode: file_first
+        include_reasons: true
+      description: "File-first Flash-Lite rerank over structural multi-index candidates."
     - name: hybrid_rerank_file_first
       strategy: hybrid_rerank
       hybrid_search:

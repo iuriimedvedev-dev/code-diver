@@ -183,6 +183,7 @@ class ConfigLoader:
             exclude=self._string_list(mapping.get("exclude")),
             max_file_bytes=int(mapping.get("max_file_bytes", Defaults.MAX_FILE_BYTES)),
             chunk_lines=int(mapping.get("chunk_lines", Defaults.CHUNK_LINES)),
+            structural_chunks=bool(mapping.get("structural_chunks", Defaults.STRUCTURAL_CHUNKS)),
             symbol_chunks=bool(mapping.get("symbol_chunks", Defaults.SYMBOL_CHUNKS)),
             file_summary_chunks=bool(mapping.get("file_summary_chunks", Defaults.FILE_SUMMARY_CHUNKS)),
         )
@@ -215,6 +216,7 @@ class ConfigLoader:
             path_weight=float(mapping.get("path_weight", Defaults.HYBRID_PATH_WEIGHT)),
             symbol_weight=float(mapping.get("symbol_weight", Defaults.HYBRID_SYMBOL_WEIGHT)),
             graph_weight=float(mapping.get("graph_weight", Defaults.HYBRID_GRAPH_WEIGHT)),
+            file_vote_weight=float(mapping.get("file_vote_weight", Defaults.HYBRID_FILE_VOTE_WEIGHT)),
             graph_depth=int(mapping.get("graph_depth", Defaults.HYBRID_GRAPH_DEPTH)),
             graph_neighbor_limit=int(mapping.get("graph_neighbor_limit", Defaults.HYBRID_GRAPH_NEIGHBOR_LIMIT)),
             lexical_scoring=str(mapping.get("lexical_scoring", Defaults.HYBRID_LEXICAL_SCORING)),

@@ -11,5 +11,6 @@ class ScannerConfig:
     exclude: list[str] = field(default_factory=list)
     max_file_bytes: int = Defaults.MAX_FILE_BYTES
     chunk_lines: int = Defaults.CHUNK_LINES
+    structural_chunks: bool = Defaults.STRUCTURAL_CHUNKS
     symbol_chunks: bool = Defaults.SYMBOL_CHUNKS
     file_summary_chunks: bool = Defaults.FILE_SUMMARY_CHUNKS
