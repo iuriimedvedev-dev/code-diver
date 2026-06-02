@@ -70,7 +70,7 @@ def test_openai_generation_provider_requests_json_output(monkeypatch) -> None:
 
 
 def test_openai_compatible_generation_provider_uses_chat_completions(monkeypatch) -> None:
-    provider = OpenAICompatibleGenerationProvider(model="local-model", api_key="local")
+    provider = OpenAICompatibleGenerationProvider(model="local-model", api_key="local", max_tokens=1536)
     calls: list[dict] = []
 
     def fake_post(payload):
@@ -82,6 +82,7 @@ def test_openai_compatible_generation_provider_uses_chat_completions(monkeypatch
     assert provider.generate_json("plan") == '{"queries":["x"]}'
     assert calls[0]["messages"][0]["role"] == "system"
     assert calls[0]["response_format"]["type"] == "json_object"
+    assert calls[0]["max_tokens"] == 1536
 
 
 def test_openai_compatible_generation_provider_retries_without_response_format(monkeypatch) -> None:

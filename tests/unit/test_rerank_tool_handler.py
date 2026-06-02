@@ -111,6 +111,8 @@ def test_rerank_tool_handler_invalid_json_falls_back_to_input_order() -> None:
     assert payload["selectedIndices"] == []
     assert [candidate["rerankRank"] for candidate in payload["candidates"]] == [1, 2]
     assert payload["metrics"]["modelCalls"] == 1
+    assert payload["degraded"] is True
+    assert payload["fallback"] == "input_order"
     assert payload["metrics"]["degraded"] is True
     assert payload["metrics"]["errors"] == 1
     assert "JSON response" in payload["metrics"]["error"]

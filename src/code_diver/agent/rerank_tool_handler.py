@@ -58,6 +58,8 @@ class RerankToolHandler:
         return {
             "candidates": ranked,
             "selectedIndices": [item["index"] for item in selected],
+            "degraded": bool(parse_error),
+            "fallback": "input_order" if parse_error else None,
             "metrics": metrics,
         }
 

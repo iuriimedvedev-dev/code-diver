@@ -44,7 +44,8 @@ class DirectToolExecutor:
         try:
             result = self._execute_allowed(call)
             self._remember_candidates(result)
-            return ToolResult(call.name, self._json_result(call.name, result, started))
+            degraded = self._result_degraded(result)
+            return ToolResult(call.name, self._json_result(call.name, result, started, degraded), ok=not degraded)
         except Exception as exc:
             return ToolResult(call.name, self._json_error(call.name, str(exc), started), ok=False)
 
@@ -329,14 +330,18 @@ class DirectToolExecutor:
                 paths.append(path)
         return paths
 
-    def _json_result(self, name: str, result: dict[str, Any], started: float) -> str:
+    def _json_result(self, name: str, result: dict[str, Any], started: float, degraded: bool) -> str:
+        metrics = result.get("metrics", {})
         envelope = {
             "tool": name,
-            "ok": True,
+            "ok": not degraded,
             "elapsedMs": (perf_counter() - started) * 1000,
             "result": result,
-            "metrics": result.get("metrics", {}),
+            "metrics": metrics,
         }
+        if degraded:
+            envelope["degraded"] = True
+            envelope["error"] = str(metrics.get("error") or "tool_result_degraded")
         return self._bounded_json(envelope)
 
     def _json_error(self, name: str, error: str, started: float) -> str:
@@ -354,12 +359,23 @@ class DirectToolExecutor:
         text = json.dumps(payload, ensure_ascii=False)
         if len(text) <= self.MAX_OUTPUT:
             return text
+        metrics = dict(payload.get("metrics", {}))
+        metrics["errors"] = int(metrics.get("errors") or 0) + 1
+        metrics["degraded"] = True
+        metrics["error"] = "structured tool observation exceeded max output; narrow path/pattern or request fewer lines"
         compact = {
             "tool": payload.get("tool"),
-            "ok": payload.get("ok"),
+            "ok": False,
             "elapsedMs": payload.get("elapsedMs"),
-            "metrics": payload.get("metrics", {}),
+            "metrics": metrics,
+            "degraded": True,
             "truncated": True,
-            "error": "structured tool observation exceeded max output; narrow path/pattern or request fewer lines",
+            "error": metrics["error"],
         }
         return json.dumps(compact, ensure_ascii=False)
+
+    def _result_degraded(self, result: dict[str, Any]) -> bool:
+        metrics = result.get("metrics", {})
+        if not isinstance(metrics, dict):
+            return False
+        return bool(result.get("degraded") or metrics.get("degraded") or metrics.get("errors"))

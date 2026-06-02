@@ -85,3 +85,65 @@ For a fair 6-way comparison, the next runner should execute the scenario skeleto
 - B: locator top N -> forced ephemeral syntax-aware index/search -> model rerank.
 
 Then the only model-variable part is ranking/orchestration choice, not whether the model remembered to call the required scenario tool. After that, run A/B for Qwen local, Gemini Flash Lite, and Gemini Flash on 100 cases, then promote the winner to 1000.
+
+## Deterministic Runner Update
+
+The deterministic H2 runner now exists as `scripts/run_postrank_h2_deterministic.py`.
+
+It removes the model-controlled tool-protocol variable from this specific benchmark:
+
+- Branch A is always `locator -> outline/symbol/rg probes -> rerank`.
+- Branch B is always `locator -> ephemeral syntax-aware index over locator files -> rerank`.
+- The model variable is only the final listwise ranker.
+- Rerank has retry attempts and compact fallback prompts.
+- Long runs write partial checkpoint JSON files under `.code-diver/reports/partials-*`.
+
+This is the correct setup for comparing the post-locator hypotheses. The older agentic smoke above remains useful as a protocol reliability diagnostic, but not as a clean quality comparison.
+
+## Infrastructure Fixes
+
+The 1000-case run was blocked by three non-quality issues:
+
+1. Qdrant container was running without published host ports. Recreating it with compose fixed `localhost:6333`.
+2. `configs/intellij-postrank-h2.yml` pointed at an interrupted staging collection. It now points at stable `intellij_community_file_locator_local_qwen`.
+3. The H2 config had drifted away from the file-locator hypothesis by enabling structural/symbol chunks while search weights targeted `file_summary`. It is back to one `file_summary` item per file.
+
+The local Qwen locator index was rebuilt successfully:
+
+| Metric | Value |
+| --- | ---: |
+| Collection | `intellij_community_file_locator_local_qwen` |
+| Items | 74,906 |
+| Item kind | `file_summary` |
+| Unique paths | 74,906 |
+| Content size | 172.95 MB |
+| Embedding model | `mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ` |
+| Dimensions | 1024 |
+
+## Gemini / Vertex Status
+
+After `gcloud` reauth, a safe synthetic Vertex smoke succeeded for both target model IDs:
+
+| Model ID | Smoke Status |
+| --- | --- |
+| `gemini-3.1-flash-lite` | OK |
+| `gemini-3.5-flash` | OK |
+
+The full 1000-case Gemini eval is still blocked in this Codex environment by the escalation reviewer because it would send repository-derived candidates and evidence to an external service. This is a tooling/policy blocker, not an application-code or Vertex-auth blocker.
+
+## Active 1000-Case Run
+
+The currently valid local run is:
+
+```bash
+.venv/bin/python scripts/run_postrank_h2_deterministic.py \
+  --cases 1000 \
+  --progress-every 25 \
+  --partial-dir .code-diver/reports/partials-qwen-1000 \
+  --output .code-diver/reports/intellij-postrank-h2-deterministic-qwen-1000.json \
+  --report .code-diver/reports/intellij-postrank-h2-deterministic-qwen-1000.html \
+  --hypothesis h2a_grep_read_rerank_qwen35_4b \
+  --hypothesis h2b_ephemeral_rerank_qwen35_4b
+```
+
+This run is local-only: Qdrant + local Qwen embeddings + local Qwen3.5 4B ranker.

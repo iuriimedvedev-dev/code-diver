@@ -389,6 +389,35 @@ def test_direct_tool_executor_rerank_filters_candidate_ids_and_deduplicates_bank
     assert payload["metrics"]["candidateCount"] == 2
 
 
+def test_direct_tool_executor_marks_degraded_rerank_result(tmp_path: Path) -> None:
+    def search_handler(query: str, limit: int) -> str:
+        return json.dumps([{"id": "a", "path": "src/a.py", "score": 0.9}])
+
+    def rerank_handler(query: str, candidates: list[dict], limit: int, args: dict) -> dict:
+        return {
+            "candidates": candidates[:limit],
+            "degraded": True,
+            "metrics": {"candidateCount": len(candidates), "errors": 1, "degraded": True, "error": "bad rerank json"},
+        }
+
+    executor = DirectToolExecutor(
+        tmp_path,
+        ["code_diver_search", "code_diver_rerank"],
+        search_handler=search_handler,
+        rerank_handler=rerank_handler,
+    )
+
+    executor.execute(ToolCall("code_diver_search", {"query": "anything", "limit": 10}))
+    result = executor.execute(ToolCall("code_diver_rerank", {"query": "anything", "limit": 10}))
+
+    payload = json.loads(result.content)
+    assert result.ok is False
+    assert payload["ok"] is False
+    assert payload["degraded"] is True
+    assert payload["error"] == "bad rerank json"
+    assert payload["result"]["candidates"][0]["path"] == "src/a.py"
+
+
 def test_direct_tool_executor_ephemeral_search_uses_explicit_candidate_files(tmp_path: Path) -> None:
     calls = []
 

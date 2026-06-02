@@ -5,7 +5,7 @@ storage:
   provider: qdrant
   qdrant:
     url: http://localhost:6333
-    collection: intellij_community_file_locator_local_qwen__staging_e8f89cf3f8dd466392e96e99fecbe492
+    collection: intellij_community_file_locator_local_qwen
     batch_size: 1024
 
 embedding:
@@ -83,11 +83,11 @@ scanner:
   max_file_bytes: 1000000
   line_chunks: false
   chunk_lines: 220
-  structural_chunks: true
-  symbol_chunks: true
-  symbol_body: true
-  file_summary_chunks: false
-  max_symbols_per_file: 32
+  structural_chunks: false
+  symbol_chunks: false
+  symbol_body: false
+  file_summary_chunks: true
+  max_symbols_per_file: 24
 
 search:
   limit: 10
@@ -161,6 +161,7 @@ experiments:
         api_key: local
         temperature: 0
         thinking_budget:
+        max_tokens: 1536
         timeout_ms: 120000
       description: "Branch A: locator files, then Qwen3.5 4B uses outline/symbol/grep/rg/read plus rerank."
     - name: h2a_grep_read_rerank_gemini_flash_lite
@@ -216,6 +217,7 @@ experiments:
         api_key: local
         temperature: 0
         thinking_budget:
+        max_tokens: 1536
         timeout_ms: 120000
       description: "Branch B: locator files, then Qwen3.5 4B calls ephemeral syntax-aware local vector search and reranks."
     - name: h2b_ephemeral_rerank_gemini_flash_lite

@@ -14,6 +14,9 @@ class DirectSearchResult:
     total_tokens: int = 0
     estimated_cost: float = 0.0
     models: list[str] = field(default_factory=list)
+    degraded: bool = False
+    tool_errors: int = 0
+    degraded_reasons: list[str] = field(default_factory=list)
     error: str | None = None
 
     def usage_json(self) -> dict[str, Any]:
@@ -25,4 +28,7 @@ class DirectSearchResult:
             "total_tokens": self.total_tokens,
             "total_cost": self.estimated_cost,
             "models": self.models,
+            "degraded": self.degraded,
+            "tool_errors": self.tool_errors,
+            "degraded_reasons": self.degraded_reasons,
         }

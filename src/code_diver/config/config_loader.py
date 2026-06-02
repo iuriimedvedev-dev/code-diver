@@ -158,6 +158,9 @@ class ConfigLoader:
             timeout_ms=int(
                 mapping.get("timeout_ms", base.timeout_ms if base is not None else Defaults.GENERATION_TIMEOUT_MS)
             ),
+            max_tokens=self._optional_int(
+                mapping.get("max_tokens", base.max_tokens if base is not None else Defaults.GENERATION_MAX_TOKENS)
+            ),
         )
 
     def _indexing(self, data: Any) -> IndexingConfig:

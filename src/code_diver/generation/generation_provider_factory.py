@@ -46,5 +46,6 @@ def create_generation_provider(config: AppConfig) -> GenerationProvider:
             api_key=generation.api_key,
             url=generation.url,
             timeout_seconds=generation.timeout_ms / 1000,
+            max_tokens=generation.max_tokens,
         )
     raise ValueError(f"Unknown generation provider: {generation.provider}")

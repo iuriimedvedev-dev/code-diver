@@ -15,6 +15,7 @@ class OpenAICompatibleGenerationProvider(OpenAIGenerationProvider):
         api_key: str | None = None,
         url: str | None = None,
         timeout_seconds: float = Defaults.OPENAI_TIMEOUT_SECONDS,
+        max_tokens: int | None = None,
     ):
         super().__init__(
             model=model,
@@ -24,6 +25,7 @@ class OpenAICompatibleGenerationProvider(OpenAIGenerationProvider):
         )
         self.name = "openai_compatible"
         self._response_format_supported = True
+        self.max_tokens = max_tokens
 
     def generate_json(self, prompt: str) -> str:
         return self.generate_json_result(prompt).text
@@ -65,6 +67,8 @@ class OpenAICompatibleGenerationProvider(OpenAIGenerationProvider):
         }
         if response_format:
             payload["response_format"] = {"type": "json_object"}
+        if self.max_tokens:
+            payload["max_tokens"] = self.max_tokens
         return payload
 
     def _is_response_format_error(self, message: str) -> bool:

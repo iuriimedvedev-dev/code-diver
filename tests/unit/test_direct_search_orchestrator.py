@@ -443,6 +443,9 @@ def test_direct_search_orchestrator_returns_candidates_when_agent_stops_calling_
                 }
             ),
             json.dumps({"reason": "invalid empty turn"}),
+            json.dumps({"reason": "invalid empty turn"}),
+            json.dumps({"reason": "invalid empty turn"}),
+            json.dumps({"reason": "invalid empty turn"}),
         ]
     )
 
@@ -480,6 +483,9 @@ def test_direct_search_orchestrator_returns_candidates_when_agent_json_is_invali
                 }
             ),
             "not json",
+            "not json",
+            "not json",
+            "not json",
         ]
     )
 
@@ -499,6 +505,39 @@ def test_direct_search_orchestrator_returns_candidates_when_agent_json_is_invali
     events = [json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines()]
     completed = [event for event in events if event["event"] == "search_case_completed"]
     assert completed[-1]["payload"]["fallback"] == "exception_last_candidates"
+
+
+def test_direct_search_orchestrator_retries_invalid_json_response(tmp_path: Path) -> None:
+    log_path = tmp_path / "search.jsonl"
+    provider = FakeSearchGenerationProvider(
+        [
+            json.dumps(
+                {
+                    "reason": "generate candidates",
+                    "tool_calls": [{"name": "code_diver_search", "arguments": {"query": "auth", "limit": 2}}],
+                }
+            ),
+            "not json",
+            json.dumps({"reason": "repaired final", "results": [{"path": "src/auth.py"}], "final": "done"}),
+        ]
+    )
+
+    def search_handler(query: str, limit: int) -> str:
+        return json.dumps([{"id": "auth", "path": "src/auth.py", "title": "Auth", "score": 0.9}])
+
+    result = DirectSearchOrchestrator(
+        root=tmp_path,
+        generation_provider=provider,
+        allowed_tools=["code_diver_search"],
+        log_path=log_path,
+        search_handler=search_handler,
+    ).search(hypothesis_name="search_only", case_id="case-1", query="where is auth?", limit=10)
+
+    assert result.error is None
+    assert result.retrieved == ["src/auth.py"]
+    events = [json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines()]
+    retries = [event for event in events if event["event"] == "agent_response_retry"]
+    assert retries[-1]["payload"]["reason"] == "invalid_json"
 
 
 def test_direct_search_orchestrator_requires_adaptive_evidence_before_final(tmp_path: Path) -> None:

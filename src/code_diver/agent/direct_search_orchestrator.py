@@ -87,7 +87,30 @@ class DirectSearchOrchestrator:
                 )
                 response = self._generate(prompt, result)
                 self._log_model_turn(case_id, round_index, prompt, response)
-                parsed = self.response_parser.parse(response.text)
+                try:
+                    parsed = self.response_parser.parse(response.text)
+                except Exception as exc:
+                    if round_index < self.MAX_ROUNDS:
+                        history.append(
+                            {
+                                "round": round_index,
+                                "runtime_feedback": {
+                                    "reason": "invalid_json_response",
+                                    "error": str(exc),
+                                    "instruction": (
+                                        "Your previous response was not valid JSON for this protocol. "
+                                        "Return exactly one JSON object with either tool_calls or results. "
+                                        "Do not include markdown, prose, or truncated JSON."
+                                    ),
+                                },
+                            }
+                        )
+                        self.logger.write(
+                            "agent_response_retry",
+                            {"case_id": case_id, "round": round_index, "error": str(exc), "reason": "invalid_json"},
+                        )
+                        continue
+                    raise
                 history.append({"round": round_index, "assistant": parsed})
                 if "results" in parsed:
                     if self._should_continue_for_adaptive_evidence(
@@ -180,6 +203,28 @@ class DirectSearchOrchestrator:
                     return result
                 calls = self._parse_tool_calls(parsed)
                 if not calls:
+                    if round_index < self.MAX_ROUNDS:
+                        history.append(
+                            {
+                                "round": round_index,
+                                "runtime_feedback": {
+                                    "reason": "missing_tool_calls_or_results",
+                                    "instruction": (
+                                        "Return a valid JSON object with either tool_calls for more evidence "
+                                        "or results for final ranked paths. Do not return a reasoning-only object."
+                                    ),
+                                },
+                            }
+                        )
+                        self.logger.write(
+                            "agent_response_retry",
+                            {
+                                "case_id": case_id,
+                                "round": round_index,
+                                "reason": "missing_tool_calls_or_results",
+                            },
+                        )
+                        continue
                     result.error = "agent_returned_no_tool_calls_or_results"
                     if fallback_paths:
                         return self._complete_with_fallback_error(
@@ -433,11 +478,20 @@ class DirectSearchOrchestrator:
         output_tokens = int(metrics.get("outputTokens") or metrics.get("output_tokens") or 0)
         total_tokens = int(metrics.get("totalTokens") or metrics.get("total_tokens") or input_tokens + output_tokens)
         estimated_cost = float(metrics.get("estimatedCost") or metrics.get("estimated_cost") or 0.0)
+        errors = int(metrics.get("errors") or 0)
         usage.model_calls += model_calls
         usage.input_tokens += input_tokens
         usage.output_tokens += output_tokens
         usage.total_tokens += total_tokens
         usage.estimated_cost += estimated_cost
+        if errors or metrics.get("degraded"):
+            usage.degraded = True
+            usage.tool_errors += max(errors, 1)
+            reason = str(metrics.get("error") or result.name or "tool_degraded")
+            if reason not in usage.degraded_reasons:
+                usage.degraded_reasons.append(reason)
+            if usage.error is None:
+                usage.error = "tool_degraded"
         for model in metrics.get("models") or [metrics.get("model")]:
             if model and model not in usage.models:
                 usage.models.append(str(model))

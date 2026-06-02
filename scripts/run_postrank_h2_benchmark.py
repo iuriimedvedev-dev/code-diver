@@ -61,6 +61,7 @@ class PostrankH2Benchmark:
         self.generation_port = args.generation_port
         self.embedding_model = args.embedding_model
         self.generation_model = args.generation_model
+        self.generation_max_tokens = args.generation_max_tokens
         self.hypotheses = args.hypothesis
         self.start_embedding = not args.no_start_embedding
         self.start_generation = not args.no_start_generation
@@ -141,7 +142,7 @@ class PostrankH2Benchmark:
                 "--port",
                 str(self.generation_port),
                 "--max-tokens",
-                "384",
+                str(self.generation_max_tokens),
                 "--temp",
                 "0",
                 "--prompt-concurrency",
@@ -248,6 +249,7 @@ def main() -> int:
     parser.add_argument("--generation-port", type=int, default=8012)
     parser.add_argument("--embedding-model", default="mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ")
     parser.add_argument("--generation-model", default="mlx-community/Qwen3.5-4B-OptiQ-4bit")
+    parser.add_argument("--generation-max-tokens", type=int, default=1536)
     parser.add_argument("--hypothesis", action="append", default=[])
     parser.add_argument("--startup-timeout-seconds", type=int, default=1200)
     parser.add_argument("--no-start-embedding", action="store_true")
