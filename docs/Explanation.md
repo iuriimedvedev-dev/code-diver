@@ -138,6 +138,33 @@ The API LLM should not be the embedder. Its job is orchestration and ranking:
 
 This keeps expensive tokens focused on reasoning and ranking, not brute-force retrieval.
 
+## Current Post-Ranking Hypotheses
+
+The IntelliJ 1000-case benchmark now compares four post-locator branches over the same compact local Qwen file-locator index:
+
+| Branch | Flow | Purpose |
+| --- | --- | --- |
+| A | locator -> outline/symbol/rg probes -> LLM rerank | Baseline structured inspection after the file locator. |
+| B | locator -> ephemeral syntax-aware index over candidate files -> LLM rerank | Tests whether localized deep vectorization beats direct probes. |
+| C | multiple locator profiles -> outline/symbol/rg probes -> LLM rerank | Tests whether fusing lexical-heavy, path/symbol, balanced, and vector-wide retrieval improves candidate recall. |
+| D | LLM query planner + deterministic symbol hypotheses -> multi-query profile union -> probes -> LLM rerank | Tests whether the LLM should help before retrieval by generating better search intents and likely symbol names. |
+
+The important discovery is that Branch A and B were not primarily ranker problems. Branch A called `outline`, `symbols`, and `rg`, but then appended their candidates after the locator list and truncated back to the candidate limit. Branch B often put ephemeral chunks before locator files and could push good locator candidates out. The runner now uses source-balanced candidate mixing so tools get real slots instead of being called for nothing.
+
+Branch D exists because a real failure showed the limit of a single semantic query. The query `where is project opening orchestrated` did not retrieve `ProjectManagerImpl.kt` in the top locator candidates. But a symbol-like variant such as `ProjectManagerImpl` did retrieve it, and Gemini reranked it to rank 1 once it was present. So the LLM's highest-value job is not only final ranking; it is also generating alternate code-navigation queries before retrieval.
+
+Diagnostics now record per case:
+
+| Field | Meaning |
+| --- | --- |
+| `locator_rank` | Rank of the expected file in the first plain locator call. |
+| `candidate_rank` | Rank after branch-specific candidate construction. |
+| `rerank_rank` | Final rank after LLM rerank. |
+| `query_variants` | Branch D planner/heuristic query variants. |
+| `expected_sources` | Which tools or retrieval profiles found the expected file. |
+
+This separates three different problems: the locator never saw the file, candidate construction dropped it, or the ranker demoted it.
+
 ## TUI Goal
 
 The UI should make the search process inspectable:

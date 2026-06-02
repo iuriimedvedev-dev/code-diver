@@ -19,7 +19,7 @@ The persistent index is intentionally fixed: a compact IntelliJ file-locator ind
 | A3 | Locator -> outline/symbol/rg/grep/read -> rerank | Gemini 3.5 Flash via Vertex | Configured, not run |
 | B3 | Locator -> ephemeral syntax-aware local vector search -> rerank | Gemini 3.5 Flash via Vertex | Configured, not run |
 
-The Vertex/Gemini runs were not executed in this batch because the approval reviewer rejected the command that would send repository-derived prompts/evidence to an external API. The config is ready, but those four hypotheses need explicit approval in an environment where external model calls are allowed.
+Vertex/Gemini runs are now active via Vertex AI after the user reauthorized `gcloud` and explicitly approved external model evaluation. The current target is strict: `Hit@10 >= 0.95` on the IntelliJ 1000-case dataset.
 
 ## Fixes Made Before The Valid Smoke
 
@@ -129,7 +129,38 @@ After `gcloud` reauth, a safe synthetic Vertex smoke succeeded for both target m
 | `gemini-3.1-flash-lite` | OK |
 | `gemini-3.5-flash` | OK |
 
-The full 1000-case Gemini eval is still blocked in this Codex environment by the escalation reviewer because it would send repository-derived candidates and evidence to an external service. This is a tooling/policy blocker, not an application-code or Vertex-auth blocker.
+The full Gemini eval is running through Vertex AI. Results are written incrementally to:
+
+- `.code-diver/reports/partials-gemini-flash-lite-1000/`
+- `.code-diver/reports/partials-gemini-flash-35-1000/`
+- `.code-diver/reports/partials-h3-gemini-flash-lite-1000/`
+- `.code-diver/reports/partials-h3-gemini-flash-35-1000/`
+- `.code-diver/reports/partials-h4-gemini-flash-lite-1000/`
+- `.code-diver/reports/partials-h4-gemini-flash-35-1000/`
+
+The live matrix is summarized in `docs/intellij-h2-matrix-overnight-2026-06-02.md`.
+
+## H3/H4 Update
+
+Two additional branches were added after diagnosing the H2 miss pattern:
+
+| Branch | Flow | Why it exists |
+| --- | --- | --- |
+| C | union of balanced, lexical-heavy, path/symbol, and vector-wide locator profiles -> probes -> rerank | Raise candidate recall without asking the LLM to invent new search terms. |
+| D | LLM query planner + deterministic symbol hypotheses -> multi-query profile union -> probes -> rerank | Use the LLM before retrieval to generate likely class/method/search variants. |
+
+The runner now records per-case diagnostics: `locator_rank`, `candidate_rank`, `rerank_rank`, `expected_sources`, and `query_variants`. This is necessary because aggregate `Hit@10` cannot tell whether we lost the file before retrieval, during candidate mixing, or during reranking.
+
+The first concrete H4 smoke result fixed the known `ProjectManagerImpl.kt` miss:
+
+| Case | Plain locator | H4 candidate rank | Final rank |
+| --- | ---: | ---: | ---: |
+| `where-project-open` | missing | 55 | 1 |
+
+The fix required two candidate-construction changes:
+
+- source-balanced mixing so `outline`, `symbols`, `rg`, and ephemeral chunks are not called and then sliced away;
+- query-priority mixing so the original query keeps a wide quota while the first symbol-like variants also get guaranteed slots.
 
 ## Active 1000-Case Run
 
