@@ -205,6 +205,126 @@ experiments:
         api_version: v1
         timeout_ms: 30000
       description: "Branch A: locator files, then Gemini 3.5 Flash uses outline/symbol/grep/rg/read plus rerank."
+    - name: h3_union_rerank_qwen35_4b
+      tools:
+        - code_diver_search
+        - code_diver_outline
+        - code_diver_symbols
+        - code_diver_rg
+        - code_diver_grep
+        - code_diver_read
+        - code_diver_rerank
+      generation:
+        provider: openai_compatible
+        model: mlx-community/Qwen3.5-4B-OptiQ-4bit
+        url: http://127.0.0.1:8012/v1/chat/completions
+        api_key: local
+        temperature: 0
+        thinking_budget:
+        max_tokens: 1536
+        timeout_ms: 120000
+      description: "Branch C: union of balanced, lexical-heavy, path/symbol, and vector-wide locator profiles, then probes plus rerank."
+    - name: h3_union_rerank_gemini_flash_lite
+      tools:
+        - code_diver_search
+        - code_diver_outline
+        - code_diver_symbols
+        - code_diver_rg
+        - code_diver_grep
+        - code_diver_read
+        - code_diver_rerank
+      generation:
+        provider: vertex
+        model: gemini-3.1-flash-lite
+        fallback_models: []
+        project: "236777862453"
+        location: global
+        temperature: 0
+        thinking_budget: 256
+        api_version: v1
+        timeout_ms: 30000
+      description: "Branch C: union locator profiles plus probes, then Gemini Flash-Lite rerank."
+    - name: h3_union_rerank_gemini_flash_35
+      tools:
+        - code_diver_search
+        - code_diver_outline
+        - code_diver_symbols
+        - code_diver_rg
+        - code_diver_grep
+        - code_diver_read
+        - code_diver_rerank
+      generation:
+        provider: vertex
+        model: gemini-3.5-flash
+        fallback_models:
+          - gemini-2.5-flash
+        project: "236777862453"
+        location: global
+        temperature: 0
+        thinking_budget: 1024
+        api_version: v1
+        timeout_ms: 30000
+      description: "Branch C: union locator profiles plus probes, then Gemini 3.5 Flash rerank."
+    - name: h4_multiquery_rerank_qwen35_4b
+      tools:
+        - code_diver_search
+        - code_diver_outline
+        - code_diver_symbols
+        - code_diver_rg
+        - code_diver_grep
+        - code_diver_read
+        - code_diver_rerank
+      generation:
+        provider: openai_compatible
+        model: mlx-community/Qwen3.5-4B-OptiQ-4bit
+        url: http://127.0.0.1:8012/v1/chat/completions
+        api_key: local
+        temperature: 0
+        thinking_budget:
+        max_tokens: 1536
+        timeout_ms: 120000
+      description: "Branch D: LLM query planner, multi-query locator profiles, probes, then Qwen3.5 4B rerank."
+    - name: h4_multiquery_rerank_gemini_flash_lite
+      tools:
+        - code_diver_search
+        - code_diver_outline
+        - code_diver_symbols
+        - code_diver_rg
+        - code_diver_grep
+        - code_diver_read
+        - code_diver_rerank
+      generation:
+        provider: vertex
+        model: gemini-3.1-flash-lite
+        fallback_models: []
+        project: "236777862453"
+        location: global
+        temperature: 0
+        thinking_budget: 256
+        api_version: v1
+        timeout_ms: 30000
+      description: "Branch D: Gemini Flash-Lite query planner, multi-query locator profiles, probes, then rerank."
+    - name: h4_multiquery_rerank_gemini_flash_35
+      tools:
+        - code_diver_search
+        - code_diver_outline
+        - code_diver_symbols
+        - code_diver_rg
+        - code_diver_grep
+        - code_diver_read
+        - code_diver_rerank
+      generation:
+        provider: vertex
+        model: gemini-3.5-flash
+        fallback_models:
+          - gemini-2.5-flash
+        project: "236777862453"
+        location: global
+        temperature: 0
+        thinking_budget: 1024
+        api_version: v1
+        timeout_ms: 30000
+      description: "Branch D: Gemini 3.5 Flash query planner, multi-query locator profiles, probes, then rerank."
     - name: h2b_ephemeral_rerank_qwen35_4b
       tools:
         - code_diver_search

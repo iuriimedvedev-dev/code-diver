@@ -5,13 +5,15 @@ import json
 import re
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
 from code_diver.cli import (
     config_for_search_hypothesis,
     direct_search_eval_result,
+    direct_search_file_path,
+    direct_search_matches_any,
     direct_search_metrics,
     eval_result_to_json,
     inspection_exclude_patterns,
@@ -25,8 +27,10 @@ from code_diver.config import ConfigLoader
 from code_diver.domain import CodeItemIndexKindResolver
 from code_diver.generation import create_generation_provider
 from code_diver.inspection import FileOutlineService, RgService, SymbolsService
+from code_diver.orchestration.json_response import JsonResponse
 from code_diver.services import DatasetLoader
 from code_diver.store import create_vector_store
+from code_diver.agent.model_cost_estimator import ModelCostEstimator
 
 
 @dataclass(slots=True)
@@ -38,6 +42,7 @@ class DeterministicRun:
     results: list[dict[str, Any]]
     errors: list[str]
     tool_metrics: dict[str, Any]
+    diagnostics: list[dict[str, Any]]
 
 
 class DeterministicPostrankH2:
@@ -55,7 +60,7 @@ class DeterministicPostrankH2:
         rows = []
         for hypothesis in search_tool_hypotheses(self.config, self.args.hypothesis):
             scenario = self._scenario(hypothesis.name)
-            if scenario not in {"branch_a", "branch_b"}:
+            if scenario not in {"branch_a", "branch_b", "branch_c", "branch_d"}:
                 continue
             rows.append(self._run_hypothesis(hypothesis, scenario, cases))
         result = {
@@ -84,6 +89,7 @@ class DeterministicPostrankH2:
         degraded_case_ids: set[str] = set()
         durations_ms: list[float] = []
         eval_results = []
+        diagnostics: list[dict[str, Any]] = []
         usage = self._empty_usage()
         tool_metrics = {
             "locator_calls": 0,
@@ -91,6 +97,11 @@ class DeterministicPostrankH2:
             "symbol_calls": 0,
             "rg_calls": 0,
             "ephemeral_calls": 0,
+            "union_profile_calls": 0,
+            "union_candidate_count_total": 0,
+            "planner_calls": 0,
+            "planner_errors": 0,
+            "query_variant_total": 0,
             "rerank_calls": 0,
             "rerank_errors": 0,
             "rerank_error_attempts": 0,
@@ -119,13 +130,42 @@ class DeterministicPostrankH2:
                         flush=True,
                     )
                 case_started = time.perf_counter()
+                query_variants: list[str] = []
                 try:
                     locator = self._locator_candidates(strategy, case.query, self.locator_limit)
                     tool_metrics["locator_calls"] += 1
                     if scenario == "branch_a":
                         candidates = self._branch_a_candidates(case.query, locator, outline, symbols, rg, tool_metrics)
-                    else:
+                    elif scenario == "branch_b":
                         candidates = self._branch_b_candidates(case.query, locator, ephemeral, tool_metrics)
+                    else:
+                        if scenario == "branch_c":
+                            candidates = self._branch_c_candidates(
+                                case.query,
+                                config,
+                                provider,
+                                vector_store,
+                                strategy,
+                                outline,
+                                symbols,
+                                rg,
+                                tool_metrics,
+                            )
+                        else:
+                            query_variants, planner_metrics = self._query_variants(generation_provider, case.query, tool_metrics)
+                            self._merge_usage(usage, planner_metrics)
+                            candidates = self._branch_d_candidates(
+                                case.query,
+                                query_variants,
+                                config,
+                                provider,
+                                vector_store,
+                                strategy,
+                                outline,
+                                symbols,
+                                rg,
+                                tool_metrics,
+                            )
                     tool_metrics["candidate_count_total"] += len(candidates)
                     reranked, rerank_metrics, rerank_degraded = self._rerank(rerank, case.query, candidates, tool_metrics)
                     if rerank_degraded:
@@ -133,10 +173,32 @@ class DeterministicPostrankH2:
                     self._merge_usage(usage, rerank_metrics)
                     retrieved = [str(candidate.get("path") or "") for candidate in reranked if candidate.get("path")]
                     eval_results.append(direct_search_eval_result(case, retrieved, self.limit))
+                    diagnostics.append(
+                        self._case_diagnostic(
+                            case,
+                            locator=locator,
+                            candidates=candidates,
+                            reranked=reranked,
+                            degraded=rerank_degraded,
+                            query_variants=query_variants,
+                        )
+                    )
                 except Exception as exc:
                     degraded_case_ids.add(str(case.id))
                     errors.append(f"{case.id}: {type(exc).__name__}: {exc}")
                     eval_results.append(direct_search_eval_result(case, [], self.limit))
+                    diagnostics.append(
+                        {
+                            "case_id": str(case.id),
+                            "query": case.query,
+                            "expected": list(case.expected),
+                            "error": f"{type(exc).__name__}: {exc}",
+                            "locator_rank": None,
+                            "candidate_rank": None,
+                            "rerank_rank": None,
+                            "query_variants": query_variants,
+                        }
+                    )
                 durations_ms.append((time.perf_counter() - case_started) * 1000)
                 if self._should_print_progress(case_index, total_cases):
                     tool_metrics["candidate_count_mean"] = tool_metrics["candidate_count_total"] / max(case_index, 1)
@@ -151,6 +213,7 @@ class DeterministicPostrankH2:
                         tool_metrics,
                         errors,
                         degraded_case_ids,
+                        diagnostics,
                     )
         finally:
             close = getattr(vector_store, "close", None)
@@ -171,9 +234,10 @@ class DeterministicPostrankH2:
             results=[eval_result_to_json(result) for result in eval_results],
             errors=errors[:20],
             tool_metrics=tool_metrics,
+            diagnostics=diagnostics,
         )
 
-    def _locator_candidates(self, strategy: Any, query: str, limit: int) -> list[dict[str, Any]]:
+    def _locator_candidates(self, strategy: Any, query: str, limit: int, source: str = "locator") -> list[dict[str, Any]]:
         resolver = CodeItemIndexKindResolver()
         return [
             {
@@ -184,7 +248,7 @@ class DeterministicPostrankH2:
                 "endLine": result.item.end_line,
                 "score": result.score,
                 "indexKind": resolver.resolve(result.item),
-                "source": "locator",
+                "source": source,
                 "preview": self._preview(result.item.content, 420),
             }
             for result in strategy.search(query, limit)
@@ -199,7 +263,9 @@ class DeterministicPostrankH2:
         rg: RgService,
         metrics: dict[str, Any],
     ) -> list[dict[str, Any]]:
-        candidates = list(locator)
+        outline_candidates: list[dict[str, Any]] = []
+        symbol_candidates: list[dict[str, Any]] = []
+        rg_candidates: list[dict[str, Any]] = []
         terms = self._terms(query)
         pattern = "|".join(re.escape(term) for term in terms[:5])
         for candidate in locator[: self.args.probe_files]:
@@ -209,23 +275,31 @@ class DeterministicPostrankH2:
             try:
                 payload = outline.structured(path, symbol_limit=80, import_limit=30)
                 metrics["outline_calls"] += 1
-                candidates.extend(self._outline_candidates(payload))
+                outline_candidates.extend(self._outline_candidates(payload))
             except Exception:
                 pass
             try:
                 payload = symbols.structured(path=path, limit=40, query=query)
                 metrics["symbol_calls"] += 1
-                candidates.extend(self._tool_candidates(payload, "symbols"))
+                symbol_candidates.extend(self._tool_candidates(payload, "symbols"))
             except Exception:
                 pass
             if pattern:
                 try:
                     payload = rg.structured(pattern, path=path, limit=20, include_text=False)
                     metrics["rg_calls"] += 1
-                    candidates.extend(self._tool_candidates(payload, "rg"))
+                    rg_candidates.extend(self._tool_candidates(payload, "rg"))
                 except Exception:
                     pass
-        return self._dedupe_candidates(candidates)[: self.args.rerank_candidate_limit]
+        return self._balanced_candidate_mix(
+            [
+                (locator, 0.58),
+                (outline_candidates, 0.14),
+                (symbol_candidates, 0.14),
+                (rg_candidates, 0.14),
+            ],
+            self.args.rerank_candidate_limit,
+        )
 
     def _branch_b_candidates(
         self,
@@ -245,7 +319,290 @@ class DeterministicPostrankH2:
         for candidate in deep:
             if isinstance(candidate, dict):
                 candidate["source"] = "ephemeral"
-        return self._dedupe_candidates([*deep, *locator])[: self.args.rerank_candidate_limit]
+        return self._balanced_candidate_mix([(locator, 0.55), (deep, 0.45)], self.args.rerank_candidate_limit)
+
+    def _branch_c_candidates(
+        self,
+        query: str,
+        config: Any,
+        provider: Any,
+        vector_store: Any,
+        base_strategy: Any,
+        outline: FileOutlineService,
+        symbols: SymbolsService,
+        rg: RgService,
+        metrics: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        profile_groups: list[tuple[list[dict[str, Any]], float]] = []
+        raw_union: list[dict[str, Any]] = []
+        for profile_name, profile_config in self._union_profiles(config):
+            strategy = base_strategy if profile_name == "balanced" else make_retrieval_strategy(profile_config, provider, vector_store)
+            limit = max(self.locator_limit, int(self.args.union_profile_limit))
+            profile_candidates = self._locator_candidates(strategy, query, limit, source=f"union:{profile_name}")
+            profile_groups.append((profile_candidates, 1.0))
+            raw_union.extend(profile_candidates)
+            metrics["union_profile_calls"] += 1
+        metrics["union_candidate_count_total"] += len(self._dedupe_candidates(raw_union))
+        union = self._balanced_candidate_mix(profile_groups, self.args.rerank_candidate_limit)
+        probed = self._branch_a_candidates(query, union[: self.args.union_probe_files], outline, symbols, rg, metrics)
+        return self._balanced_candidate_mix([(union, 0.85), (probed, 0.15)], self.args.rerank_candidate_limit)
+
+    def _branch_d_candidates(
+        self,
+        query: str,
+        query_variants: list[str],
+        config: Any,
+        provider: Any,
+        vector_store: Any,
+        base_strategy: Any,
+        outline: FileOutlineService,
+        symbols: SymbolsService,
+        rg: RgService,
+        metrics: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        search_groups: list[tuple[list[dict[str, Any]], float]] = []
+        raw_union: list[dict[str, Any]] = []
+        searches = [query, *query_variants]
+        for search_query in searches[: max(int(self.args.query_variant_limit), 1)]:
+            search_candidates = self._union_locator_candidates(
+                search_query,
+                config,
+                provider,
+                vector_store,
+                base_strategy,
+                metrics,
+                source_prefix="multiquery",
+            )
+            search_groups.append((search_candidates, 1.0))
+            raw_union.extend(search_candidates)
+        metrics["union_candidate_count_total"] += len(self._dedupe_candidates(raw_union))
+        union = self._priority_query_candidate_mix(search_groups, self.args.rerank_candidate_limit)
+        probed = self._branch_a_candidates(query, union[: self.args.union_probe_files], outline, symbols, rg, metrics)
+        return self._balanced_candidate_mix([(union, 0.85), (probed, 0.15)], self.args.rerank_candidate_limit)
+
+    def _union_locator_candidates(
+        self,
+        query: str,
+        config: Any,
+        provider: Any,
+        vector_store: Any,
+        base_strategy: Any,
+        metrics: dict[str, Any],
+        source_prefix: str,
+    ) -> list[dict[str, Any]]:
+        union: list[dict[str, Any]] = []
+        for profile_name, profile_config in self._union_profiles(config):
+            strategy = base_strategy if profile_name == "balanced" else make_retrieval_strategy(profile_config, provider, vector_store)
+            limit = max(self.locator_limit, int(self.args.union_profile_limit))
+            union.extend(self._locator_candidates(strategy, query, limit, source=f"{source_prefix}:{profile_name}"))
+            metrics["union_profile_calls"] += 1
+        return union
+
+    def _union_profiles(self, config: Any) -> list[tuple[str, Any]]:
+        base = config.hybrid_search
+        profile_limit = max(int(self.args.union_profile_limit), self.locator_limit)
+        return [
+            ("balanced", config),
+            (
+                "lexical_heavy",
+                replace(
+                    config,
+                    hybrid_search=replace(
+                        base,
+                        candidate_limit=profile_limit,
+                        lexical_candidate_limit=max(base.lexical_candidate_limit, profile_limit * 4),
+                        vector_weight=0.24,
+                        lexical_weight=0.46,
+                        path_weight=0.20,
+                        symbol_weight=0.08,
+                        symbol_match_weight=0.16,
+                        preserve_vector_top=False,
+                    ),
+                ),
+            ),
+            (
+                "path_symbol",
+                replace(
+                    config,
+                    hybrid_search=replace(
+                        base,
+                        candidate_limit=profile_limit,
+                        lexical_candidate_limit=max(base.lexical_candidate_limit, profile_limit * 3),
+                        vector_weight=0.20,
+                        lexical_weight=0.24,
+                        path_weight=0.30,
+                        symbol_weight=0.12,
+                        symbol_match_weight=0.24,
+                        preserve_vector_top=False,
+                    ),
+                ),
+            ),
+            (
+                "vector_wide",
+                replace(
+                    config,
+                    hybrid_search=replace(
+                        base,
+                        candidate_limit=profile_limit,
+                        vector_weight=0.64,
+                        lexical_weight=0.16,
+                        path_weight=0.10,
+                        symbol_weight=0.06,
+                        symbol_match_weight=0.08,
+                        preserve_vector_top=True,
+                    ),
+                ),
+            ),
+        ]
+
+    def _query_variants(self, generation_provider: Any, query: str, metrics: dict[str, Any]) -> tuple[list[str], dict[str, Any]]:
+        metrics["planner_calls"] += 1
+        heuristic_queries = self._heuristic_query_variants(query)
+        prompt = f"""
+You are a query-planning tool for repository-agnostic code search.
+
+Given one informal code-navigation query, produce alternate search queries that improve file recall.
+
+Generate:
+- exact symbol-like variants in camelCase/PascalCase when likely;
+- implementation-owner terms such as manager, service, handler, command, strategy, provider, factory, parser, resolver;
+- class-name hypotheses by combining the main nouns with common suffixes: Manager, Service, Handler, Command, Strategy, Provider, Factory, Parser, Resolver, Util, Impl;
+- method-name hypotheses from verbs, for example "open project" -> "openProject";
+- short lexical variants that grep/BM25 can match;
+- domain synonyms from the query.
+
+Rules:
+- Prefer likely symbol/class names over broad English paraphrases.
+- Do not name files unless the class or path is strongly implied by the query.
+- Do not include explanations.
+- Return 5 unique query strings.
+- Keep each query under 12 words.
+
+Return JSON only:
+{{"queries":["..."]}}
+
+Input query: {query}
+""".strip()
+        try:
+            started = time.perf_counter()
+            response = generation_provider.generate_json_result(prompt)
+            parsed = JsonResponse().parse_object(response.text)
+            duration_ms = (time.perf_counter() - started) * 1000
+            queries = self._merge_query_variants(query, heuristic_queries, parsed.get("queries"))
+            metrics["query_variant_total"] += len(queries)
+            cost = ModelCostEstimator().estimate(response.model, response.input_tokens, response.output_tokens)
+            return queries, {
+                "modelCalls": 1,
+                "inputTokens": response.input_tokens,
+                "outputTokens": response.output_tokens,
+                "totalTokens": response.total_tokens,
+                "estimatedCost": cost,
+                "models": [response.model],
+                "durationMs": duration_ms,
+            }
+        except Exception:
+            metrics["planner_errors"] += 1
+            queries = self._merge_query_variants(query, heuristic_queries)
+            metrics["query_variant_total"] += len(queries)
+            return queries, {"errors": 1, "degraded": True}
+
+    def _merge_query_variants(self, original: str, *groups: Any) -> list[str]:
+        seen = {original.strip().lower()}
+        queries: list[str] = []
+        for values in groups:
+            if not isinstance(values, list):
+                continue
+            for value in values:
+                query = " ".join(str(value).split())
+                if not query:
+                    continue
+                key = query.lower()
+                if key in seen:
+                    continue
+                seen.add(key)
+                queries.append(query[:160])
+                if len(queries) >= max(int(self.args.query_variant_limit) - 1, 0):
+                    return queries
+        return queries
+
+    def _heuristic_query_variants(self, query: str) -> list[str]:
+        terms = [term for term in self._terms(query) if term not in self._query_stopwords()]
+        normalized_terms = [self._normalize_query_term(term) for term in terms]
+        nouns = [term for term in normalized_terms if len(term) >= 4][:4]
+        variants: list[str] = []
+        for noun in nouns[:3]:
+            pascal = self._pascal_case(noun)
+            variants.extend(
+                [
+                    f"{pascal}Manager",
+                    f"{pascal}ManagerImpl",
+                    f"{pascal}Service",
+                    f"{pascal}Handler",
+                    f"{pascal}Provider",
+                ]
+            )
+        for first, second in zip(nouns, nouns[1:], strict=False):
+            variants.append(self._pascal_case(first + " " + second))
+            variants.append(self._pascal_case(first + " " + second) + "Impl")
+        action_pairs = self._action_noun_pairs(normalized_terms)
+        for action, noun in action_pairs:
+            action_pascal = self._pascal_case(action)
+            noun_pascal = self._pascal_case(noun)
+            variants.extend(
+                [
+                    action + noun_pascal,
+                    f"{action_pascal}{noun_pascal}Command",
+                    f"{action_pascal}{noun_pascal}Handler",
+                    f"{noun_pascal}{action_pascal}Processor",
+                    f"{noun_pascal}{action_pascal}Manager",
+                ]
+            )
+        return variants
+
+    def _query_stopwords(self) -> set[str]:
+        return {
+            "where",
+            "what",
+            "which",
+            "find",
+            "show",
+            "implemented",
+            "implementation",
+            "codebase",
+            "code",
+            "ide",
+            "here",
+            "there",
+            "used",
+            "created",
+            "handled",
+            "orchestrated",
+        }
+
+    def _normalize_query_term(self, term: str) -> str:
+        aliases = {
+            "opening": "open",
+            "opened": "open",
+            "opens": "open",
+            "authorization": "auth",
+            "authentication": "auth",
+            "configuration": "config",
+        }
+        return aliases.get(term, term)
+
+    def _action_noun_pairs(self, terms: list[str]) -> list[tuple[str, str]]:
+        actions = {"open", "create", "update", "edit", "delete", "remove", "load", "save", "parse", "resolve", "run", "execute"}
+        pairs: list[tuple[str, str]] = []
+        for index, term in enumerate(terms):
+            if term not in actions:
+                continue
+            for candidate in terms[max(0, index - 2) : index] + terms[index + 1 : index + 3]:
+                if candidate != term and len(candidate) >= 4:
+                    pairs.append((term, candidate))
+        return pairs[:4]
+
+    def _pascal_case(self, text: str) -> str:
+        return "".join(part[:1].upper() + part[1:] for part in re.split(r"[^A-Za-z0-9]+", text) if part)
 
     def _rerank(
         self,
@@ -348,8 +705,159 @@ class DeterministicPostrankH2:
             rows.append(candidate)
         return rows
 
+    def _balanced_candidate_mix(
+        self,
+        groups: list[tuple[list[dict[str, Any]], float]],
+        limit: int,
+    ) -> list[dict[str, Any]]:
+        positive_groups = [(self._dedupe_candidates(rows), max(float(weight), 0.0)) for rows, weight in groups if rows]
+        if not positive_groups or limit <= 0:
+            return []
+        total_weight = sum(weight for _, weight in positive_groups) or float(len(positive_groups))
+        quotas = [max(1, int(limit * weight / total_weight)) for _, weight in positive_groups]
+        while sum(quotas) > limit:
+            largest_index = max(range(len(quotas)), key=lambda index: quotas[index])
+            quotas[largest_index] -= 1
+        while sum(quotas) < limit:
+            smallest_index = min(range(len(quotas)), key=lambda index: quotas[index])
+            quotas[smallest_index] += 1
+
+        selected: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for (rows, _), quota in zip(positive_groups, quotas, strict=False):
+            self._append_candidates(selected, seen, rows, quota)
+        if len(selected) < limit:
+            for rows, _ in positive_groups:
+                self._append_candidates(selected, seen, rows, limit - len(selected))
+                if len(selected) >= limit:
+                    break
+        return selected[:limit]
+
+    def _priority_query_candidate_mix(
+        self,
+        groups: list[tuple[list[dict[str, Any]], float]],
+        limit: int,
+    ) -> list[dict[str, Any]]:
+        if not groups or limit <= 0:
+            return []
+        deduped_groups = [(self._dedupe_candidates(rows), weight) for rows, weight in groups if rows]
+        selected: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        if not deduped_groups:
+            return selected
+
+        base_quota = min(max(int(limit * 0.50), 30), limit)
+        self._append_candidates(selected, seen, deduped_groups[0][0], base_quota)
+
+        priority_variant_quota = max(10, int(limit * 0.16))
+        for rows, _ in deduped_groups[1:3]:
+            self._append_candidates(selected, seen, rows, min(priority_variant_quota, limit - len(selected)))
+            if len(selected) >= limit:
+                return selected[:limit]
+
+        remaining = limit - len(selected)
+        if remaining > 0:
+            for candidate in self._balanced_candidate_mix(deduped_groups[3:], remaining):
+                key = self._candidate_key(candidate)
+                if key in seen:
+                    continue
+                seen.add(key)
+                selected.append(candidate)
+        if len(selected) < limit:
+            for rows, _ in deduped_groups:
+                self._append_candidates(selected, seen, rows, limit - len(selected))
+                if len(selected) >= limit:
+                    break
+        return selected[:limit]
+
+    def _append_candidates(
+        self,
+        selected: list[dict[str, Any]],
+        seen: set[str],
+        candidates: list[dict[str, Any]],
+        limit: int,
+    ) -> None:
+        if limit <= 0:
+            return
+        added = 0
+        for candidate in candidates:
+            path = str(candidate.get("path") or "").strip()
+            if not path:
+                continue
+            key = str(candidate.get("id") or f"{path}:{candidate.get('startLine') or ''}")
+            if key in seen:
+                continue
+            seen.add(key)
+            selected.append(candidate)
+            added += 1
+            if added >= limit:
+                return
+
+    def _candidate_key(self, candidate: dict[str, Any]) -> str:
+        path = str(candidate.get("path") or "").strip()
+        return str(candidate.get("id") or f"{path}:{candidate.get('startLine') or ''}")
+
     def _terms(self, query: str) -> list[str]:
         return [term for term in re.split(r"[^A-Za-z0-9_]+", query.lower()) if len(term) >= 3]
+
+    def _case_diagnostic(
+        self,
+        case: Any,
+        locator: list[dict[str, Any]],
+        candidates: list[dict[str, Any]],
+        reranked: list[dict[str, Any]],
+        degraded: bool,
+        query_variants: list[str] | None = None,
+    ) -> dict[str, Any]:
+        locator_paths = [str(candidate.get("path") or "") for candidate in locator if candidate.get("path")]
+        candidate_paths = [str(candidate.get("path") or "") for candidate in candidates if candidate.get("path")]
+        reranked_paths = [str(candidate.get("path") or "") for candidate in reranked if candidate.get("path")]
+        return {
+            "case_id": str(case.id),
+            "query": case.query,
+            "expected": list(case.expected),
+            "locator_rank": self._first_matching_rank(locator_paths, case.expected),
+            "candidate_rank": self._first_matching_rank(candidate_paths, case.expected),
+            "rerank_rank": self._first_matching_rank(reranked_paths, case.expected),
+            "locator_count": len(locator_paths),
+            "candidate_count": len(candidate_paths),
+            "rerank_count": len(reranked_paths),
+            "expected_sources": self._expected_sources(candidates, case.expected),
+            "query_variants": query_variants or [],
+            "degraded": degraded,
+            "top_locator_files": self._top_files(locator_paths, 5),
+            "top_candidate_files": self._top_files(candidate_paths, 5),
+            "top_reranked_files": self._top_files(reranked_paths, self.limit),
+        }
+
+    def _first_matching_rank(self, paths: list[str], expected: list[str]) -> int | None:
+        for rank, path in enumerate(paths, start=1):
+            if direct_search_matches_any(path, expected):
+                return rank
+        return None
+
+    def _expected_sources(self, candidates: list[dict[str, Any]], expected: list[str]) -> list[str]:
+        sources: list[str] = []
+        for candidate in candidates:
+            path = str(candidate.get("path") or "")
+            if direct_search_matches_any(path, expected):
+                source = str(candidate.get("source") or "unknown")
+                if source not in sources:
+                    sources.append(source)
+        return sources
+
+    def _top_files(self, paths: list[str], limit: int) -> list[str]:
+        rows: list[str] = []
+        seen: set[str] = set()
+        for path in paths:
+            file_path = direct_search_file_path(path)
+            if file_path in seen:
+                continue
+            seen.add(file_path)
+            rows.append(file_path)
+            if len(rows) >= limit:
+                break
+        return rows
 
     def _preview(self, text: str, limit: int) -> str:
         compact = " ".join(text.split())
@@ -359,6 +867,10 @@ class DeterministicPostrankH2:
 
     def _scenario(self, name: str) -> str:
         lowered = name.lower()
+        if "multiquery" in lowered or "query_plan" in lowered:
+            return "branch_d"
+        if "union" in lowered:
+            return "branch_c"
         if "ephemeral" in lowered:
             return "branch_b"
         if "grep" in lowered or "read" in lowered:
@@ -381,6 +893,7 @@ class DeterministicPostrankH2:
         tool_metrics: dict[str, Any],
         errors: list[str],
         degraded_case_ids: set[str],
+        diagnostics: list[dict[str, Any]],
     ) -> None:
         if self.args.partial_dir is None:
             return
@@ -397,6 +910,7 @@ class DeterministicPostrankH2:
             "orchestrator_usage": usage,
             "tool_metrics": tool_metrics,
             "errors": errors[:20],
+            "diagnostics": diagnostics,
         }
         self.args.partial_dir.mkdir(parents=True, exist_ok=True)
         path = self.args.partial_dir / f"{hypothesis}.partial.json"
@@ -427,6 +941,7 @@ class DeterministicPostrankH2:
             "errors": row.errors,
             "error_count": len(row.errors),
             "results": row.results if self.args.details else [],
+            "diagnostics": row.diagnostics,
         }
 
     def _build_report(self) -> None:
@@ -446,6 +961,9 @@ def main() -> int:
     parser.add_argument("--limit", type=int, default=10)
     parser.add_argument("--locator-limit", type=int, default=30)
     parser.add_argument("--probe-files", type=int, default=5)
+    parser.add_argument("--union-profile-limit", type=int, default=100)
+    parser.add_argument("--union-probe-files", type=int, default=10)
+    parser.add_argument("--query-variant-limit", type=int, default=8)
     parser.add_argument("--ephemeral-limit", type=int, default=30)
     parser.add_argument("--rerank-candidate-limit", type=int, default=30)
     parser.add_argument("--rerank-attempts", type=int, default=2)

@@ -15,16 +15,52 @@ RUNS = [
         "partials": ".code-diver/reports/partials-qwen-1000",
     },
     {
+        "id": "qwen35_4b_h3",
+        "ranker": "Qwen3.5 4B OptiQ 4bit",
+        "final": ".code-diver/reports/intellij-h3-union-qwen-1000.json",
+        "partials": ".code-diver/reports/partials-h3-qwen-1000",
+    },
+    {
+        "id": "qwen35_4b_h4",
+        "ranker": "Qwen3.5 4B OptiQ 4bit",
+        "final": ".code-diver/reports/intellij-h4-multiquery-qwen-1000.json",
+        "partials": ".code-diver/reports/partials-h4-qwen-1000",
+    },
+    {
         "id": "gemini_flash_lite",
         "ranker": "Gemini 3.1 Flash-Lite",
         "final": ".code-diver/reports/intellij-postrank-h2-deterministic-gemini-flash-lite-1000.json",
         "partials": ".code-diver/reports/partials-gemini-flash-lite-1000",
     },
     {
+        "id": "gemini_flash_lite_h3",
+        "ranker": "Gemini 3.1 Flash-Lite",
+        "final": ".code-diver/reports/intellij-h3-union-gemini-flash-lite-1000.json",
+        "partials": ".code-diver/reports/partials-h3-gemini-flash-lite-1000",
+    },
+    {
+        "id": "gemini_flash_lite_h4",
+        "ranker": "Gemini 3.1 Flash-Lite",
+        "final": ".code-diver/reports/intellij-h4-multiquery-gemini-flash-lite-1000.json",
+        "partials": ".code-diver/reports/partials-h4-gemini-flash-lite-1000",
+    },
+    {
         "id": "gemini_flash_35",
         "ranker": "Gemini 3.5 Flash",
         "final": ".code-diver/reports/intellij-postrank-h2-deterministic-gemini-flash-35-1000.json",
         "partials": ".code-diver/reports/partials-gemini-flash-35-1000",
+    },
+    {
+        "id": "gemini_flash_35_h3",
+        "ranker": "Gemini 3.5 Flash",
+        "final": ".code-diver/reports/intellij-h3-union-gemini-flash-35-1000.json",
+        "partials": ".code-diver/reports/partials-h3-gemini-flash-35-1000",
+    },
+    {
+        "id": "gemini_flash_35_h4",
+        "ranker": "Gemini 3.5 Flash",
+        "final": ".code-diver/reports/intellij-h4-multiquery-gemini-flash-35-1000.json",
+        "partials": ".code-diver/reports/partials-h4-gemini-flash-35-1000",
     },
 ]
 
@@ -169,6 +205,8 @@ def render_markdown(rows: list[dict[str, Any]]) -> str:
         "",
         "- Branch A: locator -> outline/symbol/rg probes -> listwise ranker.",
         "- Branch B: locator -> ephemeral syntax-aware vector index over candidate files -> listwise ranker.",
+        "- Branch C: union of multiple locator profiles -> outline/symbol/rg probes -> listwise ranker.",
+        "- Branch D: LLM query planner -> multi-query locator profiles -> outline/symbol/rg probes -> listwise ranker.",
         "",
         "Gemini rows use Vertex model IDs when the artifacts exist. Local rows use the MLX OpenAI-compatible server.",
         "",
@@ -227,8 +265,14 @@ def render_markdown(rows: list[dict[str, Any]]) -> str:
                 "symbol_calls",
                 "rg_calls",
                 "ephemeral_calls",
+                "union_profile_calls",
+                "union_candidate_count_total",
+                "planner_calls",
+                "planner_errors",
+                "query_variant_total",
                 "rerank_calls",
                 "rerank_errors",
+                "candidate_count_mean",
                 "temporary_vectors_total",
             ]
             if key in tool_metrics
