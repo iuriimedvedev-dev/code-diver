@@ -530,6 +530,25 @@ Input query: {query}
         normalized_terms = [self._normalize_query_term(term) for term in terms]
         nouns = [term for term in normalized_terms if len(term) >= 4][:4]
         variants: list[str] = []
+        if nouns:
+            owner = self._pascal_case(nouns[0])
+            variants.extend([f"{owner}Manager", f"{owner}ManagerImpl"])
+        for first, second in zip(nouns, nouns[1:], strict=False):
+            pair = self._pascal_case(first + " " + second)
+            variants.extend(
+                [
+                    pair,
+                    f"{pair}Impl",
+                    f"{pair}Manager",
+                    f"{pair}ManagerImpl",
+                    f"{pair}Processor",
+                    f"{pair}ProcessorImpl",
+                    f"{pair}Handler",
+                ]
+            )
+        for action in [term for term in normalized_terms if term in self._action_terms()]:
+            action_pascal = self._pascal_case(action)
+            variants.extend([f"{action_pascal}Manager", f"{action_pascal}ManagerImpl", f"{action_pascal}Processor"])
         for noun in nouns[:3]:
             pascal = self._pascal_case(noun)
             variants.extend(
@@ -539,11 +558,10 @@ Input query: {query}
                     f"{pascal}Service",
                     f"{pascal}Handler",
                     f"{pascal}Provider",
+                    f"{pascal}Processor",
+                    f"{pascal}ProcessorImpl",
                 ]
             )
-        for first, second in zip(nouns, nouns[1:], strict=False):
-            variants.append(self._pascal_case(first + " " + second))
-            variants.append(self._pascal_case(first + " " + second) + "Impl")
         action_pairs = self._action_noun_pairs(normalized_terms)
         for action, noun in action_pairs:
             action_pascal = self._pascal_case(action)
@@ -564,8 +582,10 @@ Input query: {query}
             "where",
             "what",
             "which",
-            "find",
             "show",
+            "does",
+            "are",
+            "is",
             "implemented",
             "implementation",
             "codebase",
@@ -577,6 +597,11 @@ Input query: {query}
             "created",
             "handled",
             "orchestrated",
+            "coordinated",
+            "executed",
+            "undone",
+            "managed",
+            "happen",
         }
 
     def _normalize_query_term(self, term: str) -> str:
@@ -587,11 +612,20 @@ Input query: {query}
             "authorization": "auth",
             "authentication": "auth",
             "configuration": "config",
+            "configurations": "config",
+            "commands": "command",
+            "usages": "usages",
         }
-        return aliases.get(term, term)
+        if term in aliases:
+            return aliases[term]
+        if term.endswith("ies") and len(term) > 4:
+            return term[:-3] + "y"
+        if term.endswith("s") and len(term) > 5:
+            return term[:-1]
+        return term
 
     def _action_noun_pairs(self, terms: list[str]) -> list[tuple[str, str]]:
-        actions = {"open", "create", "update", "edit", "delete", "remove", "load", "save", "parse", "resolve", "run", "execute"}
+        actions = self._action_terms()
         pairs: list[tuple[str, str]] = []
         for index, term in enumerate(terms):
             if term not in actions:
@@ -600,6 +634,9 @@ Input query: {query}
                 if candidate != term and len(candidate) >= 4:
                     pairs.append((term, candidate))
         return pairs[:4]
+
+    def _action_terms(self) -> set[str]:
+        return {"open", "create", "update", "edit", "delete", "remove", "load", "save", "parse", "resolve", "run", "execute", "find", "rename", "write", "import"}
 
     def _pascal_case(self, text: str) -> str:
         return "".join(part[:1].upper() + part[1:] for part in re.split(r"[^A-Za-z0-9]+", text) if part)
