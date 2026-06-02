@@ -38,11 +38,26 @@ def test_search_prompt_example_uses_available_rg_tool() -> None:
     assert '"name": "code_diver_search"' not in prompt
 
 
+def test_search_prompt_example_prefers_outline_before_read() -> None:
+    prompt = DirectSearchPromptBuilder().build(
+        hypothesis_name="bounded_read",
+        query="where is user update?",
+        tool_manifest=json.dumps([{"name": "code_diver_outline"}, {"name": "code_diver_read"}]),
+        history=[],
+        limit=5,
+    )
+
+    assert '"name": "code_diver_outline"' in prompt
+    assert '"symbolLimit": 100' in prompt
+
+
 def test_search_prompt_describes_hybrid_tool_routing_policy() -> None:
     prompt = DirectSearchPromptBuilder().build(
         hypothesis_name="hybrid",
         query="where is command creation handled?",
-        tool_manifest=json.dumps([{"name": "code_diver_search"}, {"name": "code_diver_symbols"}]),
+        tool_manifest=json.dumps(
+            [{"name": "code_diver_search"}, {"name": "code_diver_outline"}, {"name": "code_diver_symbols"}]
+        ),
         history=[],
         limit=10,
     )
@@ -52,6 +67,7 @@ def test_search_prompt_describes_hybrid_tool_routing_policy() -> None:
     assert "Class/function/method/command/handler/service/model/schema" in prompt
     assert "multiple signals or by direct read evidence" in prompt
     assert "Never call code_diver_symbols without path" in prompt
+    assert "prefer code_diver_outline or scoped code_diver_symbols before code_diver_read" in prompt
     assert "code_diver_read has a hard budget of 10 calls per case" in prompt
     assert "Verify cheaply with code_diver_grep/code_diver_rg" in prompt
 

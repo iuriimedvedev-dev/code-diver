@@ -6,7 +6,7 @@ from time import perf_counter
 from typing import Any, Callable
 
 from ..inspection.path_guard import PathGuard
-from ..inspection import GrepService, ReadExcerptService, RgService, SymbolsService, TreeService
+from ..inspection import FileOutlineService, GrepService, ReadExcerptService, RgService, SymbolsService, TreeService
 from .tool_call import ToolCall
 from .tool_manifest_builder import ToolManifestBuilder
 from .tool_result import ToolResult
@@ -61,6 +61,13 @@ class DirectToolExecutor:
             return SymbolsService(self.root, self.exclude, self.max_file_bytes).structured(
                 path=path,
                 limit=int(args.get("limit") or 200),
+                query=self._optional_str(args.get("query") or args.get("symbol") or args.get("terms")),
+            )
+        if call.name == "code_diver_outline":
+            return FileOutlineService(self.root, self.exclude, self.max_file_bytes).structured(
+                self._validated_required_path(args.get("file") or args.get("path")),
+                import_limit=int(args.get("importLimit", args.get("import_limit", 80)) or 80),
+                symbol_limit=int(args.get("symbolLimit", args.get("symbol_limit", 200)) or 200),
             )
         if call.name == "code_diver_grep":
             return GrepService(self.root, self.exclude, self.max_file_bytes).structured(
@@ -117,6 +124,20 @@ class DirectToolExecutor:
                     ),
                 }
             )
+        for value in args.get("outlines") or []:
+            value = self._object_value(value, "path")
+            path = self._validated_required_path(value.get("file") or value.get("path"))
+            sections.append(
+                {
+                    "kind": "outline",
+                    "query": {"path": path},
+                    "result": FileOutlineService(self.root, self.exclude, self.max_file_bytes).structured(
+                        path,
+                        import_limit=int(value.get("importLimit", value.get("import_limit", 80)) or 80),
+                        symbol_limit=int(value.get("symbolLimit", value.get("symbol_limit", 200)) or 200),
+                    ),
+                }
+            )
         for value in args.get("symbols") or []:
             value = self._object_value(value, "path")
             path = self._validated_optional_path(value.get("path"))
@@ -127,6 +148,7 @@ class DirectToolExecutor:
                     "result": SymbolsService(self.root, self.exclude, self.max_file_bytes).structured(
                         path=path,
                         limit=int(value.get("limit") or 200),
+                        query=self._optional_str(value.get("query") or value.get("symbol") or value.get("terms")),
                     ),
                 }
             )

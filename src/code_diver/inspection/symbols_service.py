@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 from typing import Any
 
 from ..services import CodeSymbolExtractor
@@ -16,17 +17,18 @@ class SymbolsService:
         self.extractor = CodeSymbolExtractor()
         self.max_file_bytes = max_file_bytes
 
-    def render(self, path: str | None = None, limit: int = 200) -> str:
-        structured = self.structured(path=path, limit=limit)
+    def render(self, path: str | None = None, limit: int = 200, query: str | None = None) -> str:
+        structured = self.structured(path=path, limit=limit, query=query)
         return "\n".join(
             f"{symbol['path']}:{symbol['startLine']}: {symbol['kind']} {symbol['name']} - {symbol['signature']}"
             for symbol in structured["symbols"]
         )
 
-    def structured(self, path: str | None = None, limit: int = 200) -> dict[str, Any]:
+    def structured(self, path: str | None = None, limit: int = 200, query: str | None = None) -> dict[str, Any]:
         rows: list[str] = []
         symbols: list[dict[str, Any]] = []
         scanned_files = 0
+        query_terms = self._terms(query)
         for file_path in self._files(self.guard.resolve(path)):
             scanned_files += 1
             rel_path = file_path.relative_to(self.root).as_posix()
@@ -35,6 +37,8 @@ class SymbolsService:
             except OSError:
                 continue
             for symbol in self.extractor.extract(rel_path, text):
+                if query_terms and not self._matches_query(symbol.name, symbol.signature, query_terms):
+                    continue
                 rows.append(symbol.name)
                 symbols.append(
                     {
@@ -48,8 +52,8 @@ class SymbolsService:
                     }
                 )
                 if len(symbols) >= limit:
-                    return self._payload(path, symbols, scanned_files, limit, truncated=True)
-        return self._payload(path, symbols, scanned_files, limit, truncated=False)
+                    return self._payload(path, symbols, scanned_files, limit, truncated=True, query=query)
+        return self._payload(path, symbols, scanned_files, limit, truncated=False, query=query)
 
     def _files(self, start: Path):
         if start.is_file():
@@ -81,6 +85,7 @@ class SymbolsService:
         scanned_files: int,
         limit: int,
         truncated: bool,
+        query: str | None = None,
     ) -> dict[str, Any]:
         candidates: dict[str, dict[str, Any]] = {}
         for symbol in symbols:
@@ -101,7 +106,7 @@ class SymbolsService:
             candidate["confidence"] = min(0.95, 0.55 + candidate["symbolCount"] * 0.05)
             candidate["symbols"].append(symbol["name"])
         return {
-            "query": {"path": path},
+            "query": {"path": path, "query": query},
             "symbols": symbols,
             "candidates": sorted(candidates.values(), key=lambda item: (-item["symbolCount"], item["path"])),
             "metrics": {
@@ -112,3 +117,14 @@ class SymbolsService:
                 "truncated": truncated,
             },
         }
+
+    def _terms(self, query: str | None) -> tuple[str, ...]:
+        if query is None:
+            return ()
+        return tuple(term for term in re.split(r"[^A-Za-z0-9_]+", query.lower()) if term)
+
+    def _matches_query(self, name: str, signature: str, terms: tuple[str, ...]) -> bool:
+        haystack = f"{name} {signature}".lower()
+        compact_haystack = re.sub(r"[^a-z0-9]+", "", haystack)
+        compact_query = "".join(terms)
+        return all(term in haystack for term in terms) or bool(compact_query and compact_query in compact_haystack)

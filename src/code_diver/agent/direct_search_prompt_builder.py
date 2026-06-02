@@ -30,7 +30,7 @@ class DirectSearchPromptBuilder:
 You are a universal hybrid code-search orchestrator for hypothesis `{hypothesis_name}`.
 Use only the listed read-only tools. Find code locations that answer the user's informal query.
 Return JSON only. Do not invent paths. Prefer precise files or code ranges with direct evidence.
-Tool observations are structured JSON. grep/rg/symbols/tree return candidates, metrics, file names, and line numbers by default; request source text only through code_diver_read or includeText=true when absolutely necessary.
+Tool observations are structured JSON. grep/rg/symbols/outline/tree return candidates, metrics, file names, and line numbers by default; request source text only through code_diver_read or includeText=true when absolutely necessary.
 The runtime executes independent tool_calls in parallel. When several cheap probes are useful, put them in the same tool_calls array instead of waiting for another round.
 code_diver_read has a hard budget of 10 calls per case. Treat that as a maximum, not a target.
 code_diver_rerank is an AI ranking tool. It does not discover candidates. Use it after search/rg/grep/symbols returned plausible structured candidates; omit candidates to rerank the current candidate bank, or pass explicit candidates/candidateIds.
@@ -41,15 +41,16 @@ Hybrid tool policy:
 - Semantic or informal "where is X handled" queries: call code_diver_search first. It is the primary hybrid vector/BM25/symbol/GraphRAG candidate generator.
 - Path, config, docker, package, frontend, or filename queries: run code_diver_search and code_diver_tree/code_diver_rg in parallel.
 - Class/function/method/command/handler/service/model/schema queries: run code_diver_search first or in parallel with code_diver_symbols only when symbols is scoped to a known path such as src, a likely package directory, or a top candidate file. Never call code_diver_symbols without path when code_diver_search is available.
-- Workflow queries such as called, created, dispatched, registered, routed, pipeline, strategy, execution: run code_diver_search with workflow terms and one scoped structural probe such as code_diver_symbols with path from a candidate file/directory or a narrow code_diver_rg.
+- Once candidate files exist, prefer code_diver_outline or scoped code_diver_symbols before code_diver_read. Outline gives imports, symbols, signatures, and line ranges without spending read budget.
+- Workflow queries such as called, created, dispatched, registered, routed, pipeline, strategy, execution: run code_diver_search with workflow terms and one scoped structural probe such as code_diver_symbols/code_diver_outline with path from a candidate file/directory or a narrow code_diver_rg.
 - Exact strings, config keys, CLI flags, error names: use code_diver_grep or code_diver_rg as an exact probe, preferably parallel with code_diver_search.
 - If code_diver_rerank is available and candidates are plausible but ordering is uncertain, call code_diver_rerank before final results. Do not call it in the same parallel batch as the candidate-producing search.
-- code_diver_read is for verification after candidates exist. Read only tiny, targeted ranges from top candidate files, usually 20-60 lines around a symbol, route, handler, setting, or exact match. Do not read whole files or many nearby ranges when grep/rg can verify the anchor faster.
+- code_diver_read is for verification after candidates exist. Read only tiny, targeted ranges from top candidate files, usually 20-60 lines around a symbol, route, handler, setting, or exact match found by outline/symbols/grep/rg. Do not read whole files or many nearby ranges when grep/rg can verify the anchor faster.
 - If tool outputs disagree, prefer files supported by multiple signals or by direct read evidence.
 Default search flow:
 1. Generate candidates with code_diver_search using the user's original wording.
 2. If recall looks weak or the query is workflow/ambiguous, run a second candidate pass with rewritten search terms or a different tool: scoped symbols, rg, grep, or inspect.
-3. Verify cheaply with code_diver_grep/code_diver_rg for concrete anchors, or scoped code_diver_symbols for structural anchors.
+3. Verify cheaply with code_diver_grep/code_diver_rg for concrete anchors, or code_diver_outline/scoped code_diver_symbols for structural anchors.
 4. Use code_diver_rerank when final ordering is ambiguous and the tool is available.
 5. Use code_diver_read only for the few final candidate ranges that need source evidence.
 6. Return ranked results once there is enough evidence instead of issuing another broad search.
@@ -85,6 +86,8 @@ When ready, return up to {limit} results:
             return {"name": "code_diver_rg", "arguments": {"pattern": "auth|login", "path": "src", "limit": 50}}
         if "code_diver_grep" in names:
             return {"name": "code_diver_grep", "arguments": {"pattern": "login", "path": "src", "limit": 50}}
+        if "code_diver_outline" in names:
+            return {"name": "code_diver_outline", "arguments": {"file": "src/example.py", "symbolLimit": 100}}
         if "code_diver_symbols" in names:
             return {"name": "code_diver_symbols", "arguments": {"path": "src", "limit": 100}}
         if "code_diver_tree" in names:

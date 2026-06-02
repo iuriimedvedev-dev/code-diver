@@ -204,6 +204,7 @@ class DirectSearchOrchestrator:
             "code_diver_grep",
             "code_diver_rg",
             "code_diver_symbols",
+            "code_diver_outline",
             "code_diver_inspect",
         }
         return bool(candidate_tools & tool_names_used)

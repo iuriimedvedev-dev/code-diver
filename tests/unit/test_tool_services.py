@@ -6,9 +6,11 @@ from pathlib import Path
 import pytest
 
 from code_diver.inspection.grep_service import GrepService
+from code_diver.inspection.file_outline_service import FileOutlineService
 from code_diver.inspection.path_guard import PathGuard
 from code_diver.inspection.read_excerpt_service import ReadExcerptService
 from code_diver.inspection.rg_service import RgService
+from code_diver.inspection.symbols_service import SymbolsService
 from code_diver.inspection.tree_service import TreeService
 
 
@@ -160,3 +162,38 @@ def test_read_excerpt_service_rejects_ignored_missing_directory_and_large_files(
         service.structured("src")
     with pytest.raises(ValueError, match="Path exceeds max file size"):
         service.structured("src/large.py")
+
+
+def test_file_outline_service_returns_imports_symbols_and_candidates(tmp_path: Path) -> None:
+    write(
+        tmp_path / "src" / "users.py",
+        "from db import Session\n\n"
+        "class UserController:\n"
+        "    def update_user(self, db: Session, user_id: str):\n"
+        "        return user_id\n",
+    )
+
+    payload = FileOutlineService(tmp_path).structured("src/users.py")
+
+    assert payload["path"] == "src/users.py"
+    assert payload["imports"] == [{"line": 1, "text": "from db import Session"}]
+    assert [symbol["name"] for symbol in payload["symbols"]] == ["UserController", "UserController.update_user"]
+    assert payload["candidates"][0]["path"] == "src/users.py"
+    assert payload["metrics"]["symbolCount"] == 2
+
+
+def test_symbols_service_supports_fuzzy_symbol_definition_query(tmp_path: Path) -> None:
+    write(
+        tmp_path / "src" / "users.py",
+        "class UserController:\n"
+        "    def update_user(self, db,\n"
+        "                    user_id):\n"
+        "        return user_id\n"
+        "    def delete_user(self, user_id):\n"
+        "        return user_id\n",
+    )
+
+    payload = SymbolsService(tmp_path).structured("src/users.py", query="update user")
+
+    assert [symbol["name"] for symbol in payload["symbols"]] == ["UserController.update_user"]
+    assert payload["query"] == {"path": "src/users.py", "query": "update user"}

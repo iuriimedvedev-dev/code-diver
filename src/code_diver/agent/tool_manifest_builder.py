@@ -44,6 +44,24 @@ class ToolManifestBuilder:
                 "args": {
                     "path": "relative file or directory; required when code_diver_search is also available",
                     "limit": 100,
+                    "query": "optional fuzzy symbol name or terms",
+                },
+            },
+            {
+                "name": "code_diver_outline",
+                "stage": "structure_probe",
+                "parallel_safe": True,
+                "best_for": [
+                    "inspecting a candidate file before reading source text",
+                    "multiline signatures where raw grep may miss the definition",
+                    "choosing exact line ranges for follow-up code_diver_read calls",
+                ],
+                "avoid_for": ["full-repo discovery", "exact literal search across many files"],
+                "returns": "file imports, symbols, line ranges, and file-level candidate metadata; no source bodies",
+                "args": {
+                    "file": "relative file path",
+                    "symbolLimit": 200,
+                    "importLimit": 80,
                 },
             },
             {
@@ -70,8 +88,8 @@ class ToolManifestBuilder:
                 "parallel_safe": True,
                 "best_for": ["one bounded mixed probe when tree/symbols/rg/read are all needed"],
                 "avoid_for": ["unbounded broad discovery; keep sections small"],
-                "returns": "structured sections combining tree, symbols, grep, rg, and read",
-                "args": {"trees": [], "symbols": [], "literals": [], "regexes": [], "reads": []},
+                "returns": "structured sections combining tree, outlines, symbols, grep, rg, and read",
+                "args": {"trees": [], "outlines": [], "symbols": [], "literals": [], "regexes": [], "reads": []},
             },
             {
                 "name": "code_diver_rerank",

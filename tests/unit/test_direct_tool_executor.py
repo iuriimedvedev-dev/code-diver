@@ -44,6 +44,32 @@ def test_direct_tool_executor_read_returns_bounded_source_on_request(tmp_path: P
     assert payload["result"]["lines"] == [{"line": 2, "text": "line two"}]
 
 
+def test_direct_tool_executor_outline_returns_file_structure_without_bodies(tmp_path: Path) -> None:
+    source = tmp_path / "src" / "users.py"
+    source.parent.mkdir()
+    source.write_text(
+        "import os\n\n"
+        "class UserController:\n"
+        "    def update_user(self, user_id):\n"
+        "        return user_id\n",
+        encoding="utf-8",
+    )
+
+    result = DirectToolExecutor(tmp_path, ["code_diver_outline"]).execute(
+        ToolCall("code_diver_outline", {"file": "src/users.py"})
+    )
+
+    payload = json.loads(result.content)
+    assert payload["ok"] is True
+    assert payload["tool"] == "code_diver_outline"
+    assert payload["result"]["imports"] == [{"line": 1, "text": "import os"}]
+    assert [symbol["name"] for symbol in payload["result"]["symbols"]] == [
+        "UserController",
+        "UserController.update_user",
+    ]
+    assert "return user_id" not in result.content
+
+
 def test_direct_tool_executor_manifest_describes_allowed_tools(tmp_path: Path) -> None:
     manifest = DirectToolExecutor(tmp_path, ["code_diver_search", "code_diver_rg", "code_diver_rerank"]).manifest()
 
@@ -61,6 +87,7 @@ def test_direct_tool_executor_manifest_all_allowed_tools_have_operational_metada
     allowed = {
         "code_diver_search",
         "code_diver_tree",
+        "code_diver_outline",
         "code_diver_symbols",
         "code_diver_grep",
         "code_diver_rg",
@@ -124,6 +151,27 @@ def test_direct_tool_executor_grep_include_text_and_candidate_metrics(
     assert payload["result"]["candidates"][0]["startLine"] == 1
     assert payload["result"]["candidates"][0]["endLine"] == 3
     assert payload["result"]["candidates"][0]["evidenceLines"] == [1, 3]
+
+
+def test_direct_tool_executor_symbols_query_filters_multiline_definition(tmp_path: Path) -> None:
+    source = tmp_path / "src" / "users.py"
+    source.parent.mkdir()
+    source.write_text(
+        "class UserController:\n"
+        "    def update_user(self, db,\n"
+        "                    user_id):\n"
+        "        return user_id\n"
+        "    def delete_user(self, user_id):\n"
+        "        return user_id\n",
+        encoding="utf-8",
+    )
+
+    result = DirectToolExecutor(tmp_path, ["code_diver_symbols"]).execute(
+        ToolCall("code_diver_symbols", {"path": "src/users.py", "query": "update user"})
+    )
+
+    payload = json.loads(result.content)
+    assert [symbol["name"] for symbol in payload["result"]["symbols"]] == ["UserController.update_user"]
 
 
 def test_direct_tool_executor_rg_invalid_regex_returns_structured_error(
@@ -202,6 +250,7 @@ def test_direct_tool_executor_inspect_batches_mixed_sections_and_counts_budgeted
             "code_diver_inspect",
             {
                 "trees": [{"path": "src", "depth": 1, "limit": 5}],
+                "outlines": [{"path": "src/service.py"}],
                 "symbols": [{"path": "src/service.py", "limit": 5}],
                 "literals": [{"pattern": "AuthService", "path": "src", "limit": 5}],
                 "regexes": [{"pattern": "login|token", "path": "src", "limit": 5}],
@@ -216,9 +265,10 @@ def test_direct_tool_executor_inspect_batches_mixed_sections_and_counts_budgeted
 
     payload = json.loads(result.content)
     assert payload["ok"] is True
-    assert payload["result"]["metrics"] == {"sectionCount": 7, "readCount": 2, "empty": False}
+    assert payload["result"]["metrics"] == {"sectionCount": 8, "readCount": 2, "empty": False}
     assert [section["kind"] for section in payload["result"]["sections"]] == [
         "tree",
+        "outline",
         "symbols",
         "grep",
         "rg",
@@ -227,9 +277,10 @@ def test_direct_tool_executor_inspect_batches_mixed_sections_and_counts_budgeted
         "read",
     ]
     assert payload["result"]["sections"][1]["result"]["symbols"][0]["name"] == "AuthService"
-    assert payload["result"]["sections"][2]["result"]["candidates"][0]["path"] == "src/service.py"
-    assert payload["result"]["sections"][4]["result"]["lines"] == [{"line": 1, "text": "class AuthService:"}]
-    assert payload["result"]["sections"][6]["result"]["ok"] is False
+    assert payload["result"]["sections"][2]["result"]["symbols"][0]["name"] == "AuthService"
+    assert payload["result"]["sections"][3]["result"]["candidates"][0]["path"] == "src/service.py"
+    assert payload["result"]["sections"][5]["result"]["lines"] == [{"line": 1, "text": "class AuthService:"}]
+    assert payload["result"]["sections"][7]["result"]["ok"] is False
 
 
 def test_direct_tool_executor_reranks_previous_search_candidates(tmp_path: Path) -> None:
