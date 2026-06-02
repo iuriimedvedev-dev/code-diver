@@ -4,7 +4,7 @@ from pathlib import Path
 import re
 from typing import Any
 
-from ..services import CodeSymbolExtractor
+from ..services.code_symbol_extractor import CodeSymbolExtractor
 from .ignore_matcher import IgnoreMatcher
 from .path_guard import PathGuard
 

@@ -21,6 +21,7 @@ class DirectToolExecutor:
         allowed_tools: list[str],
         search_handler: Callable[[str, int], str] | None = None,
         rerank_handler: Callable[[str, list[dict[str, Any]], int, dict[str, Any]], dict[str, Any]] | None = None,
+        ephemeral_search_handler: Callable[[str, list[str], int, dict[str, Any]], dict[str, Any]] | None = None,
         exclude: list[str] | None = None,
         max_file_bytes: int = 1_000_000,
         max_inspect_reads: int = 10,
@@ -30,6 +31,7 @@ class DirectToolExecutor:
         self.allowed_tools = set(allowed_tools)
         self.search_handler = search_handler
         self.rerank_handler = rerank_handler
+        self.ephemeral_search_handler = ephemeral_search_handler
         self.exclude = exclude or []
         self.max_file_bytes = max_file_bytes
         self.max_inspect_reads = max_inspect_reads
@@ -105,6 +107,16 @@ class DirectToolExecutor:
             candidates = self._filtered_candidates(candidates, args.get("candidateIds") or args.get("candidate_ids"))
             query = str(args.get("query") or "")
             return self.rerank_handler(query, candidates, int(args.get("limit") or 10), args)
+        if call.name == "code_diver_ephemeral_search":
+            if self.ephemeral_search_handler is None:
+                raise ValueError("code_diver_ephemeral_search is not available without an ephemeral search handler")
+            query = str(args.get("query") or "")
+            files = self._candidate_files(args.get("files") or args.get("paths") or args.get("candidateFiles"))
+            if not files:
+                files = self._candidate_files(self.candidate_bank)
+            if not files:
+                raise ValueError("code_diver_ephemeral_search requires candidate files")
+            return self.ephemeral_search_handler(query, files, int(args.get("limit") or 10), args)
         raise ValueError(f"Unsupported direct tool: {call.name}")
 
     def _inspect(self, args: dict[str, Any]) -> dict[str, Any]:
@@ -301,6 +313,21 @@ class DirectToolExecutor:
             seen.add(key)
             deduped.append(candidate)
         return deduped
+
+    def _candidate_files(self, values: Any) -> list[str]:
+        if not isinstance(values, list):
+            return []
+        paths: list[str] = []
+        for value in values:
+            if isinstance(value, str):
+                path = value.strip()
+            elif isinstance(value, dict):
+                path = str(value.get("path") or value.get("file") or "").strip()
+            else:
+                path = ""
+            if path and path not in paths:
+                paths.append(path)
+        return paths
 
     def _json_result(self, name: str, result: dict[str, Any], started: float) -> str:
         envelope = {

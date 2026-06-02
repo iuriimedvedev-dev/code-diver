@@ -93,6 +93,7 @@ def test_direct_tool_executor_manifest_all_allowed_tools_have_operational_metada
         "code_diver_rg",
         "code_diver_inspect",
         "code_diver_rerank",
+        "code_diver_ephemeral_search",
         "code_diver_read",
     }
 
@@ -386,6 +387,61 @@ def test_direct_tool_executor_rerank_filters_candidate_ids_and_deduplicates_bank
     payload = json.loads(result.content)
     assert payload["ok"] is True
     assert payload["metrics"]["candidateCount"] == 2
+
+
+def test_direct_tool_executor_ephemeral_search_uses_explicit_candidate_files(tmp_path: Path) -> None:
+    calls = []
+
+    def handler(query: str, files: list[str], limit: int, args: dict):
+        calls.append((query, files, limit, args))
+        return {
+            "candidates": [{"path": files[0], "startLine": 2, "endLine": 5, "confidence": 0.8}],
+            "metrics": {"ephemeral_build_ms": 10.0, "ephemeral_query_ms": 2.0, "temporary_vectors": 12},
+        }
+
+    executor = DirectToolExecutor(
+        tmp_path,
+        ["code_diver_ephemeral_search"],
+        ephemeral_search_handler=handler,
+    )
+
+    result = executor.execute(
+        ToolCall(
+            "code_diver_ephemeral_search",
+            {"query": "update user behavior", "files": ["src/users.py", "src/users.py"], "limit": 3},
+        )
+    )
+
+    payload = json.loads(result.content)
+    assert payload["ok"] is True
+    assert calls[0][0] == "update user behavior"
+    assert calls[0][1] == ["src/users.py"]
+    assert calls[0][2] == 3
+    assert payload["metrics"]["temporary_vectors"] == 12
+
+
+def test_direct_tool_executor_ephemeral_search_can_use_candidate_bank(tmp_path: Path) -> None:
+    def search_handler(query: str, limit: int) -> str:
+        return json.dumps([{"id": "a", "path": "src/users.py", "score": 0.9}])
+
+    calls = []
+
+    def ephemeral_handler(query: str, files: list[str], limit: int, args: dict):
+        calls.append(files)
+        return {"candidates": [{"path": files[0]}], "metrics": {}}
+
+    executor = DirectToolExecutor(
+        tmp_path,
+        ["code_diver_search", "code_diver_ephemeral_search"],
+        search_handler=search_handler,
+        ephemeral_search_handler=ephemeral_handler,
+    )
+
+    executor.execute(ToolCall("code_diver_search", {"query": "users", "limit": 5}))
+    result = executor.execute(ToolCall("code_diver_ephemeral_search", {"query": "update user", "limit": 5}))
+
+    assert json.loads(result.content)["ok"] is True
+    assert calls == [["src/users.py"]]
 
 
 def test_direct_tool_executor_reranks_candidates_from_batched_inspect(tmp_path: Path) -> None:

@@ -5,10 +5,17 @@ from argparse import Namespace
 
 import pytest
 
-from code_diver.cli import cmd_monitor, config_for_indexing_hypothesis, make_embedding_provider, make_search_tool_handler
+from code_diver.cli import (
+    cmd_monitor,
+    config_for_indexing_hypothesis,
+    make_embedding_provider,
+    make_ephemeral_search_tool_handler,
+    make_search_tool_handler,
+)
 from code_diver.config import AppConfig
 from code_diver.config.embedding_config import EmbeddingConfig
 from code_diver.config.graph_config import GraphConfig
+from code_diver.config.scanner_config import ScannerConfig
 from code_diver.config.qdrant_config import QdrantConfig
 from code_diver.config.storage_config import StorageConfig
 from code_diver.config.trace_config import TraceConfig
@@ -40,6 +47,26 @@ class FakeStrategy:
         ]
 
 
+class FakeEmbeddingProvider:
+    name = "test"
+    model = "keyword"
+    dimensions = 3
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        return [self._embed(text) for text in texts]
+
+    def embed_query(self, query: str) -> list[float]:
+        return self._embed(query)
+
+    def _embed(self, text: str) -> list[float]:
+        lowered = text.lower()
+        return [
+            float("update" in lowered),
+            float("delete" in lowered),
+            float("user" in lowered),
+        ]
+
+
 def test_config_for_indexing_hypothesis_isolates_qdrant_json_and_graph_artifacts(tmp_path: Path) -> None:
     config = AppConfig(
         artifact=tmp_path / "index.json",
@@ -67,6 +94,33 @@ def test_make_search_tool_handler_reuses_injected_strategy() -> None:
     assert '"indexKind": "chunk"' in payload
     assert '"score": 0.9' in second_payload
     assert strategy.calls == [("where is app?", 5), ("where is cli?", 3)]
+
+
+def test_make_ephemeral_search_tool_handler_returns_timing_metrics(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = tmp_path / "src" / "users.py"
+    source.parent.mkdir()
+    source.write_text(
+        "class UserController:\n"
+        "    def update_user(self, user_id):\n"
+        "        return user_id\n",
+        encoding="utf-8",
+    )
+    config = AppConfig(
+        root=tmp_path,
+        scanner=ScannerConfig(include=["**/*.py"], line_chunks=False, structural_chunks=True, symbol_chunks=True),
+    )
+    monkeypatch.setattr("code_diver.cli.make_embedding_provider", lambda config, metadata=None: FakeEmbeddingProvider())
+
+    payload = make_ephemeral_search_tool_handler(config)("update user", ["src/users.py"], 3, {})
+
+    assert payload["candidates"][0]["path"] == "src/users.py"
+    assert payload["candidates"][0]["breadcrumb"].startswith("[file: src/users.py]")
+    assert payload["metrics"]["temporary_vectors"] > 0
+    assert payload["metrics"]["ephemeral_build_ms"] >= 0.0
+    assert payload["metrics"]["ephemeral_query_ms"] >= 0.0
 
 
 def test_openai_compatible_provider_does_not_inherit_store_dimensions() -> None:

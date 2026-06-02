@@ -33,6 +33,7 @@ class DirectSearchOrchestrator:
         include_prompts: bool = True,
         search_handler: Callable[[str, int], str] | None = None,
         rerank_handler: Callable[[str, list[dict[str, Any]], int, dict[str, Any]], dict[str, Any]] | None = None,
+        ephemeral_search_handler: Callable[[str, list[str], int, dict[str, Any]], dict[str, Any]] | None = None,
         exclude: list[str] | None = None,
         max_file_bytes: int = 1_000_000,
     ):
@@ -41,6 +42,7 @@ class DirectSearchOrchestrator:
         self.allowed_tools = allowed_tools
         self.search_handler = search_handler
         self.rerank_handler = rerank_handler
+        self.ephemeral_search_handler = ephemeral_search_handler
         self.exclude = exclude or []
         self.max_file_bytes = max_file_bytes
         self.logger = DirectAgentLogger(log_path, include_prompts=include_prompts)
@@ -55,6 +57,7 @@ class DirectSearchOrchestrator:
             self.allowed_tools,
             search_handler=self.search_handler,
             rerank_handler=self.rerank_handler,
+            ephemeral_search_handler=self.ephemeral_search_handler,
             exclude=self.exclude,
             max_file_bytes=self.max_file_bytes,
         )
@@ -205,6 +208,7 @@ class DirectSearchOrchestrator:
             "code_diver_rg",
             "code_diver_symbols",
             "code_diver_outline",
+            "code_diver_ephemeral_search",
             "code_diver_inspect",
         }
         return bool(candidate_tools & tool_names_used)

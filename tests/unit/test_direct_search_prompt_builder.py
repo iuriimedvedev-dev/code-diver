@@ -51,6 +51,21 @@ def test_search_prompt_example_prefers_outline_before_read() -> None:
     assert '"symbolLimit": 100' in prompt
 
 
+def test_search_prompt_describes_ephemeral_search_when_available() -> None:
+    prompt = DirectSearchPromptBuilder().build(
+        hypothesis_name="h2_ephemeral",
+        query="where is user update?",
+        tool_manifest=json.dumps([{"name": "code_diver_ephemeral_search"}, {"name": "code_diver_read"}]),
+        history=[],
+        limit=5,
+    )
+
+    assert "code_diver_ephemeral_search is a localized deep vector search tool" in prompt
+    assert "not as first-pass discovery" in prompt
+    assert "ephemeral_search" in prompt
+    assert '"files": ["src/example.py"]' in prompt
+
+
 def test_search_prompt_describes_hybrid_tool_routing_policy() -> None:
     prompt = DirectSearchPromptBuilder().build(
         hypothesis_name="hybrid",

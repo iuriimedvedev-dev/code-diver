@@ -33,8 +33,10 @@ from .settings import (
     VectorStoreProviderId,
 )
 from .services import (
+    CandidateFileScanner,
     CodebaseScanner,
     DatasetLoader,
+    EphemeralDeepIndexService,
     GraphIndexingService,
     IndexCompositionAnalyzer,
     IndexingOptions,
@@ -504,6 +506,9 @@ def cmd_evaluate_search_tools(args: argparse.Namespace, config: AppConfig) -> in
             rerank_handler = (
                 make_rerank_tool_handler(eval_config, generation_provider) if "code_diver_rerank" in tools else None
             )
+            ephemeral_search_handler = (
+                make_ephemeral_search_tool_handler(eval_config) if "code_diver_ephemeral_search" in tools else None
+            )
             if "code_diver_search" in tools:
                 search_vector_store = create_vector_store(eval_config)
                 search_provider = make_embedding_provider(eval_config, search_vector_store.metadata())
@@ -518,6 +523,7 @@ def cmd_evaluate_search_tools(args: argparse.Namespace, config: AppConfig) -> in
                 include_prompts=eval_config.trace.include_prompts,
                 search_handler=search_handler,
                 rerank_handler=rerank_handler,
+                ephemeral_search_handler=ephemeral_search_handler,
                 exclude=inspection_exclude_patterns(eval_config),
                 max_file_bytes=eval_config.scanner.max_file_bytes,
             )
@@ -875,6 +881,62 @@ def make_rerank_tool_handler(config: AppConfig, generation_provider: Any):
         return handler.rerank(query, candidates, limit, args)
 
     return rerank
+
+
+def make_ephemeral_search_tool_handler(config: AppConfig):
+    scanner = CodebaseScanner(
+        include=config.scanner.include,
+        exclude=config.scanner.exclude,
+        max_file_bytes=config.scanner.max_file_bytes,
+        line_chunks=False,
+        chunk_lines=config.scanner.chunk_lines,
+        structural_chunks=True,
+        symbol_chunks=True,
+        symbol_body=True,
+        file_summary_chunks=False,
+        max_symbols_per_file=config.scanner.max_symbols_per_file,
+    )
+    service = EphemeralDeepIndexService(
+        CandidateFileScanner(scanner),
+        IndexingOptions(
+            embedding_batch_size=config.embedding.batch_size,
+            embedding_workers=config.embedding.workers,
+            embedding_max_input_chars=config.embedding.max_input_chars,
+            progress=False,
+        ),
+    )
+
+    def search(query: str, files: list[str], limit: int, args: dict[str, Any]) -> dict[str, Any]:
+        provider = make_embedding_provider(config)
+        index = service.build(config.root, files[: int(args.get("fileLimit") or args.get("file_limit") or 30)], provider)
+        search_result = service.search(index, provider, query, limit)
+        return {
+            "candidates": [
+                {
+                    "id": result.item.id,
+                    "path": result.item.path,
+                    "title": result.item.title,
+                    "startLine": result.item.start_line,
+                    "endLine": result.item.end_line,
+                    "score": result.score,
+                    "indexKind": CodeItemIndexKindResolver().resolve(result.item),
+                    "breadcrumb": result.item.metadata.get("breadcrumb"),
+                    "preview": compact_preview(result.item.content, 420),
+                }
+                for result in search_result.results
+            ],
+            "metrics": {
+                "ephemeral_build_ms": index.build_ms,
+                "ephemeral_query_ms": search_result.query_ms,
+                "temporary_vectors": index.temporary_vectors,
+                "cache_hits": index.cache_hits,
+                "cache_misses": index.cache_misses,
+                "cache_hit_rate": index.cache_hit_rate,
+                "candidate_files": len(files),
+            },
+        }
+
+    return search
 
 
 def compact_preview(text: str, limit: int) -> str:

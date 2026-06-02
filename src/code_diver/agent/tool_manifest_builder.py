@@ -114,6 +114,27 @@ class ToolManifestBuilder:
                 },
             },
             {
+                "name": "code_diver_ephemeral_search",
+                "stage": "localized_deep_search",
+                "parallel_safe": False,
+                "best_for": [
+                    "vague semantic/workflow queries after top candidate files are known",
+                    "searching inside a fixed top-20/top-30 file pool with local embeddings",
+                    "finding function-level evidence when grep/symbol probes are too brittle",
+                ],
+                "avoid_for": [
+                    "first-pass repository discovery",
+                    "exact literals, config keys, and log fragments where grep/rg is cheaper",
+                    "queries without candidate files",
+                ],
+                "returns": "structured code chunk candidates plus ephemeral_build_ms, ephemeral_query_ms, temporary_vectors, cache metrics",
+                "args": {
+                    "query": "semantic subquery",
+                    "files": "candidate file paths from previous tool results; omit to use candidate bank",
+                    "limit": 10,
+                },
+            },
+            {
                 "name": "code_diver_read",
                 "stage": "verification",
                 "parallel_safe": True,
