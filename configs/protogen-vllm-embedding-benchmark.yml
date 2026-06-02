@@ -13,7 +13,7 @@ config_overrides:
       collection: protogen_vllm_embeddings
       batch_size: 512
   trace:
-    include_prompts: false
+    include_prompts: true
 search_config_overrides:
   generation:
     provider: gemini

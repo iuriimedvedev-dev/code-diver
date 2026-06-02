@@ -140,7 +140,7 @@ graph:
 trace:
   enabled: true
   artifact: .code-diver/traces/intellij-community-ollama-qdrant-indexing.jsonl
-  include_prompts: false
+  include_prompts: true
 
 evaluation:
   dataset: datasets/intellij_eval_1000.jsonl

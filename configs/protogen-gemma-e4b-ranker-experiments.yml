@@ -17,7 +17,7 @@ config_overrides:
     dataset: datasets/protogen_eval_30.jsonl
     limit: 10
   trace:
-    include_prompts: false
+    include_prompts: true
 embedding:
   name: qwen3_embedding_0_6b_mlx_4bit
   runtime: vllm_pooling
