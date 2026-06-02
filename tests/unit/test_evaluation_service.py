@@ -46,6 +46,9 @@ def test_evaluation_service_computes_ranked_metrics() -> None:
     assert results[0].precision == 0.5
     assert results[0].recall == 1.0
     assert metrics["hit_rate@2"] == 1.0
+    assert metrics["hit_rate@2_ci95_low"] <= metrics["hit_rate@2"] <= metrics["hit_rate@2_ci95_high"]
+    assert metrics["mrr@2_variance"] == 0.0
+    assert metrics["search_duration_ms_mean_ci95_width"] >= 0.0
     assert metrics["mrr@2"] == 0.5
     assert metrics["hit_rate@1"] == 0.0
     assert metrics["hit_rate@3"] == 1.0

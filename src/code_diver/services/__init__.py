@@ -7,6 +7,7 @@ from .dataset_loader import DatasetLoader
 from .ephemeral_deep_index_result import EphemeralDeepIndexResult
 from .ephemeral_deep_index_service import EphemeralDeepIndexService
 from .ephemeral_deep_search_result import EphemeralDeepSearchResult
+from .evaluation_statistics import EvaluationStatistics
 from .graph_indexing_service import GraphIndexingService
 from .index_composition_analyzer import IndexCompositionAnalyzer
 from .indexing_options import IndexingOptions
@@ -26,6 +27,7 @@ __all__ = [
     "EphemeralDeepIndexResult",
     "EphemeralDeepIndexService",
     "EphemeralDeepSearchResult",
+    "EvaluationStatistics",
     "GraphIndexingService",
     "IndexCompositionAnalyzer",
     "IndexingOptions",

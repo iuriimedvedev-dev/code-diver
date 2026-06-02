@@ -11,6 +11,7 @@ from ..domain import CodeItemIndexKindResolver, EvalCase, EvalResult
 from ..strategies import RetrievalStrategy
 from ..tracing import TraceLogger
 from .eval_case_bucket_classifier import EvalCaseBucketClassifier
+from .evaluation_statistics import EvaluationStatistics
 
 
 class EvaluationService:
@@ -23,6 +24,7 @@ class EvaluationService:
         self.retrieval_strategy = retrieval_strategy
         self.bucket_classifier = EvalCaseBucketClassifier()
         self.index_kind_resolver = CodeItemIndexKindResolver()
+        self.statistics = EvaluationStatistics()
         self.trace_logger = trace_logger or TraceLogger.disabled()
         self.progress_interval = max(int(progress_interval or 1), 1)
 
@@ -118,6 +120,7 @@ class EvaluationService:
             "failure_details": failures[:20],
         }
         metrics.update(self._derived_metrics(results, limit, metrics))
+        metrics.update(self._statistical_metrics(results, durations_ms, limit))
         metrics.update(self._bucket_metrics(results, limit))
         metrics.update(self._item_kind_metrics(results))
         self.trace_logger.write(
@@ -327,6 +330,33 @@ class EvaluationService:
                 mean_seconds,
             ),
         }
+
+    def _statistical_metrics(
+        self,
+        results: list[EvalResult],
+        durations_ms: list[float],
+        limit: int,
+    ) -> dict[str, float]:
+        stats: dict[str, float] = {}
+        series: list[tuple[str, Any, bool]] = [
+            (f"hit_rate@{limit}", (1.0 if result.hit else 0.0 for result in results), True),
+            (f"mrr@{limit}", (result.reciprocal_rank for result in results), False),
+            (f"precision@{limit}", (result.precision for result in results), False),
+            (f"recall@{limit}", (result.recall for result in results), False),
+            ("hit_rate@1", (1.0 if self._hit_at(result, 1) else 0.0 for result in results), True),
+            ("hit_rate@3", (1.0 if self._hit_at(result, 3) else 0.0 for result in results), True),
+            ("hit_rate@5", (1.0 if self._hit_at(result, 5) else 0.0 for result in results), True),
+            (f"file_hit_rate@{limit}", (1.0 if result.file_hit else 0.0 for result in results), True),
+            (f"file_mrr@{limit}", (result.file_reciprocal_rank for result in results), False),
+            ("file_precision@R", (result.file_precision_at_r for result in results), False),
+            (f"file_recall@{limit}", (result.file_recall for result in results), False),
+            (f"ndcg@{limit}", (result.ndcg for result in results), False),
+            (f"map@{limit}", (result.average_precision for result in results), False),
+            ("search_duration_ms_mean", durations_ms, False),
+        ]
+        for name, values, binary in series:
+            stats.update(self.statistics.summarize(name, values, binary=binary))
+        return stats
 
     def _matches_any_expected(self, item: object, expected: list[str]) -> bool:
         return any(self._matches_expected(item, value) for value in expected)

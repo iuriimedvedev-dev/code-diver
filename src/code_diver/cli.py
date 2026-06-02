@@ -47,6 +47,7 @@ from .services import (
 )
 from .services.codebase_scanner import DEFAULT_EXCLUDES
 from .services.evaluation_service import EvaluationService
+from .services.evaluation_statistics import EvaluationStatistics
 from .strategies import RetrievalStrategyFactory
 from .store import create_vector_store
 from .tracing import TraceLogger
@@ -1061,7 +1062,7 @@ def first_unmatched_direct_expected(path: str, expected: list[str], matched: set
 
 
 def direct_search_metrics(results: list[Any], durations_ms: list[float], limit: int) -> dict[str, Any]:
-    return {
+    metrics = {
         "cases": len(results),
         f"hit_rate@{limit}": mean(1.0 if result.hit else 0.0 for result in results),
         f"mrr@{limit}": mean(result.reciprocal_rank for result in results),
@@ -1080,6 +1081,26 @@ def direct_search_metrics(results: list[Any], durations_ms: list[float], limit: 
         "search_duration_ms_mean": mean(durations_ms),
         "search_duration_ms_p95": percentile(durations_ms, 0.95),
     }
+    statistics = EvaluationStatistics()
+    series = [
+        (f"hit_rate@{limit}", (1.0 if result.hit else 0.0 for result in results), True),
+        (f"mrr@{limit}", (result.reciprocal_rank for result in results), False),
+        (f"precision@{limit}", (result.precision for result in results), False),
+        (f"recall@{limit}", (result.recall for result in results), False),
+        ("hit_rate@1", (1.0 if any(direct_search_matches_any(value, result.expected) for value in result.retrieved[:1]) else 0.0 for result in results), True),
+        ("hit_rate@3", (1.0 if any(direct_search_matches_any(value, result.expected) for value in result.retrieved[:3]) else 0.0 for result in results), True),
+        ("hit_rate@5", (1.0 if any(direct_search_matches_any(value, result.expected) for value in result.retrieved[:5]) else 0.0 for result in results), True),
+        (f"file_hit_rate@{limit}", (1.0 if result.file_hit else 0.0 for result in results), True),
+        (f"file_mrr@{limit}", (result.file_reciprocal_rank for result in results), False),
+        ("file_precision@R", (result.file_precision_at_r for result in results), False),
+        (f"file_recall@{limit}", (result.file_recall for result in results), False),
+        (f"ndcg@{limit}", (result.ndcg for result in results), False),
+        (f"map@{limit}", (result.average_precision for result in results), False),
+        ("search_duration_ms_mean", durations_ms, False),
+    ]
+    for name, values, binary in series:
+        metrics.update(statistics.summarize(name, values, binary=binary))
+    return metrics
 
 
 def empty_agent_usage() -> dict[str, Any]:

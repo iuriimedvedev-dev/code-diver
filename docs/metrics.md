@@ -54,6 +54,22 @@ An item is counted as relevant when its indexed id matches an expected id exactl
 | `top_result_kind.<kind>.rate` | Fraction of cases where the top result came from `chunk`, `symbol`, `file_summary`, or fallback kind. | Depends. | Shows which index type dominates first rank. |
 | `first_relevant_kind.<kind>.rate` | Among hit cases, fraction where the first relevant result came from that index type. | Depends. | Shows which index type actually finds correct evidence. |
 
+## Statistical Reliability
+
+Every core quality metric now also reports a small statistical family:
+
+| Suffix | Meaning | How to read it |
+| --- | --- | --- |
+| `_variance` | Sample variance across per-case values. | High variance means the strategy is inconsistent: it wins some cases and collapses on others. |
+| `_stddev` | Standard deviation across per-case values. | Same signal as variance, in the metric's own units. |
+| `_stderr` | Standard error of the mean. | Shrinks as the dataset grows; useful for comparing 100-case vs 1000-case runs. |
+| `_ci95_low` / `_ci95_high` | 95% confidence interval for the metric mean. Binary hit metrics use Wilson intervals; continuous metrics use a normal interval over per-case scores. | If two hypotheses have heavily overlapping intervals, treat the apparent winner as unproven. |
+| `_ci95_width` | Interval width. | Smaller means the estimate is more stable. Wide intervals mean we need more cases or more bucketed analysis before trusting the result. |
+
+Example: `hit_rate@5=0.82` with `hit_rate@5_ci95_low=0.79` and `hit_rate@5_ci95_high=0.85` is materially more trustworthy than `hit_rate@5=0.84` with `[0.73, 0.91]`. On the 1000-case IntelliJ benchmark, compare both the mean and CI width. A quality gain smaller than the wider CI width is noise until proven by a larger or better-balanced dataset.
+
+The statistics are emitted by `evaluate`, `experiment`, `evaluate-indexing`, and `evaluate-search-tools` because they all flow through the same evaluation metric service or direct-search metric helper.
+
 ## Derived Metrics
 
 These are computed from the primary retrieval metrics and are meant to make failures easier to classify.
