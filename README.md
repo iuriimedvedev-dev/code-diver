@@ -199,6 +199,18 @@ uv run code-diver --config configs/protogen.yml experiment
 
 The stack runs ClickHouse for metrics storage and Grafana with a provisioned dashboard. Tables use the configured `metrics.retention_days` TTL, and the compose file caps ClickHouse memory/CPU for local experimentation.
 
+Static reports can be generated from JSON eval output:
+
+```bash
+uv run code-diver --config configs/intellij-community-vllm-qdrant.yml experiment --json \
+  > .code-diver/reports/intellij-hypotheses.json
+uv run python scripts/build_eval_report.py \
+  .code-diver/reports/intellij-hypotheses.json \
+  --output .code-diver/reports/intellij-hypotheses.html
+```
+
+The report includes metric tables, confidence intervals, per-metric charts, and per-case distributions when detailed results are present. The Grafana dashboard shows the same comparison over stored ClickHouse runs.
+
 For isolated runs, use the Alpine runtime container in `ops/runtime`. It mounts a target codebase at `/workspace`, writes artifacts under `/artifacts`, uses Qdrant for vectors, and writes metrics to ClickHouse over the compose network:
 
 ```bash

@@ -3,7 +3,7 @@
   "title": "Code Diver RAG Evals",
   "timezone": "browser",
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "refresh": "10s",
   "time": {
     "from": "now-6h",
@@ -22,7 +22,7 @@
         {
           "editorType": "sql",
           "format": 1,
-          "rawSql": "SELECT event_time AS time, strategy, metric_value FROM code_diver.rag_eval_metrics WHERE $__timeFilter(event_time) AND startsWith(metric_name, 'hit_rate@') ORDER BY time"
+          "rawSql": "SELECT event_time AS time, concat(strategy, ' ', metric_name) AS series, metric_value FROM code_diver.rag_eval_metrics WHERE $__timeFilter(event_time) AND metric_name IN ('hit_rate@1', 'hit_rate@3', 'hit_rate@5', 'hit_rate@10') ORDER BY time"
         }
       ],
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 }
@@ -30,7 +30,7 @@
     {
       "id": 2,
       "type": "timeseries",
-      "title": "MRR by Strategy",
+      "title": "MRR / NDCG / MAP by Strategy",
       "datasource": {
         "type": "grafana-clickhouse-datasource",
         "uid": "code-diver-clickhouse"
@@ -39,13 +39,30 @@
         {
           "editorType": "sql",
           "format": 1,
-          "rawSql": "SELECT event_time AS time, strategy, metric_value FROM code_diver.rag_eval_metrics WHERE $__timeFilter(event_time) AND startsWith(metric_name, 'mrr@') ORDER BY time"
+          "rawSql": "SELECT event_time AS time, concat(strategy, ' ', metric_name) AS series, metric_value FROM code_diver.rag_eval_metrics WHERE $__timeFilter(event_time) AND metric_name IN ('mrr@10', 'ndcg@10', 'map@10') ORDER BY time"
         }
       ],
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 }
     },
     {
       "id": 3,
+      "type": "timeseries",
+      "title": "CI Width: Smaller Means More Stable",
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "code-diver-clickhouse"
+      },
+      "targets": [
+        {
+          "editorType": "sql",
+          "format": 1,
+          "rawSql": "SELECT event_time AS time, concat(strategy, ' ', metric_name) AS series, metric_value FROM code_diver.rag_eval_metrics WHERE $__timeFilter(event_time) AND metric_name IN ('hit_rate@1_ci95_width', 'hit_rate@3_ci95_width', 'hit_rate@5_ci95_width', 'mrr@10_ci95_width', 'ndcg@10_ci95_width') ORDER BY time"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 }
+    },
+    {
+      "id": 4,
       "type": "timeseries",
       "title": "Runtime",
       "datasource": {
@@ -56,13 +73,47 @@
         {
           "editorType": "sql",
           "format": 1,
-          "rawSql": "SELECT event_time AS time, strategy, metric_value FROM code_diver.rag_eval_metrics WHERE $__timeFilter(event_time) AND metric_name = 'duration_ms' ORDER BY time"
+          "rawSql": "SELECT event_time AS time, concat(strategy, ' ', metric_name) AS series, metric_value FROM code_diver.rag_eval_metrics WHERE $__timeFilter(event_time) AND metric_name IN ('duration_ms', 'search_duration_ms_mean', 'search_duration_ms_p95') ORDER BY time"
         }
       ],
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 }
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 }
     },
     {
-      "id": 4,
+      "id": 5,
+      "type": "table",
+      "title": "Latest Strategy Comparison With 95% CI",
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "code-diver-clickhouse"
+      },
+      "targets": [
+        {
+          "editorType": "sql",
+          "format": 1,
+          "rawSql": "WITH latest AS (SELECT run_id FROM code_diver.rag_eval_metrics WHERE $__timeFilter(event_time) ORDER BY event_time DESC LIMIT 1) SELECT strategy, metric_name, metric_value FROM code_diver.rag_eval_metrics WHERE run_id IN (SELECT run_id FROM latest) AND metric_name IN ('hit_rate@1','hit_rate@1_ci95_low','hit_rate@1_ci95_high','hit_rate@3','hit_rate@3_ci95_low','hit_rate@3_ci95_high','hit_rate@5','hit_rate@5_ci95_low','hit_rate@5_ci95_high','mrr@10','mrr@10_ci95_low','mrr@10_ci95_high','ndcg@10','ndcg@10_ci95_low','ndcg@10_ci95_high') ORDER BY strategy, metric_name"
+        }
+      ],
+      "gridPos": { "h": 10, "w": 12, "x": 0, "y": 16 }
+    },
+    {
+      "id": 6,
+      "type": "table",
+      "title": "Per-case Distribution Summary",
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "code-diver-clickhouse"
+      },
+      "targets": [
+        {
+          "editorType": "sql",
+          "format": 1,
+          "rawSql": "WITH latest AS (SELECT run_id FROM code_diver.rag_eval_cases WHERE $__timeFilter(event_time) ORDER BY event_time DESC LIMIT 1) SELECT strategy, count() AS cases, avg(hit) AS hit_rate, stddevSamp(hit) AS hit_stddev, avg(reciprocal_rank) AS mrr, stddevSamp(reciprocal_rank) AS mrr_stddev, quantile(0.5)(reciprocal_rank) AS rr_p50, quantile(0.9)(reciprocal_rank) AS rr_p90, avg(recall) AS recall, stddevSamp(recall) AS recall_stddev FROM code_diver.rag_eval_cases WHERE run_id IN (SELECT run_id FROM latest) GROUP BY strategy ORDER BY hit_rate DESC, mrr DESC"
+        }
+      ],
+      "gridPos": { "h": 10, "w": 12, "x": 12, "y": 16 }
+    },
+    {
+      "id": 7,
       "type": "table",
       "title": "Latest Case Results",
       "datasource": {
@@ -73,10 +124,10 @@
         {
           "editorType": "sql",
           "format": 1,
-          "rawSql": "SELECT event_time, run_id, suite, strategy, case_id, hit, reciprocal_rank, precision, recall FROM code_diver.rag_eval_cases WHERE $__timeFilter(event_time) ORDER BY event_time DESC, strategy, case_id LIMIT 200"
+          "rawSql": "SELECT event_time, run_id, suite, strategy, case_id, hit, reciprocal_rank, precision, recall FROM code_diver.rag_eval_cases WHERE $__timeFilter(event_time) ORDER BY event_time DESC, strategy, case_id LIMIT 500"
         }
       ],
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 }
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 26 }
     }
   ]
 }

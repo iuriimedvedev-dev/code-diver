@@ -135,6 +135,26 @@ For AI indexing hypotheses, read quality and cost together:
 4. Use `indexed_items` and `precision@10` to detect indexes that are too broad and waste context.
 5. Open `log_path` when a run is surprising; the log is the source of truth for what the model actually did.
 
+## Reports And Charts
+
+For one-off local analysis, write any eval command to JSON and render a static report:
+
+```bash
+uv run code-diver --config configs/intellij-community-vllm-qdrant.yml experiment --json \
+  > .code-diver/reports/intellij-hypotheses.json
+uv run python scripts/build_eval_report.py \
+  .code-diver/reports/intellij-hypotheses.json \
+  --output .code-diver/reports/intellij-hypotheses.html
+```
+
+The HTML report shows:
+
+- one summary table with primary metrics and 95% CI bounds;
+- one bar chart per metric with confidence whiskers;
+- per-case distributions for hit, reciprocal rank, and recall when the JSON includes detailed results.
+
+For long-running comparison suites, enable ClickHouse metrics and open Grafana at `http://localhost:3000`. The provisioned dashboard overlays strategies on the same panels for `Hit@1/3/5/10`, `MRR`, `nDCG`, `MAP`, runtime, and CI width. The important chart for reliability is CI width: a fast, high-scoring strategy with broad intervals is not a stable winner yet.
+
 ## Current `../protogen` Runs
 
 Historical dataset: `datasets/protogen_eval.jsonl`, 10 repository-location cases, `limit=10`.
