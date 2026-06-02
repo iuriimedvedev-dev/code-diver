@@ -1,0 +1,42 @@
+base_config: configs/protogen-ollama-qdrant.yml
+output: .code-diver/reports/protogen-gemini-api-embedding-3072-api-rerank.json
+log_dir: .code-diver/logs/generation-models
+reindex: true
+timeout_ms: 180000
+config_overrides:
+  storage:
+    qdrant:
+      url: http://localhost:6333
+      location:
+      collection: protogen_gemini_api_embedding_001_3072
+      batch_size: 512
+  trace:
+    include_prompts: true
+embedding:
+  provider: gemini
+  model: gemini-embedding-001
+  dimensions: 3072
+  api_key:
+  batch_size: 32
+  workers: 1
+  max_input_chars: 400
+  cost_per_1m_tokens_usd: 0.15
+hypotheses:
+  - hybrid_candidates_symbol_first
+  - hybrid_rerank_flash_lite_top20_compact
+  - hybrid_rerank_flash_lite_file_first
+search_config_overrides:
+  llm_rerank:
+    preserve_top_candidate: false
+generation_models:
+  - name: gemini_flash_lite_api_control
+    runtime: api
+    provider: gemini
+    model: gemini-3.1-flash-lite
+    api_key:
+    api_version: v1beta
+    temperature: 0
+    thinking_budget: 256
+    timeout_ms: 30000
+    precision: api
+    quantization: api
