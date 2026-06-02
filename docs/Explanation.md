@@ -88,6 +88,36 @@ After H1/H1b returns candidate files, we have a fork:
 
 The temporary index only makes sense with a hot local embedding model. API embeddings are too slow and too expensive for per-query indexing.
 
+For the benchmark, both branches must receive the same fixed top-30 files from the best locator. That isolates the question we actually care about: after the locator found a plausible neighborhood, is it better to inspect those files with tools or to build a deeper temporary vector index?
+
+The grep/read branch should not be "LLM writes arbitrary grep and hopes." Real signatures are multiline, overloaded, generic, annotated, or formatted differently from the model's guessed pattern. The branch should expose structured tools:
+
+| Tool | What it returns | Why it exists |
+| --- | --- | --- |
+| `file_outline` | Imports, classes, methods/functions, line ranges. | Lets the model inspect a file's table of contents before reading bodies. |
+| `symbol_definition` | Fuzzy symbol matches inside candidate files. | Handles `updateUser`, `update_user`, overloads, annotations, and multiline signatures better than raw grep. |
+| `bounded_rg` | Literal/regex hits inside only the top-30 files. | Still best for exact strings, logs, config keys, annotations, and constants. |
+| `read_range` | A bounded line range. | Verifies evidence after the model has a specific target. |
+
+The ephemeral index branch should build syntax-aware chunks from those same top-30 files. Every embedded chunk needs an ownership breadcrumb:
+
+```text
+[file: src/foo/UserController.kt] -> [class: UserController] -> [function: updateUser]
+<body or structural chunk>
+```
+
+That breadcrumb is not decoration. It helps the embedding model and the LLM keep behavior attached to the owning file/class instead of ranking a detached function body.
+
+Measure this branch with separate timers:
+
+| Timer | Meaning |
+| --- | --- |
+| `ephemeral_build_ms` | Parse files, create chunks, embed chunks, and write/query-ready temporary vectors. |
+| `ephemeral_query_ms` | Search an already-built temporary index. |
+| `rerank_ms` | LLM/cross-encoder ranking after candidates are returned. |
+
+For quality experiments, compare Hit/MRR/precision/recall with the embedding runtime already warm. Then optimize cache reuse and IDE incremental updates separately.
+
 ## Role Of Local Models And API Models
 
 Embeddings should be local in the target system. We need them for:

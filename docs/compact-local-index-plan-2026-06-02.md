@@ -81,7 +81,7 @@ Use H1/H1b to find 20-50 candidate files. Then choose one of two branches:
 
 The second branch is only viable with local embeddings. API embeddings make per-query temporary indexing too slow and too expensive.
 
-The H2 benchmark must freeze the locator candidate files before comparing branches. Otherwise the result mixes locator quality with second-stage quality.
+The H2 benchmark must freeze the locator candidate files before comparing branches. Otherwise the result mixes locator quality with second-stage quality. The fixed pool for the next run is `top_30_files` from the best locator profile, persisted per eval case.
 
 Controlled H2 branches:
 
@@ -89,6 +89,24 @@ Controlled H2 branches:
 | --- | --- | --- | --- |
 | Bounded grep/read | Only the top-N locator files. Max 3 grep/rg probes and max 8 reads. | The LLM proposes exact probes and ranks structured evidence. | Does direct code inspection beat another vector pass? |
 | Ephemeral local vectors | Only the same top-N locator files. Build temporary syntax-aware chunks, embed locally, cache briefly. | The LLM may issue multiple semantic subqueries and rerank returned code chunks. | Does localized vectorization add quality beyond file-level locator? |
+
+Bounded grep/read must not expose only raw regex. Short model-generated patterns are fragile against multiline signatures and optional parameters. The branch should offer structured file tools:
+
+- `file_outline(path)`: classes, functions, methods, line ranges, imports, and top-level constants;
+- `symbol_definition(path, symbol_or_terms)`: fuzzy lookup over symbols in the candidate file;
+- `bounded_rg(files, pattern, mode)`: literal/regex search over the fixed candidate pool;
+- `read_range(path, start, end)`: targeted reads after outline/symbol lookup.
+
+The orchestrator prompt should prefer `file_outline` or `symbol_definition` before reading code. It should use grep for exact literals, log fragments, annotations, config keys, and fallback keyword probes.
+
+Ephemeral local vectors must embed syntax-aware chunk text with a breadcrumb header:
+
+```text
+[file: src/foo/UserController.kt] -> [class: UserController] -> [function: updateUser]
+<function body or structural chunk>
+```
+
+The breadcrumb is part of the embedded text and the returned evidence payload. Without it, function-level vectors can become detached from ownership and the LLM may rank the right behavior under the wrong file.
 
 The primary comparison is not global Hit@10. It is conditional quality after the locator has already found the right file:
 
@@ -98,9 +116,13 @@ The primary comparison is not global Hit@10. It is conditional quality after the
 - rank delta after H2;
 - grep/read calls;
 - temporary vector count;
-- temporary index latency;
+- `ephemeral_build_ms`: parser + chunk creation + embedding + temporary index write;
+- `ephemeral_query_ms`: vector search over an already-warm temporary index;
+- `ephemeral_cache_hit_rate`;
 - rerank tokens/cost;
 - bucket split: exact/path/symbol vs semantic/workflow.
+
+Build time and query time must be reported separately. For quality analysis, compare final Hit/MRR using the same fixed top-30 pool and a warm embedding runtime. Cache optimization, incremental IDE updates, and temporary-index reuse are a later performance step.
 
 Expected pattern:
 
