@@ -22,6 +22,8 @@ class TraceMonitor:
     _offset: int = 0
     _events: deque[dict[str, Any]] = field(default_factory=deque, init=False)
     _counts: Counter[str] = field(default_factory=Counter, init=False)
+    _file_identity: tuple[int, int] | None = field(default=None, init=False)
+    _file_mtime_ns: int | None = field(default=None, init=False)
 
     def run(self) -> None:
         with Live(self._render(), refresh_per_second=max(1, int(1 / max(self.refresh_seconds, 0.1)))) as live:
@@ -33,6 +35,20 @@ class TraceMonitor:
     def _read_new_events(self) -> None:
         if not self.trace_path.exists():
             return
+        try:
+            stat = self.trace_path.stat()
+        except OSError:
+            return
+        current_identity = (stat.st_dev, stat.st_ino)
+        if self._file_identity is None:
+            self._file_identity = current_identity
+            self._file_mtime_ns = stat.st_mtime_ns
+        elif (
+            current_identity != self._file_identity
+            or stat.st_size < self._offset
+            or (stat.st_size <= self._offset and stat.st_mtime_ns != self._file_mtime_ns)
+        ):
+            self._reset_reader(current_identity)
         with self.trace_path.open("r", encoding="utf-8") as stream:
             stream.seek(self._offset)
             for line in stream:
@@ -44,6 +60,14 @@ class TraceMonitor:
                 while len(self._events) > self.max_events:
                     self._events.popleft()
             self._offset = stream.tell()
+            self._file_mtime_ns = stat.st_mtime_ns
+
+    def _reset_reader(self, file_identity: tuple[int, int]) -> None:
+        self._file_identity = file_identity
+        self._file_mtime_ns = None
+        self._offset = 0
+        self._events.clear()
+        self._counts.clear()
 
     def _parse(self, line: str) -> dict[str, Any] | None:
         try:
@@ -67,6 +91,14 @@ class TraceMonitor:
             self._metric("kinds", len(self._counts), "bright_blue"),
             self._metric("shown", len(self._events), "bright_magenta"),
         )
+        if not self.trace_path.exists():
+            waiting = Text("waiting for trace file", style="bold yellow")
+            waiting.append(" ")
+            waiting.append(str(self.trace_path), style="bright_magenta")
+            return Group(
+                Panel(Group(header, counts), border_style="bright_blue"),
+                Panel(waiting, title="live trace", border_style="yellow"),
+            )
 
         event_table = Table(expand=True, show_header=True, header_style="bold bright_cyan")
         event_table.add_column("time", width=18, overflow="fold")

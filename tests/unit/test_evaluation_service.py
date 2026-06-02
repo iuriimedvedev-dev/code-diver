@@ -200,3 +200,63 @@ def test_evaluation_service_traces_progress_with_parallel_workers(tmp_path) -> N
     assert events[-1]["event"] == "evaluation_completed"
     assert sum(1 for event in events if event["event"] == "evaluation_progress") == 3
     assert events[-2]["payload"]["completed"] == 3
+
+
+class FailingStrategy(RetrievalStrategy):
+    def search(self, query: str, limit: int) -> list[SearchResult]:
+        if query == "boom":
+            raise RuntimeError("search exploded")
+        return [
+            SearchResult(
+                CodeItem(id=f"{query}.py#1", path=f"{query}.py", title=query, content=""),
+                1.0,
+            )
+        ][:limit]
+
+
+def test_evaluation_service_records_degraded_cases_without_losing_parallel_results(tmp_path) -> None:
+    trace_path = tmp_path / "trace.jsonl"
+    cases = [
+        EvalCase(id="case-a", query="alpha", expected=["alpha.py"]),
+        EvalCase(id="case-b", query="boom", expected=["boom.py"]),
+        EvalCase(id="case-c", query="gamma", expected=["gamma.py"]),
+    ]
+
+    metrics, results = EvaluationService(
+        FailingStrategy(),
+        trace_logger=TraceLogger(TraceConfig(enabled=True, artifact=trace_path, include_prompts=False)),
+        progress_interval=1,
+    ).evaluate(cases, limit=1, workers=3)
+
+    events = [json.loads(line) for line in trace_path.read_text(encoding="utf-8").splitlines()]
+    assert [result.case_id for result in results] == ["case-a", "case-b", "case-c"]
+    assert [result.hit for result in results] == [True, False, True]
+    assert metrics["cases"] == 3
+    assert metrics["degraded"] is True
+    assert metrics["degraded_cases"] == 1
+    assert metrics["degraded_case_rate"] == pytest.approx(1 / 3)
+    assert metrics["search_success_cases"] == 2
+    assert metrics["search_failed_cases"] == 1
+    assert metrics["search_failed_duration_ms_total"] >= 0.0
+    assert metrics["failure_details"][0]["case_id"] == "case-b"
+    assert metrics["failure_details"][0]["error_type"] == "RuntimeError"
+    assert metrics["hit_rate@1"] == pytest.approx(2 / 3)
+    assert any(event["event"] == "evaluation_case_failed" for event in events)
+    assert events[-1]["event"] == "evaluation_completed"
+    assert events[-1]["payload"]["degraded"] is True
+    assert events[-1]["payload"]["degraded_cases"] == 1
+
+
+def test_evaluation_service_successful_run_reports_not_degraded() -> None:
+    metrics, _ = EvaluationService(RecordingStrategy()).evaluate(
+        [EvalCase(id="case-a", query="alpha", expected=["alpha.py"])],
+        limit=1,
+        workers=1,
+    )
+
+    assert metrics["degraded"] is False
+    assert metrics["degraded_cases"] == 0
+    assert metrics["degraded_case_rate"] == 0.0
+    assert metrics["search_success_cases"] == 1
+    assert metrics["search_failed_cases"] == 0
+    assert metrics["failure_details"] == []

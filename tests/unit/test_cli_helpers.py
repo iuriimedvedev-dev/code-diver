@@ -1,15 +1,17 @@
 from __future__ import annotations
 
 from pathlib import Path
+from argparse import Namespace
 
 import pytest
 
-from code_diver.cli import config_for_indexing_hypothesis, make_embedding_provider, make_search_tool_handler
+from code_diver.cli import cmd_monitor, config_for_indexing_hypothesis, make_embedding_provider, make_search_tool_handler
 from code_diver.config import AppConfig
 from code_diver.config.embedding_config import EmbeddingConfig
 from code_diver.config.graph_config import GraphConfig
 from code_diver.config.qdrant_config import QdrantConfig
 from code_diver.config.storage_config import StorageConfig
+from code_diver.config.trace_config import TraceConfig
 from code_diver.domain import CodeItem, SearchResult
 
 
@@ -82,3 +84,12 @@ def test_openai_compatible_provider_does_not_inherit_store_dimensions() -> None:
 
     assert provider.dimensions == 0
     assert provider.send_dimensions is False
+
+
+def test_cmd_monitor_requires_explicit_trace_when_tracing_is_disabled(capsys) -> None:
+    config = AppConfig(trace=TraceConfig(enabled=False, artifact=Path("old-trace.jsonl"), include_prompts=False))
+
+    exit_code = cmd_monitor(Namespace(trace=None, refresh=0.1, max_events=10), config)
+
+    assert exit_code == 1
+    assert "Tracing is disabled" in capsys.readouterr().out

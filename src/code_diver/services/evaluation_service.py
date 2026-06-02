@@ -43,27 +43,47 @@ class EvaluationService:
                 "progress_interval": self.progress_interval,
             },
         )
+        failures: list[dict[str, Any]] = []
         if worker_count == 1 or len(cases) <= 1:
             rows = []
             for index, case in enumerate(cases, start=1):
-                rows.append(self._evaluate_case(case, limit))
+                row, failure = self._evaluate_case_or_failure(case, limit)
+                rows.append(row)
+                if failure is not None:
+                    failures.append(failure)
                 self._trace_progress(index, len(cases), started)
         else:
             with ThreadPoolExecutor(max_workers=worker_count) as executor:
                 futures = {
-                    executor.submit(self._evaluate_case, case, limit): index
+                    executor.submit(self._evaluate_case_or_failure, case, limit): (index, case)
                     for index, case in enumerate(cases)
                 }
                 rows_by_index: list[tuple[EvalResult, float] | None] = [None] * len(cases)
                 completed = 0
                 for future in as_completed(futures):
-                    index = futures[future]
-                    rows_by_index[index] = future.result()
+                    index, case = futures[future]
+                    try:
+                        row, failure = future.result()
+                    except Exception as exc:
+                        failure = self._failure_payload(case, exc)
+                        rows_by_index[index] = self._failed_case(case)
+                        self.trace_logger.write("evaluation_case_failed", failure)
+                    else:
+                        rows_by_index[index] = row
+                    if failure is not None:
+                        failures.append(failure)
                     completed += 1
                     self._trace_progress(completed, len(cases), started)
                 rows = [row for row in rows_by_index if row is not None]
         results = [result for result, _ in rows]
         durations_ms = [duration_ms for _, duration_ms in rows]
+        failed_case_ids = {failure["case_id"] for failure in failures}
+        successful_durations_ms = [
+            duration_ms for result, duration_ms in rows if result.case_id not in failed_case_ids
+        ]
+        failed_durations_ms = [
+            duration_ms for result, duration_ms in rows if result.case_id in failed_case_ids
+        ]
 
         metrics = {
             "cases": len(results),
@@ -84,6 +104,18 @@ class EvaluationService:
             "search_duration_ms_total": sum(durations_ms),
             "search_duration_ms_mean": self._mean(durations_ms),
             "search_duration_ms_p95": self._percentile(durations_ms, 0.95),
+            "search_success_cases": len(successful_durations_ms),
+            "search_success_duration_ms_total": sum(successful_durations_ms),
+            "search_success_duration_ms_mean": self._mean(successful_durations_ms),
+            "search_success_duration_ms_p95": self._percentile(successful_durations_ms, 0.95),
+            "search_failed_cases": len(failed_durations_ms),
+            "search_failed_duration_ms_total": sum(failed_durations_ms),
+            "search_failed_duration_ms_mean": self._mean(failed_durations_ms),
+            "search_failed_duration_ms_p95": self._percentile(failed_durations_ms, 0.95),
+            "degraded": bool(failures),
+            "degraded_cases": len(failures),
+            "degraded_case_rate": len(failures) / max(len(cases), 1),
+            "failure_details": failures[:20],
         }
         metrics.update(self._derived_metrics(results, limit, metrics))
         metrics.update(self._bucket_metrics(results, limit))
@@ -99,9 +131,54 @@ class EvaluationService:
                 f"hit_rate@{limit}": metrics.get(f"hit_rate@{limit}"),
                 f"ndcg@{limit}": metrics.get(f"ndcg@{limit}"),
                 f"file_recall@{limit}": metrics.get(f"file_recall@{limit}"),
+                "degraded": bool(failures),
+                "degraded_cases": len(failures),
+                "failures": failures[:20],
             },
         )
         return metrics, results
+
+    def _evaluate_case_or_failure(self, case: EvalCase, limit: int) -> tuple[tuple[EvalResult, float], dict[str, Any] | None]:
+        started = perf_counter()
+        try:
+            return self._evaluate_case(case, limit), None
+        except Exception as exc:
+            failure = self._failure_payload(case, exc)
+            self.trace_logger.write("evaluation_case_failed", failure)
+            return self._failed_case(case, (perf_counter() - started) * 1000), failure
+
+    def _failed_case(self, case: EvalCase, duration_ms: float = 0.0) -> tuple[EvalResult, float]:
+        return (
+            EvalResult(
+                case_id=case.id,
+                query=case.query,
+                expected=case.expected,
+                retrieved=[],
+                hit=False,
+                reciprocal_rank=0.0,
+                precision=0.0,
+                recall=0.0,
+                retrieved_files=[],
+                bucket=self.bucket_classifier.classify(case.query),
+                top_result_kind="none",
+                first_relevant_kind="none",
+                file_hit=False,
+                file_reciprocal_rank=0.0,
+                file_precision_at_r=0.0,
+                file_recall=0.0,
+                ndcg=0.0,
+                average_precision=0.0,
+            ),
+            duration_ms,
+        )
+
+    def _failure_payload(self, case: EvalCase, exc: Exception) -> dict[str, Any]:
+        return {
+            "case_id": case.id,
+            "query": case.query,
+            "error_type": type(exc).__name__,
+            "error": str(exc),
+        }
 
     def _trace_progress(self, completed: int, total: int, started: float) -> None:
         if completed < total and completed % self.progress_interval != 0:

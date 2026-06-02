@@ -59,7 +59,12 @@ class HybridRetrievalStrategy(RetrievalStrategy):
         scores = self._seed_vector_scores(vector_results)
         query_profile = self.analyzer.analyze(query)
         active_config = self.router.route(query, query_profile.terms, self.config)
-        scorer = HybridCandidateScorer(query_profile, self.item_profiler, self._item_profiles)
+        scorer = HybridCandidateScorer(
+            query_profile,
+            self.item_profiler,
+            self._item_profiles,
+            profile_lock=self._cache_lock,
+        )
         lexical_scores = self._lexical_scores(graph, query_profile, active_config)
         normalized_lexical_scores = self._normalize(lexical_scores)
         for item in self._lexical_candidates(graph, query_profile, scorer, normalized_lexical_scores, active_config):

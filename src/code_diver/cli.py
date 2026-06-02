@@ -641,6 +641,9 @@ def cmd_experiment(args: argparse.Namespace, config: AppConfig) -> int:
 
 
 def cmd_monitor(args: argparse.Namespace, config: AppConfig) -> int:
+    if args.trace is None and not config.trace.enabled:
+        print("Tracing is disabled in config. Pass --trace <path> to monitor an existing trace file.")
+        return 1
     trace_path = args.trace or config.trace.artifact
     TraceMonitor(
         trace_path=trace_path,

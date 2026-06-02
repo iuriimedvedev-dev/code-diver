@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from contextlib import nullcontext
+from typing import Any
+
 from ..domain import CodeItem
 from ..domain import CodeItemMetadata
 from .hybrid_candidate_score import HybridCandidateScore
@@ -14,10 +17,12 @@ class HybridCandidateScorer:
         query: HybridQuery,
         profiler: HybridItemProfiler | None = None,
         profiles: dict[str, HybridItemProfile] | None = None,
+        profile_lock: Any | None = None,
     ):
         self.query = query
         self.profiler = profiler or HybridItemProfiler()
         self.profiles = profiles if profiles is not None else {}
+        self.profile_lock = profile_lock
 
     def score(self, item: CodeItem) -> HybridCandidateScore:
         if not self.query.terms:
@@ -46,11 +51,13 @@ class HybridCandidateScorer:
         return matches / len(self.query.terms)
 
     def _profile(self, item: CodeItem) -> HybridItemProfile:
-        profile = self.profiles.get(item.id)
-        if profile is None:
-            profile = self.profiler.profile(item)
-            self.profiles[item.id] = profile
-        return profile
+        context = self.profile_lock if self.profile_lock is not None else nullcontext()
+        with context:
+            profile = self.profiles.get(item.id)
+            if profile is None:
+                profile = self.profiler.profile(item)
+                self.profiles[item.id] = profile
+            return profile
 
     def _symbol_match_score(self, item: CodeItem, profile: HybridItemProfile) -> float:
         symbol = str(item.metadata.get(CodeItemMetadata.SYMBOL) or "")
