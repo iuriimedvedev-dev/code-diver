@@ -57,6 +57,12 @@ RUNS = [
         "partials": ".code-diver/reports/partials-h3-gemini-flash-35-1000",
     },
     {
+        "id": "gemini_flash_35_h3_multi",
+        "ranker": "Gemini 3.5 Flash",
+        "final": ".code-diver/reports/intellij-h3-union-gemini-flash-35-1000-multi.json",
+        "partials": ".code-diver/reports/partials-h3-gemini-flash-35-1000-multi",
+    },
+    {
         "id": "gemini_flash_35_h4",
         "ranker": "Gemini 3.5 Flash",
         "final": ".code-diver/reports/intellij-h4-multiquery-gemini-flash-35-1000.json",
