@@ -1,7 +1,7 @@
 <clickhouse>
     <profiles>
         <default>
-            <max_memory_usage>500000000</max_memory_usage>
+            <max_memory_usage>2000000000</max_memory_usage>
             <max_execution_time>60</max_execution_time>
         </default>
     </profiles>
