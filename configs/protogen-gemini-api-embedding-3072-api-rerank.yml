@@ -10,6 +10,8 @@ config_overrides:
       location:
       collection: protogen_gemini_api_embedding_001_3072
       batch_size: 512
+  evaluation:
+    workers: 4
   trace:
     include_prompts: true
 embedding:

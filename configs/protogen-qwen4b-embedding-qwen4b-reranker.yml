@@ -1,17 +1,17 @@
 root: ../protogen
-artifact: .code-diver/protogen-qwen-cross-encoder-index.json
+artifact: .code-diver/protogen-qwen4b-embedding-qwen4b-reranker-index.json
 
 storage:
   provider: qdrant
   qdrant:
     url: http://localhost:6333
     location:
-    collection: protogen_vllm_embeddings_vllm_qwen3_embedding_0_6b_mlx_4bit_4a455c9c66f7
+    collection: protogen_qwen4b_embedding_qwen4b_reranker
     batch_size: 512
 
 embedding:
   provider: openai_compatible
-  model: mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ
+  model: mlx-community/Qwen3-Embedding-4B-4bit-DWQ
   dimensions:
   url: http://127.0.0.1:8001/v1/embeddings
   api_key: local
@@ -76,15 +76,15 @@ hybrid_search:
 
 cross_encoder_rerank:
   provider: llama_cpp
-  model: Qwen3-Reranker-0.6B
+  model: Qwen3-Reranker-4B
   url: http://127.0.0.1:8080/v1/rerank
-  candidate_limit: 40
+  candidate_limit: 10
   max_document_chars: 900
-  timeout_ms: 20000
+  timeout_ms: 30000
 
 graph:
   enabled: true
-  artifact: .code-diver/protogen-ollama-qdrant-graph_vllm_qwen3_embedding_0_6b_mlx_4bit_4a455c9c66f7.json
+  artifact: .code-diver/protogen-qwen4b-embedding-qwen4b-reranker-graph.json
   ast_enabled: true
   reference_edges_enabled: true
   call_edges_enabled: true
@@ -93,7 +93,7 @@ graph:
 
 trace:
   enabled: true
-  artifact: .code-diver/traces/protogen-qwen-cross-encoder-rerank.jsonl
+  artifact: .code-diver/traces/protogen-qwen4b-embedding-qwen4b-reranker-top5-fixed.jsonl
   include_prompts: true
 
 evaluation:
@@ -102,12 +102,26 @@ evaluation:
   workers: 4
 
 experiments:
-  suite: protogen-qwen-cross-encoder-rerank
+  suite: protogen-qwen4b-embedding-qwen4b-reranker
   strategies:
     - hybrid
     - cross_encoder_rerank
   hypotheses:
-    - name: hybrid_candidates_symbol_first
+    - name: qwen4b_embedding_hybrid
       strategy: hybrid
-    - name: hybrid_cross_encoder_rerank_qwen3_0_6b
+    - name: qwen4b_embedding_qwen4b_cross_encoder
       strategy: cross_encoder_rerank
+    - name: qwen4b_embedding_qwen4b_cross_encoder_top5
+      strategy: cross_encoder_rerank
+      cross_encoder_rerank:
+        provider: llama_cpp
+        model: Qwen3-Reranker-4B
+        url: http://127.0.0.1:8080/v1/rerank
+        candidate_limit: 5
+        max_document_chars: 900
+        timeout_ms: 30000
+
+metrics:
+  enabled: false
+
+plugins: []

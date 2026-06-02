@@ -1,5 +1,5 @@
 root: ../protogen
-artifact: .code-diver/protogen-qwen-cross-encoder-index.json
+artifact: .code-diver/protogen-qwen-cross-encoder-4b-index.json
 
 storage:
   provider: qdrant
@@ -76,11 +76,11 @@ hybrid_search:
 
 cross_encoder_rerank:
   provider: llama_cpp
-  model: Qwen3-Reranker-0.6B
+  model: Qwen3-Reranker-4B
   url: http://127.0.0.1:8080/v1/rerank
   candidate_limit: 40
   max_document_chars: 900
-  timeout_ms: 20000
+  timeout_ms: 30000
 
 graph:
   enabled: true
@@ -93,7 +93,7 @@ graph:
 
 trace:
   enabled: true
-  artifact: .code-diver/traces/protogen-qwen-cross-encoder-rerank.jsonl
+  artifact: .code-diver/traces/protogen-qwen-cross-encoder-rerank-4b.jsonl
   include_prompts: true
 
 evaluation:
@@ -102,12 +102,17 @@ evaluation:
   workers: 4
 
 experiments:
-  suite: protogen-qwen-cross-encoder-rerank
+  suite: protogen-qwen-cross-encoder-rerank-4b
   strategies:
     - hybrid
     - cross_encoder_rerank
   hypotheses:
     - name: hybrid_candidates_symbol_first
       strategy: hybrid
-    - name: hybrid_cross_encoder_rerank_qwen3_0_6b
+    - name: hybrid_cross_encoder_rerank_qwen3_4b
       strategy: cross_encoder_rerank
+
+metrics:
+  enabled: false
+
+plugins: []

@@ -56,7 +56,7 @@ search:
   strategy: vector # vector, recursive, graph
 ```
 
-See [docs/research.md](docs/research.md) for the current codebase RAG research notes and experiment plan, [docs/metrics.md](docs/metrics.md) for metric definitions and current run comparisons, and [docs/optimization-audit.md](docs/optimization-audit.md) for the latest optimization audit and roadmap.
+See [docs/assignment-plan-progress.md](docs/assignment-plan-progress.md) for the assignment plan, estimates, progress log, and deliverable map. See [docs/research.md](docs/research.md) for the current codebase RAG research notes and experiment plan, [docs/metrics.md](docs/metrics.md) for metric definitions and current run comparisons, and [docs/optimization-audit.md](docs/optimization-audit.md) for the latest optimization audit and roadmap.
 
 ## Tests
 
