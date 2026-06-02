@@ -6,7 +6,7 @@ storage:
   qdrant:
     url: http://localhost:6333
     location:
-    collection: protogen_qwen4b_embedding_qwen4b_reranker
+    collection: protogen_vllm_embeddings_vllm_qwen3_embedding_4b_mlx_4bit_85c6bef331ed
     batch_size: 512
 
 embedding:
@@ -84,7 +84,7 @@ cross_encoder_rerank:
 
 graph:
   enabled: true
-  artifact: .code-diver/protogen-qwen4b-embedding-qwen4b-reranker-graph.json
+  artifact: .code-diver/protogen-ollama-qdrant-graph_vllm_qwen3_embedding_4b_mlx_4bit_85c6bef331ed.json
   ast_enabled: true
   reference_edges_enabled: true
   call_edges_enabled: true

@@ -8,6 +8,7 @@ from ..domain import CodeItem, CodeItemIndexKindResolver, SearchResult
 from ..graph import CodeGraph, CodeGraphStore
 from ..tracing import TraceLogger
 from .graph_candidate_expander import GraphCandidateExpander
+from .graph_expansion_profile import GraphExpansionProfile
 from .graph_expansion_profile_factory import GraphExpansionProfileFactory
 from .graph_neighbor_index import GraphNeighborIndex
 from .hybrid_candidate_score import HybridCandidateScore
@@ -71,7 +72,13 @@ class HybridRetrievalStrategy(RetrievalStrategy):
             existing.symbol_match_score = max(existing.symbol_match_score, lexical.symbol_match_score)
 
         route_name = self.router.route_name(query, query_profile.terms)
-        for item_id, graph_score in self._graph_scores(vector_results, active_config, route_name).items():
+        graph_profile = self.graph_profile_factory.create(
+            route_name,
+            depth=active_config.graph_depth,
+            neighbor_limit=active_config.graph_neighbor_limit,
+        )
+        graph_scores = self._graph_scores(vector_results, graph_profile)
+        for item_id, graph_score in graph_scores.items():
             item = graph.items.get(item_id)
             if item is None:
                 continue
@@ -84,7 +91,17 @@ class HybridRetrievalStrategy(RetrievalStrategy):
         else:
             results = self._weighted_results(scores, limit, active_config)
         results = self._preserve_vector_top(results, vector_results, limit, active_config)
-        self._trace_rank_stages(query, route_name, scores, vector_results, results, active_config)
+        self._trace_rank_stages(
+            query,
+            route_name,
+            scores,
+            vector_results,
+            results,
+            active_config,
+            effective_graph_depth=graph_profile.depth,
+            effective_graph_neighbor_limit=graph_profile.neighbor_limit,
+            graph_candidate_count=len(graph_scores),
+        )
         return results
 
     def _seed_vector_scores(self, vector_results: list[SearchResult]) -> dict[str, HybridCandidateScore]:
@@ -133,15 +150,9 @@ class HybridRetrievalStrategy(RetrievalStrategy):
     def _graph_scores(
         self,
         vector_results: list[SearchResult],
-        config: HybridSearchConfig,
-        route_name: str,
+        profile: GraphExpansionProfile,
     ) -> dict[str, float]:
         seed_scores = self._normalize({result.item.id: result.score for result in vector_results})
-        profile = self.graph_profile_factory.create(
-            route_name,
-            depth=config.graph_depth,
-            neighbor_limit=config.graph_neighbor_limit,
-        )
         return self._normalize(GraphCandidateExpander(self._neighbors()).expand(seed_scores, profile))
 
     def _load_lexical_index(self, graph: CodeGraph) -> HybridLexicalIndex:
@@ -335,9 +346,14 @@ class HybridRetrievalStrategy(RetrievalStrategy):
         vector_results: list[SearchResult],
         final_results: list[SearchResult],
         config: HybridSearchConfig,
+        *,
+        effective_graph_depth: int,
+        effective_graph_neighbor_limit: int,
+        graph_candidate_count: int,
     ) -> None:
         if not self.trace_logger.config.enabled:
             return
+        final_graph_hits = sum(1 for result in final_results if scores[result.item.id].graph_score > 0)
         self.trace_logger.write(
             "hybrid_rank_stages",
             {
@@ -345,6 +361,15 @@ class HybridRetrievalStrategy(RetrievalStrategy):
                 "route": route_name,
                 "fusion": config.fusion,
                 "candidate_count": len(scores),
+                "graph": {
+                    "requested_depth": config.graph_depth,
+                    "effective_depth": effective_graph_depth,
+                    "requested_neighbor_limit": config.graph_neighbor_limit,
+                    "effective_neighbor_limit": effective_graph_neighbor_limit,
+                    "candidate_count": graph_candidate_count,
+                    "final_result_count": final_graph_hits,
+                    "final_result_rate": final_graph_hits / max(len(final_results), 1),
+                },
                 "weights": {
                     "vector": config.vector_weight,
                     "lexical": config.lexical_weight,

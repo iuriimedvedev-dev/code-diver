@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -347,7 +348,12 @@ def test_hybrid_strategy_traces_rank_stage_movement(tmp_path: Path) -> None:
 
     strategy.search("AuthTokenVerifier", limit=1)
 
-    assert "hybrid_rank_stages" in trace_path.read_text(encoding="utf-8")
+    records = [json.loads(line) for line in trace_path.read_text(encoding="utf-8").splitlines()]
+    record = records[0]
+    assert record["event"] == "hybrid_rank_stages"
+    assert record["payload"]["graph"]["requested_depth"] == 1
+    assert record["payload"]["graph"]["effective_depth"] == 1
+    assert record["payload"]["graph"]["candidate_count"] == 0
 
 
 def test_hybrid_strategy_can_preserve_confident_vector_top(tmp_path: Path) -> None:

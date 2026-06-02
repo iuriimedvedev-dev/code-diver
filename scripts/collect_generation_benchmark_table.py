@@ -40,7 +40,7 @@ def _rows(report: Path) -> list[dict[str, Any]]:
                     "embedding_model": embedding_model,
                     "model_name": result.get("name", ""),
                     "model": result.get("model", ""),
-                    "precision": result.get("precision", ""),
+                    "model_precision": result.get("precision", ""),
                     "quantization": result.get("quantization", ""),
                     "strategy": evaluation.get("strategy", ""),
                     "startup_s": _rounded((result.get("server", {}).get("startup_duration_ms") or 0) / 1000, 1),
@@ -48,6 +48,10 @@ def _rows(report: Path) -> list[dict[str, Any]]:
                     "hit3": _rounded(metrics.get("hit_rate@3"), 3),
                     "hit5": _rounded(metrics.get("hit_rate@5"), 3),
                     "hit10": _rounded(metrics.get("hit_rate@10"), 3),
+                    "precision10": _rounded(metrics.get("precision@10"), 3),
+                    "recall10": _rounded(metrics.get("recall@10"), 3),
+                    "file_precision": _rounded(metrics.get("file_precision@R"), 3),
+                    "file_recall": _rounded(metrics.get("file_recall@10"), 3),
                     "mrr": _rounded(metrics.get("mrr@10"), 3),
                     "ndcg": _rounded(metrics.get("ndcg@10"), 3),
                     "map": _rounded(metrics.get("map@10"), 3),
@@ -69,13 +73,13 @@ def _rounded(value: Any, digits: int) -> Any:
 
 def _markdown(rows: list[dict[str, Any]]) -> str:
     lines = [
-        "| source | embedding | model | strategy | precision | quant | startup_s | hit@1 | hit@3 | hit@5 | hit@10 | mrr | ndcg | map | mean_ms | p95_ms | calls | errors | tokens |",
-        "|---|---|---|---|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+        "| source | embedding | model | strategy | model_precision | quant | startup_s | hit@1 | hit@3 | hit@5 | hit@10 | precision@10 | recall@10 | file_precision@R | file_recall@10 | mrr | ndcg | map | mean_ms | p95_ms | calls | errors | tokens |",
+        "|---|---|---|---|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for row in rows:
         lines.append(
-            "| {source} | `{embedding_provider}:{embedding_model}` | `{model_name}` | `{strategy}` | {precision} | {quantization} | {startup_s} | "
-            "{hit1} | {hit3} | {hit5} | {hit10} | {mrr} | {ndcg} | {map} | {mean_ms} | {p95_ms} | {calls} | {errors} | {tokens} |".format(
+            "| {source} | `{embedding_provider}:{embedding_model}` | `{model_name}` | `{strategy}` | {model_precision} | {quantization} | {startup_s} | "
+            "{hit1} | {hit3} | {hit5} | {hit10} | {precision10} | {recall10} | {file_precision} | {file_recall} | {mrr} | {ndcg} | {map} | {mean_ms} | {p95_ms} | {calls} | {errors} | {tokens} |".format(
                 **row
             )
         )

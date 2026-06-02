@@ -111,6 +111,10 @@ experiments:
       strategy: hybrid
     - name: hybrid_cross_encoder_rerank_qwen3_4b
       strategy: cross_encoder_rerank
+    - name: hybrid_cross_encoder_rerank_qwen3_4b_top5
+      strategy: cross_encoder_rerank
+      cross_encoder_rerank:
+        candidate_limit: 5
 
 metrics:
   enabled: false

@@ -53,6 +53,7 @@ class EvaluationService:
             "search_duration_ms_mean": self._mean(durations_ms),
             "search_duration_ms_p95": self._percentile(durations_ms, 0.95),
         }
+        metrics.update(self._derived_metrics(results, limit, metrics))
         metrics.update(self._bucket_metrics(results, limit))
         metrics.update(self._item_kind_metrics(results))
         return metrics, results
@@ -149,6 +150,46 @@ class EvaluationService:
                 continue
             metrics[f"first_relevant_kind.{kind}.rate"] = count / hit_count
         return metrics
+
+    def _derived_metrics(
+        self,
+        results: list[EvalResult],
+        limit: int,
+        metrics: dict[str, Any],
+    ) -> dict[str, Any]:
+        mean_ms = float(metrics.get("search_duration_ms_mean", 0.0) or 0.0)
+        mean_seconds = mean_ms / 1000
+        return {
+            "expected_files_mean": self._mean(len(result.expected) for result in results),
+            "expected_files_p95": self._percentile([float(len(result.expected)) for result in results], 0.95),
+            "multi_expected_rate": self._mean(1.0 if len(result.expected) > 1 else 0.0 for result in results),
+            "retrieved_files_mean": self._mean(len(result.retrieved_files or []) for result in results),
+            f"unique_file_ratio@{limit}": self._mean(
+                len(result.retrieved_files or []) / max(len(result.retrieved), 1) for result in results
+            ),
+            "miss_rate@1": 1.0 - float(metrics.get("hit_rate@1", 0.0) or 0.0),
+            f"miss_rate@{limit}": 1.0 - float(metrics.get(f"hit_rate@{limit}", 0.0) or 0.0),
+            f"file_miss_rate@{limit}": 1.0 - float(metrics.get(f"file_hit_rate@{limit}", 0.0) or 0.0),
+            f"coverage_gap@{limit}": 1.0 - float(metrics.get(f"recall@{limit}", 0.0) or 0.0),
+            f"file_coverage_gap@{limit}": 1.0 - float(metrics.get(f"file_recall@{limit}", 0.0) or 0.0),
+            "rerank_headroom@3": float(metrics.get("hit_rate@3", 0.0) or 0.0)
+            - float(metrics.get("hit_rate@1", 0.0) or 0.0),
+            "rerank_headroom@5": float(metrics.get("hit_rate@5", 0.0) or 0.0)
+            - float(metrics.get("hit_rate@1", 0.0) or 0.0),
+            f"rerank_headroom@{limit}": float(metrics.get(f"hit_rate@{limit}", 0.0) or 0.0)
+            - float(metrics.get("hit_rate@1", 0.0) or 0.0),
+            f"bundle_complete_rate@{limit}": self._mean(1.0 if result.file_recall >= 1.0 else 0.0 for result in results),
+            f"bundle_partial_rate@{limit}": self._mean(
+                1.0 if 0.0 < result.file_recall < 1.0 else 0.0 for result in results
+            ),
+            f"bundle_empty_rate@{limit}": self._mean(1.0 if result.file_recall <= 0.0 else 0.0 for result in results),
+            f"ndcg_per_second@{limit}": self._per_second(float(metrics.get(f"ndcg@{limit}", 0.0) or 0.0), mean_seconds),
+            f"map_per_second@{limit}": self._per_second(float(metrics.get(f"map@{limit}", 0.0) or 0.0), mean_seconds),
+            f"recall_per_second@{limit}": self._per_second(
+                float(metrics.get(f"recall@{limit}", 0.0) or 0.0),
+                mean_seconds,
+            ),
+        }
 
     def _matches_any_expected(self, item: object, expected: list[str]) -> bool:
         return any(self._matches_expected(item, value) for value in expected)
@@ -261,3 +302,8 @@ class EvaluationService:
         ordered = sorted(values)
         index = min(int(round((len(ordered) - 1) * quantile)), len(ordered) - 1)
         return ordered[index]
+
+    def _per_second(self, value: float, seconds: float) -> float:
+        if seconds <= 0:
+            return 0.0
+        return value / seconds

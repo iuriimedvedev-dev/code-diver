@@ -49,6 +49,53 @@ An item is counted as relevant when its indexed id matches an expected id exactl
 | `top_result_kind.<kind>.rate` | Fraction of cases where the top result came from `chunk`, `symbol`, `file_summary`, or fallback kind. | Depends. | Shows which index type dominates first rank. |
 | `first_relevant_kind.<kind>.rate` | Among hit cases, fraction where the first relevant result came from that index type. | Depends. | Shows which index type actually finds correct evidence. |
 
+## Derived Metrics
+
+These are computed from the primary retrieval metrics and are meant to make failures easier to classify.
+
+| Metric | Meaning | How to use it |
+| --- | --- | --- |
+| `multi_expected_rate` | Fraction of cases with more than one expected file. | If this is high, `Hit@1` is not enough; read recall and bundle metrics first. |
+| `expected_files_mean` / `expected_files_p95` | Expected answer-set size. | Shows whether the dataset is single-target lookup or multi-file workflow search. |
+| `retrieved_files_mean` | Mean number of deduplicated files returned. | Helps detect duplicate chunk pressure. |
+| `unique_file_ratio@K` | Deduplicated file count divided by retrieved item count. | Low values mean top-k is clogged by repeated chunks from the same file. |
+| `miss_rate@1` | `1 - hit_rate@1`. | First-result failure rate. Useful for user-visible answer quality. |
+| `miss_rate@K` / `file_miss_rate@K` | `1 - hit_rate@K` or `1 - file_hit_rate@K`. | Candidate failure rate. If high, reranking cannot fix the run. |
+| `coverage_gap@K` / `file_coverage_gap@K` | `1 - recall@K` or `1 - file_recall@K`. | Missing-answer rate for multi-target cases. |
+| `rerank_headroom@3/5/K` | `hit_rate@N - hit_rate@1`. | Cases where a relevant item exists below rank 1. This estimates how much a reranker can still improve. |
+| `bundle_complete_rate@K` | Fraction of cases where all expected files are covered. | The key metric for questions like "where is user editing handled?" |
+| `bundle_partial_rate@K` | Fraction of cases where some, but not all, expected files are covered. | Shows when search finds the right area but not the whole workflow. |
+| `bundle_empty_rate@K` | Fraction of cases with zero expected files covered. | Hard failure rate at file-bundle level. |
+| `ndcg_per_second@K`, `map_per_second@K`, `recall_per_second@K` | Quality divided by mean query latency in seconds. | Efficiency metrics for choosing between local/API rerankers and deterministic search. |
+
+Read `rerank_headroom@5` together with `file_coverage_gap@10`:
+
+- High headroom, low coverage gap: ranking problem. Test stronger rerankers or reranker prompts.
+- Low headroom, high coverage gap: candidate/index problem. Improve chunking, graph expansion, lexical/path search, or query decomposition.
+- High bundle partial rate: search finds one entry point but misses related files. GraphRAG, workflow-specific routing, and multi-query expansion are the right next tests.
+
+## Graph Trace Metrics
+
+Hybrid search writes `hybrid_rank_stages` events when tracing is enabled. The `graph` object now contains:
+
+| Field | Meaning |
+| --- | --- |
+| `requested_depth` | `hybrid_search.graph_depth` from config after hypothesis overrides. |
+| `effective_depth` | Actual route-aware depth used by the graph profile. Workflow queries can be promoted deeper; semantic queries are capped shallow. |
+| `requested_neighbor_limit` | Configured neighbor limit. |
+| `effective_neighbor_limit` | Actual route-aware neighbor limit. |
+| `candidate_count` | Number of graph-expanded candidates before final fusion. |
+| `final_result_count` | Number of final top-k results that received non-zero graph score. |
+| `final_result_rate` | `final_result_count / returned_results`. |
+
+Graph depth is intentionally conservative. Code graphs have high fanout from imports, references, and containment edges; depth 2 can already produce hundreds or thousands of neighbors in large repositories. The current policy is route-aware:
+
+- `workflow`: minimum depth 2, because multi-hop call/reference traversal can help.
+- `path_symbol`: minimum depth 1, because exact-ish symbol/path queries usually need local neighbors.
+- `semantic`: capped at depth 1, because distant graph neighbors often add noise and demote good vector hits.
+
+Depth should be increased only when graph trace metrics show that graph candidates enter the final results and improve workflow bucket metrics without damaging semantic/path-symbol buckets.
+
 ## How To Read The Metrics
 
 Use `hit_rate@10` only as the candidate-recall check. If it is low, the strategy misses the target files and reranking cannot save it.
