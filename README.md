@@ -157,7 +157,40 @@ experiments:
     - graph
 ```
 
-Start the local metrics stack before recording experiment results:
+Start the local runtime stack before Qdrant/metrics-backed experiment runs:
+
+```bash
+docker compose up -d qdrant clickhouse grafana
+curl -fsS http://localhost:6333/collections
+curl -fsS http://localhost:18123/ping
+```
+
+If another Qdrant is already bound to `6333`, either reuse that running instance or start this stack on alternate host ports:
+
+```bash
+QDRANT_PORT=6335 QDRANT_GRPC_PORT=6336 docker compose up -d qdrant
+```
+
+The root `docker-compose.yml` stores service data under `.code-diver/docker/` so index size is visible with:
+
+```bash
+du -sh .code-diver/docker/*
+```
+
+Default local ports:
+
+- Qdrant HTTP: `6333`
+- Qdrant gRPC: `6334`
+- ClickHouse HTTP: `18123`
+- ClickHouse native: `19000`
+- Grafana: `3000`
+
+Local Metal model runtimes stay on the host, not in Docker:
+
+- vLLM/MLX embeddings: `http://127.0.0.1:8001/v1/embeddings`
+- llama.cpp rerank: `http://127.0.0.1:8080/v1/rerank`
+
+The older metrics-only stack is still available if Qdrant is not needed:
 
 ```bash
 docker compose -f ops/metrics/docker-compose.yml up -d
