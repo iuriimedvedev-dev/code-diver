@@ -390,13 +390,18 @@ class DeterministicPostrankH2:
         metrics: dict[str, Any],
         source_prefix: str,
     ) -> list[dict[str, Any]]:
-        union: list[dict[str, Any]] = []
+        profile_groups: list[tuple[list[dict[str, Any]], float]] = []
         for profile_name, profile_config in self._union_profiles(config):
             strategy = base_strategy if profile_name == "balanced" else make_retrieval_strategy(profile_config, provider, vector_store)
             limit = max(self.locator_limit, int(self.args.union_profile_limit))
-            union.extend(self._locator_candidates(strategy, query, limit, source=f"{source_prefix}:{profile_name}"))
+            profile_groups.append(
+                (
+                    self._locator_candidates(strategy, query, limit, source=f"{source_prefix}:{profile_name}"),
+                    1.0,
+                )
+            )
             metrics["union_profile_calls"] += 1
-        return union
+        return self._balanced_candidate_mix(profile_groups, max(self.locator_limit, int(self.args.union_profile_limit)))
 
     def _union_profiles(self, config: Any) -> list[tuple[str, Any]]:
         base = config.hybrid_search
