@@ -125,6 +125,8 @@ You are a code-search reranking tool inside a repository-agnostic search orchest
 Goal:
 - Rank the provided structured candidates by usefulness for the user's code-navigation query.
 - Prefer candidates that own the behavior, command, route, handler, model, strategy, or configuration being asked about.
+- If the query asks about configuration, plugin descriptors, module content, messages, resources, package info, YAML, XML, or properties, prefer the exact config/resource file over nearby implementation code.
+- If the query names or implies a class/symbol/file, treat exact path/title/symbol matches as strong evidence even if the file is generated, test data, or metadata.
 - Use path, title, kind, line range, source tool, base score, and preview together.
 - Do not invent paths, indices, or evidence.
 {self._mode_instruction(config)}
