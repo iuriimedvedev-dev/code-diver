@@ -7,6 +7,7 @@ import yaml
 
 from ..settings import Defaults
 from .app_config import AppConfig
+from .cross_encoder_rerank_config import CrossEncoderRerankConfig
 from .editor_config import EditorConfig
 from .embedding_config import EmbeddingConfig
 from .env_file_config import EnvFileConfig
@@ -48,6 +49,7 @@ class ConfigLoader:
             recursive_search=self._recursive_search(data.get("recursive_search")),
             hybrid_search=self._hybrid_search(data.get("hybrid_search")),
             llm_rerank=self._llm_rerank(data.get("llm_rerank")),
+            cross_encoder_rerank=self._cross_encoder_rerank(data.get("cross_encoder_rerank")),
             graph=self._graph(data.get("graph")),
             trace=self._trace(data.get("trace")),
             ui=self._ui(data.get("ui")),
@@ -260,6 +262,29 @@ class ConfigLoader:
             ),
         )
 
+    def _cross_encoder_rerank(self, data: Any) -> CrossEncoderRerankConfig:
+        mapping = self._mapping(data)
+        return CrossEncoderRerankConfig(
+            provider=str(mapping.get("provider", Defaults.CROSS_ENCODER_RERANK_PROVIDER)),
+            model=str(mapping.get("model", Defaults.CROSS_ENCODER_RERANK_MODEL)),
+            url=str(mapping.get("url", Defaults.CROSS_ENCODER_RERANK_URL)),
+            api_key=mapping.get("api_key"),
+            candidate_limit=int(mapping.get("candidate_limit", Defaults.CROSS_ENCODER_RERANK_CANDIDATE_LIMIT)),
+            max_document_chars=int(
+                mapping.get("max_document_chars", Defaults.CROSS_ENCODER_RERANK_MAX_DOCUMENT_CHARS)
+            ),
+            timeout_ms=int(mapping.get("timeout_ms", Defaults.CROSS_ENCODER_RERANK_TIMEOUT_MS)),
+            preserve_top_candidate=bool(
+                mapping.get("preserve_top_candidate", Defaults.CROSS_ENCODER_RERANK_PRESERVE_TOP_CANDIDATE)
+            ),
+            preserve_top_score_margin=float(
+                mapping.get(
+                    "preserve_top_score_margin",
+                    Defaults.CROSS_ENCODER_RERANK_PRESERVE_TOP_SCORE_MARGIN,
+                )
+            ),
+        )
+
     def _graph(self, data: Any) -> GraphConfig:
         mapping = self._mapping(data)
         return GraphConfig(
@@ -338,6 +363,9 @@ class ConfigLoader:
                     else None,
                     llm_rerank=self._llm_rerank(mapping.get("llm_rerank"))
                     if mapping.get("llm_rerank") is not None
+                    else None,
+                    cross_encoder_rerank=self._cross_encoder_rerank(mapping.get("cross_encoder_rerank"))
+                    if mapping.get("cross_encoder_rerank") is not None
                     else None,
                     description=self._optional_string(mapping.get("description")),
                 )

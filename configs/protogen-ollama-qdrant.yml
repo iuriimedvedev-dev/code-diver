@@ -105,6 +105,15 @@ llm_rerank:
   mode: file_first
   include_reasons: true
 
+cross_encoder_rerank:
+  provider: llama_cpp
+  model: Qwen3-Reranker-0.6B
+  url: http://127.0.0.1:8080/v1/rerank
+  candidate_limit: 40
+  max_document_chars: 900
+  timeout_ms: 20000
+  preserve_top_candidate: false
+
 graph:
   enabled: true
   artifact: .code-diver/protogen-ollama-qdrant-graph.json
@@ -766,6 +775,16 @@ experiments:
         preserve_top_candidate: true
         preserve_top_score_margin: 0.08
       description: "Balanced rerank with deterministic top candidate preserved when score gap is strong."
+    - name: hybrid_cross_encoder_rerank_qwen3_0_6b
+      strategy: cross_encoder_rerank
+      cross_encoder_rerank:
+        provider: llama_cpp
+        model: Qwen3-Reranker-0.6B
+        url: http://127.0.0.1:8080/v1/rerank
+        candidate_limit: 40
+        max_document_chars: 900
+        timeout_ms: 20000
+      description: "Dedicated Qwen3 cross-encoder rerank over deterministic hybrid candidates through llama.cpp /v1/rerank."
     - name: hybrid_candidates_path_symbol
       strategy: hybrid
       hybrid_search:

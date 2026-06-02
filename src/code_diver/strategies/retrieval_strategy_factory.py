@@ -5,9 +5,11 @@ from ..graph import CodeGraphStore
 from ..generation import create_generation_provider
 from ..orchestration import OrchestratedRetrievalStrategy
 from ..providers import EmbeddingProvider
+from ..reranking import RerankProviderFactory
 from ..settings import RetrievalStrategyId
 from ..store import VectorStore
 from ..tracing import TraceLogger
+from .cross_encoder_rerank_retrieval_strategy import CrossEncoderRerankRetrievalStrategy
 from .graph_retrieval_strategy import GraphRetrievalStrategy
 from .hybrid_retrieval_strategy import HybridRetrievalStrategy
 from .llm_rerank_retrieval_strategy import LlmRerankRetrievalStrategy
@@ -71,6 +73,19 @@ class RetrievalStrategyFactory:
                 hybrid,
                 create_generation_provider(config),
                 config.llm_rerank,
+                trace_logger=TraceLogger(config.trace),
+            )
+        if strategy_id is RetrievalStrategyId.CROSS_ENCODER_RERANK:
+            hybrid = HybridRetrievalStrategy(
+                self._hybrid_vector_strategy(config, provider, vector_store),
+                CodeGraphStore(config.graph.artifact),
+                config.hybrid_search,
+                trace_logger=TraceLogger(config.trace),
+            )
+            return CrossEncoderRerankRetrievalStrategy(
+                hybrid,
+                RerankProviderFactory().create(config.cross_encoder_rerank),
+                config.cross_encoder_rerank,
                 trace_logger=TraceLogger(config.trace),
             )
         raise ValueError(f"Unknown retrieval strategy: {strategy}")

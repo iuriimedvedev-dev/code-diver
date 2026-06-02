@@ -1,3 +1,4 @@
+from .cross_encoder_rerank_retrieval_strategy import CrossEncoderRerankRetrievalStrategy
 from .graph_retrieval_strategy import GraphRetrievalStrategy
 from .hybrid_retrieval_strategy import HybridRetrievalStrategy
 from .llm_rerank_retrieval_strategy import LlmRerankRetrievalStrategy
@@ -9,6 +10,7 @@ from .vector_retrieval_strategy import VectorRetrievalStrategy
 
 __all__ = [
     "GraphRetrievalStrategy",
+    "CrossEncoderRerankRetrievalStrategy",
     "HybridRetrievalStrategy",
     "LlmRerankRetrievalStrategy",
     "MultiIndexVectorRetrievalStrategy",

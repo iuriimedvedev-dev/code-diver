@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from ..settings import Defaults
+from .cross_encoder_rerank_config import CrossEncoderRerankConfig
 from .embedding_config import EmbeddingConfig
 from .env_file_config import EnvFileConfig
 from .evaluation_config import EvaluationConfig
@@ -38,6 +39,7 @@ class AppConfig:
     recursive_search: RecursiveSearchConfig = field(default_factory=RecursiveSearchConfig)
     hybrid_search: HybridSearchConfig = field(default_factory=HybridSearchConfig)
     llm_rerank: LlmRerankConfig = field(default_factory=LlmRerankConfig)
+    cross_encoder_rerank: CrossEncoderRerankConfig = field(default_factory=CrossEncoderRerankConfig)
     graph: GraphConfig = field(default_factory=GraphConfig)
     trace: TraceConfig = field(default_factory=TraceConfig)
     ui: UiConfig = field(default_factory=UiConfig)

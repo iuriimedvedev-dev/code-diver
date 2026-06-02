@@ -110,6 +110,16 @@ llm_rerank:
   include_reasons: false
   preserve_top_candidate: true
   preserve_top_score_margin: 0.2
+cross_encoder_rerank:
+  provider: llama_cpp
+  model: qwen3-reranker-0.6b-q4
+  url: http://127.0.0.1:8080/v1/rerank
+  api_key: local-key
+  candidate_limit: 17
+  max_document_chars: 444
+  timeout_ms: 12345
+  preserve_top_candidate: true
+  preserve_top_score_margin: 0.3
 graph:
   artifact: {tmp_path}/graph.json
   expansion_depth: 2
@@ -151,6 +161,11 @@ experiments:
       llm_rerank:
         candidate_limit: 12
         mode: precision
+    - name: cross_encoder_rerank
+      strategy: cross_encoder_rerank
+      cross_encoder_rerank:
+        model: qwen3-reranker-4b-q4
+        candidate_limit: 24
 metrics:
   enabled: true
   url: http://clickhouse:8123
@@ -247,6 +262,15 @@ plugins:
     assert config.llm_rerank.include_reasons is False
     assert config.llm_rerank.preserve_top_candidate is True
     assert config.llm_rerank.preserve_top_score_margin == 0.2
+    assert config.cross_encoder_rerank.provider == "llama_cpp"
+    assert config.cross_encoder_rerank.model == "qwen3-reranker-0.6b-q4"
+    assert config.cross_encoder_rerank.url == "http://127.0.0.1:8080/v1/rerank"
+    assert config.cross_encoder_rerank.api_key == "local-key"
+    assert config.cross_encoder_rerank.candidate_limit == 17
+    assert config.cross_encoder_rerank.max_document_chars == 444
+    assert config.cross_encoder_rerank.timeout_ms == 12345
+    assert config.cross_encoder_rerank.preserve_top_candidate is True
+    assert config.cross_encoder_rerank.preserve_top_score_margin == 0.3
     assert config.graph.artifact == tmp_path / "graph.json"
     assert config.graph.expansion_depth == 2
     assert config.graph.ast_enabled is False
@@ -276,6 +300,10 @@ plugins:
     assert config.experiments.hypotheses[3].generation.thinking_budget == 256
     assert config.experiments.hypotheses[3].llm_rerank.candidate_limit == 12
     assert config.experiments.hypotheses[3].llm_rerank.mode == "precision"
+    assert config.experiments.hypotheses[4].strategy == "cross_encoder_rerank"
+    assert config.experiments.hypotheses[4].cross_encoder_rerank is not None
+    assert config.experiments.hypotheses[4].cross_encoder_rerank.model == "qwen3-reranker-4b-q4"
+    assert config.experiments.hypotheses[4].cross_encoder_rerank.candidate_limit == 24
     assert config.metrics.enabled is True
     assert config.metrics.url == "http://clickhouse:8123"
     assert config.metrics.database == "metrics_db"

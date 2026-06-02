@@ -766,6 +766,8 @@ def config_for_search_hypothesis(config: AppConfig, hypothesis: Any) -> AppConfi
         search_config = replace(search_config, hybrid_search=hypothesis.hybrid_search)
     if getattr(hypothesis, "llm_rerank", None) is not None:
         search_config = replace(search_config, llm_rerank=hypothesis.llm_rerank)
+    if getattr(hypothesis, "cross_encoder_rerank", None) is not None:
+        search_config = replace(search_config, cross_encoder_rerank=hypothesis.cross_encoder_rerank)
     return search_config
 
 
@@ -973,6 +975,7 @@ def direct_search_metrics(results: list[Any], durations_ms: list[float], limit: 
         f"recall@{limit}": mean(result.recall for result in results),
         "hit_rate@1": mean(1.0 if any(direct_search_matches_any(value, result.expected) for value in result.retrieved[:1]) else 0.0 for result in results),
         "hit_rate@3": mean(1.0 if any(direct_search_matches_any(value, result.expected) for value in result.retrieved[:3]) else 0.0 for result in results),
+        "hit_rate@5": mean(1.0 if any(direct_search_matches_any(value, result.expected) for value in result.retrieved[:5]) else 0.0 for result in results),
         f"file_hit_rate@{limit}": mean(1.0 if result.file_hit else 0.0 for result in results),
         f"file_mrr@{limit}": mean(result.file_reciprocal_rank for result in results),
         "file_precision@R": mean(result.file_precision_at_r for result in results),

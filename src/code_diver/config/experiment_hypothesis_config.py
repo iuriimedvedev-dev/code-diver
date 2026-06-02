@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from .cross_encoder_rerank_config import CrossEncoderRerankConfig
 from .generation_config import GenerationConfig
 from .hybrid_search_config import HybridSearchConfig
 from .llm_rerank_config import LlmRerankConfig
@@ -16,4 +17,5 @@ class ExperimentHypothesisConfig:
     generation: GenerationConfig | None = None
     hybrid_search: HybridSearchConfig | None = None
     llm_rerank: LlmRerankConfig | None = None
+    cross_encoder_rerank: CrossEncoderRerankConfig | None = None
     description: str | None = None

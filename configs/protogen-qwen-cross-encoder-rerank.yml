@@ -1,0 +1,112 @@
+root: ../protogen
+artifact: .code-diver/protogen-qwen-cross-encoder-index.json
+
+storage:
+  provider: qdrant
+  qdrant:
+    url: http://localhost:6333
+    location:
+    collection: protogen_vllm_embeddings_vllm_qwen3_embedding_0_6b_mlx_4bit_4a455c9c66f7
+    batch_size: 512
+
+embedding:
+  provider: openai_compatible
+  model: mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ
+  dimensions:
+  url: http://127.0.0.1:8001/v1/embeddings
+  api_key: local
+  batch_size: 64
+  workers: 1
+  max_input_chars: 400
+
+scanner:
+  include:
+    - README.md
+    - pyproject.toml
+    - Dockerfile
+    - docker-compose*.yml
+    - src/*.py
+    - src/**/*.py
+    - evals/*.yaml
+    - scripts/*.py
+    - frontend/package.json
+  exclude:
+    - .claude/**
+    - .codex/**
+    - .opencode/**
+    - frontend/node_modules/**
+    - generated/**
+    - htmlcov/**
+    - logs/**
+    - workspaces/**
+    - src/app/**
+    - src/templates/**
+    - src/tests/**
+    - src/themes/**
+    - test_generated/**
+    - test_codex_cli/**
+    - "*.db"
+    - "*.history*"
+    - "*.png"
+    - ".env*"
+  max_file_bytes: 500000
+  chunk_lines: 180
+  structural_chunks: true
+  symbol_chunks: true
+  file_summary_chunks: true
+
+hybrid_search:
+  candidate_limit: 80
+  lexical_candidate_limit: 80
+  vector_weight: 0.6
+  lexical_weight: 0.18
+  path_weight: 0.12
+  symbol_weight: 0.05
+  symbol_match_weight: 0.0
+  graph_weight: 0.05
+  file_vote_weight: 0.04
+  graph_depth: 1
+  graph_neighbor_limit: 20
+  item_kind_weights:
+    file_summary: 0.82
+    symbol: 1.04
+    structural_chunk: 0.72
+    chunk: 1.05
+  min_token_length: 3
+
+cross_encoder_rerank:
+  provider: llama_cpp
+  model: Qwen3-Reranker-0.6B
+  url: http://127.0.0.1:8080/v1/rerank
+  candidate_limit: 40
+  max_document_chars: 900
+  timeout_ms: 20000
+
+graph:
+  enabled: true
+  artifact: .code-diver/protogen-ollama-qdrant-graph_vllm_qwen3_embedding_0_6b_mlx_4bit_4a455c9c66f7.json
+  ast_enabled: true
+  reference_edges_enabled: true
+  call_edges_enabled: true
+  expansion_depth: 1
+  neighbor_limit: 20
+
+trace:
+  enabled: true
+  artifact: .code-diver/traces/protogen-qwen-cross-encoder-rerank.jsonl
+  include_prompts: true
+
+evaluation:
+  dataset: datasets/protogen_eval_100.jsonl
+  limit: 10
+
+experiments:
+  suite: protogen-qwen-cross-encoder-rerank
+  strategies:
+    - hybrid
+    - cross_encoder_rerank
+  hypotheses:
+    - name: hybrid_candidates_symbol_first
+      strategy: hybrid
+    - name: hybrid_cross_encoder_rerank_qwen3_0_6b
+      strategy: cross_encoder_rerank
