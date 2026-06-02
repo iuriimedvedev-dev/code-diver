@@ -59,3 +59,26 @@ def test_qdrant_vector_store_searches_by_index_kind(tmp_path) -> None:
     results = store.search_by_index_kind([1.0, 0.0], limit=5, index_kind="file_summary")
 
     assert [result.item.id for result in results] == ["summary"]
+
+
+def test_qdrant_vector_store_keeps_previous_index_when_staging_replace_fails(tmp_path, monkeypatch) -> None:
+    store = QdrantVectorStore(location=":memory:", collection="test_code_diver_staging")
+    old_items = [CodeItem(id="old.py#1", path="old.py", title="old", content="old auth")]
+    new_items = [CodeItem(id="new.py#1", path="new.py", title="new", content="new auth")]
+
+    store.save(root=tmp_path, provider="hash", model="old", dimensions=2, items=old_items, vectors=[[1.0, 0.0]])
+
+    original_upsert = store._upsert_points_to_collection
+
+    def fail_for_new_collection(collection, *args, **kwargs):
+        if collection != store.collection:
+            raise RuntimeError("staging write failed")
+        return original_upsert(collection, *args, **kwargs)
+
+    monkeypatch.setattr(store, "_upsert_points_to_collection", fail_for_new_collection)
+
+    with pytest.raises(RuntimeError, match="staging write failed"):
+        store.save(root=tmp_path, provider="hash", model="new", dimensions=2, items=new_items, vectors=[[0.0, 1.0]])
+
+    assert store.metadata()["model"] == "old"
+    assert store.search([1.0, 0.0], limit=1)[0].item.path == "old.py"

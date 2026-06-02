@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+from collections.abc import Iterable
 from pathlib import Path
 
 from ..domain import CodeItem
@@ -73,63 +74,73 @@ class IndexingService:
         items: list[CodeItem],
         preparer: EmbeddingTextPreparer,
     ) -> int:
-        append = getattr(self.vector_store, "append", None)
-        if not callable(append):
-            texts = [preparer.prepare(item) for item in items]
-            vectors = ParallelEmbeddingService(
-                provider,
-                batch_size=self.options.embedding_batch_size,
-                workers=self.options.embedding_workers,
-                on_batch_complete=self._progress_callback(len(texts)),
-            ).embed_documents(texts)
-            dimensions = provider.dimensions or (len(vectors[0]) if vectors else 0)
-            if not provider.dimensions and dimensions:
-                provider.dimensions = dimensions
-            self.vector_store.save(
-                root=root,
-                provider=provider.name,
-                model=provider.model,
-                dimensions=dimensions,
-                items=items,
-                vectors=vectors,
-            )
-            return dimensions
+        replace_batches = getattr(self.vector_store, "replace_batches", None)
+        if callable(replace_batches):
+            return self._embed_and_replace_batches(root, provider, items, preparer, replace_batches)
+        return self._embed_and_save_once(root, provider, items, preparer)
 
+    def _embed_and_save_once(
+        self,
+        root: Path,
+        provider: EmbeddingProvider,
+        items: list[CodeItem],
+        preparer: EmbeddingTextPreparer,
+    ) -> int:
+        texts = [preparer.prepare(item) for item in items]
+        vectors = ParallelEmbeddingService(
+            provider,
+            batch_size=self.options.embedding_batch_size,
+            workers=self.options.embedding_workers,
+            on_batch_complete=self._progress_callback(len(texts)),
+        ).embed_documents(texts)
+        dimensions = provider.dimensions or (len(vectors[0]) if vectors else 0)
+        if not provider.dimensions and dimensions:
+            provider.dimensions = dimensions
+        self.vector_store.save(
+            root=root,
+            provider=provider.name,
+            model=provider.model,
+            dimensions=dimensions,
+            items=items,
+            vectors=vectors,
+        )
+        return dimensions
+
+    def _embed_and_replace_batches(
+        self,
+        root: Path,
+        provider: EmbeddingProvider,
+        items: list[CodeItem],
+        preparer: EmbeddingTextPreparer,
+        replace_batches,
+    ) -> int:
         block_size = max(self.options.embedding_batch_size * self.options.embedding_workers * 8, 1)
         total_batches = max((len(items) + self.options.embedding_batch_size - 1) // self.options.embedding_batch_size, 1)
         progress = self._streaming_progress_callback(len(items), total_batches)
         dimensions = provider.dimensions or 0
-        first_batch = True
-        for item_batch in self._item_batches(items, block_size):
-            texts = [preparer.prepare(item) for item in item_batch]
-            vectors = ParallelEmbeddingService(
-                provider,
-                batch_size=self.options.embedding_batch_size,
-                workers=self.options.embedding_workers,
-                on_batch_complete=progress,
-            ).embed_documents(texts)
-            if not dimensions and vectors:
-                dimensions = len(vectors[0])
-                provider.dimensions = dimensions
-            save = self.vector_store.save if first_batch else append
-            save(
-                root=root,
-                provider=provider.name,
-                model=provider.model,
-                dimensions=dimensions,
-                items=item_batch,
-                vectors=vectors,
-            )
-            first_batch = False
-        if first_batch:
-            self.vector_store.save(
-                root=root,
-                provider=provider.name,
-                model=provider.model,
-                dimensions=dimensions,
-                items=[],
-                vectors=[],
-            )
+
+        def vector_batches() -> Iterable[tuple[list[CodeItem], list[list[float]]]]:
+            nonlocal dimensions
+            for item_batch in self._item_batches(items, block_size):
+                texts = [preparer.prepare(item) for item in item_batch]
+                vectors = ParallelEmbeddingService(
+                    provider,
+                    batch_size=self.options.embedding_batch_size,
+                    workers=self.options.embedding_workers,
+                    on_batch_complete=progress,
+                ).embed_documents(texts)
+                if not dimensions and vectors:
+                    dimensions = len(vectors[0])
+                    provider.dimensions = dimensions
+                yield item_batch, vectors
+
+        replace_batches(
+            root=root,
+            provider=provider.name,
+            model=provider.model,
+            dimensions=lambda: dimensions,
+            batches=vector_batches(),
+        )
         return dimensions
 
     def _progress_callback(self, total_items: int):

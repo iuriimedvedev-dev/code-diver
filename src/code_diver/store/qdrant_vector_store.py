@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import uuid
+from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import Any
 
@@ -53,15 +54,76 @@ class QdrantVectorStore(VectorStore):
         if len(items) != len(vectors):
             raise ValueError(f"Item/vector mismatch: {len(items)} items, {len(vectors)} vectors")
 
+        self.replace_batches(
+            root=root,
+            provider=provider,
+            model=model,
+            dimensions=dimensions,
+            batches=[(items, vectors)],
+        )
+
+    def replace_batches(
+        self,
+        *,
+        root: Path,
+        provider: str,
+        model: str,
+        dimensions: int | Callable[[], int],
+        batches: Iterable[tuple[list[CodeItem], list[list[float]]]],
+    ) -> None:
         from qdrant_client import models
 
-        if self.client.collection_exists(self.collection):
-            self.client.delete_collection(self.collection)
-        self.client.create_collection(
-            collection_name=self.collection,
-            vectors_config=models.VectorParams(size=dimensions, distance=models.Distance.COSINE),
-        )
-        self._upsert_points(root, provider, model, dimensions, items, vectors)
+        iterator = iter(batches)
+        try:
+            first_items, first_vectors = next(iterator)
+        except StopIteration:
+            resolved_dimensions = self._resolved_dimensions(dimensions)
+            if resolved_dimensions <= 0:
+                raise ValueError("Cannot create an empty Qdrant collection without positive dimensions.")
+            first_items, first_vectors = [], []
+        if len(first_items) != len(first_vectors):
+            raise ValueError(f"Item/vector mismatch: {len(first_items)} items, {len(first_vectors)} vectors")
+
+        resolved_dimensions = self._resolved_dimensions(dimensions) or (len(first_vectors[0]) if first_vectors else 0)
+        if resolved_dimensions <= 0:
+            raise ValueError("Qdrant dimensions must be positive.")
+
+        staging_collection = self._staging_collection_name()
+        previous_target = self._alias_target(self.collection)
+        published = False
+        try:
+            self.client.create_collection(
+                collection_name=staging_collection,
+                vectors_config=models.VectorParams(size=resolved_dimensions, distance=models.Distance.COSINE),
+            )
+            self._upsert_points_to_collection(
+                staging_collection,
+                root,
+                provider,
+                model,
+                resolved_dimensions,
+                first_items,
+                first_vectors,
+            )
+            for item_batch, vector_batch in iterator:
+                if len(item_batch) != len(vector_batch):
+                    raise ValueError(f"Item/vector mismatch: {len(item_batch)} items, {len(vector_batch)} vectors")
+                self._upsert_points_to_collection(
+                    staging_collection,
+                    root,
+                    provider,
+                    model,
+                    resolved_dimensions,
+                    item_batch,
+                    vector_batch,
+                )
+            previous_target_to_delete = self._publish_staging_collection(staging_collection, previous_target)
+            published = True
+            if previous_target_to_delete is not None:
+                self._delete_collection_if_exists(previous_target_to_delete)
+        finally:
+            if not published:
+                self._delete_collection_if_exists(staging_collection)
 
     def append(
         self,
@@ -148,8 +210,69 @@ class QdrantVectorStore(VectorStore):
     def _point_id(self, item_id: str) -> str:
         return uuid.uuid5(uuid.NAMESPACE_URL, item_id).hex
 
+    def _staging_collection_name(self) -> str:
+        return f"{self.collection}__staging_{uuid.uuid4().hex}"
+
+    def _resolved_dimensions(self, dimensions: int | Callable[[], int]) -> int:
+        value = dimensions() if callable(dimensions) else dimensions
+        return int(value or 0)
+
+    def _alias_target(self, alias_name: str) -> str | None:
+        aliases = self.client.get_aliases().aliases
+        for alias in aliases:
+            if alias.alias_name == alias_name:
+                return alias.collection_name
+        return None
+
+    def _publish_staging_collection(self, staging_collection: str, previous_target: str | None) -> str | None:
+        from qdrant_client import models
+
+        if previous_target is not None:
+            self.client.update_collection_aliases(
+                [
+                    models.DeleteAliasOperation(delete_alias=models.DeleteAlias(alias_name=self.collection)),
+                    models.CreateAliasOperation(
+                        create_alias=models.CreateAlias(
+                            collection_name=staging_collection,
+                            alias_name=self.collection,
+                        )
+                    ),
+                ]
+            )
+            return previous_target
+
+        if self.client.collection_exists(self.collection):
+            self.client.delete_collection(self.collection)
+        self.client.update_collection_aliases(
+            [
+                models.CreateAliasOperation(
+                    create_alias=models.CreateAlias(
+                        collection_name=staging_collection,
+                        alias_name=self.collection,
+                    )
+                )
+            ]
+        )
+        return None
+
+    def _delete_collection_if_exists(self, collection: str) -> None:
+        if self.client.collection_exists(collection):
+            self.client.delete_collection(collection)
+
     def _upsert_points(
         self,
+        root: Path,
+        provider: str,
+        model: str,
+        dimensions: int,
+        items: list[CodeItem],
+        vectors: list[list[float]],
+    ) -> None:
+        self._upsert_points_to_collection(self.collection, root, provider, model, dimensions, items, vectors)
+
+    def _upsert_points_to_collection(
+        self,
+        collection: str,
         root: Path,
         provider: str,
         model: str,
@@ -174,4 +297,4 @@ class QdrantVectorStore(VectorStore):
                 )
                 for item, vector in zip(items[offset : offset + self.batch_size], vectors[offset : offset + self.batch_size])
             ]
-            self.client.upsert(collection_name=self.collection, points=points)
+            self.client.upsert(collection_name=collection, points=points)

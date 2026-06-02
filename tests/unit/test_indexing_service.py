@@ -58,11 +58,31 @@ class MultiVectorProvider:
         return [0.0, 0.0, 1.0]
 
 
+class FailingSecondCallProvider:
+    name = "openai_compatible"
+    model = "local-embed"
+    dimensions = 3
+
+    def __init__(self):
+        self.calls = 0
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        self.calls += 1
+        if self.calls > 1:
+            raise RuntimeError("embedding failed")
+        return [[1.0, 0.0, 0.0] for _ in texts]
+
+    def embed_query(self, query: str) -> list[float]:
+        return [1.0, 0.0, 0.0]
+
+
 class RecordingStore:
     def __init__(self):
         self.saved_dimensions: int | None = None
+        self.save_calls = 0
 
     def save(self, **kwargs) -> None:
+        self.save_calls += 1
         self.saved_dimensions = kwargs["dimensions"]
 
 
@@ -70,6 +90,7 @@ class AppendRecordingStore:
     def __init__(self):
         self.saved_batches: list[int] = []
         self.appended_batches: list[int] = []
+        self.replaced_batches: list[int] = []
         self.saved_dimensions: list[int] = []
 
     def save(self, **kwargs) -> None:
@@ -79,6 +100,12 @@ class AppendRecordingStore:
     def append(self, **kwargs) -> None:
         self.appended_batches.append(len(kwargs["items"]))
         self.saved_dimensions.append(kwargs["dimensions"])
+
+    def replace_batches(self, **kwargs) -> None:
+        dimensions = kwargs["dimensions"]
+        for items, _vectors in kwargs["batches"]:
+            self.replaced_batches.append(len(items))
+            self.saved_dimensions.append(dimensions() if callable(dimensions) else dimensions)
 
 
 class RecordingTrace:
@@ -131,7 +158,29 @@ def test_indexing_service_streams_to_appendable_store(tmp_path: Path) -> None:
         options=IndexingOptions(embedding_batch_size=1, embedding_workers=1),
     ).build(tmp_path, provider)
 
-    assert store.saved_batches == [8]
-    assert store.appended_batches == [8, 4]
+    assert store.saved_batches == []
+    assert store.appended_batches == []
+    assert store.replaced_batches == [8, 8, 4]
     assert provider.dimensions == 3
     assert set(store.saved_dimensions) == {3}
+
+
+def test_indexing_service_without_staged_replace_does_not_save_partial_index(tmp_path: Path) -> None:
+    class ManyItemScanner:
+        def scan(self, root: Path) -> list[CodeItem]:
+            return [
+                CodeItem(f"app.py#{index}", "app.py", f"app {index}", f"def app_{index}(): pass")
+                for index in range(2)
+            ]
+
+    store = RecordingStore()
+
+    with pytest.raises(RuntimeError, match="embedding failed"):
+        IndexingService(
+            ManyItemScanner(),
+            NoPlugins(),
+            store,
+            options=IndexingOptions(embedding_batch_size=1, embedding_workers=2),
+        ).build(tmp_path, FailingSecondCallProvider())
+
+    assert store.save_calls == 0
