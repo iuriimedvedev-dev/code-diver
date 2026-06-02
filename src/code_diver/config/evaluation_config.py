@@ -10,3 +10,4 @@ from ..settings import Defaults
 class EvaluationConfig:
     dataset: Path = Defaults.DATASET
     limit: int = Defaults.SEARCH_LIMIT
+    workers: int = Defaults.EVALUATION_WORKERS

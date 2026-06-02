@@ -78,6 +78,27 @@ def test_cross_encoder_rerank_falls_back_to_base_order_on_error() -> None:
     assert strategy.search("query", 2) == results
 
 
+def test_cross_encoder_rerank_limits_documents_without_discarding_tail() -> None:
+    results = [
+        _result("a", "src/a.py", 0.9),
+        _result("b", "src/b.py", 0.8),
+        _result("c", "src/c.py", 0.7),
+        _result("d", "src/d.py", 0.6),
+    ]
+    provider = FakeRerankProvider([RerankScore(index=1, score=0.99)])
+    strategy = CrossEncoderRerankRetrievalStrategy(
+        FakeStrategy(results),
+        provider,
+        CrossEncoderRerankConfig(candidate_limit=2),
+    )
+
+    reranked = strategy.search("query", 4)
+
+    assert len(provider.calls[0][1]) == 2
+    assert provider.calls[0][2] == 2
+    assert [result.item.path for result in reranked] == ["src/b.py", "src/a.py", "src/c.py", "src/d.py"]
+
+
 def _result(item_id: str, path: str, score: float) -> SearchResult:
     return SearchResult(
         item=CodeItem(id=item_id, path=path, title=path, content=f"{path} handles auth commands"),

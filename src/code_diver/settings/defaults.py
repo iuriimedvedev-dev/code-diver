@@ -11,6 +11,7 @@ class Defaults:
     GRAPH_ARTIFACT = Path(".code-diver/graph.json")
     TRACE_ARTIFACT = Path(".code-diver/traces/indexing.jsonl")
     DATASET = Path("datasets/sample_eval.jsonl")
+    EVALUATION_WORKERS = 1
 
     STORAGE_PROVIDER = "json"
     QDRANT_URL = "http://localhost:6333"

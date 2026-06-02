@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from threading import Lock
+
 import pytest
 
 from code_diver.domain import CodeItem, EvalCase, SearchResult
@@ -103,3 +105,35 @@ def test_evaluation_service_hit_at_matches_symbol_ids_for_expected_file_paths() 
     )
 
     assert metrics["hit_rate@1"] == 1.0
+
+
+class RecordingStrategy(RetrievalStrategy):
+    def __init__(self) -> None:
+        self.queries: list[str] = []
+        self._lock = Lock()
+
+    def search(self, query: str, limit: int) -> list[SearchResult]:
+        with self._lock:
+            self.queries.append(query)
+        return [
+            SearchResult(
+                CodeItem(id=f"{query}.py#1", path=f"{query}.py", title=query, content=""),
+                1.0,
+            )
+        ][:limit]
+
+
+def test_evaluation_service_parallel_workers_preserve_case_order() -> None:
+    strategy = RecordingStrategy()
+    cases = [
+        EvalCase(id="case-a", query="alpha", expected=["alpha.py"]),
+        EvalCase(id="case-b", query="beta", expected=["beta.py"]),
+        EvalCase(id="case-c", query="gamma", expected=["gamma.py"]),
+    ]
+
+    metrics, results = EvaluationService(strategy).evaluate(cases, limit=1, workers=3)
+
+    assert metrics["evaluation_workers"] == 3
+    assert [result.case_id for result in results] == ["case-a", "case-b", "case-c"]
+    assert {result.query for result in results} == {"alpha", "beta", "gamma"}
+    assert sorted(strategy.queries) == ["alpha", "beta", "gamma"]

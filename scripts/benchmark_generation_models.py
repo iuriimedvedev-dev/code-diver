@@ -175,7 +175,11 @@ class GenerationBenchmarkRunner:
                 started = time.perf_counter()
                 metrics, _ = EvaluationService(
                     make_retrieval_strategy(strategy_config, provider, vector_store)
-                ).evaluate(cases, strategy_config.evaluation.limit)
+                ).evaluate(
+                    cases,
+                    strategy_config.evaluation.limit,
+                    workers=strategy_config.evaluation.workers,
+                )
                 metrics["duration_ms"] = (time.perf_counter() - started) * 1000
                 metrics["llm_usage"] = self._llm_usage(strategy_config.trace.artifact, trace_offset)
                 row["evaluations"].append({"strategy": hypothesis_name, "metrics": metrics})

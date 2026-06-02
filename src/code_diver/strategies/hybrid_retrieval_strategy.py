@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from threading import RLock
 
 from ..config import HybridSearchConfig
 from ..domain import CodeItem, CodeItemIndexKindResolver, SearchResult
@@ -45,6 +46,7 @@ class HybridRetrievalStrategy(RetrievalStrategy):
         self._lexical_index: HybridLexicalIndex | None = None
         self._graph: CodeGraph | None = None
         self._neighbor_index: GraphNeighborIndex | None = None
+        self._cache_lock = RLock()
 
     def search(self, query: str, limit: int) -> list[SearchResult]:
         vector_limit = max(limit, self.config.candidate_limit)
@@ -144,25 +146,32 @@ class HybridRetrievalStrategy(RetrievalStrategy):
 
     def _load_lexical_index(self, graph: CodeGraph) -> HybridLexicalIndex:
         if self._lexical_index is None:
-            self._lexical_index = HybridLexicalIndex(graph.items.values(), self.item_profiler)
-            self._item_profiles.update(self._lexical_index.profiles)
+            with self._cache_lock:
+                if self._lexical_index is None:
+                    self._lexical_index = HybridLexicalIndex(graph.items.values(), self.item_profiler)
+                    self._item_profiles.update(self._lexical_index.profiles)
         return self._lexical_index
 
     def _neighbors(self) -> GraphNeighborIndex:
         if self._neighbor_index is None:
-            graph = self._load_graph()
-            if graph is None:
-                self._neighbor_index = GraphNeighborIndex(CodeGraph(items={}, edges=[]))
-            else:
-                self._neighbor_index = GraphNeighborIndex(graph)
+            with self._cache_lock:
+                if self._neighbor_index is None:
+                    graph = self._load_graph()
+                    if graph is None:
+                        self._neighbor_index = GraphNeighborIndex(CodeGraph(items={}, edges=[]))
+                    else:
+                        self._neighbor_index = GraphNeighborIndex(graph)
         return self._neighbor_index
 
     def _load_graph(self) -> CodeGraph | None:
         if self._graph is not None:
             return self._graph
-        if not self.graph_store.exists():
-            return None
-        self._graph = self.graph_store.load()
+        with self._cache_lock:
+            if self._graph is not None:
+                return self._graph
+            if not self.graph_store.exists():
+                return None
+            self._graph = self.graph_store.load()
         return self._graph
 
     def _normalize(self, scores: dict[str, float]) -> dict[str, float]:

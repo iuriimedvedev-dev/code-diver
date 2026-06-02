@@ -24,16 +24,19 @@ class CrossEncoderRerankRetrievalStrategy(RetrievalStrategy):
 
     def search(self, query: str, limit: int) -> list[SearchResult]:
         candidates = self.base_strategy.search(query, max(limit, self.config.candidate_limit))
-        if len(candidates) <= 1:
+        rerank_candidates = candidates[: self.config.candidate_limit]
+        tail_candidates = candidates[len(rerank_candidates) :]
+        if len(rerank_candidates) <= 1:
             return candidates[:limit]
-        documents = [self._document(candidate) for candidate in candidates]
+        documents = [self._document(candidate) for candidate in rerank_candidates]
         self.trace_logger.write(
             "cross_encoder_rerank_request",
             {
                 "provider": self.rerank_provider.name,
                 "model": self.rerank_provider.model,
                 "query": query,
-                "candidate_count": len(candidates),
+                "candidate_count": len(rerank_candidates),
+                "base_candidate_count": len(candidates),
                 "limit": limit,
                 "document_chars": sum(len(document) for document in documents),
                 **self._document_trace(documents),
@@ -41,7 +44,7 @@ class CrossEncoderRerankRetrievalStrategy(RetrievalStrategy):
         )
         started = perf_counter()
         try:
-            scores = self.rerank_provider.rerank(query, documents, limit)
+            scores = self.rerank_provider.rerank(query, documents, min(limit, len(rerank_candidates)))
             duration_ms = (perf_counter() - started) * 1000
             self.trace_logger.write(
                 "cross_encoder_rerank_response",
@@ -53,7 +56,7 @@ class CrossEncoderRerankRetrievalStrategy(RetrievalStrategy):
                     "scores": [{"index": score.index, "score": score.score} for score in scores],
                 },
             )
-            return self._reranked(candidates, scores, limit)
+            return self._reranked(rerank_candidates, tail_candidates, scores, limit)
         except Exception as exc:
             duration_ms = (perf_counter() - started) * 1000
             self.trace_logger.write(
@@ -85,7 +88,13 @@ class CrossEncoderRerankRetrievalStrategy(RetrievalStrategy):
             return {}
         return {"documents": documents}
 
-    def _reranked(self, candidates, scores, limit: int) -> list[SearchResult]:
+    def _reranked(
+        self,
+        candidates: list[SearchResult],
+        tail_candidates: list[SearchResult],
+        scores,
+        limit: int,
+    ) -> list[SearchResult]:
         selected_indices = []
         seen = set()
         for score in scores:
@@ -100,6 +109,7 @@ class CrossEncoderRerankRetrievalStrategy(RetrievalStrategy):
                 candidates[0],
                 *(candidate for candidate in reranked if candidate.item.id != candidates[0].item.id),
             ]
+        reranked.extend(tail_candidates)
         return reranked[:limit]
 
     def _should_preserve_top(self, candidates: list[SearchResult], reranked: list[SearchResult]) -> bool:

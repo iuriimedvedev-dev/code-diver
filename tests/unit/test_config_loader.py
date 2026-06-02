@@ -136,6 +136,7 @@ ui:
     args: ["+{{line}}", "{{path}}"]
 evaluation:
   dataset: {tmp_path}/eval.jsonl
+  workers: 6
 experiments:
   suite: custom-suite
   strategies: [vector, graph]
@@ -282,6 +283,7 @@ plugins:
     assert config.ui.editor.command == "vim"
     assert config.ui.editor.args == ["+{line}", "{path}"]
     assert config.evaluation.dataset == tmp_path / "eval.jsonl"
+    assert config.evaluation.workers == 6
     assert config.experiments.suite == "custom-suite"
     assert config.experiments.strategies == ["vector", "graph"]
     assert config.experiments.hypotheses[0].name == "grep_only"
@@ -331,3 +333,66 @@ def test_config_loader_rejects_invalid_list_shape(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="YAML list"):
         ConfigLoader().load(config_path)
+
+
+def test_config_loader_hypothesis_overrides_inherit_base_sections(tmp_path: Path) -> None:
+    config_path = tmp_path / "code-diver.yml"
+    config_path.write_text(
+        """
+generation:
+  provider: vertex
+  model: gemini-base
+  location: europe-west4
+  fallback_models: [fallback-a]
+  timeout_ms: 111
+hybrid_search:
+  candidate_limit: 80
+  vector_weight: 0.6
+  lexical_weight: 0.2
+llm_rerank:
+  candidate_limit: 30
+  mode: file_first
+cross_encoder_rerank:
+  provider: llama_cpp
+  model: qwen3-reranker-4b
+  url: http://127.0.0.1:8080/v1/rerank
+  candidate_limit: 10
+  timeout_ms: 30000
+experiments:
+  hypotheses:
+    - name: partial
+      strategy: cross_encoder_rerank
+      generation:
+        model: gemini-override
+      hybrid_search:
+        lexical_weight: 0.4
+      llm_rerank:
+        candidate_limit: 12
+      cross_encoder_rerank:
+        candidate_limit: 5
+""".strip(),
+        encoding="utf-8",
+    )
+
+    config = ConfigLoader().load(config_path)
+    hypothesis = config.experiments.hypotheses[0]
+
+    assert hypothesis.generation is not None
+    assert hypothesis.generation.provider == "vertex"
+    assert hypothesis.generation.model == "gemini-override"
+    assert hypothesis.generation.location == "europe-west4"
+    assert hypothesis.generation.fallback_models == ["fallback-a"]
+    assert hypothesis.generation.timeout_ms == 111
+    assert hypothesis.hybrid_search is not None
+    assert hypothesis.hybrid_search.candidate_limit == 80
+    assert hypothesis.hybrid_search.vector_weight == 0.6
+    assert hypothesis.hybrid_search.lexical_weight == 0.4
+    assert hypothesis.llm_rerank is not None
+    assert hypothesis.llm_rerank.candidate_limit == 12
+    assert hypothesis.llm_rerank.mode == "file_first"
+    assert hypothesis.cross_encoder_rerank is not None
+    assert hypothesis.cross_encoder_rerank.provider == "llama_cpp"
+    assert hypothesis.cross_encoder_rerank.model == "qwen3-reranker-4b"
+    assert hypothesis.cross_encoder_rerank.url == "http://127.0.0.1:8080/v1/rerank"
+    assert hypothesis.cross_encoder_rerank.candidate_limit == 5
+    assert hypothesis.cross_encoder_rerank.timeout_ms == 30000

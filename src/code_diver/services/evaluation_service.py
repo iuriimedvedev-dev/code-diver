@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 from collections import Counter
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from time import perf_counter
 from typing import Any
 
@@ -21,53 +22,20 @@ class EvaluationService:
         self,
         cases: list[EvalCase],
         limit: int,
+        workers: int = 1,
     ) -> tuple[dict[str, Any], list[EvalResult]]:
-        results: list[EvalResult] = []
-        durations_ms: list[float] = []
-        for case in cases:
-            started = perf_counter()
-            search_results = self.retrieval_strategy.search(case.query, limit)
-            durations_ms.append((perf_counter() - started) * 1000)
-            retrieved = [result.item.id for result in search_results]
-            bucket = self.bucket_classifier.classify(case.query)
-            matched_ranks = [
-                rank
-                for rank, result in enumerate(search_results, start=1)
-                if self._matches_any_expected(result.item, case.expected)
-            ]
-            hit = bool(matched_ranks)
-            reciprocal_rank = 1.0 / matched_ranks[0] if matched_ranks else 0.0
-            match_count = len(matched_ranks)
-            precision = match_count / max(len(search_results), 1)
-            recall = min(match_count / max(len(case.expected), 1), 1.0)
-            file_metrics = self._file_metrics(search_results, case.expected, limit)
-            top_result_kind = self._top_result_kind(search_results)
-            first_relevant_kind = self._first_relevant_kind(search_results, case.expected)
-            results.append(
-                EvalResult(
-                    case_id=case.id,
-                    query=case.query,
-                    expected=case.expected,
-                    retrieved=retrieved,
-                    hit=hit,
-                    reciprocal_rank=reciprocal_rank,
-                    precision=precision,
-                    recall=recall,
-                    retrieved_files=file_metrics["retrieved_files"],
-                    bucket=bucket,
-                    top_result_kind=top_result_kind,
-                    first_relevant_kind=first_relevant_kind,
-                    file_hit=bool(file_metrics["file_hit"]),
-                    file_reciprocal_rank=float(file_metrics["file_mrr"]),
-                    file_precision_at_r=float(file_metrics["file_precision_at_r"]),
-                    file_recall=float(file_metrics["file_recall"]),
-                    ndcg=float(file_metrics["ndcg"]),
-                    average_precision=float(file_metrics["average_precision"]),
-                )
-            )
+        worker_count = max(int(workers or 1), 1)
+        if worker_count == 1 or len(cases) <= 1:
+            rows = [self._evaluate_case(case, limit) for case in cases]
+        else:
+            with ThreadPoolExecutor(max_workers=worker_count) as executor:
+                rows = list(executor.map(lambda case: self._evaluate_case(case, limit), cases))
+        results = [result for result, _ in rows]
+        durations_ms = [duration_ms for _, duration_ms in rows]
 
         metrics = {
             "cases": len(results),
+            "evaluation_workers": worker_count,
             f"hit_rate@{limit}": self._mean(1.0 if result.hit else 0.0 for result in results),
             f"mrr@{limit}": self._mean(result.reciprocal_rank for result in results),
             f"precision@{limit}": self._mean(result.precision for result in results),
@@ -88,6 +56,47 @@ class EvaluationService:
         metrics.update(self._bucket_metrics(results, limit))
         metrics.update(self._item_kind_metrics(results))
         return metrics, results
+
+    def _evaluate_case(self, case: EvalCase, limit: int) -> tuple[EvalResult, float]:
+        started = perf_counter()
+        search_results = self.retrieval_strategy.search(case.query, limit)
+        duration_ms = (perf_counter() - started) * 1000
+        retrieved = [result.item.id for result in search_results]
+        bucket = self.bucket_classifier.classify(case.query)
+        matched_ranks = [
+            rank
+            for rank, result in enumerate(search_results, start=1)
+            if self._matches_any_expected(result.item, case.expected)
+        ]
+        hit = bool(matched_ranks)
+        reciprocal_rank = 1.0 / matched_ranks[0] if matched_ranks else 0.0
+        match_count = len(matched_ranks)
+        precision = match_count / max(len(search_results), 1)
+        recall = min(match_count / max(len(case.expected), 1), 1.0)
+        file_metrics = self._file_metrics(search_results, case.expected, limit)
+        return (
+            EvalResult(
+                case_id=case.id,
+                query=case.query,
+                expected=case.expected,
+                retrieved=retrieved,
+                hit=hit,
+                reciprocal_rank=reciprocal_rank,
+                precision=precision,
+                recall=recall,
+                retrieved_files=file_metrics["retrieved_files"],
+                bucket=bucket,
+                top_result_kind=self._top_result_kind(search_results),
+                first_relevant_kind=self._first_relevant_kind(search_results, case.expected),
+                file_hit=bool(file_metrics["file_hit"]),
+                file_reciprocal_rank=float(file_metrics["file_mrr"]),
+                file_precision_at_r=float(file_metrics["file_precision_at_r"]),
+                file_recall=float(file_metrics["file_recall"]),
+                ndcg=float(file_metrics["ndcg"]),
+                average_precision=float(file_metrics["average_precision"]),
+            ),
+            duration_ms,
+        )
 
     def _top_result_kind(self, search_results: list[Any]) -> str:
         if not search_results:

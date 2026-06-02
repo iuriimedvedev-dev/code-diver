@@ -37,6 +37,8 @@ class ExperimentRunner:
                 strategy_config = replace(strategy_config, hybrid_search=hypothesis.hybrid_search)
             if hypothesis.llm_rerank is not None:
                 strategy_config = replace(strategy_config, llm_rerank=hypothesis.llm_rerank)
+            if hypothesis.cross_encoder_rerank is not None:
+                strategy_config = replace(strategy_config, cross_encoder_rerank=hypothesis.cross_encoder_rerank)
             retrieval_strategy = self.strategy_factory.create(
                 hypothesis.strategy,
                 strategy_config,
@@ -44,7 +46,11 @@ class ExperimentRunner:
                 self.vector_store,
             )
             started = perf_counter()
-            metrics, results = EvaluationService(retrieval_strategy).evaluate(cases, config.evaluation.limit)
+            metrics, results = EvaluationService(retrieval_strategy).evaluate(
+                cases,
+                config.evaluation.limit,
+                workers=config.evaluation.workers,
+            )
             duration_ms = (perf_counter() - started) * 1000
             metrics["duration_ms"] = duration_ms
             if hypothesis.tools:
