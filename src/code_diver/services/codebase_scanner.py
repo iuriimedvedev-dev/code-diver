@@ -73,6 +73,7 @@ class CodebaseScanner:
         chunk_lines: int = 120,
         structural_chunks: bool = False,
         symbol_chunks: bool = False,
+        symbol_body: bool = True,
         file_summary_chunks: bool = False,
         max_symbols_per_file: int | None = None,
         symbol_extractor: CodeSymbolExtractor | None = None,
@@ -86,6 +87,7 @@ class CodebaseScanner:
         self.chunk_lines = chunk_lines
         self.structural_chunks = structural_chunks
         self.symbol_chunks = symbol_chunks
+        self.symbol_body = symbol_body
         self.file_summary_chunks = file_summary_chunks
         self.max_symbols_per_file = max_symbols_per_file
         self.symbol_extractor = symbol_extractor or CodeSymbolExtractor()
@@ -204,19 +206,19 @@ class CodebaseScanner:
             end_line = min(max(symbol.end_line, start_line), len(lines))
             body = "\n".join(lines[start_line - 1 : end_line])
             digest = hashlib.sha1(f"{rel_path}:{symbol.name}:{start_line}:{end_line}".encode("utf-8")).hexdigest()[:12]
+            content_lines = [
+                f"symbol: {symbol.kind} {symbol.name}",
+                f"signature: {symbol.signature}",
+                f"lines: {start_line}-{end_line}",
+            ]
+            if self.symbol_body:
+                content_lines.extend(["", body])
             items.append(
                 CodeItem(
                     id=f"{rel_path}::{symbol.name}#{digest}",
                     path=rel_path,
                     title=f"{rel_path}::{symbol.name}",
-                    content="\n".join(
-                        [
-                            f"symbol: {symbol.kind} {symbol.name}",
-                            f"signature: {symbol.signature}",
-                            "",
-                            body,
-                        ]
-                    ),
+                    content="\n".join(content_lines),
                     start_line=start_line,
                     end_line=end_line,
                     metadata={

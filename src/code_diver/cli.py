@@ -48,7 +48,7 @@ from .services.evaluation_service import EvaluationService
 from .strategies import RetrievalStrategyFactory
 from .store import create_vector_store
 from .tracing import TraceLogger
-from .ui import EditorOpener, SearchRenderer
+from .ui import EditorOpener, SearchRenderer, TraceMonitor
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -172,6 +172,12 @@ def build_parser() -> argparse.ArgumentParser:
     experiment.add_argument(OptionName.JSON.value, action="store_true")
     experiment.add_argument(OptionName.REINDEX.value, action="store_true")
     experiment.set_defaults(func=cmd_experiment)
+
+    monitor = subparsers.add_parser(CommandName.MONITOR.value, help="Show a live Rich view of a JSONL trace.")
+    monitor.add_argument("--trace", type=Path, default=None)
+    monitor.add_argument("--refresh", type=float, default=0.5)
+    monitor.add_argument("--max-events", type=int, default=200)
+    monitor.set_defaults(func=cmd_monitor)
 
     return parser
 
@@ -626,6 +632,16 @@ def cmd_experiment(args: argparse.Namespace, config: AppConfig) -> int:
     return 0
 
 
+def cmd_monitor(args: argparse.Namespace, config: AppConfig) -> int:
+    trace_path = args.trace or config.trace.artifact
+    TraceMonitor(
+        trace_path=trace_path,
+        refresh_seconds=float(args.refresh),
+        max_events=int(args.max_events),
+    ).run()
+    return 0
+
+
 def run_search(config: AppConfig, query: str, limit: int) -> list[SearchResult]:
     vector_store = create_vector_store(config)
     provider = make_embedding_provider(config, vector_store.metadata())
@@ -657,6 +673,7 @@ def make_codebase_scanner(config: AppConfig):
         chunk_lines=config.scanner.chunk_lines,
         structural_chunks=config.scanner.structural_chunks,
         symbol_chunks=config.scanner.symbol_chunks,
+        symbol_body=config.scanner.symbol_body,
         file_summary_chunks=config.scanner.file_summary_chunks,
         max_symbols_per_file=config.scanner.max_symbols_per_file,
     )
@@ -833,7 +850,11 @@ def format_index_composition(items: list[Any]) -> str:
     if not items_by_kind:
         return "Index composition: empty"
     pairs = ", ".join(f"{kind}={count}" for kind, count in items_by_kind.items())
-    return f"Index composition: {pairs}; unique_paths={composition['unique_paths']}"
+    content_mb = composition["content_bytes_total"] / 1_000_000
+    return (
+        f"Index composition: {pairs}; unique_paths={composition['unique_paths']}; "
+        f"content_mb={content_mb:.2f}; content_bytes_mean={composition['content_bytes_mean']:.1f}"
+    )
 
 
 def make_rerank_tool_handler(config: AppConfig, generation_provider: Any):

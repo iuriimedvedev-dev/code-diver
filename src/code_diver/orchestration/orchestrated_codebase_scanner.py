@@ -59,6 +59,7 @@ class OrchestratedCodebaseScanner:
                 "chunk_lines": chunk_lines,
                 "structural_chunks": self.config.scanner.structural_chunks,
                 "symbol_chunks": symbol_chunks,
+                "symbol_body": self.config.scanner.symbol_body,
             },
         )
         scanner = CodebaseScanner(
@@ -69,6 +70,7 @@ class OrchestratedCodebaseScanner:
             chunk_lines=chunk_lines,
             structural_chunks=self.config.scanner.structural_chunks,
             symbol_chunks=symbol_chunks,
+            symbol_body=self.config.scanner.symbol_body,
             file_summary_chunks=self.config.scanner.file_summary_chunks,
         )
         return scanner.scan(root)

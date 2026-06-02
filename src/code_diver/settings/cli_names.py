@@ -13,6 +13,7 @@ class CommandName(StrEnum):
     GREP = "grep"
     INDEX = "index"
     INDEX_SELECTED = "index-selected"
+    MONITOR = "monitor"
     OPEN = "open"
     READ = "read"
     RG = "rg"

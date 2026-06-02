@@ -29,6 +29,7 @@ class ExperimentMetricsMapper:
             "scanner_line_chunks": config.scanner.line_chunks,
             "scanner_structural_chunks": config.scanner.structural_chunks,
             "scanner_symbol_chunks": config.scanner.symbol_chunks,
+            "scanner_symbol_body": config.scanner.symbol_body,
             "storage_provider": config.storage.provider,
             "hybrid_file_vote_weight": config.hybrid_search.file_vote_weight,
             "hybrid_symbol_match_weight": config.hybrid_search.symbol_match_weight,

@@ -88,6 +88,7 @@ class Defaults:
     CHUNK_LINES = 120
     STRUCTURAL_CHUNKS = False
     SYMBOL_CHUNKS = False
+    SYMBOL_BODY = True
     FILE_SUMMARY_CHUNKS = False
     MAX_SYMBOLS_PER_FILE = None
     SEARCH_LIMIT = 10

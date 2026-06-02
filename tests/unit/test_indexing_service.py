@@ -138,6 +138,9 @@ def test_indexing_service_traces_index_composition(tmp_path: Path) -> None:
     assert prepared["unique_paths"] == 2
     assert prepared["items_by_kind"] == {"chunk": 1, "file_summary": 1, "symbol": 1}
     assert prepared["paths_by_kind"] == {"chunk": 1, "file_summary": 1, "symbol": 1}
+    assert prepared["content_bytes_total"] > 0
+    assert prepared["content_bytes_mean"] > 0
+    assert prepared["content_bytes_by_kind"]["file_summary"] == len("docs".encode("utf-8"))
 
 
 def test_indexing_service_streams_to_appendable_store(tmp_path: Path) -> None:

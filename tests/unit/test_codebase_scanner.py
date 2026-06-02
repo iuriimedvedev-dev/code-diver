@@ -73,6 +73,25 @@ def build_app():
     assert all(item.metadata["source"] == "scanner" for item in items)
 
 
+def test_scanner_can_index_symbol_signatures_without_bodies(tmp_path: Path) -> None:
+    (tmp_path / "app.py").write_text(
+        """
+class UserService:
+    def create_user(self):
+        secret = "body should stay out"
+        return secret
+""".strip(),
+        encoding="utf-8",
+    )
+
+    items = CodebaseScanner(include=["*.py"], line_chunks=False, symbol_chunks=True, symbol_body=False).scan(tmp_path)
+
+    symbol_items = [item for item in items if item.metadata["index_kind"] == "symbol"]
+    assert symbol_items
+    assert all("lines:" in item.content for item in symbol_items)
+    assert all("body should stay out" not in item.content for item in symbol_items)
+
+
 def test_scanner_can_use_structural_chunks(tmp_path: Path) -> None:
     (tmp_path / "app.py").write_text(
         """

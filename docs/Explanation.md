@@ -11,6 +11,116 @@ We have two separate phases:
 
 The key rule: indexing quality defines the ceiling. If the right file is not present in the candidate set, no reranker can recover it.
 
+## Current Direction: Small Hot Locator, Deep Search On Demand
+
+For a large repository like IntelliJ, indexing every chunk of source code is the wrong default. It creates a second copy of the repository inside the vector DB, increases RAM/storage, and gives the reranker too many near-duplicate candidates.
+
+The better shape is a two-layer system:
+
+1. **Persistent locator index.** Keep a compact index hot in memory. Its job is to find likely files and entry-point symbols.
+2. **On-demand deep search.** Once we have 20-50 candidate files, either grep/read them directly or build a temporary fine-grained index only for those files.
+
+The persistent index should answer: "where should we look?" The exact code evidence should be read after that.
+
+### H1: File-Locator Index
+
+One vector per file. The indexed text contains path, extension, imports, top symbols, and a short file head. It does not store method bodies or line chunks.
+
+Why this is attractive:
+
+- small enough to keep hot;
+- fast candidate generation;
+- avoids repeated chunks from the same file;
+- gives the LLM a clean list of files to inspect.
+
+Current IntelliJ measurement:
+
+| Metric | Value |
+| --- | ---: |
+| Files / vectors | 74,906 |
+| Payload text | 172.95 MB |
+| Raw vector estimate, 768 dims | 230.11 MB |
+| Observed Qdrant storage | 378 MB |
+| Graph JSON | 248 MB |
+| Persistent locator footprint | about 626 MB before runtime overhead |
+| Hit@1 on 1k IntelliJ control run | 0.729 |
+| Hit@3 | 0.837 |
+| Hit@5 | 0.862 |
+| Hit@10 / file recall@10 | 0.898 |
+
+This is already inside the target 1-3 GB class.
+
+The same index should be searched with multiple search profiles. On the first 1k IntelliJ sweep, a lexical-heavy hybrid profile improved Hit@1 from `0.729` to `0.744` and Hit@10 from `0.898` to `0.906`. RRF was worse for Hit@1 (`0.691`) while keeping similar Hit@10 (`0.900`). This points to a practical rule: once locator recall is high enough, ranking and signal weighting matter more than adding more permanent chunks.
+
+### H1b: File Plus Signature Symbols
+
+Add separate symbol vectors, but keep them signature-only:
+
+```text
+symbol: method createUser
+signature: public User createUser(...)
+lines: 42-87
+```
+
+Do not store the body. The model can read the body later if this symbol becomes a candidate.
+
+Current IntelliJ scan-only estimate:
+
+| Metric | Value |
+| --- | ---: |
+| Files | 74,906 |
+| Items / vectors | 523,137 |
+| Payload text | 215.66 MB |
+| Raw vector estimate, 768 dims | 1.61 GB |
+
+This is still plausibly inside 1-3 GB, but the build cost and vector RAM are much higher than H1. It is a quality-vs-footprint hypothesis, not the default.
+
+### H2: Temporary Deep Index Over Candidate Files
+
+After H1/H1b returns candidate files, we have a fork:
+
+| Branch | Flow | When it should win |
+| --- | --- | --- |
+| Grep/read branch | locator -> `rg`/read -> API LLM rank | Exact terms, config keys, class names, unique strings. |
+| Ephemeral index branch | locator -> build temporary chunks over 20-50 files -> local vector search -> API LLM rank | Vague semantic queries where grep does not know what to search. |
+
+The temporary index only makes sense with a hot local embedding model. API embeddings are too slow and too expensive for per-query indexing.
+
+## Role Of Local Models And API Models
+
+Embeddings should be local in the target system. We need them for:
+
+- persistent locator indexing;
+- query embedding;
+- temporary per-candidate-file indexing;
+- cheap repeated experiments.
+
+The API LLM should not be the embedder. Its job is orchestration and ranking:
+
+1. Read the user query.
+2. Generate several search intents.
+3. Call vector/path/symbol/BM25/graph tools, often in parallel.
+4. Decide whether to use grep/read or temporary deep indexing.
+5. Rank structured candidates.
+6. Return files, line ranges, evidence, and confidence.
+
+This keeps expensive tokens focused on reasoning and ranking, not brute-force retrieval.
+
+## TUI Goal
+
+The UI should make the search process inspectable:
+
+- live indexing progress;
+- current model/provider;
+- vector batches/sec;
+- Qdrant size and graph artifact size;
+- tool calls grouped by parallel round;
+- candidate table with scores and rank changes;
+- token/cost/latency counters;
+- final evidence and confidence.
+
+Implementation direction: use JSONL trace events as the backend contract. Rich is already available for colored logs and live panels; a Textual app can come later.
+
 ## What We Index
 
 The deterministic indexer builds several kinds of items:

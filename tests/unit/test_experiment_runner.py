@@ -32,6 +32,14 @@ class StaticStrategy(RetrievalStrategy):
         ]
 
 
+class StatsVectorStore:
+    def metadata(self) -> dict[str, object]:
+        return {"dimensions": 8}
+
+    def count_items(self) -> int:
+        return 5
+
+
 def test_experiment_runner_applies_cross_encoder_rerank_hypothesis_override() -> None:
     factory = CapturingFactory()
     config = AppConfig()
@@ -50,3 +58,21 @@ def test_experiment_runner_applies_cross_encoder_rerank_hypothesis_override() ->
     )
 
     assert factory.configs[0].cross_encoder_rerank.candidate_limit == 5
+
+
+def test_experiment_runner_adds_index_size_metrics() -> None:
+    factory = CapturingFactory()
+    config = AppConfig()
+    config.experiments.hypotheses = [ExperimentHypothesisConfig(name="hybrid", strategy="hybrid")]
+
+    run = ExperimentRunner(factory, provider=object(), vector_store=StatsVectorStore()).run(
+        "run",
+        config,
+        [EvalCase(id="case", query="query", expected=["target.py"])],
+    )
+
+    metrics = run.strategy_results[0].metrics
+    assert metrics["index_items"] == 5
+    assert metrics["index_vector_dimensions"] == 8
+    assert metrics["index_vector_bytes_estimate"] == 160
+    assert metrics["index_vector_mb_estimate"] == 0.00016

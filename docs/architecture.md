@@ -8,6 +8,19 @@ Code Diver is a config-first sandbox for codebase search experiments. The CLI is
 2. `code-diver search` embeds a query and retrieves relevant code items.
 3. `code-diver evaluate` runs a fixed dataset through a retrieval strategy and emits quality and latency metrics.
 4. `code-diver evaluate-search-tools` runs LLM search-orchestrator hypotheses over a fixed dataset while keeping the index fixed.
+5. `code-diver monitor` shows a live Rich view of JSONL trace events for long indexing, search, and eval runs.
+
+## Product Direction
+
+The active large-repository direction is a compact local retrieval stack:
+
+- local embeddings for persistent indexes and query-time temporary indexes;
+- Qdrant as the hot vector store;
+- a small persistent file-locator index for first-pass recall;
+- optional signature-only symbol vectors when quality justifies the extra footprint;
+- API LLMs only for query planning, tool orchestration, reranking, and final evidence synthesis.
+
+This avoids making the vector DB a full copy of the codebase. The persistent index should route the searcher to likely files. Exact code should be fetched later through `rg`, `grep`, `read`, or an ephemeral per-query candidate-file index.
 
 ## Deterministic Hybrid Indexing
 
@@ -25,6 +38,16 @@ The scanner can now build three complementary index item types in one artifact:
 The hybrid retriever can apply `hybrid_search.item_kind_weights` after vector/lexical/path/symbol/graph scoring. This lets experiments keep multiple index types in Qdrant while controlling which item type is allowed to dominate ranking.
 
 The indexing trace event `index_items_prepared` includes `items_by_kind` and `paths_by_kind`. The search tool payload includes `indexKind`, so orchestrator logs can show whether a candidate came from chunk, structural, symbol, or file-summary indexing.
+
+For compact indexes, `scanner.symbol_body=false` stores only symbol kind/name/signature/line range. This is the preferred mode for large repositories because it preserves navigation value without duplicating code bodies into Qdrant and the graph artifact.
+
+Current large-repo hypotheses:
+
+| Hypothesis | Persistent items | Purpose |
+| --- | --- | --- |
+| H1 file locator | `file_summary` only | Small hot index that finds likely files. |
+| H1b file + symbols | `file_summary` + signature-only `symbol` | Higher recall for API/symbol/workflow queries at higher vector count. |
+| H2 ephemeral deep index | Temporary chunks over H1/H1b candidate files | Per-query semantic refinement without permanent chunk bloat. |
 
 ## Modern GraphRAG
 
@@ -140,6 +163,8 @@ The log contains the full direct orchestrator transcript: prompts, model JSON re
 ```text
 .code-diver/traces/orchestrator-search/<run_id>/<hypothesis>.jsonl
 ```
+
+`code-diver monitor --trace <path>` renders JSONL trace events with Rich panels. It is intentionally a viewer over traces, not retrieval logic.
 
 ## Pi Decision
 

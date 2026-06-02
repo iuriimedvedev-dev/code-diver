@@ -14,5 +14,6 @@ class ScannerConfig:
     chunk_lines: int = Defaults.CHUNK_LINES
     structural_chunks: bool = Defaults.STRUCTURAL_CHUNKS
     symbol_chunks: bool = Defaults.SYMBOL_CHUNKS
+    symbol_body: bool = Defaults.SYMBOL_BODY
     file_summary_chunks: bool = Defaults.FILE_SUMMARY_CHUNKS
     max_symbols_per_file: int | None = Defaults.MAX_SYMBOLS_PER_FILE

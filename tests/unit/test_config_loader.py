@@ -64,6 +64,7 @@ scanner:
   chunk_lines: 10
   structural_chunks: true
   symbol_chunks: true
+  symbol_body: false
   file_summary_chunks: true
   max_symbols_per_file: 5
 search:
@@ -226,6 +227,7 @@ plugins:
     assert config.scanner.chunk_lines == 10
     assert config.scanner.structural_chunks is True
     assert config.scanner.symbol_chunks is True
+    assert config.scanner.symbol_body is False
     assert config.scanner.file_summary_chunks is True
     assert config.scanner.max_symbols_per_file == 5
     assert config.search.strategy == "recursive"
