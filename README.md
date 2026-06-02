@@ -113,7 +113,7 @@ For OpenAI, set `OPENAI_API_KEY` and use `generation.provider: openai` plus `emb
 
 Gemini Embedding 2 is not wire-compatible with `gemini-embedding-001`: existing Gemini embedding artifacts must be rebuilt after switching models.
 
-For local embeddings on Apple Silicon, start an OpenAI-compatible local embedding server and use `configs/protogen-ollama.yml`. This keeps Gemini as the orchestration model while embeddings run locally through Ollama on `http://localhost:11434/v1`. `configs/protogen-local.yml` is kept for fully local LM Studio experiments on `http://localhost:1234/v1`.
+For local embeddings on Apple Silicon, use an OpenAI-compatible embedding server backed by vLLM/MLX. The current preferred path is vLLM pooling on `http://127.0.0.1:8001/v1/embeddings`, with Gemini or Vertex kept for orchestration/reranking experiments. `configs/protogen-local.yml` is kept for fully local OpenAI-compatible experiments on `http://localhost:1234/v1`.
 
 Local embedding configs can set `embedding.workers` for parallel embedding requests and `embedding.max_input_chars` to fit smaller local model context windows. For small local embedding contexts, use `batch_size: 1` and increase `workers` instead of sending large multi-input batches.
 
@@ -121,9 +121,29 @@ Local embedding configs can set `embedding.workers` for parallel embedding reque
 uv run code-diver --config configs/protogen-local.yml index
 uv run code-diver --config configs/protogen-local.yml experiment
 
-ollama pull mxbai-embed-large
-uv run code-diver --config configs/protogen-ollama.yml index
-uv run code-diver --config configs/protogen-ollama.yml experiment
+VLLM_HOST_IP=127.0.0.1 \
+GLOO_SOCKET_IFNAME=lo0 \
+VLLM_METAL_MEMORY_FRACTION=0.55 \
+.venv-vllm-metal-official/bin/vllm serve mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ \
+  --runner pooling \
+  --host 127.0.0.1 \
+  --port 8001 \
+  --max-model-len 512
+
+uv run code-diver --config configs/intellij-community-vllm-qdrant.yml index
+uv run code-diver --config configs/intellij-community-vllm-qdrant.yml experiment
+```
+
+For local reranking, use llama.cpp with a dedicated reranker model:
+
+```bash
+llama-server \
+  --model .code-diver/models/rerankers/qwen3-reranker-4b/Qwen3-Reranker-4B-Q4_K_M.gguf \
+  --host 127.0.0.1 \
+  --port 8080 \
+  --embedding \
+  --reranking \
+  --pooling rank
 ```
 
 `experiment` runs the configured retrieval hypotheses from YAML:

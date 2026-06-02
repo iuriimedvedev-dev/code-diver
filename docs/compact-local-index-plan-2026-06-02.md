@@ -81,6 +81,33 @@ Use H1/H1b to find 20-50 candidate files. Then choose one of two branches:
 
 The second branch is only viable with local embeddings. API embeddings make per-query temporary indexing too slow and too expensive.
 
+The H2 benchmark must freeze the locator candidate files before comparing branches. Otherwise the result mixes locator quality with second-stage quality.
+
+Controlled H2 branches:
+
+| Branch | Allowed scope | Model role | What it answers |
+| --- | --- | --- | --- |
+| Bounded grep/read | Only the top-N locator files. Max 3 grep/rg probes and max 8 reads. | The LLM proposes exact probes and ranks structured evidence. | Does direct code inspection beat another vector pass? |
+| Ephemeral local vectors | Only the same top-N locator files. Build temporary syntax-aware chunks, embed locally, cache briefly. | The LLM may issue multiple semantic subqueries and rerank returned code chunks. | Does localized vectorization add quality beyond file-level locator? |
+
+The primary comparison is not global Hit@10. It is conditional quality after the locator has already found the right file:
+
+- `locator_hit@20/50`;
+- gold-file rank before H2;
+- final Hit@1/3/5;
+- rank delta after H2;
+- grep/read calls;
+- temporary vector count;
+- temporary index latency;
+- rerank tokens/cost;
+- bucket split: exact/path/symbol vs semantic/workflow.
+
+Expected pattern:
+
+- exact names, log fragments, config keys: bounded grep/read should win;
+- vague behavioral queries: ephemeral local vectors plus rerank should win;
+- if neither wins over locator + simple rerank, H2 is not worth the complexity.
+
 ## API Model Role
 
 The API LLM should not be the embedding provider in the target design. It should:
@@ -91,6 +118,19 @@ The API LLM should not be the embedding provider in the target design. It should
 - optionally request an ephemeral deep index for candidate files;
 - rerank structured evidence;
 - return files/symbols/line ranges with confidence.
+
+Current model matrix to test:
+
+| Embeddings | Ranker/orchestrator | Runtime |
+| --- | --- | --- |
+| Qwen3-Embedding 0.6B | Qwen3.5 4B | vLLM/MLX embeddings + local OpenAI-compatible generation |
+| Qwen3-Embedding 0.6B | Gemini 3.1 Flash-Lite | vLLM/MLX embeddings + Vertex/Gemini |
+| Qwen3-Embedding 0.6B | Gemini 3.5 Flash | vLLM/MLX embeddings + Vertex/Gemini |
+| Qwen3-Embedding 4B | Qwen3.5 4B | vLLM/MLX embeddings + local OpenAI-compatible generation |
+| Qwen3-Embedding 4B | Gemini 3.1 Flash-Lite | vLLM/MLX embeddings + Vertex/Gemini |
+| Qwen3-Embedding 4B | Gemini 3.5 Flash | vLLM/MLX embeddings + Vertex/Gemini |
+
+Ollama is not part of the target runtime. Historical Ollama-named artifacts are kept only as past benchmark records. New local embedding runs should use vLLM/MLX OpenAI-compatible `/v1/embeddings`; local dedicated rerank should use llama.cpp `/v1/rerank`.
 
 ## TUI Direction
 

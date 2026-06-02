@@ -182,6 +182,31 @@ It is weaker when the query depends on exact names, file paths, generated code c
 | LLM rerank | Choose the best order from structured candidates. | Ambiguous top 20 where the right file is present. | Cannot fix missing candidates; local small LLMs can mis-rank. |
 | Targeted read | Verify top 3-5 snippets after ranking. | Final answer confidence and citations. | Expensive if used before candidate narrowing. |
 
+## Failure Modes To Test Explicitly
+
+### Keyword Collapse
+
+Developers often search with very short queries: method names, log fragments, config keys, or two-word phrases like `auth token`. Dense embeddings can over-interpret these queries and miss the obvious exact match.
+
+Mitigation: strict hybrid search. Keep dense vectors for intent, but route exact/path/symbol-looking queries toward sparse signals: BM25, literal grep, regex, path, and symbol names. Our IntelliJ file-locator sweep already shows this: the lexical-heavy profile improved Hit@1 from `0.729` to `0.744` on the same index.
+
+### Reranking Pitfall
+
+A generic text reranker can hurt code search. If a reranker was trained mostly on prose relevance, it may demote syntactically exact code hits because it does not understand file ownership, APIs, wrappers, generated code, or implementation-vs-test intent.
+
+Mitigation: rerank only after measuring rank deltas, and prefer code-oriented rerankers or prompts that preserve strong exact evidence. Treat rerank as conditional:
+
+- use no rerank when rank 1 has a strong exact/path/symbol margin;
+- use Gemini/Vertex rerank for ambiguous semantic queries;
+- use llama.cpp `/v1/rerank` only with dedicated code/rerank models and small candidate limits;
+- always log before/after gold rank.
+
+### Blind Chunking
+
+Fixed-size chunks cut functions, classes, imports, and call context apart. That creates embeddings that are neither complete code units nor good file locators.
+
+Mitigation: use syntax-aware chunks for deep indexes. The persistent index can stay file-level, but the H2 temporary deep index over candidate files should chunk by functions/classes/methods where possible and attach path, parent class, imports, and nearby symbol metadata to every chunk.
+
 ## Current Main Strategies
 
 | Strategy | What happens | What it tests |
