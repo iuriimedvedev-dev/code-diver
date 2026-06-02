@@ -29,26 +29,36 @@ class RerankToolHandler:
         started = perf_counter()
         response = self.generation_provider.generate_json_result(prompt)
         duration_ms = (perf_counter() - started) * 1000
-        parsed = self.response_parser.parse_object(response.text)
+        parse_error: str | None = None
+        try:
+            parsed = self.response_parser.parse_object(response.text)
+        except ValueError as exc:
+            parsed = {}
+            parse_error = str(exc)
         selected = self._selected(parsed.get("results"), len(normalized))
         ranked = self._ranked_candidates(normalized, selected, limit)
         cost = self.cost_estimator.estimate(response.model, response.input_tokens, response.output_tokens)
+        metrics = {
+            "candidateCount": len(normalized),
+            "returnedCount": len(ranked),
+            "modelCalls": 1,
+            "model": response.model,
+            "models": [response.model],
+            "inputTokens": response.input_tokens,
+            "outputTokens": response.output_tokens,
+            "totalTokens": response.total_tokens,
+            "estimatedCost": cost,
+            "durationMs": duration_ms,
+            "mode": config.mode,
+        }
+        if parse_error:
+            metrics["errors"] = 1
+            metrics["degraded"] = True
+            metrics["error"] = parse_error
         return {
             "candidates": ranked,
             "selectedIndices": [item["index"] for item in selected],
-            "metrics": {
-                "candidateCount": len(normalized),
-                "returnedCount": len(ranked),
-                "modelCalls": 1,
-                "model": response.model,
-                "models": [response.model],
-                "inputTokens": response.input_tokens,
-                "outputTokens": response.output_tokens,
-                "totalTokens": response.total_tokens,
-                "estimatedCost": cost,
-                "durationMs": duration_ms,
-                "mode": config.mode,
-            },
+            "metrics": metrics,
         }
 
     def _config(self, args: dict[str, Any]) -> LlmRerankConfig:

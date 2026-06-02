@@ -54,3 +54,100 @@ def test_rerank_tool_handler_returns_ranked_structured_candidates() -> None:
     assert payload["metrics"]["modelCalls"] == 1
     assert payload["metrics"]["inputTokens"] == 50
     assert "auth handler" in provider.prompts[0]
+
+
+def test_rerank_tool_handler_deduplicates_limits_and_ignores_invalid_model_indices() -> None:
+    provider = FakeGenerationProvider(
+        json.dumps(
+            {
+                "results": [
+                    {"index": 3, "confidence": 0.99},
+                    {"index": 1, "confidence": 0.7},
+                    {"index": 99, "confidence": 1.0},
+                    {"index": 1, "confidence": 0.1},
+                    {"index": "bad", "confidence": 1.0},
+                ]
+            }
+        )
+    )
+    handler = RerankToolHandler(provider, LlmRerankConfig(candidate_limit=3, include_reasons=False))
+
+    payload = handler.rerank(
+        "find command handler",
+        [
+            {"id": "a", "path": "src/a.py", "score": "0.9"},
+            {"id": "a", "path": "src/a.py", "score": "0.8"},
+            {"path": "src/b.py", "startLine": 10, "score": None},
+            {"id": "c", "path": "src/c.py", "score": 0.1},
+            {"id": "d", "path": "src/d.py", "score": 0.0},
+        ],
+        3,
+        {},
+    )
+
+    assert [candidate["path"] for candidate in payload["candidates"]] == ["src/c.py", "src/a.py", "src/b.py"]
+    assert payload["selectedIndices"] == [3, 1]
+    assert payload["candidates"][0]["confidence"] == 0.99
+    assert payload["candidates"][1]["confidence"] == 0.7
+    assert payload["candidates"][2]["rerankRank"] == 3
+    assert payload["metrics"]["candidateCount"] == 3
+
+
+def test_rerank_tool_handler_invalid_json_falls_back_to_input_order() -> None:
+    provider = FakeGenerationProvider("not json")
+    handler = RerankToolHandler(provider, LlmRerankConfig(candidate_limit=10))
+
+    payload = handler.rerank(
+        "where is auth?",
+        [
+            {"id": "a", "path": "src/a.py", "score": 0.9},
+            {"id": "b", "path": "src/b.py", "score": 0.8},
+        ],
+        2,
+        {},
+    )
+
+    assert [candidate["path"] for candidate in payload["candidates"]] == ["src/a.py", "src/b.py"]
+    assert payload["selectedIndices"] == []
+    assert [candidate["rerankRank"] for candidate in payload["candidates"]] == [1, 2]
+    assert payload["metrics"]["modelCalls"] == 1
+    assert payload["metrics"]["degraded"] is True
+    assert payload["metrics"]["errors"] == 1
+    assert "JSON response" in payload["metrics"]["error"]
+
+
+def test_rerank_tool_handler_applies_runtime_mode_reason_and_preview_overrides() -> None:
+    provider = FakeGenerationProvider(json.dumps({"results": [{"index": 1, "confidence": 0.8, "reason": "owns route"}]}))
+    handler = RerankToolHandler(provider, LlmRerankConfig(candidate_limit=10, include_reasons=False, max_preview_chars=50))
+
+    payload = handler.rerank(
+        "where is the login route?",
+        [
+            {
+                "id": "route",
+                "path": "src/routes.py",
+                "title": "routes",
+                "score": 0.7,
+                "preview": " ".join(["login route owner"] * 20),
+            }
+        ],
+        1,
+        {"mode": "precision", "includeReasons": True, "maxPreviewChars": 24, "candidateLimit": 1},
+    )
+
+    prompt = provider.prompts[0]
+    assert "Optimize rank 1" in prompt
+    assert '"reason": "short reason"' in prompt
+    assert "login route owner login..." in prompt
+    assert payload["candidates"][0]["rerankReason"] == "owns route"
+    assert payload["metrics"]["mode"] == "precision"
+
+
+def test_rerank_tool_handler_empty_or_pathless_candidates_skip_model_call() -> None:
+    provider = FakeGenerationProvider(json.dumps({"results": [{"index": 1, "confidence": 1.0}]}))
+    handler = RerankToolHandler(provider, LlmRerankConfig())
+
+    payload = handler.rerank("anything", [{"score": 1.0}, "bad"], 5, {})
+
+    assert payload == {"candidates": [], "metrics": {"candidateCount": 0, "returnedCount": 0}}
+    assert provider.prompts == []

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from time import perf_counter
 from time import sleep
+from threading import Lock
 
 import pytest
 
@@ -26,6 +27,35 @@ def test_parallel_tool_executor_runs_independent_calls_concurrently() -> None:
 
     assert [result.content for result in results] == ["0", "1", "2"]
     assert elapsed < 0.25
+
+
+def test_parallel_tool_executor_returns_empty_list_for_empty_batch() -> None:
+    def execute(call: ToolCall) -> ToolResult:
+        raise AssertionError("should not be called")
+
+    assert ParallelToolExecutor(max_parallel=3).execute([], execute) == []
+
+
+def test_parallel_tool_executor_honors_max_parallel_limit() -> None:
+    calls = [ToolCall("limited", {"index": index}) for index in range(6)]
+    lock = Lock()
+    active = 0
+    max_seen = 0
+
+    def execute(call: ToolCall) -> ToolResult:
+        nonlocal active, max_seen
+        with lock:
+            active += 1
+            max_seen = max(max_seen, active)
+        sleep(0.04)
+        with lock:
+            active -= 1
+        return ToolResult(call.name, str(call.arguments["index"]))
+
+    results = ParallelToolExecutor(max_parallel=2).execute(calls, execute)
+
+    assert [result.content for result in results] == ["0", "1", "2", "3", "4", "5"]
+    assert max_seen == 2
 
 
 def test_parallel_tool_executor_preserves_partial_results_when_one_call_fails() -> None:
