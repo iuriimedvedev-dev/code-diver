@@ -1,0 +1,68 @@
+base_config: configs/protogen-ollama-qdrant.yml
+output: .code-diver/reports/protogen-gemma-e4b-ranker-experiments.json
+log_dir: .code-diver/logs/generation-models
+reindex: false
+port: 8012
+startup_timeout_seconds: 900
+timeout_ms: 240000
+memory_fraction: 0.72
+config_overrides:
+  storage:
+    qdrant:
+      url: http://localhost:6333
+      location:
+      collection: protogen_vllm_embeddings_vllm_qwen3_embedding_0_6b_mlx_4bit_4a455c9c66f7
+      batch_size: 512
+  evaluation:
+    dataset: datasets/protogen_eval_30.jsonl
+    limit: 10
+  trace:
+    include_prompts: false
+embedding:
+  name: qwen3_embedding_0_6b_mlx_4bit
+  runtime: vllm_pooling
+  provider: openai_compatible
+  model: mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ
+  dimensions:
+  url: http://127.0.0.1:8001/v1/embeddings
+  api_key: local
+  port: 8001
+  max_model_len: 512
+  batch_size: 64
+  workers: 1
+  max_input_chars: 400
+  cost_per_1m_tokens_usd: 0
+hypotheses:
+  - hybrid_candidates_symbol_first
+  - hybrid_rerank_flash_lite_top20_compact
+  - hybrid_rerank_file_first
+  - hybrid_rerank_precision
+  - hybrid_rerank_base_prior
+  - hybrid_rerank_flash_lite_structural_file_first
+search_config_overrides:
+  llm_rerank:
+    preserve_top_candidate: false
+generation_models:
+  - name: gemma4_e4b_it_4bit_512
+    runtime: mlx_vlm
+    model: mlx-community/gemma-4-e4b-it-4bit
+    precision: 4bit
+    quantization: uniform-4bit
+    port: 8012
+    max_tokens: 512
+  - name: gemma4_e4b_it_4bit_thinking_512
+    runtime: mlx_vlm
+    model: mlx-community/gemma-4-e4b-it-4bit
+    precision: 4bit
+    quantization: uniform-4bit
+    port: 8012
+    max_tokens: 512
+    enable_thinking: true
+  - name: gemma4_e4b_it_optiq_4bit_512
+    runtime: mlx_lm
+    model: mlx-community/gemma-4-e4b-it-OptiQ-4bit
+    precision: 4bit
+    quantization: optiq-4bit
+    port: 8012
+    max_tokens: 512
+    chat_template_args: '{"enable_thinking": false}'

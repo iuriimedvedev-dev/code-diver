@@ -11,7 +11,7 @@ import urllib.request
 import uuid
 from dataclasses import fields, replace
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import yaml
 
@@ -64,7 +64,13 @@ class GenerationBenchmarkRunner:
                 model for model in self.suite.get("generation_models", []) if not only or model["name"] in only
             ]
             for model in selected_models:
-                rows.append(self._run_generation_model(config, model))
+                rows.append(
+                    self._run_generation_model(
+                        config,
+                        model,
+                        on_update=lambda row: self._write_report(index_row, [*rows, row]),
+                    )
+                )
                 self._write_report(index_row, rows)
             report = {"run_id": self.run_id, "output": str(self.output_path), "index": index_row, "results": rows}
             self._write_report(index_row, rows)
@@ -113,7 +119,12 @@ class GenerationBenchmarkRunner:
             close_vector_store(vector_store)
         return row
 
-    def _run_generation_model(self, config: Any, model: dict[str, Any]) -> dict[str, Any]:
+    def _run_generation_model(
+        self,
+        config: Any,
+        model: dict[str, Any],
+        on_update: Callable[[dict[str, Any]], None] | None = None,
+    ) -> dict[str, Any]:
         process: subprocess.Popen | None = None
         log_path = self.log_dir / f"{self._safe_name(model['name'])}.log"
         row: dict[str, Any] = {
@@ -131,17 +142,27 @@ class GenerationBenchmarkRunner:
                 process = self._start_server(model, log_path)
                 self._wait_until_ready(model, process)
                 row["server"]["startup_duration_ms"] = (time.perf_counter() - started) * 1000
-            self._evaluate_generation_model(config, model, row)
+            self._evaluate_generation_model(config, model, row, on_update)
         except Exception as exc:
             row["error"] = str(exc)
+            if on_update is not None:
+                on_update(row)
         finally:
             if process is not None:
                 stop_error = self._stop_server(process)
                 if stop_error:
                     row["server"]["stop_error"] = stop_error
+                    if on_update is not None:
+                        on_update(row)
         return row
 
-    def _evaluate_generation_model(self, config: Any, model: dict[str, Any], row: dict[str, Any]) -> None:
+    def _evaluate_generation_model(
+        self,
+        config: Any,
+        model: dict[str, Any],
+        row: dict[str, Any],
+        on_update: Callable[[dict[str, Any]], None] | None,
+    ) -> None:
         vector_store = create_vector_store(config)
         try:
             provider = QueryCachingEmbeddingProvider(make_embedding_provider(config, vector_store.metadata()))
@@ -158,6 +179,8 @@ class GenerationBenchmarkRunner:
                 metrics["duration_ms"] = (time.perf_counter() - started) * 1000
                 metrics["llm_usage"] = self._llm_usage(strategy_config.trace.artifact, trace_offset)
                 row["evaluations"].append({"strategy": hypothesis_name, "metrics": metrics})
+                if on_update is not None:
+                    on_update(row)
         finally:
             close_vector_store(vector_store)
 
@@ -340,7 +363,7 @@ class GenerationBenchmarkRunner:
                 command.extend(["--chat-template-args", str(model["chat_template_args"])])
             return command
         if runtime == "mlx_vlm":
-            return [
+            command = [
                 str(Path(model.get("binary", ".venv-vllm-metal-official/bin/mlx_vlm.server"))),
                 "--model",
                 model_id,
@@ -351,6 +374,9 @@ class GenerationBenchmarkRunner:
                 "--max-tokens",
                 str(model.get("max_tokens", 256)),
             ]
+            if model.get("enable_thinking"):
+                command.append("--enable-thinking")
+            return command
         raise ValueError(f"Unknown local generation runtime: {runtime}")
 
     def _wait_until_ready(self, model: dict[str, Any], process: subprocess.Popen) -> None:

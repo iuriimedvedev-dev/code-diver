@@ -95,6 +95,20 @@ def test_llm_rerank_response_parser_ignores_invalid_and_duplicate_indices() -> N
     assert indices == [2, 1]
 
 
+def test_llm_rerank_response_parser_accepts_loose_index_lists() -> None:
+    parser = LlmRerankResponseParser()
+
+    assert parser.parse_indices("[3, 1, 3, 99]", candidate_count=5) == [3, 1]
+    assert parser.parse_indices("index: 4\nindex: 2", candidate_count=5) == [4, 2]
+    assert parser.parse_indices("candidate 5, candidate 1", candidate_count=5) == [5, 1]
+
+
+def test_llm_rerank_response_parser_rejects_unstructured_numbers() -> None:
+    response = "The answer is around line 42 in src/auth.py, not candidate text."
+
+    assert LlmRerankResponseParser().parse_indices(response, candidate_count=50) == []
+
+
 def test_llm_rerank_can_preserve_confident_base_top() -> None:
     results = [
         _result("a", "src/a.py", 0.9),
