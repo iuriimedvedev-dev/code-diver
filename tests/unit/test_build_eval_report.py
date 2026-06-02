@@ -32,7 +32,19 @@ def test_report_normalizes_experiment_json_shape() -> None:
                         "hit_rate@5_ci95_low": 0.7,
                         "hit_rate@5_ci95_high": 0.9,
                     },
-                    "results": [{"hit": True, "reciprocal_rank": 1.0, "recall": 1.0}],
+                    "results": [
+                        {
+                            "hit": True,
+                            "reciprocal_rank": 1.0,
+                            "recall": 1.0,
+                            "file_hit": True,
+                            "file_reciprocal_rank": 1.0,
+                            "file_recall": 1.0,
+                            "ndcg": 1.0,
+                            "average_precision": 1.0,
+                            "bucket": "workflow",
+                        }
+                    ],
                 }
             ],
         }
@@ -86,3 +98,32 @@ def test_report_renders_confidence_interval_table() -> None:
 
     assert "Summary With 95% CI" in html
     assert "[0.7000, 0.9000]" in html
+
+
+def test_report_renders_bucket_summary_when_details_are_present() -> None:
+    html = render_report(
+        [
+            {
+                "name": "hybrid",
+                "metrics": {"hit_rate@5": 1.0},
+                "results": [
+                    {
+                        "hit": True,
+                        "reciprocal_rank": 1.0,
+                        "recall": 1.0,
+                        "file_hit": True,
+                        "file_reciprocal_rank": 1.0,
+                        "file_recall": 1.0,
+                        "ndcg": 1.0,
+                        "average_precision": 1.0,
+                        "bucket": "workflow",
+                    }
+                ],
+            }
+        ],
+        {"run_id": "run"},
+    )
+
+    assert "Bucket Summary" in html
+    assert "workflow" in html
+    assert "file_recall" in html

@@ -210,6 +210,7 @@ uv run python scripts/build_eval_report.py \
 ```
 
 The report includes metric tables, confidence intervals, per-metric charts, and per-case distributions when detailed results are present. The Grafana dashboard shows the same comparison over stored ClickHouse runs.
+Stored ClickHouse case rows include file-level metrics, query buckets, and result-kind fields, so Grafana can show where each strategy wins or fails instead of only reporting one average.
 
 For isolated runs, use the Alpine runtime container in `ops/runtime`. It mounts a target codebase at `/workspace`, writes artifacts under `/artifacts`, uses Qdrant for vectors, and writes metrics to ClickHouse over the compose network:
 

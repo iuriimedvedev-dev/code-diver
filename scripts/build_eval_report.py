@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import html
 import json
+from collections import defaultdict
 from pathlib import Path
 from statistics import mean
 from typing import Any
@@ -82,6 +83,7 @@ def render_report(rows: list[dict[str, Any]], payload: dict[str, Any]) -> str:
             f"<h1>Code Diver Eval Report</h1><p>run_id: <code>{escape(payload.get('run_id', 'unknown'))}</code></p>",
             summary_table(rows, metric_names),
             *(metric_chart(rows, metric) for metric in metric_names),
+            bucket_summary_table(rows),
             *(distribution_section(row) for row in rows),
             "</body></html>",
         ]
@@ -134,14 +136,58 @@ def distribution_section(row: dict[str, Any]) -> str:
     hit_values = [1.0 if item.get("hit") else 0.0 for item in results]
     rr_values = [float(item.get("reciprocal_rank") or 0.0) for item in results]
     recall_values = [float(item.get("recall") or 0.0) for item in results]
+    file_recall_values = [float(item.get("file_recall") or 0.0) for item in results if "file_recall" in item]
+    ndcg_values = [float(item.get("ndcg") or 0.0) for item in results if "ndcg" in item]
+    average_precision_values = [
+        float(item.get("average_precision") or 0.0) for item in results if "average_precision" in item
+    ]
     return "\n".join(
         [
             f"<h2>Per-case distributions: {escape(row['name'])}</h2>",
             histogram("hit", hit_values, buckets=2),
             histogram("reciprocal_rank", rr_values, buckets=10),
             histogram("recall", recall_values, buckets=10),
+            histogram("file_recall", file_recall_values, buckets=10),
+            histogram("ndcg", ndcg_values, buckets=10),
+            histogram("average_precision", average_precision_values, buckets=10),
         ]
     )
+
+
+def bucket_summary_table(rows: list[dict[str, Any]]) -> str:
+    summaries = []
+    for row in rows:
+        results = [item for item in row.get("results") or [] if isinstance(item, dict)]
+        buckets: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        for item in results:
+            buckets[str(item.get("bucket") or "unknown")].append(item)
+        for bucket, items in sorted(buckets.items()):
+            summaries.append(
+                {
+                    "strategy": row["name"],
+                    "bucket": bucket,
+                    "cases": len(items),
+                    "hit": mean(1.0 if item.get("hit") else 0.0 for item in items),
+                    "file_hit": mean(1.0 if item.get("file_hit") else 0.0 for item in items),
+                    "mrr": mean(float(item.get("reciprocal_rank") or 0.0) for item in items),
+                    "file_mrr": mean(float(item.get("file_reciprocal_rank") or 0.0) for item in items),
+                    "file_recall": mean(float(item.get("file_recall") or 0.0) for item in items),
+                    "ndcg": mean(float(item.get("ndcg") or 0.0) for item in items),
+                    "map": mean(float(item.get("average_precision") or 0.0) for item in items),
+                }
+            )
+    if not summaries:
+        return ""
+    headers = ["strategy", "bucket", "cases", "hit", "file_hit", "mrr", "file_mrr", "file_recall", "ndcg", "map"]
+    head = "".join(f"<th>{escape(name)}</th>" for name in headers)
+    body = []
+    for summary in summaries:
+        cells = []
+        for name in headers:
+            value = summary[name]
+            cells.append(f"<td>{format_number(value)}</td>")
+        body.append("<tr>" + "".join(cells) + "</tr>")
+    return f"<h2>Bucket Summary</h2><table><thead><tr>{head}</tr></thead><tbody>{''.join(body)}</tbody></table>"
 
 
 def histogram(name: str, values: list[float], buckets: int) -> str:
@@ -173,6 +219,12 @@ def format_metric(value: Any, ci_low: Any, ci_high: Any) -> str:
     if isinstance(ci_low, int | float) and isinstance(ci_high, int | float):
         text += f"<br><small>[{float(ci_low):.4f}, {float(ci_high):.4f}]</small>"
     return text
+
+
+def format_number(value: Any) -> str:
+    if isinstance(value, int | float):
+        return f"{float(value):.4f}"
+    return escape(value)
 
 
 def escape(value: Any) -> str:

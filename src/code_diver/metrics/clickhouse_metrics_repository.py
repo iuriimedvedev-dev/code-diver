@@ -63,13 +63,27 @@ class ClickHouseMetricsRepository:
                 precision Float64,
                 recall Float64,
                 expected Array(String),
-                retrieved Array(String)
+                retrieved Array(String),
+                retrieved_files Array(String),
+                file_hit UInt8,
+                file_reciprocal_rank Float64,
+                file_precision_at_r Float64,
+                file_recall Float64,
+                ndcg Float64,
+                average_precision Float64,
+                bucket LowCardinality(String),
+                top_result_kind LowCardinality(String),
+                first_relevant_kind LowCardinality(String),
+                expected_count UInt32,
+                retrieved_count UInt32,
+                retrieved_file_count UInt32
             )
             ENGINE = MergeTree
             ORDER BY (suite, strategy, case_id, event_time)
             TTL event_time + INTERVAL {retention_days} DAY DELETE
             """.strip()
         )
+        self._ensure_case_columns(cases_table)
 
     def save(self, metrics: list[MetricRow], cases: list[CaseMetricRow]) -> None:
         self.client.insert_json_each_row(self._table_name(self.metrics_table), metrics)
@@ -77,3 +91,22 @@ class ClickHouseMetricsRepository:
 
     def _table_name(self, table: str) -> str:
         return f"{quote_identifier(self.database)}.{quote_identifier(table)}"
+
+    def _ensure_case_columns(self, cases_table: str) -> None:
+        columns = {
+            "retrieved_files": "Array(String)",
+            "file_hit": "UInt8",
+            "file_reciprocal_rank": "Float64",
+            "file_precision_at_r": "Float64",
+            "file_recall": "Float64",
+            "ndcg": "Float64",
+            "average_precision": "Float64",
+            "bucket": "LowCardinality(String)",
+            "top_result_kind": "LowCardinality(String)",
+            "first_relevant_kind": "LowCardinality(String)",
+            "expected_count": "UInt32",
+            "retrieved_count": "UInt32",
+            "retrieved_file_count": "UInt32",
+        }
+        for name, column_type in columns.items():
+            self.client.execute(f"ALTER TABLE {cases_table} ADD COLUMN IF NOT EXISTS {name} {column_type}")

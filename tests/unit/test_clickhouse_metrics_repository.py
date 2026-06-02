@@ -62,6 +62,19 @@ def test_clickhouse_repository_creates_schema_and_saves_rows() -> None:
                 recall=1.0,
                 expected=["src/main.py"],
                 retrieved=["src/main.py#abc"],
+                retrieved_files=["src/main.py"],
+                file_hit=1,
+                file_reciprocal_rank=1.0,
+                file_precision_at_r=1.0,
+                file_recall=1.0,
+                ndcg=1.0,
+                average_precision=1.0,
+                bucket="path_symbol",
+                top_result_kind="symbol",
+                first_relevant_kind="symbol",
+                expected_count=1,
+                retrieved_count=1,
+                retrieved_file_count=1,
             )
         ],
     )
@@ -69,5 +82,7 @@ def test_clickhouse_repository_creates_schema_and_saves_rows() -> None:
     ddl = "\n".join(client.queries)
     assert "CREATE DATABASE IF NOT EXISTS `code_diver`" in ddl
     assert "TTL event_time + INTERVAL 14 DAY DELETE" in ddl
+    assert "ADD COLUMN IF NOT EXISTS file_recall Float64" in ddl
+    assert "ADD COLUMN IF NOT EXISTS bucket LowCardinality(String)" in ddl
     assert client.inserts[0][0] == "`code_diver`.`rag_eval_metrics`"
     assert client.inserts[1][0] == "`code_diver`.`rag_eval_cases`"

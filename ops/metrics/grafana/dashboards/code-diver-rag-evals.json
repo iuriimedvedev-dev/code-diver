@@ -107,7 +107,7 @@
         {
           "editorType": "sql",
           "format": 1,
-          "rawSql": "WITH latest AS (SELECT run_id FROM code_diver.rag_eval_cases WHERE $__timeFilter(event_time) ORDER BY event_time DESC LIMIT 1) SELECT strategy, count() AS cases, avg(hit) AS hit_rate, stddevSamp(hit) AS hit_stddev, avg(reciprocal_rank) AS mrr, stddevSamp(reciprocal_rank) AS mrr_stddev, quantile(0.5)(reciprocal_rank) AS rr_p50, quantile(0.9)(reciprocal_rank) AS rr_p90, avg(recall) AS recall, stddevSamp(recall) AS recall_stddev FROM code_diver.rag_eval_cases WHERE run_id IN (SELECT run_id FROM latest) GROUP BY strategy ORDER BY hit_rate DESC, mrr DESC"
+          "rawSql": "WITH latest AS (SELECT run_id FROM code_diver.rag_eval_cases WHERE $__timeFilter(event_time) ORDER BY event_time DESC LIMIT 1) SELECT strategy, bucket, count() AS cases, avg(hit) AS hit_rate, avg(file_hit) AS file_hit_rate, avg(reciprocal_rank) AS mrr, avg(file_reciprocal_rank) AS file_mrr, avg(recall) AS recall, avg(file_recall) AS file_recall, avg(ndcg) AS ndcg, avg(average_precision) AS map, stddevSamp(file_recall) AS file_recall_stddev, quantile(0.5)(file_recall) AS file_recall_p50, quantile(0.9)(file_recall) AS file_recall_p90 FROM code_diver.rag_eval_cases WHERE run_id IN (SELECT run_id FROM latest) GROUP BY strategy, bucket ORDER BY file_hit_rate DESC, file_mrr DESC"
         }
       ],
       "gridPos": { "h": 10, "w": 12, "x": 12, "y": 16 }
@@ -124,7 +124,7 @@
         {
           "editorType": "sql",
           "format": 1,
-          "rawSql": "SELECT event_time, run_id, suite, strategy, case_id, hit, reciprocal_rank, precision, recall FROM code_diver.rag_eval_cases WHERE $__timeFilter(event_time) ORDER BY event_time DESC, strategy, case_id LIMIT 500"
+          "rawSql": "SELECT event_time, run_id, suite, strategy, case_id, bucket, hit, reciprocal_rank, precision, recall, file_hit, file_reciprocal_rank, file_precision_at_r, file_recall, ndcg, average_precision, top_result_kind, first_relevant_kind, expected_count, retrieved_file_count FROM code_diver.rag_eval_cases WHERE $__timeFilter(event_time) ORDER BY event_time DESC, strategy, case_id LIMIT 1000"
         }
       ],
       "gridPos": { "h": 10, "w": 24, "x": 0, "y": 26 }

@@ -19,3 +19,16 @@ class CaseMetricRow:
     recall: float
     expected: list[str]
     retrieved: list[str]
+    retrieved_files: list[str]
+    file_hit: int
+    file_reciprocal_rank: float
+    file_precision_at_r: float
+    file_recall: float
+    ndcg: float
+    average_precision: float
+    bucket: str
+    top_result_kind: str
+    first_relevant_kind: str
+    expected_count: int
+    retrieved_count: int
+    retrieved_file_count: int

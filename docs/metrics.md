@@ -155,6 +155,16 @@ The HTML report shows:
 
 For long-running comparison suites, enable ClickHouse metrics and open Grafana at `http://localhost:3000`. The provisioned dashboard overlays strategies on the same panels for `Hit@1/3/5/10`, `MRR`, `nDCG`, `MAP`, runtime, and CI width. The important chart for reliability is CI width: a fast, high-scoring strategy with broad intervals is not a stable winner yet.
 
+The ClickHouse `rag_eval_cases` table stores rich per-case fields, not just the final aggregate:
+
+- chunk-level `hit`, `reciprocal_rank`, `precision`, and `recall`;
+- file-level `file_hit`, `file_reciprocal_rank`, `file_precision_at_r`, and `file_recall`;
+- ranking metrics `ndcg` and `average_precision`;
+- `bucket`, `top_result_kind`, and `first_relevant_kind`;
+- `expected_count`, `retrieved_count`, and `retrieved_file_count`.
+
+Use this table to answer questions like "does BM25 only help path/symbol cases?", "which index kind actually produces first relevant hits?", and "is a strategy winning average recall while failing multi-file workflow cases?".
+
 ## Current `../protogen` Runs
 
 Historical dataset: `datasets/protogen_eval.jsonl`, 10 repository-location cases, `limit=10`.

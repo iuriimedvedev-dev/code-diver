@@ -75,6 +75,19 @@ class ExperimentMetricsMapper:
                         recall=float(result.recall),
                         expected=result.expected,
                         retrieved=result.retrieved,
+                        retrieved_files=result.retrieved_files or [],
+                        file_hit=1 if result.file_hit else 0,
+                        file_reciprocal_rank=float(result.file_reciprocal_rank),
+                        file_precision_at_r=float(result.file_precision_at_r),
+                        file_recall=float(result.file_recall),
+                        ndcg=float(result.ndcg),
+                        average_precision=float(result.average_precision),
+                        bucket=result.bucket,
+                        top_result_kind=result.top_result_kind,
+                        first_relevant_kind=result.first_relevant_kind,
+                        expected_count=len(result.expected),
+                        retrieved_count=len(result.retrieved),
+                        retrieved_file_count=len(result.retrieved_files or []),
                     )
                 )
         return metric_rows, case_rows
