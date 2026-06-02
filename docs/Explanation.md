@@ -52,6 +52,8 @@ This is already inside the target 1-3 GB class.
 
 The same index should be searched with multiple search profiles. On the first 1k IntelliJ sweep, a lexical-heavy hybrid profile improved Hit@1 from `0.729` to `0.744` and Hit@10 from `0.898` to `0.906`. RRF was worse for Hit@1 (`0.691`) while keeping similar Hit@10 (`0.900`). This points to a practical rule: once locator recall is high enough, ranking and signal weighting matter more than adding more permanent chunks.
 
+The first local embedding control used `qwen3-embedding:0.6b` with 1024 dimensions on the same file-locator index. It reached Hit@1 `0.628` and Hit@10 `0.890`. That is weaker than Gemini at rank 1, but close at top 10. In plain terms: the small local embedder often finds the right file, but ranks it too low. This makes it useful as a cheap candidate generator, while reranking still needs a stronger model or better search strategy.
+
 ### H1b: File Plus Signature Symbols
 
 Add separate symbol vectors, but keep them signature-only:
