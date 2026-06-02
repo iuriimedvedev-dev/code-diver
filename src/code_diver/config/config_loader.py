@@ -215,6 +215,7 @@ class ConfigLoader:
             symbol_chunks=bool(mapping.get("symbol_chunks", Defaults.SYMBOL_CHUNKS)),
             symbol_body=bool(mapping.get("symbol_body", Defaults.SYMBOL_BODY)),
             file_summary_chunks=bool(mapping.get("file_summary_chunks", Defaults.FILE_SUMMARY_CHUNKS)),
+            file_manifest_chunks=bool(mapping.get("file_manifest_chunks", Defaults.FILE_MANIFEST_CHUNKS)),
             max_symbols_per_file=self._optional_int(mapping.get("max_symbols_per_file")),
         )
 

@@ -8,7 +8,9 @@ from .ephemeral_deep_index_result import EphemeralDeepIndexResult
 from .ephemeral_deep_index_service import EphemeralDeepIndexService
 from .ephemeral_deep_search_result import EphemeralDeepSearchResult
 from .evaluation_statistics import EvaluationStatistics
+from .file_manifest_item_builder import FileManifestItemBuilder
 from .graph_indexing_service import GraphIndexingService
+from .identifier_alias_locator import IdentifierAliasLocator
 from .index_composition_analyzer import IndexCompositionAnalyzer
 from .indexing_options import IndexingOptions
 from .indexing_service import IndexingService
@@ -28,7 +30,9 @@ __all__ = [
     "EphemeralDeepIndexService",
     "EphemeralDeepSearchResult",
     "EvaluationStatistics",
+    "FileManifestItemBuilder",
     "GraphIndexingService",
+    "IdentifierAliasLocator",
     "IndexCompositionAnalyzer",
     "IndexingOptions",
     "IndexingService",

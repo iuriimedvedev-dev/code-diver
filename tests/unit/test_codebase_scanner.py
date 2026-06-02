@@ -142,6 +142,65 @@ class UserService:
     assert "UserService.create_user" in summaries[0].content
 
 
+def test_scanner_can_add_file_manifest_items(tmp_path: Path) -> None:
+    source = tmp_path / "src" / "main" / "kotlin" / "com" / "example" / "UserService.kt"
+    source.parent.mkdir(parents=True)
+    source.write_text(
+        """
+package com.example
+
+import com.example.auth.Authorizer
+
+class UserService {
+    fun updateUser() = Authorizer.authorize()
+}
+""".strip(),
+        encoding="utf-8",
+    )
+
+    items = CodebaseScanner(
+        include=["**/*.kt"],
+        line_chunks=False,
+        file_manifest_chunks=True,
+    ).scan(tmp_path)
+
+    manifests = [item for item in items if item.metadata["index_kind"] == "file_manifest"]
+    assert len(manifests) == 1
+    assert manifests[0].path == "src/main/kotlin/com/example/UserService.kt"
+    assert "path_tokens:" in manifests[0].content
+    assert "package: com.example" in manifests[0].content
+    assert "UserService" in manifests[0].content
+    assert "updateUser" in manifests[0].content
+    assert "com.example.auth.Authorizer" in manifests[0].content
+
+
+def test_file_manifest_extracts_config_keys(tmp_path: Path) -> None:
+    config = tmp_path / "META-INF" / "plugin.xml"
+    config.parent.mkdir()
+    config.write_text(
+        """
+<idea-plugin>
+  <extensions defaultExtensionNs="com.intellij">
+    <toolWindow id="User Tool"/>
+  </extensions>
+</idea-plugin>
+""".strip(),
+        encoding="utf-8",
+    )
+
+    items = CodebaseScanner(
+        include=["**/*.xml"],
+        line_chunks=False,
+        file_manifest_chunks=True,
+    ).scan(tmp_path)
+
+    manifest = next(item for item in items if item.metadata["index_kind"] == "file_manifest")
+    assert "config_keys:" in manifest.content
+    assert "idea-plugin" in manifest.content
+    assert "extensions" in manifest.content
+    assert "toolWindow" in manifest.content
+
+
 def test_scanner_can_limit_symbols_per_file(tmp_path: Path) -> None:
     (tmp_path / "app.kt").write_text(
         """

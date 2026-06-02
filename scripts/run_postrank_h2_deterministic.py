@@ -26,9 +26,10 @@ from code_diver.cli import (
 from code_diver.config import ConfigLoader
 from code_diver.domain import CodeItemIndexKindResolver
 from code_diver.generation import create_generation_provider
+from code_diver.graph import CodeGraphStore
 from code_diver.inspection import FileOutlineService, RgService, SymbolsService
 from code_diver.orchestration.json_response import JsonResponse
-from code_diver.services import DatasetLoader
+from code_diver.services import DatasetLoader, IdentifierAliasLocator
 from code_diver.store import create_vector_store
 from code_diver.agent.model_cost_estimator import ModelCostEstimator
 
@@ -102,6 +103,8 @@ class DeterministicPostrankH2:
             "planner_calls": 0,
             "planner_errors": 0,
             "query_variant_total": 0,
+            "alias_calls": 0,
+            "alias_candidate_count_total": 0,
             "rerank_calls": 0,
             "rerank_errors": 0,
             "rerank_error_attempts": 0,
@@ -118,6 +121,7 @@ class DeterministicPostrankH2:
             generation_provider = create_generation_provider(config)
             rerank = make_rerank_tool_handler(config, generation_provider)
             ephemeral = make_ephemeral_search_tool_handler(config)
+            alias_locator = self._alias_locator(config)
             outline = FileOutlineService(config.root, inspection_exclude_patterns(config), config.scanner.max_file_bytes)
             symbols = SymbolsService(config.root, inspection_exclude_patterns(config), config.scanner.max_file_bytes)
             rg = RgService(config.root, inspection_exclude_patterns(config), config.scanner.max_file_bytes)
@@ -149,6 +153,7 @@ class DeterministicPostrankH2:
                                 outline,
                                 symbols,
                                 rg,
+                                alias_locator,
                                 tool_metrics,
                             )
                         else:
@@ -164,6 +169,7 @@ class DeterministicPostrankH2:
                                 outline,
                                 symbols,
                                 rg,
+                                alias_locator,
                                 tool_metrics,
                             )
                     tool_metrics["candidate_count_total"] += len(candidates)
@@ -331,6 +337,7 @@ class DeterministicPostrankH2:
         outline: FileOutlineService,
         symbols: SymbolsService,
         rg: RgService,
+        alias_locator: IdentifierAliasLocator | None,
         metrics: dict[str, Any],
     ) -> list[dict[str, Any]]:
         profile_groups: list[tuple[list[dict[str, Any]], float]] = []
@@ -345,7 +352,11 @@ class DeterministicPostrankH2:
         metrics["union_candidate_count_total"] += len(self._dedupe_candidates(raw_union))
         union = self._balanced_candidate_mix(profile_groups, self.args.rerank_candidate_limit)
         probed = self._branch_a_candidates(query, union[: self.args.union_probe_files], outline, symbols, rg, metrics)
-        return self._balanced_candidate_mix([(union, 0.85), (probed, 0.15)], self.args.rerank_candidate_limit)
+        alias = self._alias_candidates(alias_locator, query, metrics, limit=max(24, self.locator_limit))
+        return self._balanced_candidate_mix(
+            [(union, 0.72), (alias, 0.18), (probed, 0.10)],
+            self.args.rerank_candidate_limit,
+        )
 
     def _branch_d_candidates(
         self,
@@ -358,6 +369,7 @@ class DeterministicPostrankH2:
         outline: FileOutlineService,
         symbols: SymbolsService,
         rg: RgService,
+        alias_locator: IdentifierAliasLocator | None,
         metrics: dict[str, Any],
     ) -> list[dict[str, Any]]:
         search_groups: list[tuple[list[dict[str, Any]], float]] = []
@@ -378,7 +390,54 @@ class DeterministicPostrankH2:
         metrics["union_candidate_count_total"] += len(self._dedupe_candidates(raw_union))
         union = self._priority_query_candidate_mix(search_groups, self.args.rerank_candidate_limit)
         probed = self._branch_a_candidates(query, union[: self.args.union_probe_files], outline, symbols, rg, metrics)
-        return self._balanced_candidate_mix([(union, 0.85), (probed, 0.15)], self.args.rerank_candidate_limit)
+        alias_rows: list[dict[str, Any]] = []
+        for search_query in searches[: max(int(self.args.query_variant_limit), 1)]:
+            alias_rows.extend(self._alias_candidates(alias_locator, search_query, metrics, limit=24))
+        alias = self._dedupe_candidates(alias_rows)
+        return self._balanced_candidate_mix(
+            [(union, 0.70), (alias, 0.20), (probed, 0.10)],
+            self.args.rerank_candidate_limit,
+        )
+
+    def _alias_locator(self, config: Any) -> IdentifierAliasLocator | None:
+        if not getattr(config.graph, "enabled", False):
+            return None
+        store = CodeGraphStore(config.graph.artifact)
+        if not store.exists():
+            return None
+        try:
+            return IdentifierAliasLocator(store.load())
+        except Exception:
+            return None
+
+    def _alias_candidates(
+        self,
+        alias_locator: IdentifierAliasLocator | None,
+        query: str,
+        metrics: dict[str, Any],
+        limit: int,
+    ) -> list[dict[str, Any]]:
+        if alias_locator is None:
+            return []
+        metrics["alias_calls"] += 1
+        rows = []
+        for candidate in alias_locator.search(query, limit):
+            rows.append(
+                {
+                    "id": f"{candidate.path}:identifier_alias",
+                    "path": candidate.path,
+                    "title": candidate.title,
+                    "startLine": None,
+                    "endLine": None,
+                    "score": candidate.score,
+                    "indexKind": "identifier_alias",
+                    "source": "identifier_alias",
+                    "preview": candidate.preview,
+                    "matchedAliases": list(candidate.matched_aliases),
+                }
+            )
+        metrics["alias_candidate_count_total"] += len(rows)
+        return rows
 
     def _union_locator_candidates(
         self,

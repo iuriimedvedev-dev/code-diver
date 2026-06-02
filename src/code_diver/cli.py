@@ -694,6 +694,7 @@ def make_codebase_scanner(config: AppConfig):
         symbol_chunks=config.scanner.symbol_chunks,
         symbol_body=config.scanner.symbol_body,
         file_summary_chunks=config.scanner.file_summary_chunks,
+        file_manifest_chunks=config.scanner.file_manifest_chunks,
         max_symbols_per_file=config.scanner.max_symbols_per_file,
     )
     mode = config.indexing.mode
