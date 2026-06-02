@@ -14,8 +14,8 @@ embedding:
   dimensions:
   url: http://127.0.0.1:8001/v1/embeddings
   api_key: local
-  batch_size: 64
-  workers: 1
+  batch_size: 128
+  workers: 4
   max_input_chars: 500
 
 generation:
