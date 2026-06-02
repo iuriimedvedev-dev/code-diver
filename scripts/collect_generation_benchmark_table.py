@@ -25,14 +25,19 @@ def main() -> int:
 
 def _rows(report: Path) -> list[dict[str, Any]]:
     data = json.loads(report.read_text(encoding="utf-8"))
+    index = data.get("index", {})
     rows = []
     for result in data.get("results", []):
+        embedding_model = index.get("model") or result.get("model", "")
+        embedding_provider = index.get("provider") or result.get("provider", "")
         for evaluation in result.get("evaluations", []):
             metrics = evaluation.get("metrics", {})
             usage = metrics.get("llm_usage", {})
             rows.append(
                 {
                     "source": report.name,
+                    "embedding_provider": embedding_provider,
+                    "embedding_model": embedding_model,
                     "model_name": result.get("name", ""),
                     "model": result.get("model", ""),
                     "precision": result.get("precision", ""),
@@ -40,6 +45,8 @@ def _rows(report: Path) -> list[dict[str, Any]]:
                     "strategy": evaluation.get("strategy", ""),
                     "startup_s": _rounded((result.get("server", {}).get("startup_duration_ms") or 0) / 1000, 1),
                     "hit1": _rounded(metrics.get("hit_rate@1"), 3),
+                    "hit3": _rounded(metrics.get("hit_rate@3"), 3),
+                    "hit5": _rounded(metrics.get("hit_rate@5"), 3),
                     "hit10": _rounded(metrics.get("hit_rate@10"), 3),
                     "mrr": _rounded(metrics.get("mrr@10"), 3),
                     "ndcg": _rounded(metrics.get("ndcg@10"), 3),
@@ -62,13 +69,13 @@ def _rounded(value: Any, digits: int) -> Any:
 
 def _markdown(rows: list[dict[str, Any]]) -> str:
     lines = [
-        "| source | model | strategy | precision | quant | startup_s | hit@1 | hit@10 | mrr | ndcg | map | mean_ms | p95_ms | calls | errors | tokens |",
-        "|---|---|---|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+        "| source | embedding | model | strategy | precision | quant | startup_s | hit@1 | hit@3 | hit@5 | hit@10 | mrr | ndcg | map | mean_ms | p95_ms | calls | errors | tokens |",
+        "|---|---|---|---|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for row in rows:
         lines.append(
-            "| {source} | `{model_name}` | `{strategy}` | {precision} | {quantization} | {startup_s} | "
-            "{hit1} | {hit10} | {mrr} | {ndcg} | {map} | {mean_ms} | {p95_ms} | {calls} | {errors} | {tokens} |".format(
+            "| {source} | `{embedding_provider}:{embedding_model}` | `{model_name}` | `{strategy}` | {precision} | {quantization} | {startup_s} | "
+            "{hit1} | {hit3} | {hit5} | {hit10} | {mrr} | {ndcg} | {map} | {mean_ms} | {p95_ms} | {calls} | {errors} | {tokens} |".format(
                 **row
             )
         )

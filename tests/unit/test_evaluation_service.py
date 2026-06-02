@@ -44,6 +44,7 @@ def test_evaluation_service_computes_ranked_metrics() -> None:
     assert metrics["mrr@2"] == 0.5
     assert metrics["hit_rate@1"] == 0.0
     assert metrics["hit_rate@3"] == 1.0
+    assert metrics["hit_rate@5"] == 1.0
     assert metrics["file_hit_rate@2"] == 1.0
     assert metrics["file_mrr@2"] == 0.5
     assert metrics["file_precision@R"] == 0.0
@@ -51,6 +52,7 @@ def test_evaluation_service_computes_ranked_metrics() -> None:
     assert metrics["ndcg@2"] == pytest.approx(0.6309297536)
     assert metrics["map@2"] == 0.5
     assert metrics["bucket.semantic.cases"] == 1
+    assert metrics["bucket.semantic.hit_rate@5"] == 1.0
     assert metrics["bucket.semantic.file_hit_rate@2"] == 1.0
     assert metrics["top_result_kind.chunk.rate"] == 1.0
     assert metrics["first_relevant_kind.file_summary.rate"] == 1.0

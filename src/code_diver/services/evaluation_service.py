@@ -74,6 +74,7 @@ class EvaluationService:
             f"recall@{limit}": self._mean(result.recall for result in results),
             "hit_rate@1": self._mean(1.0 if self._hit_at(result, 1) else 0.0 for result in results),
             "hit_rate@3": self._mean(1.0 if self._hit_at(result, 3) else 0.0 for result in results),
+            "hit_rate@5": self._mean(1.0 if self._hit_at(result, 5) else 0.0 for result in results),
             f"file_hit_rate@{limit}": self._mean(1.0 if result.file_hit else 0.0 for result in results),
             f"file_mrr@{limit}": self._mean(result.file_reciprocal_rank for result in results),
             "file_precision@R": self._mean(result.file_precision_at_r for result in results),
@@ -110,6 +111,7 @@ class EvaluationService:
             metrics[f"{prefix}.hit_rate@{limit}"] = self._mean(1.0 if result.hit else 0.0 for result in bucket_results)
             metrics[f"{prefix}.hit_rate@1"] = self._mean(1.0 if self._hit_at(result, 1) else 0.0 for result in bucket_results)
             metrics[f"{prefix}.hit_rate@3"] = self._mean(1.0 if self._hit_at(result, 3) else 0.0 for result in bucket_results)
+            metrics[f"{prefix}.hit_rate@5"] = self._mean(1.0 if self._hit_at(result, 5) else 0.0 for result in bucket_results)
             metrics[f"{prefix}.file_hit_rate@{limit}"] = self._mean(
                 1.0 if result.file_hit else 0.0 for result in bucket_results
             )

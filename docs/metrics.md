@@ -17,12 +17,13 @@ An item is counted as relevant when its indexed id matches an expected id exactl
 | Metric | Meaning | Good value | What it tells us |
 | --- | --- | ---: | --- |
 | `cases` | Number of evaluation cases included in the run. | Higher is better for confidence. | Small values make results noisy. Current protogen eval has 10 cases, so treat differences below ~0.1 carefully. |
-| `hit_rate@10` | Fraction of cases where at least one relevant item appears in the top 10. | `1.0` | Measures whether a user or agent would see any useful result in the first page. This is the main quality guardrail. |
+| `hit_rate@10` | Fraction of cases where at least one relevant item appears in the top 10. | `1.0` | Measures candidate recall. Useful for diagnosing whether reranking even has a chance, but too loose for the final user-visible result. |
 | `mrr@10` | Mean reciprocal rank of the first relevant item in top 10. Rank 1 = `1.0`, rank 2 = `0.5`, rank 10 = `0.1`, no hit = `0`. | `1.0` | Measures ranking quality. High hit rate with low MRR means relevant files are present but buried. |
 | `precision@10` | Relevant retrieved items divided by retrieved items, averaged across cases. | `1.0` | Measures result cleanliness. Low precision means the model will waste context tokens on irrelevant snippets. |
 | `recall@10` | Expected relevant targets found in top 10, averaged across cases. | `1.0` | Measures coverage when a case has multiple expected files. |
 | `hit_rate@1` | Fraction of cases where the first retrieved item is relevant. | `1.0` | Strong proxy for whether the first answer citation will be correct. |
-| `hit_rate@3` | Fraction of cases where any of the first three retrieved items is relevant. | `1.0` | More realistic first-screen quality than top-10 hit rate. |
+| `hit_rate@3` | Fraction of cases where any of the first three retrieved items is relevant. | `1.0` | Primary short-list quality metric. If this is weak, the searcher will waste verification reads. |
+| `hit_rate@5` | Fraction of cases where any of the first five retrieved items is relevant. | `1.0` | Main practical context-budget metric for the AI searcher. This is a better target than top-10. |
 | `file_hit_rate@10` | Fraction of cases where any deduplicated retrieved file matches expected files. | `1.0` | Removes repeated chunk effects from `hit_rate@10`. |
 | `file_mrr@10` | MRR over deduplicated file paths instead of chunks/symbols. | `1.0` | Measures whether the right file appears early, regardless of chunk multiplicity. |
 | `file_precision@R` | Precision over the first R deduplicated files, where R is the number of expected targets. | `1.0` | Main cleanliness metric for code search; avoids penalizing single-file answers for not filling 10 slots. |
@@ -50,9 +51,9 @@ An item is counted as relevant when its indexed id matches an expected id exactl
 
 ## How To Read The Metrics
 
-Use `hit_rate@10` first. If it is low, the strategy misses the target files and is not production-ready.
+Use `hit_rate@10` only as the candidate-recall check. If it is low, the strategy misses the target files and reranking cannot save it.
 
-Use `mrr@10` second. If hit rate is acceptable but MRR is low, reranking or path/symbol boosting should be the next step.
+Use `hit_rate@3`, `hit_rate@5`, and `mrr@10` next. These tell us whether the relevant item is high enough for a real AI searcher to inspect without burning reads.
 
 Use `precision@10` to estimate token waste. A strategy with high hit rate and low precision can answer simple questions but will inflate context and cost.
 
@@ -60,8 +61,8 @@ Use `duration_ms` only together with backend details. JSON vector search is brut
 
 For AI indexing hypotheses, read quality and cost together:
 
-1. Reject low `hit_rate@10`.
-2. Among acceptable hit rates, prefer higher `mrr@10`.
+1. Reject low `hit_rate@10`; it means candidate generation is failing.
+2. Among acceptable candidate recall, optimize `hit_rate@3`, `hit_rate@5`, and `mrr@10`.
 3. Among similar MRR, prefer lower `orchestrator_usage.total_tokens`, `orchestrator_usage.total_cost`, and `indexing_duration_ms`.
 4. Use `indexed_items` and `precision@10` to detect indexes that are too broad and waste context.
 5. Open `log_path` when a run is surprising; the log is the source of truth for what the model actually did.
