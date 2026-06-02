@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 import re
 from collections import Counter
+from collections import defaultdict
 from pathlib import Path
 
 from ..domain import CodeItem, CodeItemIndexKind, CodeItemIndexKindResolver
@@ -19,14 +20,18 @@ class IdentifierAliasLocator:
         self.documents = self._documents(graph)
         self.document_frequency = self._document_frequency(self.documents)
         self.average_length = self._average_length(self.documents)
+        self.document_indexes_by_token = self._document_indexes_by_token(self.documents)
 
     def search(self, query: str, limit: int) -> list[IdentifierAliasCandidate]:
         query_tokens = tuple(token for token in tokenize(query) if len(token) >= 2)
         if not query_tokens or limit <= 0:
             return []
+        candidate_indexes = self._candidate_indexes(query_tokens)
+        if not candidate_indexes:
+            return []
         scored = [
             self._score_document(document, query_tokens)
-            for document in self.documents
+            for document in (self.documents[index] for index in candidate_indexes)
         ]
         scored = [candidate for candidate in scored if candidate.score > 0]
         scored.sort(key=lambda candidate: (candidate.score, candidate.path), reverse=True)
@@ -149,6 +154,19 @@ class IdentifierAliasLocator:
         for document in documents:
             frequency.update(document.tokens.keys())
         return frequency
+
+    def _document_indexes_by_token(self, documents: list[IdentifierAliasDocument]) -> dict[str, tuple[int, ...]]:
+        indexes: dict[str, list[int]] = defaultdict(list)
+        for index, document in enumerate(documents):
+            for token in document.tokens:
+                indexes[token].append(index)
+        return {token: tuple(values) for token, values in indexes.items()}
+
+    def _candidate_indexes(self, query_tokens: tuple[str, ...]) -> list[int]:
+        indexes: set[int] = set()
+        for token in query_tokens:
+            indexes.update(self.document_indexes_by_token.get(token, ()))
+        return list(indexes)
 
     def _average_length(self, documents: list[IdentifierAliasDocument]) -> float:
         if not documents:

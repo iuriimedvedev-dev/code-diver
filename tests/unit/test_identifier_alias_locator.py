@@ -79,3 +79,29 @@ config_keys:
 
     assert results[0].path.endswith("META-INF/plugin.xml")
     assert "plugin" in results[0].matched_aliases
+
+
+def test_identifier_alias_locator_uses_token_candidates_only() -> None:
+    graph = CodeGraph(
+        items={
+            "auth": CodeItem(
+                id="auth",
+                path="src/auth/AuthTokenService.kt",
+                title="AuthTokenService.kt::file_manifest",
+                content="filename: AuthTokenService.kt\nsymbols:\n- class AuthTokenService",
+                metadata={"index_kind": "file_manifest"},
+            ),
+            "billing": CodeItem(
+                id="billing",
+                path="src/billing/BillingLedger.kt",
+                title="BillingLedger.kt::file_manifest",
+                content="filename: BillingLedger.kt\nsymbols:\n- class BillingLedger",
+                metadata={"index_kind": "file_manifest"},
+            ),
+        },
+        edges=[],
+    )
+
+    results = IdentifierAliasLocator(graph).search("auth token", 10)
+
+    assert [result.path for result in results] == ["src/auth/AuthTokenService.kt"]
