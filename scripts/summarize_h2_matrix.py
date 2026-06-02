@@ -58,7 +58,7 @@ RUNS = [
     },
     {
         "id": "gemini_flash_35_h3_multi",
-        "ranker": "Gemini 3.5 Flash",
+        "ranker": "Gemini 3.5 Flash (multi-expected)",
         "final": ".code-diver/reports/intellij-h3-union-gemini-flash-35-1000-multi.json",
         "partials": ".code-diver/reports/partials-h3-gemini-flash-35-1000-multi",
     },
