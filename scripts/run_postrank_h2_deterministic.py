@@ -746,7 +746,7 @@ Input query: {query}
         if not deduped_groups:
             return selected
 
-        base_quota = min(max(int(limit * 0.50), 30), limit)
+        base_quota = min(max(int(limit * 0.50), self.locator_limit), limit)
         self._append_candidates(selected, seen, deduped_groups[0][0], base_quota)
 
         priority_variant_quota = max(10, int(limit * 0.16))
