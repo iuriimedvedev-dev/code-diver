@@ -71,7 +71,13 @@ def test_search_prompt_describes_hybrid_tool_routing_policy() -> None:
         hypothesis_name="hybrid",
         query="where is command creation handled?",
         tool_manifest=json.dumps(
-            [{"name": "code_diver_search"}, {"name": "code_diver_outline"}, {"name": "code_diver_symbols"}]
+            [
+                {"name": "code_diver_search"},
+                {"name": "code_diver_outline"},
+                {"name": "code_diver_symbols"},
+                {"name": "code_diver_read"},
+                {"name": "code_diver_rg"},
+            ]
         ),
         history=[],
         limit=10,
@@ -80,11 +86,34 @@ def test_search_prompt_describes_hybrid_tool_routing_policy() -> None:
     assert "Hybrid tool policy" in prompt
     assert "Semantic or informal" in prompt
     assert "Class/function/method/command/handler/service/model/schema" in prompt
-    assert "multiple signals or by direct read evidence" in prompt
+    assert "multiple allowed signals or by direct evidence from the available tools" in prompt
     assert "Never call code_diver_symbols without path" in prompt
-    assert "prefer code_diver_outline or scoped code_diver_symbols before code_diver_read" in prompt
+    assert "prefer code_diver_outline before code_diver_read" in prompt
     assert "code_diver_read has a hard budget of 10 calls per case" in prompt
-    assert "Verify cheaply with code_diver_grep/code_diver_rg" in prompt
+    assert "Verify cheaply with code_diver_rg, code_diver_outline, code_diver_symbols" in prompt
+
+
+def test_search_prompt_only_mentions_available_tools() -> None:
+    prompt = DirectSearchPromptBuilder().build(
+        hypothesis_name="ephemeral_rerank_only",
+        query="where is user update?",
+        tool_manifest=json.dumps(
+            [
+                {"name": "code_diver_search"},
+                {"name": "code_diver_ephemeral_search"},
+                {"name": "code_diver_rerank"},
+            ]
+        ),
+        history=[],
+        limit=10,
+    )
+
+    assert "Never call a tool that is not listed" in prompt
+    assert "code_diver_ephemeral_search is a localized deep vector search tool" in prompt
+    assert "code_diver_read has a hard budget" not in prompt
+    assert "code_diver_read is for verification" not in prompt
+    assert "code_diver_grep" not in prompt
+    assert "code_diver_symbols" not in prompt
 
 
 def test_search_prompt_describes_rerank_tool_when_available() -> None:

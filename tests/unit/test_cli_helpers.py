@@ -8,6 +8,7 @@ import pytest
 from code_diver.cli import (
     cmd_monitor,
     config_for_indexing_hypothesis,
+    direct_search_eval_result,
     make_embedding_provider,
     make_ephemeral_search_tool_handler,
     make_search_tool_handler,
@@ -19,7 +20,7 @@ from code_diver.config.scanner_config import ScannerConfig
 from code_diver.config.qdrant_config import QdrantConfig
 from code_diver.config.storage_config import StorageConfig
 from code_diver.config.trace_config import TraceConfig
-from code_diver.domain import CodeItem, SearchResult
+from code_diver.domain import CodeItem, EvalCase, SearchResult
 
 
 pytestmark = pytest.mark.unit
@@ -121,6 +122,16 @@ def test_make_ephemeral_search_tool_handler_returns_timing_metrics(
     assert payload["metrics"]["temporary_vectors"] > 0
     assert payload["metrics"]["ephemeral_build_ms"] >= 0.0
     assert payload["metrics"]["ephemeral_query_ms"] >= 0.0
+
+
+def test_direct_search_eval_result_classifies_query_bucket() -> None:
+    result = direct_search_eval_result(
+        EvalCase(id="case", query="where is command dispatched", expected=["src/commands.py"]),
+        ["src/commands.py#handler"],
+        10,
+    )
+
+    assert result.bucket != "unknown"
 
 
 def test_openai_compatible_provider_does_not_inherit_store_dimensions() -> None:

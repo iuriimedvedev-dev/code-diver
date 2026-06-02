@@ -1,0 +1,258 @@
+root: ../intellij-community
+artifact: .code-diver/intellij-postrank-h2-index.json
+
+storage:
+  provider: qdrant
+  qdrant:
+    url: http://localhost:6333
+    collection: intellij_community_file_locator_local_qwen__staging_e8f89cf3f8dd466392e96e99fecbe492
+    batch_size: 1024
+
+embedding:
+  provider: openai_compatible
+  model: mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ
+  dimensions:
+  url: http://127.0.0.1:8001/v1/embeddings
+  api_key: local
+  batch_size: 64
+  workers: 1
+  max_input_chars: 400
+
+generation:
+  provider: vertex
+  model: gemini-3.5-flash
+  fallback_models:
+    - gemini-2.5-flash
+  project: "236777862453"
+  location: global
+  temperature: 0
+  thinking_budget: 1024
+  api_version: v1
+  timeout_ms: 30000
+
+indexing:
+  mode: scanner
+
+scanner:
+  include:
+    - README.md
+    - CONTRIBUTING.md
+    - build.gradle
+    - build.gradle.kts
+    - settings.gradle
+    - settings.gradle.kts
+    - "**/*.java"
+    - "**/*.kt"
+    - "**/*.kts"
+    - "**/*.xml"
+    - "**/*.properties"
+    - "**/*.gradle"
+    - "**/*.gradle.kts"
+    - "**/*.md"
+    - "**/*.json"
+    - "**/*.yaml"
+    - "**/*.yml"
+  exclude:
+    - .idea/**
+    - .gradle/**
+    - .ijwb/**
+    - bazel-*/**
+    - build/**
+    - out/**
+    - dist/**
+    - target/**
+    - "**/build/**"
+    - "**/out/**"
+    - "**/test/**"
+    - "**/tests/**"
+    - "**/testData/**"
+    - "**/testdata/**"
+    - "**/generated/**"
+    - "**/gen/**"
+    - "**/.cache/**"
+    - "**/node_modules/**"
+    - "**/*.class"
+    - "**/*.jar"
+    - "**/*.zip"
+    - "**/*.png"
+    - "**/*.jpg"
+    - "**/*.jpeg"
+    - "**/*.gif"
+    - "**/*.ico"
+    - "**/*.svg"
+  max_file_bytes: 1000000
+  line_chunks: false
+  chunk_lines: 220
+  structural_chunks: true
+  symbol_chunks: true
+  symbol_body: true
+  file_summary_chunks: false
+  max_symbols_per_file: 32
+
+search:
+  limit: 10
+  preview_lines: 10
+  strategy: hybrid
+
+hybrid_search:
+  candidate_limit: 220
+  lexical_candidate_limit: 650
+  vector_weight: 0.38
+  lexical_weight: 0.34
+  path_weight: 0.18
+  symbol_weight: 0.10
+  symbol_match_weight: 0.10
+  graph_weight: 0.0
+  file_vote_weight: 0.0
+  graph_depth: 0
+  graph_neighbor_limit: 0
+  vector_kind_limits:
+    file_summary: 220
+  vector_kind_multipliers:
+    file_summary: 1.0
+  routing_enabled: true
+  lexical_scoring: bm25
+  fusion: weighted
+  preserve_vector_top: true
+  vector_top_score_margin: 0.03
+  item_kind_weights:
+    file_summary: 1.0
+  min_token_length: 3
+
+llm_rerank:
+  candidate_limit: 30
+  max_preview_chars: 550
+  mode: file_first
+  include_reasons: false
+  preserve_top_candidate: false
+
+graph:
+  enabled: false
+  artifact: .code-diver/intellij-postrank-h2-graph.json
+
+trace:
+  enabled: true
+  artifact: .code-diver/traces/intellij-postrank-h2.jsonl
+  include_prompts: true
+
+evaluation:
+  dataset: datasets/intellij_eval_1000.jsonl
+  limit: 10
+  workers: 1
+
+experiments:
+  suite: intellij-postrank-h2
+  strategies:
+    - hybrid
+  hypotheses:
+    - name: h2a_grep_read_rerank_qwen35_4b
+      tools:
+        - code_diver_search
+        - code_diver_outline
+        - code_diver_symbols
+        - code_diver_rg
+        - code_diver_grep
+        - code_diver_read
+        - code_diver_rerank
+      generation:
+        provider: openai_compatible
+        model: mlx-community/Qwen3.5-4B-OptiQ-4bit
+        url: http://127.0.0.1:8012/v1/chat/completions
+        api_key: local
+        temperature: 0
+        thinking_budget:
+        timeout_ms: 120000
+      description: "Branch A: locator files, then Qwen3.5 4B uses outline/symbol/grep/rg/read plus rerank."
+    - name: h2a_grep_read_rerank_gemini_flash_lite
+      tools:
+        - code_diver_search
+        - code_diver_outline
+        - code_diver_symbols
+        - code_diver_rg
+        - code_diver_grep
+        - code_diver_read
+        - code_diver_rerank
+      generation:
+        provider: vertex
+        model: gemini-3.1-flash-lite
+        fallback_models: []
+        project: "236777862453"
+        location: global
+        temperature: 0
+        thinking_budget: 256
+        api_version: v1
+        timeout_ms: 30000
+      description: "Branch A: locator files, then Gemini Flash-Lite uses outline/symbol/grep/rg/read plus rerank."
+    - name: h2a_grep_read_rerank_gemini_flash_35
+      tools:
+        - code_diver_search
+        - code_diver_outline
+        - code_diver_symbols
+        - code_diver_rg
+        - code_diver_grep
+        - code_diver_read
+        - code_diver_rerank
+      generation:
+        provider: vertex
+        model: gemini-3.5-flash
+        fallback_models:
+          - gemini-2.5-flash
+        project: "236777862453"
+        location: global
+        temperature: 0
+        thinking_budget: 1024
+        api_version: v1
+        timeout_ms: 30000
+      description: "Branch A: locator files, then Gemini 3.5 Flash uses outline/symbol/grep/rg/read plus rerank."
+    - name: h2b_ephemeral_rerank_qwen35_4b
+      tools:
+        - code_diver_search
+        - code_diver_ephemeral_search
+        - code_diver_rerank
+      generation:
+        provider: openai_compatible
+        model: mlx-community/Qwen3.5-4B-OptiQ-4bit
+        url: http://127.0.0.1:8012/v1/chat/completions
+        api_key: local
+        temperature: 0
+        thinking_budget:
+        timeout_ms: 120000
+      description: "Branch B: locator files, then Qwen3.5 4B calls ephemeral syntax-aware local vector search and reranks."
+    - name: h2b_ephemeral_rerank_gemini_flash_lite
+      tools:
+        - code_diver_search
+        - code_diver_ephemeral_search
+        - code_diver_rerank
+      generation:
+        provider: vertex
+        model: gemini-3.1-flash-lite
+        fallback_models: []
+        project: "236777862453"
+        location: global
+        temperature: 0
+        thinking_budget: 256
+        api_version: v1
+        timeout_ms: 30000
+      description: "Branch B: locator files, then Gemini Flash-Lite calls ephemeral syntax-aware local vector search and reranks."
+    - name: h2b_ephemeral_rerank_gemini_flash_35
+      tools:
+        - code_diver_search
+        - code_diver_ephemeral_search
+        - code_diver_rerank
+      generation:
+        provider: vertex
+        model: gemini-3.5-flash
+        fallback_models:
+          - gemini-2.5-flash
+        project: "236777862453"
+        location: global
+        temperature: 0
+        thinking_budget: 1024
+        api_version: v1
+        timeout_ms: 30000
+      description: "Branch B: locator files, then Gemini 3.5 Flash calls ephemeral syntax-aware local vector search and reranks."
+
+metrics:
+  enabled: false
+
+plugins: []

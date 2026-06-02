@@ -16,48 +16,41 @@ class DirectSearchPromptBuilder:
         history: list[dict[str, Any]],
         limit: int,
     ) -> str:
+        tool_names = self._tool_names(tool_manifest)
         return "\n\n".join(
             [
-                self._instructions(hypothesis_name, limit, self._tool_call_example(tool_manifest)),
+                self._instructions(hypothesis_name, limit, self._tool_call_example(tool_manifest), tool_names),
                 "Available tools:\n" + tool_manifest,
                 f"User search query:\n{query}",
                 "Conversation so far:\n" + self._history(history),
             ]
         )
 
-    def _instructions(self, hypothesis_name: str, limit: int, tool_call_example: dict[str, Any]) -> str:
+    def _instructions(
+        self,
+        hypothesis_name: str,
+        limit: int,
+        tool_call_example: dict[str, Any],
+        tool_names: set[str],
+    ) -> str:
+        tool_guidance = "\n".join(self._tool_guidance(tool_names))
+        policy = "\n".join(self._routing_policy(tool_names))
+        default_flow = "\n".join(self._default_flow(tool_names))
         return f"""
 You are a universal hybrid code-search orchestrator for hypothesis `{hypothesis_name}`.
 Use only the listed read-only tools. Find code locations that answer the user's informal query.
 Return JSON only. Do not invent paths. Prefer precise files or code ranges with direct evidence.
-Tool observations are structured JSON. grep/rg/symbols/outline/tree return candidates, metrics, file names, and line numbers by default; request source text only through code_diver_read or includeText=true when absolutely necessary.
+Never call a tool that is not listed in Available tools for this hypothesis.
+Tool observations are structured JSON. Candidate-producing tools return metrics, file names, and line numbers by default.
 The runtime executes independent tool_calls in parallel. When several cheap probes are useful, put them in the same tool_calls array instead of waiting for another round.
-code_diver_read has a hard budget of 10 calls per case. Treat that as a maximum, not a target.
-code_diver_rerank is an AI ranking tool. It does not discover candidates. Use it after search/rg/grep/symbols returned plausible structured candidates; omit candidates to rerank the current candidate bank, or pass explicit candidates/candidateIds.
-code_diver_ephemeral_search is a localized deep vector search tool. It builds/searches a temporary syntax-aware index only over candidate files from earlier tool results. Use it after the locator found likely files, not as first-pass discovery.
-If this hypothesis name contains "rerank" and code_diver_rerank is available, you MUST call code_diver_rerank after the first candidate-producing tool returns candidates and before returning final results.
+{tool_guidance}
 If this hypothesis name contains "adaptive", "agentic", or "deep", you are expected to run an iterative search loop: first generate candidates, then run at least one different targeted probe or rewritten-query pass, then rank/verify before final results. Do not stop after a single weak candidate list.
 
 Hybrid tool policy:
-- Semantic or informal "where is X handled" queries: call code_diver_search first. It is the primary hybrid vector/BM25/symbol/GraphRAG candidate generator.
-- Path, config, docker, package, frontend, or filename queries: run code_diver_search and code_diver_tree/code_diver_rg in parallel.
-- Class/function/method/command/handler/service/model/schema queries: run code_diver_search first or in parallel with code_diver_symbols only when symbols is scoped to a known path such as src, a likely package directory, or a top candidate file. Never call code_diver_symbols without path when code_diver_search is available.
-- Once candidate files exist, prefer code_diver_outline or scoped code_diver_symbols before code_diver_read. Outline gives imports, symbols, signatures, and line ranges without spending read budget.
-- Workflow queries such as called, created, dispatched, registered, routed, pipeline, strategy, execution: run code_diver_search with workflow terms and one scoped structural probe such as code_diver_symbols/code_diver_outline with path from a candidate file/directory or a narrow code_diver_rg.
-- Exact strings, config keys, CLI flags, error names: use code_diver_grep or code_diver_rg as an exact probe, preferably parallel with code_diver_search.
-- For vague semantic/workflow queries where top candidate files are known but grep/symbol evidence is weak, use code_diver_ephemeral_search over those files and inspect its returned chunks.
-- If code_diver_rerank is available and candidates are plausible but ordering is uncertain, call code_diver_rerank before final results. Do not call it in the same parallel batch as the candidate-producing search.
-- code_diver_read is for verification after candidates exist. Read only tiny, targeted ranges from top candidate files, usually 20-60 lines around a symbol, route, handler, setting, or exact match found by outline/symbols/grep/rg. Do not read whole files or many nearby ranges when grep/rg can verify the anchor faster.
-- If tool outputs disagree, prefer files supported by multiple signals or by direct read evidence.
+{policy}
 Default search flow:
-1. Generate candidates with code_diver_search using the user's original wording.
-2. If recall looks weak or the query is workflow/ambiguous, run a second candidate pass with rewritten search terms or a different tool: scoped symbols, rg, grep, or inspect.
-3. If candidate files exist but evidence is semantic rather than lexical, call code_diver_ephemeral_search on those files.
-4. Verify cheaply with code_diver_grep/code_diver_rg for concrete anchors, or code_diver_outline/scoped code_diver_symbols for structural anchors.
-5. Use code_diver_rerank when final ordering is ambiguous and the tool is available.
-6. Use code_diver_read only for the few final candidate ranges that need source evidence.
-7. Return ranked results once there is enough evidence instead of issuing another broad search.
-After any tool returns plausible candidates, prefer reranking or returning from those candidates instead of issuing another broad search or another read batch. In rerank hypotheses, rerank first.
+{default_flow}
+After any tool returns plausible candidates, prefer reranking or returning from those candidates instead of issuing another broad search. In rerank hypotheses, rerank first.
 
 When you need more evidence:
 {{
@@ -76,6 +69,93 @@ When ready, return up to {limit} results:
   "final": "short summary"
 }}
 """.strip()
+
+    def _tool_names(self, tool_manifest: str) -> set[str]:
+        try:
+            tools = json.loads(tool_manifest)
+        except json.JSONDecodeError:
+            return set()
+        return {str(tool.get("name") or "") for tool in tools if isinstance(tool, dict)}
+
+    def _tool_guidance(self, names: set[str]) -> list[str]:
+        lines: list[str] = []
+        if "code_diver_read" in names:
+            lines.append("code_diver_read has a hard budget of 10 calls per case. Treat that as a maximum, not a target.")
+        if "code_diver_rerank" in names:
+            lines.append(
+                "code_diver_rerank is an AI ranking tool. It does not discover candidates. Use it after candidate tools returned plausible structured candidates; omit candidates to rerank the current candidate bank, or pass explicit candidates/candidateIds."
+            )
+            lines.append(
+                'If this hypothesis name contains "rerank" and code_diver_rerank is available, you MUST call code_diver_rerank after the first candidate-producing tool returns candidates and before returning final results.'
+            )
+        if "code_diver_ephemeral_search" in names:
+            lines.append(
+                "code_diver_ephemeral_search is a localized deep vector search tool. It builds/searches a temporary syntax-aware index only over candidate files from earlier tool results. Use it after the locator found likely files, not as first-pass discovery."
+            )
+        return lines or ["Use the available tools exactly as listed; if no tool can add evidence, return the best candidates already observed."]
+
+    def _routing_policy(self, names: set[str]) -> list[str]:
+        lines: list[str] = []
+        if "code_diver_search" in names:
+            lines.append(
+                '- Semantic or informal "where is X handled" queries: call code_diver_search first. It is the primary hybrid vector/BM25/symbol/GraphRAG candidate generator.'
+            )
+        if "code_diver_tree" in names or "code_diver_rg" in names:
+            parts = [tool for tool in ["code_diver_tree", "code_diver_rg"] if tool in names]
+            lines.append(f"- Path, config, package, frontend, or filename queries: use {' and '.join(parts)} when they can narrow the file neighborhood.")
+        if "code_diver_symbols" in names:
+            prefix = "run code_diver_search first or in parallel with " if "code_diver_search" in names else "run "
+            lines.append(
+                f"- Class/function/method/command/handler/service/model/schema queries: {prefix}code_diver_symbols only when scoped to a known path such as src, a likely package directory, or a top candidate file. Never call code_diver_symbols without path when code_diver_search is available."
+            )
+        if "code_diver_outline" in names:
+            read_suffix = " before code_diver_read" if "code_diver_read" in names else ""
+            lines.append(
+                f"- Once candidate files exist, prefer code_diver_outline{read_suffix}. Outline gives imports, symbols, signatures, and line ranges without reading source bodies."
+            )
+        workflow_tools = [tool for tool in ["code_diver_search", "code_diver_symbols", "code_diver_outline", "code_diver_rg"] if tool in names]
+        if workflow_tools:
+            lines.append(
+                f"- Workflow queries such as called, created, dispatched, registered, routed, pipeline, strategy, execution: combine {', '.join(workflow_tools[:3])} with rewritten workflow terms."
+            )
+        exact_tools = [tool for tool in ["code_diver_grep", "code_diver_rg"] if tool in names]
+        if exact_tools:
+            lines.append(
+                f"- Exact strings, config keys, CLI flags, error names: use {' or '.join(exact_tools)} as an exact probe, preferably parallel with semantic search when available."
+            )
+        if "code_diver_ephemeral_search" in names:
+            lines.append(
+                "- For vague semantic/workflow queries where top candidate files are known but lexical evidence is weak, use code_diver_ephemeral_search over those files and inspect its returned chunks."
+            )
+        if "code_diver_rerank" in names:
+            lines.append(
+                "- If candidates are plausible but ordering is uncertain, call code_diver_rerank before final results. Do not call it in the same parallel batch as the candidate-producing search."
+            )
+        if "code_diver_read" in names:
+            lines.append(
+                "- code_diver_read is for verification after candidates exist. Read only tiny, targeted ranges from top candidate files, usually 20-60 lines around a symbol, route, handler, setting, or exact match."
+            )
+        lines.append("- If tool outputs disagree, prefer files supported by multiple allowed signals or by direct evidence from the available tools.")
+        return lines
+
+    def _default_flow(self, names: set[str]) -> list[str]:
+        steps: list[str] = []
+        if "code_diver_search" in names:
+            steps.append("Generate candidates with code_diver_search using the user's original wording.")
+        candidate_tools = [tool for tool in ["code_diver_symbols", "code_diver_rg", "code_diver_grep", "code_diver_outline"] if tool in names]
+        if candidate_tools:
+            steps.append(f"If recall looks weak or the query is ambiguous, run a second candidate pass with {', '.join(candidate_tools)}.")
+        if "code_diver_ephemeral_search" in names:
+            steps.append("If candidate files exist and evidence is semantic rather than lexical, call code_diver_ephemeral_search on those files.")
+        verification_tools = [tool for tool in ["code_diver_grep", "code_diver_rg", "code_diver_outline", "code_diver_symbols"] if tool in names]
+        if verification_tools:
+            steps.append(f"Verify cheaply with {', '.join(verification_tools)} for concrete anchors.")
+        if "code_diver_rerank" in names:
+            steps.append("Use code_diver_rerank when final ordering is ambiguous.")
+        if "code_diver_read" in names:
+            steps.append("Use code_diver_read only for the few final candidate ranges that need source evidence.")
+        steps.append("Return ranked results once there is enough evidence instead of issuing another broad search.")
+        return [f"{index}. {step}" for index, step in enumerate(steps, start=1)]
 
     def _tool_call_example(self, tool_manifest: str) -> dict[str, Any]:
         try:

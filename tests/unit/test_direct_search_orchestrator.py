@@ -312,6 +312,72 @@ def test_direct_search_orchestrator_forces_rerank_for_rerank_hypothesis(tmp_path
     assert len(forced_calls) == 1
 
 
+def test_direct_search_orchestrator_forces_ephemeral_before_rerank_for_ephemeral_hypothesis(tmp_path: Path) -> None:
+    log_path = tmp_path / "search.jsonl"
+    provider = FakeSearchGenerationProvider(
+        [
+            json.dumps(
+                {
+                    "reason": "generate candidates",
+                    "tool_calls": [{"name": "code_diver_search", "arguments": {"query": "auth", "limit": 2}}],
+                }
+            ),
+            json.dumps(
+                {
+                    "reason": "tries to skip ephemeral",
+                    "tool_calls": [{"name": "code_diver_rerank", "arguments": {"query": "auth", "limit": 2}}],
+                }
+            ),
+            json.dumps(
+                {
+                    "reason": "premature final",
+                    "results": [{"path": "src/chunk.py"}],
+                    "final": "done",
+                }
+            ),
+            json.dumps(
+                {
+                    "reason": "use forced rerank",
+                    "results": [{"path": "src/chunk.py"}],
+                    "final": "done",
+                }
+            ),
+        ]
+    )
+
+    def search_handler(query: str, limit: int) -> str:
+        return json.dumps([{"id": "file", "path": "src/file.py", "title": "File", "score": 0.9}])
+
+    def ephemeral_handler(query: str, files: list[str], limit: int, args: dict) -> dict:
+        assert files == ["src/file.py"]
+        return {
+            "candidates": [{"id": "chunk", "path": "src/chunk.py", "title": "Chunk", "score": 0.95}],
+            "metrics": {"temporaryVectors": 1},
+        }
+
+    def rerank_handler(query: str, candidates: list[dict], limit: int, args: dict) -> dict:
+        return {
+            "candidates": [candidate for candidate in candidates if candidate.get("path") == "src/chunk.py"],
+            "metrics": {"modelCalls": 1, "inputTokens": 10, "outputTokens": 2, "totalTokens": 12},
+        }
+
+    result = DirectSearchOrchestrator(
+        root=tmp_path,
+        generation_provider=provider,
+        allowed_tools=["code_diver_search", "code_diver_ephemeral_search", "code_diver_rerank"],
+        log_path=log_path,
+        search_handler=search_handler,
+        ephemeral_search_handler=ephemeral_handler,
+        rerank_handler=rerank_handler,
+    ).search(hypothesis_name="h2b_ephemeral_rerank", case_id="case-1", query="where is auth?", limit=10)
+
+    assert result.error is None
+    assert result.retrieved == ["src/chunk.py"]
+    events = [json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines()]
+    tool_calls = [event["payload"]["name"] for event in events if event["event"] == "tool_call"]
+    assert tool_calls == ["code_diver_search", "code_diver_ephemeral_search", "code_diver_rerank"]
+
+
 def test_direct_search_orchestrator_extends_final_results_with_reranked_candidates(tmp_path: Path) -> None:
     log_path = tmp_path / "search.jsonl"
     provider = FakeSearchGenerationProvider(
@@ -364,6 +430,75 @@ def test_direct_search_orchestrator_extends_final_results_with_reranked_candidat
 
     assert result.error is None
     assert result.retrieved == ["src/b.py", "src/c.py", "src/a.py"]
+
+
+def test_direct_search_orchestrator_returns_candidates_when_agent_stops_calling_tools(tmp_path: Path) -> None:
+    log_path = tmp_path / "search.jsonl"
+    provider = FakeSearchGenerationProvider(
+        [
+            json.dumps(
+                {
+                    "reason": "generate candidates",
+                    "tool_calls": [{"name": "code_diver_search", "arguments": {"query": "auth", "limit": 2}}],
+                }
+            ),
+            json.dumps({"reason": "invalid empty turn"}),
+        ]
+    )
+
+    def search_handler(query: str, limit: int) -> str:
+        return json.dumps(
+            [
+                {"id": "a", "path": "src/a.py", "title": "A", "score": 0.9},
+                {"id": "b", "path": "src/b.py", "title": "B", "score": 0.8},
+            ]
+        )
+
+    result = DirectSearchOrchestrator(
+        root=tmp_path,
+        generation_provider=provider,
+        allowed_tools=["code_diver_search"],
+        log_path=log_path,
+        search_handler=search_handler,
+    ).search(hypothesis_name="search_only", case_id="case-1", query="where is auth?", limit=10)
+
+    assert result.error == "agent_returned_no_tool_calls_or_results"
+    assert result.retrieved == ["src/a.py", "src/b.py"]
+    events = [json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines()]
+    completed = [event for event in events if event["event"] == "search_case_completed"]
+    assert completed[-1]["payload"]["fallback"] == "agent_protocol_error_last_candidates"
+
+
+def test_direct_search_orchestrator_returns_candidates_when_agent_json_is_invalid(tmp_path: Path) -> None:
+    log_path = tmp_path / "search.jsonl"
+    provider = FakeSearchGenerationProvider(
+        [
+            json.dumps(
+                {
+                    "reason": "generate candidates",
+                    "tool_calls": [{"name": "code_diver_search", "arguments": {"query": "auth", "limit": 2}}],
+                }
+            ),
+            "not json",
+        ]
+    )
+
+    def search_handler(query: str, limit: int) -> str:
+        return json.dumps([{"id": "auth", "path": "src/auth.py", "title": "Auth", "score": 0.9}])
+
+    result = DirectSearchOrchestrator(
+        root=tmp_path,
+        generation_provider=provider,
+        allowed_tools=["code_diver_search"],
+        log_path=log_path,
+        search_handler=search_handler,
+    ).search(hypothesis_name="search_only", case_id="case-1", query="where is auth?", limit=10)
+
+    assert result.error == "Agent response did not contain a JSON object."
+    assert result.retrieved == ["src/auth.py"]
+    events = [json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines()]
+    completed = [event for event in events if event["event"] == "search_case_completed"]
+    assert completed[-1]["payload"]["fallback"] == "exception_last_candidates"
 
 
 def test_direct_search_orchestrator_requires_adaptive_evidence_before_final(tmp_path: Path) -> None:

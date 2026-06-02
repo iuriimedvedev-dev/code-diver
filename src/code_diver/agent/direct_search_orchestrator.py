@@ -72,10 +72,10 @@ class DirectSearchOrchestrator:
                 "allowed_tools": self.allowed_tools,
             },
         )
+        fallback_paths: list[str] = []
         try:
             read_calls_used = 0
             tool_names_used: set[str] = set()
-            fallback_paths: list[str] = []
             candidate_tool_calls = 0
             for round_index in range(1, self.MAX_ROUNDS + 1):
                 prompt = self.prompt_builder.build(
@@ -118,6 +118,32 @@ class DirectSearchOrchestrator:
                             },
                         )
                         continue
+                    if self._should_force_ephemeral(hypothesis_name, tool_names_used):
+                        tool_results, read_calls_used = self._execute_tools(
+                            executor,
+                            [ToolCall("code_diver_ephemeral_search", {"query": query, "limit": limit})],
+                            result,
+                            case_id,
+                            read_calls_used,
+                        )
+                        tool_names_used.update(item.name for item in tool_results)
+                        candidate_tool_calls += self._candidate_tool_count(tool_results)
+                        fallback_paths = self._fallback_paths(tool_results) or fallback_paths
+                        history.append(
+                            {
+                                "round": round_index,
+                                "tool_results": [
+                                    {
+                                        "name": item.name,
+                                        "ok": item.ok,
+                                        "content": self.observation_compressor.compress(item.content),
+                                    }
+                                    for item in tool_results
+                                ],
+                                "runtime_feedback": {"reason": "forced_ephemeral_before_final"},
+                            }
+                        )
+                        continue
                     if self._should_force_rerank(hypothesis_name, tool_names_used):
                         tool_results, read_calls_used = self._execute_tools(
                             executor,
@@ -155,7 +181,44 @@ class DirectSearchOrchestrator:
                 calls = self._parse_tool_calls(parsed)
                 if not calls:
                     result.error = "agent_returned_no_tool_calls_or_results"
+                    if fallback_paths:
+                        return self._complete_with_fallback_error(
+                            result,
+                            case_id,
+                            fallback_paths,
+                            limit,
+                            result.error,
+                            "agent_protocol_error_last_candidates",
+                        )
                     return result
+                if self._should_force_ephemeral(hypothesis_name, tool_names_used) and not any(
+                    call.name == "code_diver_ephemeral_search" for call in calls
+                ):
+                    tool_results, read_calls_used = self._execute_tools(
+                        executor,
+                        [ToolCall("code_diver_ephemeral_search", {"query": query, "limit": limit})],
+                        result,
+                        case_id,
+                        read_calls_used,
+                    )
+                    tool_names_used.update(item.name for item in tool_results)
+                    candidate_tool_calls += self._candidate_tool_count(tool_results)
+                    fallback_paths = self._fallback_paths(tool_results) or fallback_paths
+                    history.append(
+                        {
+                            "round": round_index,
+                            "tool_results": [
+                                {
+                                    "name": item.name,
+                                    "ok": item.ok,
+                                    "content": self.observation_compressor.compress(item.content),
+                                }
+                                for item in tool_results
+                            ],
+                            "runtime_feedback": {"reason": "forced_ephemeral_before_requested_tools"},
+                        }
+                    )
+                    continue
                 tool_results, read_calls_used = self._execute_tools(
                     executor,
                     calls,
@@ -192,6 +255,15 @@ class DirectSearchOrchestrator:
             return result
         except Exception as exc:
             result.error = str(exc)
+            if fallback_paths:
+                return self._complete_with_fallback_error(
+                    result,
+                    case_id,
+                    fallback_paths,
+                    limit,
+                    result.error,
+                    "exception_last_candidates",
+                )
             self.logger.write("search_case_failed", {"case_id": case_id, "error": result.error})
             return result
 
@@ -209,6 +281,23 @@ class DirectSearchOrchestrator:
             "code_diver_symbols",
             "code_diver_outline",
             "code_diver_ephemeral_search",
+            "code_diver_inspect",
+        }
+        return bool(candidate_tools & tool_names_used)
+
+    def _should_force_ephemeral(self, hypothesis_name: str, tool_names_used: set[str]) -> bool:
+        if "ephemeral" not in hypothesis_name.lower():
+            return False
+        if "code_diver_ephemeral_search" not in self.allowed_tools:
+            return False
+        if "code_diver_ephemeral_search" in tool_names_used:
+            return False
+        candidate_tools = {
+            "code_diver_search",
+            "code_diver_grep",
+            "code_diver_rg",
+            "code_diver_symbols",
+            "code_diver_outline",
             "code_diver_inspect",
         }
         return bool(candidate_tools & tool_names_used)
@@ -428,6 +517,29 @@ class DirectSearchOrchestrator:
             if len(merged) >= limit:
                 break
         return merged[:limit]
+
+    def _complete_with_fallback_error(
+        self,
+        result: DirectSearchResult,
+        case_id: str,
+        fallback_paths: list[str],
+        limit: int,
+        error: str,
+        fallback_reason: str,
+    ) -> DirectSearchResult:
+        result.retrieved = fallback_paths[:limit]
+        result.error = error
+        self.logger.write(
+            "search_case_completed",
+            {
+                "case_id": case_id,
+                "retrieved": result.retrieved,
+                "usage": result.usage_json(),
+                "fallback": fallback_reason,
+                "error": error,
+            },
+        )
+        return result
 
     def _estimate_tokens(self, text: str) -> int:
         return max(1, len(text) // 4)

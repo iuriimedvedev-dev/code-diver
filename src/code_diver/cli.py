@@ -46,6 +46,7 @@ from .services import (
     SelectedIndexingService,
 )
 from .services.codebase_scanner import DEFAULT_EXCLUDES
+from .services.eval_case_bucket_classifier import EvalCaseBucketClassifier
 from .services.evaluation_service import EvaluationService
 from .services.evaluation_statistics import EvaluationStatistics
 from .strategies import RetrievalStrategyFactory
@@ -969,6 +970,7 @@ def direct_search_eval_result(case: Any, retrieved: list[str], limit: int):
         precision=match_count / max(len(retrieved[:limit]), 1),
         recall=min(match_count / max(len(case.expected), 1), 1.0),
         retrieved_files=file_metrics["retrieved_files"],
+        bucket=EvalCaseBucketClassifier().classify(case.query),
         file_hit=file_metrics["file_hit"],
         file_reciprocal_rank=file_metrics["file_mrr"],
         file_precision_at_r=file_metrics["file_precision_at_r"],
