@@ -12,6 +12,7 @@ from ..providers import EmbeddingProvider
 from ..services.evaluation_service import EvaluationService
 from ..store import VectorStore
 from ..strategies import RetrievalStrategyFactory
+from ..tracing import TraceLogger
 from .experiment_run import ExperimentRun
 from .strategy_experiment_result import StrategyExperimentResult
 
@@ -48,7 +49,12 @@ class ExperimentRunner:
                 self.vector_store,
             )
             started = perf_counter()
-            metrics, results = EvaluationService(retrieval_strategy).evaluate(
+            trace_logger = TraceLogger(config.trace)
+            trace_logger.write(
+                "experiment_strategy_started",
+                {"run_id": run_id, "strategy": hypothesis.name, "cases": len(cases)},
+            )
+            metrics, results = EvaluationService(retrieval_strategy, trace_logger=trace_logger).evaluate(
                 cases,
                 config.evaluation.limit,
                 workers=config.evaluation.workers,
@@ -65,6 +71,16 @@ class ExperimentRunner:
                     results=results,
                     duration_ms=duration_ms,
                 )
+            )
+            trace_logger.write(
+                "experiment_strategy_completed",
+                {
+                    "run_id": run_id,
+                    "strategy": hypothesis.name,
+                    "duration_ms": duration_ms,
+                    "hit_rate@1": metrics.get("hit_rate@1"),
+                    f"hit_rate@{config.evaluation.limit}": metrics.get(f"hit_rate@{config.evaluation.limit}"),
+                },
             )
         return ExperimentRun(run_id=run_id, suite=config.experiments.suite, strategy_results=strategy_results)
 

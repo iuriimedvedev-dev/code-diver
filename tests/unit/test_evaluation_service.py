@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import json
 from threading import Lock
 
 import pytest
 
+from code_diver.config.trace_config import TraceConfig
 from code_diver.domain import CodeItem, EvalCase, SearchResult
 from code_diver.services.evaluation_service import EvaluationService
 from code_diver.strategies import RetrievalStrategy
+from code_diver.tracing import TraceLogger
 
 
 pytestmark = pytest.mark.unit
@@ -173,3 +176,27 @@ def test_evaluation_service_parallel_workers_preserve_case_order() -> None:
     assert [result.case_id for result in results] == ["case-a", "case-b", "case-c"]
     assert {result.query for result in results} == {"alpha", "beta", "gamma"}
     assert sorted(strategy.queries) == ["alpha", "beta", "gamma"]
+
+
+def test_evaluation_service_traces_progress_with_parallel_workers(tmp_path) -> None:
+    trace_path = tmp_path / "trace.jsonl"
+    strategy = RecordingStrategy()
+    cases = [
+        EvalCase(id="case-a", query="alpha", expected=["alpha.py"]),
+        EvalCase(id="case-b", query="beta", expected=["beta.py"]),
+        EvalCase(id="case-c", query="gamma", expected=["gamma.py"]),
+    ]
+
+    metrics, results = EvaluationService(
+        strategy,
+        trace_logger=TraceLogger(TraceConfig(enabled=True, artifact=trace_path, include_prompts=False)),
+        progress_interval=1,
+    ).evaluate(cases, limit=1, workers=3)
+
+    events = [json.loads(line) for line in trace_path.read_text(encoding="utf-8").splitlines()]
+    assert [result.case_id for result in results] == ["case-a", "case-b", "case-c"]
+    assert metrics["hit_rate@1"] == 1.0
+    assert events[0]["event"] == "evaluation_started"
+    assert events[-1]["event"] == "evaluation_completed"
+    assert sum(1 for event in events if event["event"] == "evaluation_progress") == 3
+    assert events[-2]["payload"]["completed"] == 3

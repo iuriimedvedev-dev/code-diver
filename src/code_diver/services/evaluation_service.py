@@ -3,20 +3,28 @@ from __future__ import annotations
 import math
 from collections import Counter
 from collections import defaultdict
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from time import perf_counter
 from typing import Any
 
 from ..domain import CodeItemIndexKindResolver, EvalCase, EvalResult
 from ..strategies import RetrievalStrategy
+from ..tracing import TraceLogger
 from .eval_case_bucket_classifier import EvalCaseBucketClassifier
 
 
 class EvaluationService:
-    def __init__(self, retrieval_strategy: RetrievalStrategy):
+    def __init__(
+        self,
+        retrieval_strategy: RetrievalStrategy,
+        trace_logger: TraceLogger | None = None,
+        progress_interval: int = 50,
+    ):
         self.retrieval_strategy = retrieval_strategy
         self.bucket_classifier = EvalCaseBucketClassifier()
         self.index_kind_resolver = CodeItemIndexKindResolver()
+        self.trace_logger = trace_logger or TraceLogger.disabled()
+        self.progress_interval = max(int(progress_interval or 1), 1)
 
     def evaluate(
         self,
@@ -25,11 +33,35 @@ class EvaluationService:
         workers: int = 1,
     ) -> tuple[dict[str, Any], list[EvalResult]]:
         worker_count = max(int(workers or 1), 1)
+        started = perf_counter()
+        self.trace_logger.write(
+            "evaluation_started",
+            {
+                "cases": len(cases),
+                "limit": limit,
+                "workers": worker_count,
+                "progress_interval": self.progress_interval,
+            },
+        )
         if worker_count == 1 or len(cases) <= 1:
-            rows = [self._evaluate_case(case, limit) for case in cases]
+            rows = []
+            for index, case in enumerate(cases, start=1):
+                rows.append(self._evaluate_case(case, limit))
+                self._trace_progress(index, len(cases), started)
         else:
             with ThreadPoolExecutor(max_workers=worker_count) as executor:
-                rows = list(executor.map(lambda case: self._evaluate_case(case, limit), cases))
+                futures = {
+                    executor.submit(self._evaluate_case, case, limit): index
+                    for index, case in enumerate(cases)
+                }
+                rows_by_index: list[tuple[EvalResult, float] | None] = [None] * len(cases)
+                completed = 0
+                for future in as_completed(futures):
+                    index = futures[future]
+                    rows_by_index[index] = future.result()
+                    completed += 1
+                    self._trace_progress(completed, len(cases), started)
+                rows = [row for row in rows_by_index if row is not None]
         results = [result for result, _ in rows]
         durations_ms = [duration_ms for _, duration_ms in rows]
 
@@ -56,7 +88,35 @@ class EvaluationService:
         metrics.update(self._derived_metrics(results, limit, metrics))
         metrics.update(self._bucket_metrics(results, limit))
         metrics.update(self._item_kind_metrics(results))
+        self.trace_logger.write(
+            "evaluation_completed",
+            {
+                "cases": len(results),
+                "limit": limit,
+                "workers": worker_count,
+                "duration_ms": (perf_counter() - started) * 1000,
+                "hit_rate@1": metrics.get("hit_rate@1"),
+                f"hit_rate@{limit}": metrics.get(f"hit_rate@{limit}"),
+                f"ndcg@{limit}": metrics.get(f"ndcg@{limit}"),
+                f"file_recall@{limit}": metrics.get(f"file_recall@{limit}"),
+            },
+        )
         return metrics, results
+
+    def _trace_progress(self, completed: int, total: int, started: float) -> None:
+        if completed < total and completed % self.progress_interval != 0:
+            return
+        elapsed_ms = (perf_counter() - started) * 1000
+        self.trace_logger.write(
+            "evaluation_progress",
+            {
+                "completed": completed,
+                "total": total,
+                "progress": completed / max(total, 1),
+                "elapsed_ms": elapsed_ms,
+                "cases_per_second": completed / max(elapsed_ms / 1000, 0.001),
+            },
+        )
 
     def _evaluate_case(self, case: EvalCase, limit: int) -> tuple[EvalResult, float]:
         started = perf_counter()

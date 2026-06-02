@@ -365,7 +365,11 @@ def cmd_evaluate(args: argparse.Namespace, config: AppConfig) -> int:
         case.query = plugin_manager.prepare_query(case.query)
 
     strategy = make_retrieval_strategy(config, provider, vector_store)
-    metrics, results = EvaluationService(strategy).evaluate(cases, limit, workers=config.evaluation.workers)
+    metrics, results = EvaluationService(strategy, trace_logger=make_trace_logger(config)).evaluate(
+        cases,
+        limit,
+        workers=config.evaluation.workers,
+    )
     if args.json:
         print(json.dumps({"metrics": metrics, "results": [eval_result_to_json(result) for result in results]}, indent=2))
         return 0
@@ -445,7 +449,11 @@ def cmd_evaluate_indexing(args: argparse.Namespace, config: AppConfig) -> int:
         provider = make_embedding_provider(eval_config, vector_store.metadata())
         strategy = make_retrieval_strategy(eval_config, provider, vector_store)
         eval_started = perf_counter()
-        metrics, results = EvaluationService(strategy).evaluate(cases, limit, workers=eval_config.evaluation.workers)
+        metrics, results = EvaluationService(strategy, trace_logger=make_trace_logger(eval_config)).evaluate(
+            cases,
+            limit,
+            workers=eval_config.evaluation.workers,
+        )
         metrics["evaluation_duration_ms"] = (perf_counter() - eval_started) * 1000
         row["metrics"] = metrics
         if args.details:
