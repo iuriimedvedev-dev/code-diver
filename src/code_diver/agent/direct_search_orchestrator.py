@@ -501,10 +501,7 @@ class DirectSearchOrchestrator:
                     continue
                 read_calls_used += requested_reads
             executable.append((index, call))
-        executed_results = ParallelToolExecutor(self.MAX_PARALLEL_TOOLS).execute(
-            [call for _, call in executable],
-            executor.execute,
-        )
+        executed_results = self._execute_ordered_tools(executable, executor)
         for (index, _), result in zip(executable, executed_results):
             results_by_index[index] = result
         results = [results_by_index[index] for index in range(len(calls))]
@@ -516,6 +513,80 @@ class DirectSearchOrchestrator:
                 {"case_id": case_id, "name": result.name, "ok": result.ok, "content": result.content},
             )
         return results, read_calls_used
+
+    def _execute_ordered_tools(
+        self,
+        executable: list[tuple[int, ToolCall]],
+        executor: DirectToolExecutor,
+    ) -> list[ToolResult]:
+        if not executable:
+            return []
+        if self._should_stage_candidate_calls(executable, executor):
+            candidate_calls = [
+                (index, call) for index, call in executable if self._is_first_pass_candidate_call(call)
+            ]
+            delayed_calls = [
+                (index, call) for index, call in executable if not self._is_first_pass_candidate_call(call)
+            ]
+            staged_results: dict[int, ToolResult] = {}
+            first_results = ParallelToolExecutor(self.MAX_PARALLEL_TOOLS).execute(
+                [call for _, call in candidate_calls],
+                executor.execute,
+            )
+            for (index, _), result in zip(candidate_calls, first_results):
+                staged_results[index] = result
+            delayed_results = ParallelToolExecutor(self.MAX_PARALLEL_TOOLS).execute(
+                [call for _, call in delayed_calls],
+                executor.execute,
+            )
+            for (index, _), result in zip(delayed_calls, delayed_results):
+                staged_results[index] = result
+            return [staged_results[index] for index, _ in executable]
+        return ParallelToolExecutor(self.MAX_PARALLEL_TOOLS).execute(
+            [call for _, call in executable],
+            executor.execute,
+        )
+
+    def _should_stage_candidate_calls(
+        self,
+        executable: list[tuple[int, ToolCall]],
+        executor: DirectToolExecutor,
+    ) -> bool:
+        if executor.candidate_bank:
+            return False
+        calls = [call for _, call in executable]
+        return any(self._is_first_pass_candidate_call(call) for call in calls) and any(
+            self._is_unscoped_text_probe(call) for call in calls
+        )
+
+    def _is_first_pass_candidate_call(self, call: ToolCall) -> bool:
+        return call.name in {
+            "code_diver_h3_search",
+            "code_diver_search",
+            "code_diver_symbols",
+            "code_diver_outline",
+        }
+
+    def _is_unscoped_text_probe(self, call: ToolCall) -> bool:
+        if call.name in {"code_diver_grep", "code_diver_rg"}:
+            return self._is_unscoped_path(call.arguments.get("path"))
+        if call.name != "code_diver_inspect":
+            return False
+        for key in ("literals", "regexes"):
+            values = call.arguments.get(key) or []
+            if not isinstance(values, list):
+                continue
+            for value in values:
+                if isinstance(value, dict) and self._is_unscoped_path(value.get("path")):
+                    return True
+                if not isinstance(value, dict):
+                    return True
+        return False
+
+    def _is_unscoped_path(self, value: Any) -> bool:
+        if value is None:
+            return True
+        return str(value).strip() in {"", ".", "./"}
 
     def _merge_tool_usage(self, usage: DirectSearchResult, result: ToolResult) -> None:
         try:
