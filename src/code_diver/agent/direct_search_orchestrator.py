@@ -239,6 +239,36 @@ class DirectSearchOrchestrator:
                             "agent_protocol_error_last_candidates",
                         )
                     return result
+                if self._should_force_rerank_before_more_tools(
+                    hypothesis_name,
+                    candidate_tool_calls,
+                    tool_names_used,
+                    calls,
+                ):
+                    tool_results, read_calls_used = self._execute_tools(
+                        executor,
+                        [ToolCall("code_diver_rerank", {"query": query, "limit": limit})],
+                        result,
+                        case_id,
+                        read_calls_used,
+                    )
+                    tool_names_used.update(item.name for item in tool_results)
+                    fallback_paths = self._fallback_paths(tool_results) or fallback_paths
+                    history.append(
+                        {
+                            "round": round_index,
+                            "tool_results": [
+                                {
+                                    "name": item.name,
+                                    "ok": item.ok,
+                                    "content": self.observation_compressor.compress(item.content),
+                                }
+                                for item in tool_results
+                            ],
+                            "runtime_feedback": {"reason": "forced_rerank_after_candidate_passes"},
+                        }
+                    )
+                    continue
                 if self._should_force_ephemeral(hypothesis_name, tool_names_used) and not any(
                     call.name == "code_diver_ephemeral_search" for call in calls
                 ):
@@ -333,6 +363,23 @@ class DirectSearchOrchestrator:
             "code_diver_inspect",
         }
         return bool(candidate_tools & tool_names_used)
+
+    def _should_force_rerank_before_more_tools(
+        self,
+        hypothesis_name: str,
+        candidate_tool_calls: int,
+        tool_names_used: set[str],
+        calls: list[ToolCall],
+    ) -> bool:
+        if "rerank" not in hypothesis_name and not self._adaptive_hypothesis(hypothesis_name):
+            return False
+        if "code_diver_rerank" not in self.allowed_tools:
+            return False
+        if "code_diver_rerank" in tool_names_used:
+            return False
+        if any(call.name == "code_diver_rerank" for call in calls):
+            return False
+        return candidate_tool_calls >= 2
 
     def _should_force_ephemeral(self, hypothesis_name: str, tool_names_used: set[str]) -> bool:
         if "ephemeral" not in hypothesis_name.lower():
