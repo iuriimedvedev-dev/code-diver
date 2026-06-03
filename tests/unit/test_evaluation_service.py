@@ -149,6 +149,31 @@ def test_evaluation_service_hit_at_matches_symbol_ids_for_expected_file_paths() 
     assert metrics["hit_rate@1"] == 1.0
 
 
+class PluginDescriptorStrategy(RetrievalStrategy):
+    def search(self, query: str, limit: int) -> list[SearchResult]:
+        return [
+            SearchResult(
+                CodeItem(
+                    id="plugins/htmltools/resources/META-INF/plugin.xml",
+                    path="plugins/htmltools/resources/META-INF/plugin.xml",
+                    title="plugin.xml",
+                    content="",
+                ),
+                0.9,
+            ),
+        ][:limit]
+
+
+def test_evaluation_service_matches_glob_expected_file_patterns() -> None:
+    metrics, results = EvaluationService(PluginDescriptorStrategy()).evaluate(
+        [EvalCase(id="case", query="where is plugin descriptor", expected=["glob:**/resources/META-INF/plugin.xml"])],
+        limit=1,
+    )
+
+    assert metrics["hit_rate@1"] == 1.0
+    assert results[0].file_hit is True
+
+
 class RecordingStrategy(RetrievalStrategy):
     def __init__(self) -> None:
         self.queries: list[str] = []

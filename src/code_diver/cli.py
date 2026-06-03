@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import json
 import sys
 import uuid
@@ -987,6 +988,8 @@ def direct_search_matches_any(path: str, expected: list[str]) -> bool:
 
 def direct_search_matches(path: str, expected: str) -> bool:
     normalized = expected.strip()
+    if normalized.startswith("glob:"):
+        return fnmatch.fnmatchcase(direct_search_file_path(path), normalized.removeprefix("glob:"))
     return path == normalized or path.startswith(normalized + "#") or path.startswith(normalized.rstrip("/") + "/")
 
 

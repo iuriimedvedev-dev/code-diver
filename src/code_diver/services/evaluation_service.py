@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import fnmatch
 from collections import Counter
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -363,6 +364,9 @@ class EvaluationService:
 
     def _matches_expected(self, item: object, expected: str) -> bool:
         normalized = expected.strip()
+        if normalized.startswith("glob:"):
+            pattern = normalized.removeprefix("glob:")
+            return fnmatch.fnmatchcase(str(getattr(item, "path")), pattern) or fnmatch.fnmatchcase(str(getattr(item, "id")), pattern)
         return (
             getattr(item, "id") == normalized
             or getattr(item, "path") == normalized
@@ -410,6 +414,8 @@ class EvaluationService:
 
     def _matches_path_expected(self, path: str, expected: str) -> bool:
         normalized = expected.strip()
+        if normalized.startswith("glob:"):
+            return fnmatch.fnmatchcase(path, normalized.removeprefix("glob:"))
         return path == normalized or path.startswith(normalized.rstrip("/") + "/")
 
     def _ndcg(self, files: list[str], expected: list[str], limit: int) -> float:
@@ -450,7 +456,8 @@ class EvaluationService:
 
     def _matches_path_or_id(self, value: str, expected: list[str]) -> bool:
         return any(
-            value == item
+            (item.startswith("glob:") and fnmatch.fnmatchcase(value.split("#", 1)[0].split("::", 1)[0], item.removeprefix("glob:")))
+            or value == item
             or value.startswith(item + "#")
             or value.startswith(item + "::")
             or value.startswith(item.rstrip("/") + "/")

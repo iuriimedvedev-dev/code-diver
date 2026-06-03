@@ -134,6 +134,17 @@ def test_direct_search_eval_result_classifies_query_bucket() -> None:
     assert result.bucket != "unknown"
 
 
+def test_direct_search_eval_result_matches_glob_expected_file_patterns() -> None:
+    result = direct_search_eval_result(
+        EvalCase(id="case", query="where is plugin descriptor", expected=["glob:**/resources/META-INF/plugin.xml"]),
+        ["plugins/htmltools/resources/META-INF/plugin.xml"],
+        10,
+    )
+
+    assert result.hit is True
+    assert result.file_hit is True
+
+
 def test_openai_compatible_provider_does_not_inherit_store_dimensions() -> None:
     config = AppConfig(
         embedding=EmbeddingConfig(
