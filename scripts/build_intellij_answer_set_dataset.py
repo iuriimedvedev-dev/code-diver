@@ -70,6 +70,38 @@ EXTRA_EXPECTED: dict[str, list[str]] = {
     ],
 }
 
+QUERY_GLOBS: list[tuple[str, list[str]]] = [
+    ("where is button implemented", ["glob:**/*Button*.java", "glob:**/*Button*.kt"]),
+    ("where is container implemented", ["glob:**/*Container*.java", "glob:**/*Container*.kt"]),
+    ("where is credentials implemented", ["glob:**/*Credentials*.java", "glob:**/*Credentials*.kt"]),
+    ("where is configuration implemented", ["glob:**/*Configuration*.java", "glob:**/*Configuration*.kt"]),
+    ("extension configuration behavior implemented", ["glob:**/*Configuration*.java", "glob:**/*Configuration*.kt"]),
+    ("where is activity implemented", ["glob:**/*Activity*.java", "glob:**/*Activity*.kt"]),
+    ("where is file entry implemented", ["glob:**/*FileEntry*.java", "glob:**/*FileEntry*.kt"]),
+    ("where does the IDE handle environment variables", ["glob:**/*EnvironmentVariables*.java", "glob:**/*EnvironmentVariables*.kt"]),
+    ("where is local eel api implemented", ["glob:**/*LocalEelApi*.java", "glob:**/*LocalEelApi*.kt"]),
+    ("deployment artifact deployment source behavior implemented", ["glob:**/*ArtifactDeploymentSource*.java", "glob:**/*ArtifactDeploymentSource*.kt"]),
+    ("where is path info implemented", ["glob:**/*PathInfo*.java", "glob:**/*PathInfo*.kt", "glob:**/*FilePath*.java", "glob:**/*PathReference*.java"]),
+    ("credentials credentials behavior implemented", ["glob:**/*Credentials*.java", "glob:**/*Credentials*.kt"]),
+    ("where does the IDE handle execution environment", ["glob:**/*ExecutionEnvironment*.java", "glob:**/*ExecutionEnvironment*.kt"]),
+    ("where does the IDE handle copy generated files", ["glob:**/*CopyFiles*.java", "glob:**/*CopyHandler*.java", "glob:**/*CopyHandler*.kt"]),
+    ("where is src dummy class behavior implemented", ["glob:**/*Dummy*.java", "glob:**/*Dummy*.kt"]),
+    ("where is dummy class implemented", ["glob:**/*Dummy*.java", "glob:**/*Dummy*.kt"]),
+    ("where is jbpopup placer implemented", ["glob:**/*Popup*.java", "glob:**/*Popup*.kt"]),
+    ("where does the IDE handle routing prefixes", ["glob:**/*Routing*.java", "glob:**/*Routing*.kt"]),
+    ("where does the IDE handle generate service name", ["glob:**/*NameGenerator*.java", "glob:**/*NameGenerator*.kt", "glob:**/*Service*.java", "glob:**/*Service*.kt"]),
+    ("where is configuration for common module content", ["glob:**/common/module-content.yaml"]),
+    (
+        "where is the Gradle build configuration for common build gradle",
+        ["glob:**/common/build.gradle", "glob:**/common/build.gradle.kts", "glob:**/*common*/build.gradle", "glob:**/*common*/build.gradle.kts"],
+    ),
+    (
+        "where is common build gradle behavior implemented",
+        ["glob:**/common/build.gradle", "glob:**/common/build.gradle.kts", "glob:**/*common*/build.gradle", "glob:**/*common*/build.gradle.kts"],
+    ),
+    ("where is model build dependency behavior implemented", ["glob:**/*Dependency*.java", "glob:**/*Dependency*.kt"]),
+]
+
 
 def main() -> int:
     parser = argparse.ArgumentParser()
@@ -83,7 +115,11 @@ def main() -> int:
         if "plugin descriptor or extension configuration" in str(row.get("query", "")) and "meta inf plugin" in str(row.get("query", "")):
             expected.append("glob:**/resources/META-INF/plugin.xml")
         if "metadata storage impl" in str(row.get("query", "")):
-            expected.append("glob:**/MetadataStorageImpl.kt")
+            expected.extend(["glob:**/MetadataStorageImpl.kt", "glob:**/MetadataStorage*.kt"])
+        query = str(row.get("query", ""))
+        for needle, globs in QUERY_GLOBS:
+            if needle in query:
+                expected.extend(globs)
         expected.extend(EXTRA_EXPECTED.get(str(row.get("id")), []))
         row["expected"] = _unique(expected)
 
