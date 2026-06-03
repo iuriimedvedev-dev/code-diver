@@ -58,3 +58,35 @@ def test_preserve_base_files_is_noop_when_disabled() -> None:
     )
 
     assert result == ranked
+
+
+def test_preserve_base_files_rescue_mode_keeps_llm_prefix_then_base_files() -> None:
+    runner = object.__new__(DeterministicPostrankH2)
+    ranked = [
+        {"path": "src/llm_1.py", "id": "llm-1"},
+        {"path": "src/llm_2.py", "id": "llm-2"},
+        {"path": "src/llm_3.py", "id": "llm-3"},
+        {"path": "src/base_2.py", "id": "base-2-reranked"},
+    ]
+    candidates = [
+        {"path": "src/base_1.py", "id": "base-1"},
+        {"path": "src/base_2.py", "id": "base-2"},
+        {"path": "src/base_3.py", "id": "base-3"},
+    ]
+
+    result = runner._preserve_base_files(
+        ranked,
+        candidates,
+        preserve_count=3,
+        limit=5,
+        mode="rescue",
+        llm_prefix_files=2,
+    )
+
+    assert [candidate["path"] for candidate in result] == [
+        "src/llm_1.py",
+        "src/llm_2.py",
+        "src/base_1.py",
+        "src/base_2.py",
+        "src/base_3.py",
+    ]

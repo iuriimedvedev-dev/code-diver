@@ -754,7 +754,14 @@ Input query: {query}
             self._merge_rerank_metrics(cumulative, rerank_metrics)
             ranked = result.get("candidates")
             if isinstance(ranked, list) and ranked:
-                last_ranked = self._preserve_base_files(ranked[: self.limit], candidates, self.args.protected_base_files, self.limit)
+                last_ranked = self._preserve_base_files(
+                    ranked[: self.limit],
+                    candidates,
+                    self.args.protected_base_files,
+                    self.limit,
+                    self.args.protected_base_mode,
+                    self.args.llm_prefix_files,
+                )
             if not rerank_metrics.get("errors") and not rerank_metrics.get("degraded"):
                 return last_ranked, cumulative, degraded
             degraded = True
@@ -768,6 +775,8 @@ Input query: {query}
         candidates: list[dict[str, Any]],
         preserve_count: int,
         limit: int,
+        mode: str = "prefix",
+        llm_prefix_files: int = 0,
     ) -> list[dict[str, Any]]:
         preserve_count = max(int(preserve_count), 0)
         if preserve_count <= 0 or limit <= 0:
@@ -790,9 +799,14 @@ Input query: {query}
             if len(protected) >= preserve_count:
                 break
 
+        ordered = [*protected, *ranked]
+        if mode == "rescue":
+            prefix_count = max(min(int(llm_prefix_files), limit), 0)
+            ordered = [*ranked[:prefix_count], *protected, *ranked[prefix_count:]]
+
         merged: list[dict[str, Any]] = []
         seen_files: set[str] = set()
-        for candidate in [*protected, *ranked]:
+        for candidate in ordered:
             path = str(candidate.get("path") or "").strip()
             if not path:
                 continue
@@ -1125,6 +1139,8 @@ def main() -> int:
     parser.add_argument("--rerank-attempts", type=int, default=2)
     parser.add_argument("--rerank-mode", default="file_first")
     parser.add_argument("--protected-base-files", type=int, default=0)
+    parser.add_argument("--protected-base-mode", choices=["prefix", "rescue"], default="prefix")
+    parser.add_argument("--llm-prefix-files", type=int, default=0)
     parser.add_argument("--alias-limit", type=int, default=50)
     parser.add_argument("--alias-graph", type=Path, default=None)
     parser.add_argument("--disable-graph-retrieval", action="store_true")
