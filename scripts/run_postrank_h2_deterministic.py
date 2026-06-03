@@ -116,8 +116,9 @@ class DeterministicPostrankH2:
             "temporary_vectors_total": 0,
         }
         try:
-            provider = make_embedding_provider(config, vector_store.metadata())
-            strategy = make_retrieval_strategy(config, provider, vector_store)
+            retrieval_config = self._retrieval_config(config)
+            provider = make_embedding_provider(retrieval_config, vector_store.metadata())
+            strategy = make_retrieval_strategy(retrieval_config, provider, vector_store)
             generation_provider = create_generation_provider(config)
             rerank = make_rerank_tool_handler(config, generation_provider)
             ephemeral = make_ephemeral_search_tool_handler(config)
@@ -146,7 +147,7 @@ class DeterministicPostrankH2:
                         if scenario == "branch_c":
                             candidates = self._branch_c_candidates(
                                 case.query,
-                                config,
+                                retrieval_config,
                                 provider,
                                 vector_store,
                                 strategy,
@@ -162,7 +163,7 @@ class DeterministicPostrankH2:
                             candidates = self._branch_d_candidates(
                                 case.query,
                                 query_variants,
-                                config,
+                                retrieval_config,
                                 provider,
                                 vector_store,
                                 strategy,
@@ -400,15 +401,20 @@ class DeterministicPostrankH2:
         )
 
     def _alias_locator(self, config: Any) -> IdentifierAliasLocator | None:
-        if not getattr(config.graph, "enabled", False):
-            return None
-        store = CodeGraphStore(config.graph.artifact)
+        artifact = self.args.alias_graph or config.graph.artifact
+        store = CodeGraphStore(artifact)
         if not store.exists():
             return None
         try:
             return IdentifierAliasLocator(store.load())
         except Exception:
             return None
+
+    def _retrieval_config(self, config: Any) -> Any:
+        if not self.args.disable_graph_retrieval:
+            return config
+        disabled_artifact = self.args.partial_dir / f"disabled-graph-{self.run_id}.json"
+        return replace(config, graph=replace(config.graph, artifact=disabled_artifact))
 
     def _alias_candidates(
         self,
@@ -1069,6 +1075,8 @@ def main() -> int:
     parser.add_argument("--rerank-candidate-limit", type=int, default=30)
     parser.add_argument("--rerank-attempts", type=int, default=2)
     parser.add_argument("--rerank-mode", default="file_first")
+    parser.add_argument("--alias-graph", type=Path, default=None)
+    parser.add_argument("--disable-graph-retrieval", action="store_true")
     parser.add_argument("--progress-every", type=int, default=25)
     parser.add_argument("--partial-dir", type=Path, default=Path(".code-diver/reports/partials"))
     parser.add_argument("--hypothesis", action="append", default=[])
