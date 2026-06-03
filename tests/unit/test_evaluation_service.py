@@ -53,6 +53,9 @@ def test_evaluation_service_computes_ranked_metrics() -> None:
     assert metrics["hit_rate@1"] == 0.0
     assert metrics["hit_rate@3"] == 1.0
     assert metrics["hit_rate@5"] == 1.0
+    assert metrics["file_hit_rate@1"] == 0.0
+    assert metrics["file_hit_rate@3"] == 1.0
+    assert metrics["file_hit_rate@5"] == 1.0
     assert metrics["file_hit_rate@2"] == 1.0
     assert metrics["file_mrr@2"] == 0.5
     assert metrics["file_precision@R"] == 0.0
@@ -73,6 +76,7 @@ def test_evaluation_service_computes_ranked_metrics() -> None:
     assert metrics["unique_file_ratio@2"] == 1.0
     assert metrics["bucket.semantic.cases"] == 1
     assert metrics["bucket.semantic.hit_rate@5"] == 1.0
+    assert metrics["bucket.semantic.file_hit_rate@3"] == 1.0
     assert metrics["bucket.semantic.file_hit_rate@2"] == 1.0
     assert metrics["top_result_kind.chunk.rate"] == 1.0
     assert metrics["first_relevant_kind.file_summary.rate"] == 1.0
@@ -113,6 +117,28 @@ class MultiExpectedStrategy(RetrievalStrategy):
             SearchResult(CodeItem(id="a.py#1", path="a.py", title="A", content=""), 0.9),
             SearchResult(CodeItem(id="wrong.py#1", path="wrong.py", title="Wrong", content=""), 0.8),
         ][:limit]
+
+
+class DuplicateWrongFileStrategy(RetrievalStrategy):
+    def search(self, query: str, limit: int) -> list[SearchResult]:
+        return [
+            SearchResult(CodeItem(id="wrong.py#1", path="wrong.py", title="Wrong 1", content=""), 0.9),
+            SearchResult(CodeItem(id="wrong.py#2", path="wrong.py", title="Wrong 2", content=""), 0.8),
+            SearchResult(CodeItem(id="wrong.py#3", path="wrong.py", title="Wrong 3", content=""), 0.7),
+            SearchResult(CodeItem(id="target.py#1", path="target.py", title="Target", content=""), 0.6),
+        ][:limit]
+
+
+def test_evaluation_service_reports_file_hit_at_k_after_file_deduplication() -> None:
+    metrics, _ = EvaluationService(DuplicateWrongFileStrategy()).evaluate(
+        [EvalCase(id="case", query="find target", expected=["target.py"])],
+        limit=4,
+    )
+
+    assert metrics["hit_rate@3"] == 0.0
+    assert metrics["file_hit_rate@3"] == 1.0
+    assert metrics["hit_rate@5"] == 1.0
+    assert metrics["file_hit_rate@5"] == 1.0
 
 
 def test_evaluation_service_reports_bundle_completion_metrics() -> None:

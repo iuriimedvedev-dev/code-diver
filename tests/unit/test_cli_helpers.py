@@ -9,6 +9,7 @@ from code_diver.cli import (
     cmd_monitor,
     config_for_indexing_hypothesis,
     direct_search_eval_result,
+    direct_search_metrics,
     make_embedding_provider,
     make_ephemeral_search_tool_handler,
     make_search_tool_handler,
@@ -143,6 +144,21 @@ def test_direct_search_eval_result_matches_glob_expected_file_patterns() -> None
 
     assert result.hit is True
     assert result.file_hit is True
+
+
+def test_direct_search_metrics_report_file_hit_at_k_after_file_deduplication() -> None:
+    result = direct_search_eval_result(
+        EvalCase(id="case", query="find target", expected=["src/target.py"]),
+        ["src/wrong.py#1", "src/wrong.py#2", "src/wrong.py#3", "src/target.py#1"],
+        4,
+    )
+
+    metrics = direct_search_metrics([result], [1.0], 4)
+
+    assert metrics["hit_rate@3"] == 0.0
+    assert metrics["file_hit_rate@3"] == 1.0
+    assert metrics["hit_rate@5"] == 1.0
+    assert metrics["file_hit_rate@5"] == 1.0
 
 
 def test_openai_compatible_provider_does_not_inherit_store_dimensions() -> None:

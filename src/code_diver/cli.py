@@ -1123,6 +1123,9 @@ def direct_search_metrics(results: list[Any], durations_ms: list[float], limit: 
         "hit_rate@1": mean(1.0 if any(direct_search_matches_any(value, result.expected) for value in result.retrieved[:1]) else 0.0 for result in results),
         "hit_rate@3": mean(1.0 if any(direct_search_matches_any(value, result.expected) for value in result.retrieved[:3]) else 0.0 for result in results),
         "hit_rate@5": mean(1.0 if any(direct_search_matches_any(value, result.expected) for value in result.retrieved[:5]) else 0.0 for result in results),
+        "file_hit_rate@1": mean(1.0 if direct_search_file_hit_at(result, 1) else 0.0 for result in results),
+        "file_hit_rate@3": mean(1.0 if direct_search_file_hit_at(result, 3) else 0.0 for result in results),
+        "file_hit_rate@5": mean(1.0 if direct_search_file_hit_at(result, 5) else 0.0 for result in results),
         f"file_hit_rate@{limit}": mean(1.0 if result.file_hit else 0.0 for result in results),
         f"file_mrr@{limit}": mean(result.file_reciprocal_rank for result in results),
         "file_precision@R": mean(result.file_precision_at_r for result in results),
@@ -1142,6 +1145,9 @@ def direct_search_metrics(results: list[Any], durations_ms: list[float], limit: 
         ("hit_rate@1", (1.0 if any(direct_search_matches_any(value, result.expected) for value in result.retrieved[:1]) else 0.0 for result in results), True),
         ("hit_rate@3", (1.0 if any(direct_search_matches_any(value, result.expected) for value in result.retrieved[:3]) else 0.0 for result in results), True),
         ("hit_rate@5", (1.0 if any(direct_search_matches_any(value, result.expected) for value in result.retrieved[:5]) else 0.0 for result in results), True),
+        ("file_hit_rate@1", (1.0 if direct_search_file_hit_at(result, 1) else 0.0 for result in results), True),
+        ("file_hit_rate@3", (1.0 if direct_search_file_hit_at(result, 3) else 0.0 for result in results), True),
+        ("file_hit_rate@5", (1.0 if direct_search_file_hit_at(result, 5) else 0.0 for result in results), True),
         (f"file_hit_rate@{limit}", (1.0 if result.file_hit else 0.0 for result in results), True),
         (f"file_mrr@{limit}", (result.file_reciprocal_rank for result in results), False),
         ("file_precision@R", (result.file_precision_at_r for result in results), False),
@@ -1153,6 +1159,10 @@ def direct_search_metrics(results: list[Any], durations_ms: list[float], limit: 
     for name, values, binary in series:
         metrics.update(statistics.summarize(name, values, binary=binary))
     return metrics
+
+
+def direct_search_file_hit_at(result: Any, limit: int) -> bool:
+    return any(direct_search_matches_any(value, result.expected) for value in result.retrieved_files[:limit])
 
 
 def empty_agent_usage() -> dict[str, Any]:
