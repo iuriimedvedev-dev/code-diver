@@ -43,6 +43,9 @@ generation:
   thinking_budget: 256
   api_version: v1alpha
   timeout_ms: 12345
+  retry_attempts: 7
+  retry_base_delay_seconds: 1.5
+  retry_max_delay_seconds: 33
 indexing:
   mode: ai
   ai:
@@ -212,6 +215,9 @@ plugins:
     assert config.generation.thinking_budget == 256
     assert config.generation.api_version == "v1alpha"
     assert config.generation.timeout_ms == 12345
+    assert config.generation.retry_attempts == 7
+    assert config.generation.retry_base_delay_seconds == 1.5
+    assert config.generation.retry_max_delay_seconds == 33
     assert config.indexing.mode == "ai"
     assert config.indexing.ai.max_files == 5
     assert config.indexing.ai.max_items == 8

@@ -8,6 +8,7 @@ from urllib.request import Request, urlopen
 
 from ..settings import Defaults, EnvironmentVariable
 from .generation_result import GenerationResult
+from .transient_generation_retry import TransientGenerationRetry
 
 
 class OpenAIGenerationProvider:
@@ -17,6 +18,9 @@ class OpenAIGenerationProvider:
         api_key: str | None = None,
         url: str = Defaults.OPENAI_RESPONSES_URL,
         timeout_seconds: float = Defaults.OPENAI_TIMEOUT_SECONDS,
+        retry_attempts: int = Defaults.GENERATION_RETRY_ATTEMPTS,
+        retry_base_delay_seconds: float = Defaults.GENERATION_RETRY_BASE_DELAY_SECONDS,
+        retry_max_delay_seconds: float = Defaults.GENERATION_RETRY_MAX_DELAY_SECONDS,
     ):
         self.name = "openai"
         self.model = model
@@ -25,6 +29,11 @@ class OpenAIGenerationProvider:
         self.api_key = api_key or os.environ.get(EnvironmentVariable.OPENAI_API_KEY.value)
         if not self.api_key:
             raise RuntimeError("OPENAI_API_KEY is required for OpenAI generation.")
+        self.retry = TransientGenerationRetry(
+            attempts=retry_attempts,
+            base_delay_seconds=retry_base_delay_seconds,
+            max_delay_seconds=retry_max_delay_seconds,
+        )
 
     def generate_json(self, prompt: str) -> str:
         return self.generate_json_result(prompt).text
@@ -37,7 +46,7 @@ class OpenAIGenerationProvider:
                 "format": {"type": "json_object"},
             },
         }
-        response = self._post(payload)
+        response = self.retry.run(lambda: self._post(payload))
         text = response.get("output_text") or self._extract_text(response)
         if not text:
             raise RuntimeError("OpenAI returned an empty indexing response.")

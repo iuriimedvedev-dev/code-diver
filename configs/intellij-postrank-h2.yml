@@ -29,6 +29,9 @@ generation:
   thinking_budget: 1024
   api_version: v1
   timeout_ms: 30000
+  retry_attempts: 6
+  retry_base_delay_seconds: 3
+  retry_max_delay_seconds: 90
 
 indexing:
   mode: scanner

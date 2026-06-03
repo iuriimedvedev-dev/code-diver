@@ -161,6 +161,28 @@ class ConfigLoader:
             max_tokens=self._optional_int(
                 mapping.get("max_tokens", base.max_tokens if base is not None else Defaults.GENERATION_MAX_TOKENS)
             ),
+            retry_attempts=int(
+                mapping.get(
+                    "retry_attempts",
+                    base.retry_attempts if base is not None else Defaults.GENERATION_RETRY_ATTEMPTS,
+                )
+            ),
+            retry_base_delay_seconds=float(
+                mapping.get(
+                    "retry_base_delay_seconds",
+                    base.retry_base_delay_seconds
+                    if base is not None
+                    else Defaults.GENERATION_RETRY_BASE_DELAY_SECONDS,
+                )
+            ),
+            retry_max_delay_seconds=float(
+                mapping.get(
+                    "retry_max_delay_seconds",
+                    base.retry_max_delay_seconds
+                    if base is not None
+                    else Defaults.GENERATION_RETRY_MAX_DELAY_SECONDS,
+                )
+            ),
         )
 
     def _indexing(self, data: Any) -> IndexingConfig:

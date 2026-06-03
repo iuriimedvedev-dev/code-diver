@@ -4,6 +4,7 @@ import os
 
 from ..settings import Defaults, EnvironmentVariable
 from .gemini_generation_provider import GeminiGenerationProvider
+from .transient_generation_retry import TransientGenerationRetry
 
 
 class VertexGenerationProvider(GeminiGenerationProvider):
@@ -18,6 +19,9 @@ class VertexGenerationProvider(GeminiGenerationProvider):
         thinking_budget: int | None = Defaults.GENERATION_THINKING_BUDGET,
         api_version: str | None = "v1",
         timeout_ms: int = Defaults.GENERATION_TIMEOUT_MS,
+        retry_attempts: int = Defaults.GENERATION_RETRY_ATTEMPTS,
+        retry_base_delay_seconds: float = Defaults.GENERATION_RETRY_BASE_DELAY_SECONDS,
+        retry_max_delay_seconds: float = Defaults.GENERATION_RETRY_MAX_DELAY_SECONDS,
     ):
         try:
             from google import genai
@@ -31,6 +35,11 @@ class VertexGenerationProvider(GeminiGenerationProvider):
         self.temperature = temperature
         self.thinking_budget = thinking_budget
         self.timeout_ms = timeout_ms
+        self.retry = TransientGenerationRetry(
+            attempts=retry_attempts,
+            base_delay_seconds=retry_base_delay_seconds,
+            max_delay_seconds=retry_max_delay_seconds,
+        )
         self.project = project or os.environ.get(EnvironmentVariable.GOOGLE_CLOUD_PROJECT.value)
         self.location = (
             location

@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from code_diver.generation.vertex_generation_provider import VertexGenerationProvider
+from code_diver.generation.transient_generation_retry import TransientGenerationRetry
 from code_diver.providers.vertex_embedding_provider import VertexEmbeddingProvider
 
 
@@ -65,6 +66,7 @@ def test_vertex_generation_provider_reuses_json_generation_contract() -> None:
     provider.temperature = 0
     provider.thinking_budget = 128
     provider.timeout_ms = 20_000
+    provider.retry = TransientGenerationRetry(attempts=1, sleep=lambda _: None)
     provider.client = SimpleNamespace(models=models)
     provider.types = SimpleNamespace(
         GenerateContentConfig=FakeGenerateContentConfig,

@@ -20,6 +20,9 @@ def create_generation_provider(config: AppConfig) -> GenerationProvider:
             thinking_budget=generation.thinking_budget,
             api_version=generation.api_version,
             timeout_ms=generation.timeout_ms,
+            retry_attempts=generation.retry_attempts,
+            retry_base_delay_seconds=generation.retry_base_delay_seconds,
+            retry_max_delay_seconds=generation.retry_max_delay_seconds,
         )
     if generation.provider == Defaults.VERTEX_PROVIDER:
         return VertexGenerationProvider(
@@ -32,6 +35,9 @@ def create_generation_provider(config: AppConfig) -> GenerationProvider:
             thinking_budget=generation.thinking_budget,
             api_version=generation.api_version or "v1",
             timeout_ms=generation.timeout_ms,
+            retry_attempts=generation.retry_attempts,
+            retry_base_delay_seconds=generation.retry_base_delay_seconds,
+            retry_max_delay_seconds=generation.retry_max_delay_seconds,
         )
     if generation.provider == "openai":
         return OpenAIGenerationProvider(
@@ -39,6 +45,9 @@ def create_generation_provider(config: AppConfig) -> GenerationProvider:
             api_key=generation.api_key,
             url=generation.url or Defaults.OPENAI_RESPONSES_URL,
             timeout_seconds=generation.timeout_ms / 1000,
+            retry_attempts=generation.retry_attempts,
+            retry_base_delay_seconds=generation.retry_base_delay_seconds,
+            retry_max_delay_seconds=generation.retry_max_delay_seconds,
         )
     if generation.provider == "openai_compatible":
         return OpenAICompatibleGenerationProvider(
@@ -47,5 +56,8 @@ def create_generation_provider(config: AppConfig) -> GenerationProvider:
             url=generation.url,
             timeout_seconds=generation.timeout_ms / 1000,
             max_tokens=generation.max_tokens,
+            retry_attempts=generation.retry_attempts,
+            retry_base_delay_seconds=generation.retry_base_delay_seconds,
+            retry_max_delay_seconds=generation.retry_max_delay_seconds,
         )
     raise ValueError(f"Unknown generation provider: {generation.provider}")

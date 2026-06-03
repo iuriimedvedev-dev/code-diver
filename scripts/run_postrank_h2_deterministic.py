@@ -50,6 +50,10 @@ class DeterministicPostrankH2:
     def __init__(self, args: argparse.Namespace):
         self.args = args
         self.config = ConfigLoader().load(args.config)
+        if args.trace_artifact is not None:
+            self.config = replace(self.config, trace=replace(self.config.trace, artifact=args.trace_artifact))
+        if args.disable_trace:
+            self.config = replace(self.config, trace=replace(self.config.trace, enabled=False))
         self.limit = int(args.limit)
         self.locator_limit = int(args.locator_limit)
         self.run_id = args.run_id or uuid.uuid4().hex[:12]
@@ -1173,6 +1177,8 @@ def main() -> int:
     parser.add_argument("--hypothesis", action="append", default=[])
     parser.add_argument("--details", action="store_true")
     parser.add_argument("--run-id", default="")
+    parser.add_argument("--trace-artifact", type=Path, default=None)
+    parser.add_argument("--disable-trace", action="store_true")
     parser.add_argument("--output", type=Path, default=Path(".code-diver/reports/intellij-postrank-h2-deterministic-100.json"))
     parser.add_argument("--report", type=Path, default=Path(".code-diver/reports/intellij-postrank-h2-deterministic-100.html"))
     args = parser.parse_args()

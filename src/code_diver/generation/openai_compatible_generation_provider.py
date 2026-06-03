@@ -16,12 +16,18 @@ class OpenAICompatibleGenerationProvider(OpenAIGenerationProvider):
         url: str | None = None,
         timeout_seconds: float = Defaults.OPENAI_TIMEOUT_SECONDS,
         max_tokens: int | None = None,
+        retry_attempts: int = Defaults.GENERATION_RETRY_ATTEMPTS,
+        retry_base_delay_seconds: float = Defaults.GENERATION_RETRY_BASE_DELAY_SECONDS,
+        retry_max_delay_seconds: float = Defaults.GENERATION_RETRY_MAX_DELAY_SECONDS,
     ):
         super().__init__(
             model=model,
             api_key=api_key or "local",
             url=url or f"{Defaults.LOCAL_OPENAI_BASE_URL}/chat/completions",
             timeout_seconds=timeout_seconds,
+            retry_attempts=retry_attempts,
+            retry_base_delay_seconds=retry_base_delay_seconds,
+            retry_max_delay_seconds=retry_max_delay_seconds,
         )
         self.name = "openai_compatible"
         self._response_format_supported = True
@@ -33,13 +39,13 @@ class OpenAICompatibleGenerationProvider(OpenAIGenerationProvider):
     def generate_json_result(self, prompt: str) -> GenerationResult:
         payload = self._payload(prompt, response_format=self._response_format_supported)
         try:
-            response = self._post(payload)
+            response = self.retry.run(lambda: self._post(payload))
         except RuntimeError as exc:
             if not self._response_format_supported or not self._is_response_format_error(str(exc)):
                 raise
             self._response_format_supported = False
             payload = self._payload(prompt, response_format=False)
-            response = self._post(payload)
+            response = self.retry.run(lambda: self._post(payload))
         text = self._extract_chat_text(response)
         if not text:
             raise RuntimeError("OpenAI-compatible server returned an empty response.")

@@ -4,6 +4,7 @@ import os
 
 from ..settings import Defaults, EnvironmentVariable
 from .generation_result import GenerationResult
+from .transient_generation_retry import TransientGenerationRetry
 
 
 class GeminiGenerationProvider:
@@ -16,6 +17,9 @@ class GeminiGenerationProvider:
         thinking_budget: int | None = Defaults.GENERATION_THINKING_BUDGET,
         api_version: str | None = Defaults.GENERATION_API_VERSION,
         timeout_ms: int = Defaults.GENERATION_TIMEOUT_MS,
+        retry_attempts: int = Defaults.GENERATION_RETRY_ATTEMPTS,
+        retry_base_delay_seconds: float = Defaults.GENERATION_RETRY_BASE_DELAY_SECONDS,
+        retry_max_delay_seconds: float = Defaults.GENERATION_RETRY_MAX_DELAY_SECONDS,
     ):
         try:
             from google import genai
@@ -29,6 +33,11 @@ class GeminiGenerationProvider:
         self.temperature = temperature
         self.thinking_budget = thinking_budget
         self.timeout_ms = timeout_ms
+        self.retry = TransientGenerationRetry(
+            attempts=retry_attempts,
+            base_delay_seconds=retry_base_delay_seconds,
+            max_delay_seconds=retry_max_delay_seconds,
+        )
         resolved_key = api_key or os.environ.get(EnvironmentVariable.GEMINI_API_KEY.value)
         http_options = types.HttpOptions(api_version=api_version, timeout=timeout_ms)
         client_kwargs = {"http_options": http_options}
@@ -57,10 +66,12 @@ class GeminiGenerationProvider:
         if self.thinking_budget is not None:
             config_kwargs["thinking_config"] = self.types.ThinkingConfig(thinking_budget=self.thinking_budget)
         config = self.types.GenerateContentConfig(**config_kwargs)
-        response = self.client.models.generate_content(
-            model=model,
-            contents=prompt,
-            config=config,
+        response = self.retry.run(
+            lambda: self.client.models.generate_content(
+                model=model,
+                contents=prompt,
+                config=config,
+            )
         )
         text = getattr(response, "text", None)
         if not text:
