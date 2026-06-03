@@ -165,6 +165,48 @@ Diagnostics now record per case:
 
 This separates three different problems: the locator never saw the file, candidate construction dropped it, or the ranker demoted it.
 
+### Requested 6-Way Post-Locator Matrix
+
+The explicit matrix we tested was:
+
+- 2 post-locator approaches:
+  - **Branch A:** file candidates -> structured `outline`/`symbols`/`rg` probes -> LLM rerank.
+  - **Branch B:** file candidates -> temporary syntax-aware vector index over those files -> vector search -> LLM rerank.
+- 3 rankers/orchestrator-rerankers:
+  - Gemini 3.1 Flash-Lite via Vertex.
+  - Gemini 3.5 Flash via Vertex.
+  - Qwen3.5 4B OptiQ 4bit via local MLX-compatible server.
+
+Results on the original narrow IntelliJ 1000-case expected set:
+
+| Ranker | Branch | Cases | Hit@1 | Hit@3 | Hit@5 | Hit@10 | Recall@10 | Precision@10 | MRR@10 | Mean ms | Estimated cost |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Gemini 3.1 Flash-Lite | A grep/read/tools | 1000 | 0.700 | 0.815 | 0.828 | 0.850 | 0.850 | 0.085 | 0.760 | 2319 | $2.16 |
+| Gemini 3.1 Flash-Lite | B ephemeral index | 1000 | 0.530 | 0.595 | 0.608 | 0.630 | 0.630 | 0.202 | 0.563 | 7301 | $2.28 |
+| Gemini 3.5 Flash | A grep/read/tools | 1000 | 0.735 | 0.827 | 0.840 | 0.856 | 0.856 | 0.086 | 0.785 | 3070 | $13.51 |
+| Gemini 3.5 Flash | B ephemeral index | 1000 | 0.562 | 0.601 | 0.621 | 0.635 | 0.635 | 0.218 | 0.585 | 8436 | $14.03 |
+| Qwen3.5 4B OptiQ 4bit | A grep/read/tools | 1000 | 0.598 | 0.762 | 0.802 | 0.825 | 0.825 | 0.083 | 0.688 | 11517 | $12.39 estimator |
+| Qwen3.5 4B OptiQ 4bit | B ephemeral index | 50 partial | 0.420 | 0.580 | 0.600 | 0.640 | 0.640 | 0.186 | 0.503 | 11462 | $0.66 estimator |
+
+Interpretation:
+
+- **Branch A clearly wins.** It is both more accurate and faster for all full runs.
+- **Branch B did not justify itself.** Localized temporary vectorization over candidate files added build/query cost and reduced Hit@10 by roughly 22 points for both Gemini rankers.
+- **Gemini 3.5 Flash was the best strict ranker** on the narrow expected set, but the gain over Flash-Lite was small for Hit@10: `0.856` vs `0.850`.
+- **Flash-Lite is the best cost/latency tradeoff** in this matrix: near Gemini 3.5 Hit@10 at much lower cost.
+- **Qwen3.5 4B local was usable but weaker** as a generative reranker. It was slower in this setup and lower on Hit@1/Hit@10.
+- The ephemeral branch's higher `Precision@10` is misleading: it returns fewer repeated file-level hits but misses the expected file much more often.
+
+The later answer-set evaluation changed the dataset, not the branch winner. The best production direction remains:
+
+```text
+compact persistent file/manifest locator
+-> hybrid profile union
+-> structured probes when useful
+-> Gemini rerank
+-> answer-set-aware evaluation
+```
+
 ## TUI Goal
 
 The UI should make the search process inspectable:

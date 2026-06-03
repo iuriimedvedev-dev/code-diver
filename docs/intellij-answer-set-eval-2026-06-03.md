@@ -57,6 +57,34 @@ Report artifact:
 | File-level final dedupe | 10 | Worse Hit@10 | Top duplicate chunks were often useful evidence; dedupe needs a smarter file aggregator, not a blind final filter. |
 | Manifest multi-query + alias8 + protected base | 30 | Hit@10 0.833 | Multi-query over same noisy candidate mixer did not improve broad-query ranking. |
 
+## Requested 6-Hypothesis Matrix
+
+This is the direct comparison requested earlier: **2 post-locator approaches x 3 ranker/orchestrator models**.
+
+Approaches:
+
+- **Branch A:** locator -> structured `outline`/`symbols`/`rg` probes -> listwise LLM rerank.
+- **Branch B:** locator -> temporary syntax-aware vector index over candidate files -> vector search -> listwise LLM rerank.
+
+Results on the original narrow IntelliJ expected set:
+
+| Ranker | Branch | Cases | Hit@1 | Hit@3 | Hit@5 | Hit@10 | Recall@10 | Precision@10 | MRR@10 | Mean ms | Estimated cost |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| Gemini 3.1 Flash-Lite | A grep/read/tools | 1000 | 0.700 | 0.815 | 0.828 | 0.850 | 0.850 | 0.085 | 0.760 | 2319 | $2.16 |
+| Gemini 3.1 Flash-Lite | B ephemeral index | 1000 | 0.530 | 0.595 | 0.608 | 0.630 | 0.630 | 0.202 | 0.563 | 7301 | $2.28 |
+| Gemini 3.5 Flash | A grep/read/tools | 1000 | 0.735 | 0.827 | 0.840 | 0.856 | 0.856 | 0.086 | 0.785 | 3070 | $13.51 |
+| Gemini 3.5 Flash | B ephemeral index | 1000 | 0.562 | 0.601 | 0.621 | 0.635 | 0.635 | 0.218 | 0.585 | 8436 | $14.03 |
+| Qwen3.5 4B OptiQ 4bit | A grep/read/tools | 1000 | 0.598 | 0.762 | 0.802 | 0.825 | 0.825 | 0.083 | 0.688 | 11517 | $12.39 estimator |
+| Qwen3.5 4B OptiQ 4bit | B ephemeral index | 50 partial | 0.420 | 0.580 | 0.600 | 0.640 | 0.640 | 0.186 | 0.503 | 11462 | $0.66 estimator |
+
+Conclusion:
+
+- Branch A won all meaningful comparisons. It was more accurate and substantially faster than Branch B.
+- Branch B was the wrong shape for this implementation. Re-indexing localized files added latency and did not improve recall; it also caused the reranker to see lower-quality chunk candidates.
+- Gemini 3.5 Flash had the best strict ranking quality in the old matrix, but Gemini 3.1 Flash-Lite was close on Hit@10 for much lower cost.
+- Qwen3.5 4B local reranking was viable but not competitive with Gemini for this benchmark.
+- The later `answer_sets` run did not invalidate this matrix. It fixed the ground truth for broad multi-answer queries and showed the best Branch C setup can pass `Hit@10 >= 0.95`.
+
 ## 1000-Case Gate
 
 Command:
