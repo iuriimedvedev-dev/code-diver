@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import fnmatch
 import json
 import sys
@@ -58,7 +59,7 @@ from .ui import EditorOpener, SearchRenderer, TraceMonitor
 
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
-    args = parser.parse_args(argv)
+    args = parser.parse_args(normalize_argv(argv))
     try:
         config = ConfigLoader().load(args.config)
         EnvFileLoader().load(config.env_file.path, config.env_file.override)
@@ -87,7 +88,7 @@ def build_parser() -> argparse.ArgumentParser:
     index_selected.set_defaults(func=cmd_index_selected)
 
     search = subparsers.add_parser(CommandName.SEARCH.value, help="Search indexed code.")
-    search.add_argument("query")
+    search.add_argument("query", nargs="+")
     search.add_argument(OptionName.LIMIT.value, type=int, default=None)
     search.add_argument(OptionName.JSON.value, action="store_true")
     search.set_defaults(func=cmd_search)
@@ -124,7 +125,7 @@ def build_parser() -> argparse.ArgumentParser:
     open_result = subparsers.add_parser(
         CommandName.OPEN.value, help="Open the best search result in the configured editor."
     )
-    open_result.add_argument("query")
+    open_result.add_argument("query", nargs="+")
     open_result.add_argument(OptionName.RANK.value, type=int, default=1)
     open_result.set_defaults(func=cmd_open)
 
@@ -135,7 +136,7 @@ def build_parser() -> argparse.ArgumentParser:
     chat.set_defaults(func=cmd_chat)
 
     ask = subparsers.add_parser(CommandName.ASK.value, help="Ask Pi once with Code Diver RAG tools loaded.")
-    ask.add_argument("query")
+    ask.add_argument("query", nargs="+")
     ask.add_argument(OptionName.TOOLSET.value, default=None)
     ask.add_argument(OptionName.HYPOTHESIS.value, default=None)
     ask.set_defaults(func=cmd_ask)
@@ -185,6 +186,29 @@ def build_parser() -> argparse.ArgumentParser:
     monitor.set_defaults(func=cmd_monitor)
 
     return parser
+
+
+def normalize_argv(argv: list[str] | None) -> list[str] | None:
+    if argv is None:
+        raw = list(sys.argv[1:])
+    else:
+        raw = list(argv)
+    normalized: list[str] = []
+    config_tokens: list[str] = []
+    index = 0
+    while index < len(raw):
+        token = raw[index]
+        if token == OptionName.CONFIG.value and index + 1 < len(raw):
+            config_tokens.extend([token, raw[index + 1]])
+            index += 2
+            continue
+        if token.startswith(f"{OptionName.CONFIG.value}="):
+            config_tokens.append(token)
+            index += 1
+            continue
+        normalized.append(token)
+        index += 1
+    return [*config_tokens, *normalized]
 
 
 def cmd_index(_: argparse.Namespace, config: AppConfig) -> int:
@@ -265,11 +289,12 @@ def cmd_index_selected(args: argparse.Namespace, config: AppConfig) -> int:
 
 
 def cmd_search(args: argparse.Namespace, config: AppConfig) -> int:
-    results = run_search(config, args.query, args.limit or config.search.limit)
+    query = normalize_query(args.query)
+    results = run_search(config, query, args.limit or config.search.limit)
     if args.json:
         print(json.dumps([result_to_json(result) for result in results], indent=2))
     else:
-        SearchRenderer(config.root, config.ui, config.search.preview_lines).render(args.query, results)
+        SearchRenderer(config.root, config.ui, config.search.preview_lines).render(query, results)
     return 0
 
 
@@ -331,7 +356,7 @@ def cmd_symbols(args: argparse.Namespace, config: AppConfig) -> int:
 def cmd_open(args: argparse.Namespace, config: AppConfig) -> int:
     rank = max(int(args.rank), 1)
     limit = max(rank, config.search.limit)
-    results = run_search(config, args.query, limit)
+    results = run_search(config, normalize_query(args.query), limit)
     if not results:
         print("No search results.")
         return 1
@@ -348,7 +373,13 @@ def cmd_open(args: argparse.Namespace, config: AppConfig) -> int:
 
 
 def cmd_ask(args: argparse.Namespace, config: AppConfig) -> int:
-    return PiRunner().run_print(config, args.config, args.query, toolset=args.toolset, hypothesis=args.hypothesis)
+    return PiRunner().run_print(
+        config,
+        args.config,
+        normalize_query(args.query),
+        toolset=args.toolset,
+        hypothesis=args.hypothesis,
+    )
 
 
 def cmd_chat(args: argparse.Namespace, config: AppConfig) -> int:
@@ -358,7 +389,11 @@ def cmd_chat(args: argparse.Namespace, config: AppConfig) -> int:
 def cmd_evaluate(args: argparse.Namespace, config: AppConfig) -> int:
     vector_store = create_vector_store(config)
     if args.reindex or not vector_store.exists():
-        cmd_index(args, config)
+        if args.json:
+            with contextlib.redirect_stdout(sys.stderr):
+                cmd_index(args, config)
+        else:
+            cmd_index(args, config)
         vector_store = create_vector_store(config)
 
     dataset = args.dataset or config.evaluation.dataset
@@ -662,11 +697,22 @@ def cmd_monitor(args: argparse.Namespace, config: AppConfig) -> int:
     return 0
 
 
+def normalize_query(query: str | list[str]) -> str:
+    if isinstance(query, list):
+        return " ".join(query).strip()
+    return query.strip()
+
+
 def run_search(config: AppConfig, query: str, limit: int) -> list[SearchResult]:
     vector_store = create_vector_store(config)
-    provider = make_embedding_provider(config, vector_store.metadata())
-    prepared_query = make_plugin_manager(config).prepare_query(query)
-    return make_retrieval_strategy(config, provider, vector_store).search(prepared_query, limit)
+    try:
+        if not vector_store.exists():
+            raise ValueError(f"Index not found in {store_label(config)}. Run `code-diver index` first.")
+        provider = make_embedding_provider(config, vector_store.metadata())
+        prepared_query = make_plugin_manager(config).prepare_query(query)
+        return make_retrieval_strategy(config, provider, vector_store).search(prepared_query, limit)
+    finally:
+        close_vector_store(vector_store)
 
 
 def make_indexing_service(config: AppConfig) -> IndexingService:

@@ -79,7 +79,7 @@ plugins: []
     assert trace_records[1]["payload"]["model"] == "hash-token-v1"
     capsys.readouterr()
 
-    assert main(["--config", str(config), "search", "authenticate user password", "--json"]) == 0
+    assert main(["search", "authenticate", "user", "password", "--json", "--config", str(config)]) == 0
     search_payload = json.loads(capsys.readouterr().out)
     assert search_payload[0]["item"]["path"] == "auth.py"
 
@@ -87,6 +87,13 @@ plugins: []
     eval_payload = json.loads(capsys.readouterr().out)
     assert eval_payload["metrics"]["cases"] == 1
     assert eval_payload["metrics"]["hit_rate@3"] == 1.0
+
+    artifact.unlink()
+    assert main(["evaluate", "--json", "--reindex", "--config", str(config)]) == 0
+    captured = capsys.readouterr()
+    reindex_payload = json.loads(captured.out)
+    assert reindex_payload["metrics"]["cases"] == 1
+    assert "Indexed 1 items" in captured.err
 
     assert main(["--config", str(config), "experiment", "--json"]) == 0
     experiment_payload = json.loads(capsys.readouterr().out)
@@ -155,6 +162,32 @@ plugins: []
     assert main(["--config", str(config), "search", "charge card payment gateway", "--json"]) == 0
     search_payload = json.loads(capsys.readouterr().out)
     assert search_payload[0]["item"]["path"] == "payments.py"
+
+
+def test_search_without_index_reports_actionable_error(tmp_path: Path, capsys) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "auth.py").write_text("def authenticate_user():\n    return True\n", encoding="utf-8")
+    config = tmp_path / "code-diver.yml"
+    config.write_text(
+        f"""
+root: {repo}
+artifact: {tmp_path}/missing-index.json
+embedding:
+  provider: hash
+  dimensions: 64
+scanner:
+  include:
+    - "*.py"
+trace:
+  enabled: false
+plugins: []
+""".strip(),
+        encoding="utf-8",
+    )
+
+    assert main(["search", "authenticate", "user", "--config", str(config)]) == 1
+    assert "Run `code-diver index` first" in capsys.readouterr().err
 
 
 class _StringInput:
