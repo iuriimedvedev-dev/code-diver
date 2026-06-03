@@ -195,6 +195,27 @@ experiments:
         api_version: v1
         timeout_ms: 30000
       description: "Branch C with compact file manifests plus summaries, then Gemini 3.5 Flash rerank."
+    - name: h4_manifest_multiquery_rerank_gemini_flash_35
+      tools:
+        - code_diver_search
+        - code_diver_outline
+        - code_diver_symbols
+        - code_diver_rg
+        - code_diver_grep
+        - code_diver_read
+        - code_diver_rerank
+      generation:
+        provider: vertex
+        model: gemini-3.5-flash
+        fallback_models:
+          - gemini-2.5-flash
+        project: "236777862453"
+        location: global
+        temperature: 0
+        thinking_budget: 1024
+        api_version: v1
+        timeout_ms: 30000
+      description: "Branch D multi-query search over compact file manifests plus summaries, then Gemini 3.5 Flash rerank."
 
 metrics:
   enabled: false
