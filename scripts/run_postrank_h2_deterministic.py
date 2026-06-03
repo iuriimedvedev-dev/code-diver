@@ -416,6 +416,8 @@ class DeterministicPostrankH2:
         )
 
     def _alias_locator(self, config: Any) -> IdentifierAliasLocator | None:
+        if self._alias_limit() <= 0:
+            return None
         artifact = self.args.alias_graph or config.graph.artifact
         store = CodeGraphStore(artifact)
         if not store.exists():

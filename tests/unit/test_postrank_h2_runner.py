@@ -20,6 +20,14 @@ SPEC.loader.exec_module(MODULE)
 DeterministicPostrankH2 = MODULE.DeterministicPostrankH2
 
 
+def test_alias_locator_is_skipped_when_alias_limit_is_zero(tmp_path: Path) -> None:
+    runner = object.__new__(DeterministicPostrankH2)
+    runner.args = SimpleNamespace(alias_limit=0, alias_graph=tmp_path / "missing-graph.json")
+    config = SimpleNamespace(graph=SimpleNamespace(artifact=tmp_path / "also-missing.json"))
+
+    assert runner._alias_locator(config) is None
+
+
 def test_preserve_base_files_reserves_unique_base_files_before_llm_tail() -> None:
     runner = object.__new__(DeterministicPostrankH2)
     ranked = [
