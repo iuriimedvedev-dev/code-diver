@@ -742,7 +742,7 @@ Input query: {query}
                 result = rerank(
                     query,
                     candidates,
-                    return_limit,
+                    self.limit,
                     {
                         "mode": self.args.rerank_mode if attempt == 1 else "compact",
                         "candidateLimit": self.args.rerank_candidate_limit,
@@ -755,7 +755,7 @@ Input query: {query}
             self._merge_rerank_metrics(cumulative, rerank_metrics)
             ranked = result.get("candidates")
             if isinstance(ranked, list) and ranked:
-                ranked = self._dedupe_final_files(ranked, return_limit)
+                ranked = self._dedupe_final_files([*ranked, *candidates], return_limit)
                 last_ranked = self._preserve_base_files(
                     ranked,
                     candidates,
