@@ -102,7 +102,7 @@ When ready, return up to {limit} results:
             )
         if "code_diver_h3_search" in names:
             lines.append(
-                "- For IntelliJ-scale or H3 hypotheses, use code_diver_h3_search as the strongest first-pass candidate tool. Choose precise code-like queries yourself: identifiers, verb+noun methods, class-name hypotheses, path/package terms, and short lexical anchors. You may call it multiple times with different queries and merge the evidence."
+                "- For IntelliJ-scale or H3 hypotheses, use code_diver_h3_search as the strongest first-pass candidate tool. Keep its default fast mode unless you explicitly need expensive full hybrid profiles. Choose precise code-like queries yourself: identifiers, verb+noun methods, class-name hypotheses, path/package terms, and short lexical anchors. You may call it multiple times with different queries and merge the evidence."
             )
         if "code_diver_tree" in names or "code_diver_rg" in names:
             parts = [tool for tool in ["code_diver_tree", "code_diver_rg"] if tool in names]
@@ -181,6 +181,7 @@ When ready, return up to {limit} results:
                 "arguments": {
                     "query": "command creation factory handler",
                     "limit": 30,
+                    "mode": "fast",
                     "candidateLimit": 90,
                     "profileLimit": 120,
                     "probeFiles": 5,

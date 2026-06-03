@@ -25,6 +25,11 @@ LEXICAL_SCORING_BM25 = "bm25"
 FUSION_RRF = "rrf"
 TRACE_CANDIDATE_LIMIT = 60
 
+_SHARED_CACHE_LOCK = RLock()
+_SHARED_GRAPHS: dict[str, CodeGraph | None] = {}
+_SHARED_LEXICAL_INDEXES: dict[str, tuple[HybridLexicalIndex, dict[str, HybridItemProfile]]] = {}
+_SHARED_NEIGHBOR_INDEXES: dict[str, GraphNeighborIndex] = {}
+
 
 class HybridRetrievalStrategy(RetrievalStrategy):
     def __init__(
@@ -164,19 +169,37 @@ class HybridRetrievalStrategy(RetrievalStrategy):
         if self._lexical_index is None:
             with self._cache_lock:
                 if self._lexical_index is None:
-                    self._lexical_index = HybridLexicalIndex(graph.items.values(), self.item_profiler)
-                    self._item_profiles.update(self._lexical_index.profiles)
+                    key = self._cache_key()
+                    if key:
+                        with _SHARED_CACHE_LOCK:
+                            cached = _SHARED_LEXICAL_INDEXES.get(key)
+                            if cached is None:
+                                index = HybridLexicalIndex(graph.items.values(), self.item_profiler)
+                                cached = (index, dict(index.profiles))
+                                _SHARED_LEXICAL_INDEXES[key] = cached
+                        self._lexical_index, profiles = cached
+                        self._item_profiles.update(profiles)
+                    else:
+                        self._lexical_index = HybridLexicalIndex(graph.items.values(), self.item_profiler)
+                        self._item_profiles.update(self._lexical_index.profiles)
         return self._lexical_index
 
     def _neighbors(self) -> GraphNeighborIndex:
         if self._neighbor_index is None:
             with self._cache_lock:
                 if self._neighbor_index is None:
-                    graph = self._load_graph()
-                    if graph is None:
-                        self._neighbor_index = GraphNeighborIndex(CodeGraph(items={}, edges=[]))
+                    key = self._cache_key()
+                    if key:
+                        with _SHARED_CACHE_LOCK:
+                            cached = _SHARED_NEIGHBOR_INDEXES.get(key)
+                            if cached is None:
+                                graph = self._load_graph()
+                                cached = GraphNeighborIndex(graph or CodeGraph(items={}, edges=[]))
+                                _SHARED_NEIGHBOR_INDEXES[key] = cached
+                        self._neighbor_index = cached
                     else:
-                        self._neighbor_index = GraphNeighborIndex(graph)
+                        graph = self._load_graph()
+                        self._neighbor_index = GraphNeighborIndex(graph or CodeGraph(items={}, edges=[]))
         return self._neighbor_index
 
     def _load_graph(self) -> CodeGraph | None:
@@ -185,10 +208,29 @@ class HybridRetrievalStrategy(RetrievalStrategy):
         with self._cache_lock:
             if self._graph is not None:
                 return self._graph
+            key = self._cache_key()
+            if key:
+                with _SHARED_CACHE_LOCK:
+                    if key in _SHARED_GRAPHS:
+                        self._graph = _SHARED_GRAPHS[key]
+                        return self._graph
             if not self.graph_store.exists():
+                if key:
+                    with _SHARED_CACHE_LOCK:
+                        _SHARED_GRAPHS[key] = None
                 return None
-            self._graph = self.graph_store.load()
+            graph = self.graph_store.load()
+            if key:
+                with _SHARED_CACHE_LOCK:
+                    _SHARED_GRAPHS[key] = graph
+            self._graph = graph
         return self._graph
+
+    def _cache_key(self) -> str:
+        try:
+            return str(self.graph_store.artifact.resolve())
+        except Exception:
+            return str(self.graph_store.artifact)
 
     def _normalize(self, scores: dict[str, float]) -> dict[str, float]:
         if not scores:

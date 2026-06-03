@@ -39,10 +39,11 @@ class ToolManifestBuilder:
                 "args": {
                     "query": "LLM-selected precise search query, not necessarily the raw user query",
                     "limit": 30,
+                    "mode": "fast by default; full enables expensive full hybrid profiles",
                     "candidateLimit": "optional candidate pool size, max 120",
                     "profileLimit": "optional per-profile retrieval size, max 200",
                     "probeFiles": "optional number of top files to outline/symbol/rg probe",
-                    "aliasLimit": "optional identifier alias candidate count",
+                    "aliasLimit": "optional identifier alias candidate count, default 0 because alias index has cold-start cost",
                 },
             },
             {

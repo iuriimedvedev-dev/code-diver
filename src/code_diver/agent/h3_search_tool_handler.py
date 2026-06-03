@@ -9,6 +9,7 @@ from ..config import AppConfig
 from ..domain import CodeItemIndexKindResolver
 from ..graph import CodeGraphStore
 from ..inspection import FileOutlineService, RgService, SymbolsService
+from ..math_utils import normalize
 from ..services import IdentifierAliasLocator
 from ..strategies import RetrievalStrategyFactory
 
@@ -31,7 +32,9 @@ class H3SearchToolHandler:
         self.outline = FileOutlineService(config.root, exclude, config.scanner.max_file_bytes)
         self.symbols = SymbolsService(config.root, exclude, config.scanner.max_file_bytes)
         self.rg = RgService(config.root, exclude, config.scanner.max_file_bytes)
-        self.alias_locator = self._alias_locator()
+        self.alias_locator: IdentifierAliasLocator | None = None
+        self.alias_locator_loaded = False
+        self.profile_strategies: dict[str, Any] = {}
 
     def search(self, query: str, limit: int, args: dict[str, Any]) -> dict[str, Any]:
         started = perf_counter()
@@ -43,21 +46,13 @@ class H3SearchToolHandler:
             default=max(candidate_limit, 80),
             maximum=200,
         )
-        probe_files = self._bounded_int(args, "probeFiles", "probe_files", default=3, maximum=8)
-        alias_limit = self._bounded_int(args, "aliasLimit", "alias_limit", default=50, maximum=100)
-        raw_union: list[dict[str, Any]] = []
-        profile_groups: list[tuple[list[dict[str, Any]], float]] = []
-        profile_calls = 0
-        for profile_name, profile_config in self._union_profiles(union_profile_limit):
-            strategy = (
-                self.base_strategy
-                if profile_name == "balanced"
-                else RetrievalStrategyFactory().create(profile_config.search.strategy, profile_config, self.provider, self.vector_store)
-            )
-            rows = self._locator_candidates(strategy, query, union_profile_limit, source=f"h3:{profile_name}")
-            profile_groups.append((rows, 1.0))
-            raw_union.extend(rows)
-            profile_calls += 1
+        probe_files = self._bounded_int(args, "probeFiles", "probe_files", default=2, maximum=8)
+        alias_limit = self._bounded_non_negative_int(args, "aliasLimit", "alias_limit", default=0, maximum=100)
+        mode = str(args.get("mode") or "fast").strip().lower()
+        if mode == "full":
+            raw_union, profile_groups, profile_calls = self._full_profile_groups(query, union_profile_limit)
+        else:
+            raw_union, profile_groups, profile_calls = self._fast_profile_groups(query, union_profile_limit)
         union = self._balanced_candidate_mix(profile_groups, candidate_limit)
         probed, probe_metrics = self._probe_candidates(query, union[:probe_files])
         alias = self._alias_candidates(query, alias_limit)
@@ -77,19 +72,83 @@ class H3SearchToolHandler:
                 "outlineCalls": probe_metrics["outlineCalls"],
                 "symbolCalls": probe_metrics["symbolCalls"],
                 "rgCalls": probe_metrics["rgCalls"],
-                "source": "h3_manifest_union",
+                "source": f"h3_manifest_union:{mode}",
                 "elapsedMs": elapsed_ms,
             },
         }
 
+    def _fast_profile_groups(
+        self,
+        query: str,
+        limit: int,
+    ) -> tuple[list[dict[str, Any]], list[tuple[list[dict[str, Any]], float]], int]:
+        query_vector = normalize(self.provider.embed_query(query))
+        groups = [
+            (self._vector_kind_candidates(query_vector, limit, "file_manifest", "h3:fast_manifest"), 0.62),
+            (self._vector_kind_candidates(query_vector, limit, "file_summary", "h3:fast_summary"), 0.38),
+        ]
+        raw = [candidate for rows, _ in groups for candidate in rows]
+        return raw, groups, len(groups)
+
+    def _full_profile_groups(
+        self,
+        query: str,
+        limit: int,
+    ) -> tuple[list[dict[str, Any]], list[tuple[list[dict[str, Any]], float]], int]:
+        raw_union: list[dict[str, Any]] = []
+        profile_groups: list[tuple[list[dict[str, Any]], float]] = []
+        profile_calls = 0
+        for profile_name, profile_config in self._union_profiles(limit):
+            strategy = self._profile_strategy(profile_name, profile_config)
+            rows = self._locator_candidates(strategy, query, limit, source=f"h3:{profile_name}")
+            profile_groups.append((rows, 1.0))
+            raw_union.extend(rows)
+            profile_calls += 1
+        return raw_union, profile_groups, profile_calls
+
+    def _vector_kind_candidates(
+        self,
+        query_vector: list[float],
+        limit: int,
+        index_kind: str,
+        source: str,
+    ) -> list[dict[str, Any]]:
+        search_by_kind = getattr(self.vector_store, "search_by_index_kind", None)
+        if callable(search_by_kind):
+            results = search_by_kind(query_vector, limit, index_kind)
+        else:
+            results = [
+                result
+                for result in self.vector_store.search(query_vector, limit * 4)
+                if self.kind_resolver.resolve(result.item) == index_kind
+            ][:limit]
+        return [
+            {
+                "id": result.item.id,
+                "path": result.item.path,
+                "title": result.item.title,
+                "startLine": result.item.start_line,
+                "endLine": result.item.end_line,
+                "score": result.score,
+                "indexKind": self.kind_resolver.resolve(result.item),
+                "source": source,
+                "preview": self._preview(result.item.content, 420),
+            }
+            for result in results
+        ]
+
     def _alias_locator(self) -> IdentifierAliasLocator | None:
+        if self.alias_locator_loaded:
+            return self.alias_locator
+        self.alias_locator_loaded = True
         if not self.config.graph.enabled:
             return None
         store = CodeGraphStore(self.config.graph.artifact)
         if not store.exists():
             return None
         try:
-            return IdentifierAliasLocator(store.load())
+            self.alias_locator = IdentifierAliasLocator(store.load())
+            return self.alias_locator
         except Exception:
             return None
 
@@ -196,7 +255,10 @@ class H3SearchToolHandler:
         return candidates, metrics
 
     def _alias_candidates(self, query: str, limit: int) -> list[dict[str, Any]]:
-        if self.alias_locator is None or limit <= 0:
+        if limit <= 0:
+            return []
+        alias_locator = self._alias_locator()
+        if alias_locator is None:
             return []
         return [
             {
@@ -211,8 +273,22 @@ class H3SearchToolHandler:
                 "preview": candidate.preview,
                 "matchedAliases": list(candidate.matched_aliases),
             }
-            for candidate in self.alias_locator.search(query, limit)
+            for candidate in alias_locator.search(query, limit)
         ]
+
+    def _profile_strategy(self, profile_name: str, profile_config: AppConfig) -> Any:
+        if profile_name == "balanced":
+            return self.base_strategy
+        strategy = self.profile_strategies.get(profile_name)
+        if strategy is None:
+            strategy = RetrievalStrategyFactory().create(
+                profile_config.search.strategy,
+                profile_config,
+                self.provider,
+                self.vector_store,
+            )
+            self.profile_strategies[profile_name] = strategy
+        return strategy
 
     def _outline_candidates(self, payload: dict[str, Any]) -> list[dict[str, Any]]:
         rows = self._tool_candidates(payload, "outline")
@@ -328,3 +404,15 @@ class H3SearchToolHandler:
         except (TypeError, ValueError):
             parsed = default
         return max(1, min(parsed, maximum))
+
+    def _bounded_non_negative_int(self, args: dict[str, Any], *keys: str, default: int, maximum: int) -> int:
+        value: Any = None
+        for key in keys:
+            if key in args:
+                value = args[key]
+                break
+        try:
+            parsed = int(value if value is not None else default)
+        except (TypeError, ValueError):
+            parsed = default
+        return max(0, min(parsed, maximum))
