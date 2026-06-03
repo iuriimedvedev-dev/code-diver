@@ -16,6 +16,7 @@ from .agent import DirectIndexingOrchestrator, DirectSearchOrchestrator
 from .agent.h3_search_tool_handler import H3SearchToolHandler
 from .agent.rerank_tool_handler import RerankToolHandler
 from .ai_indexing import AiCodebaseScanner, HybridCodebaseScanner
+from .benchmarks import BenchmarkProfile, BenchmarkProfileRegistry
 from .domain import CodeItemIndexKindResolver, EvalResult, SearchResult
 from .env import EnvFileLoader
 from .experiments import ExperimentRunner
@@ -55,12 +56,39 @@ from .services.evaluation_statistics import EvaluationStatistics
 from .strategies import RetrievalStrategyFactory
 from .store import create_vector_store
 from .tracing import TraceLogger
-from .ui import EditorOpener, SearchRenderer, TraceMonitor
+from .ui import EditorOpener, EvaluationRenderer, SearchRenderer, TraceMonitor
+
+
+ADVANCED_COMMANDS = {
+    CommandName.ASK.value,
+    CommandName.CHAT.value,
+    CommandName.EVALUATE_INDEXING.value,
+    CommandName.EVALUATE_SEARCH_TOOLS.value,
+    CommandName.EXPERIMENT.value,
+    CommandName.GREP.value,
+    CommandName.INDEX_SELECTED.value,
+    CommandName.MONITOR.value,
+    CommandName.OPEN.value,
+    CommandName.READ.value,
+    CommandName.RG.value,
+    CommandName.SYMBOLS.value,
+    CommandName.TREE.value,
+}
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = build_parser()
-    args = parser.parse_args(normalize_argv(argv))
+    normalized = normalize_argv(argv)
+    include_advanced = bool(
+        normalized
+        and (OptionName.HELP_ALL.value in normalized or any(token in ADVANCED_COMMANDS for token in normalized))
+    )
+    parser = build_parser(include_advanced=include_advanced)
+    if include_advanced:
+        normalized = [token for token in normalized or [] if token != OptionName.HELP_ALL.value]
+        if not normalized:
+            parser.print_help()
+            return 0
+    args = parser.parse_args(normalized)
     try:
         config = ConfigLoader().load(args.config)
         EnvFileLoader().load(config.env_file.path, config.env_file.override)
@@ -73,26 +101,53 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
 
-def build_parser() -> argparse.ArgumentParser:
+def build_parser(include_advanced: bool = False) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="code-diver", description="Config-first codebase RAG CLI.")
     parser.add_argument(OptionName.CONFIG.value, type=Path, default=None, help="YAML config path.")
-    subparsers = parser.add_subparsers(dest="command", required=True)
+    parser.add_argument(
+        OptionName.HELP_ALL.value,
+        action="store_true",
+        help="Show advanced inspection, agent, and research commands.",
+    )
+    command_metavar = None if include_advanced else "{index,search,evaluate}"
+    subparsers = parser.add_subparsers(dest="command", required=True, metavar=command_metavar)
 
     index = subparsers.add_parser(CommandName.INDEX.value, help="Index repository code into the configured artifact.")
     index.set_defaults(func=cmd_index)
-
-    index_selected = subparsers.add_parser(
-        CommandName.INDEX_SELECTED.value,
-        help="Index agent-selected file ranges from a JSON payload on stdin.",
-    )
-    index_selected.add_argument(OptionName.JSON.value, action="store_true")
-    index_selected.set_defaults(func=cmd_index_selected)
 
     search = subparsers.add_parser(CommandName.SEARCH.value, help="Search indexed code.")
     search.add_argument("query", nargs="+")
     search.add_argument(OptionName.LIMIT.value, type=int, default=None)
     search.add_argument(OptionName.JSON.value, action="store_true")
     search.set_defaults(func=cmd_search)
+
+    evaluate = subparsers.add_parser(CommandName.EVALUATE.value, help="Evaluate retrieval on the configured dataset.")
+    evaluate.add_argument(
+        OptionName.BENCHMARK.value,
+        choices=BenchmarkProfileRegistry().names(),
+        default=None,
+        help="Use a reproducible benchmark profile.",
+    )
+    evaluate.add_argument(OptionName.DATASET.value, type=Path, default=None)
+    evaluate.add_argument(OptionName.LIMIT.value, type=int, default=None)
+    evaluate.add_argument(OptionName.DETAILS.value, action="store_true")
+    evaluate.add_argument(OptionName.JSON.value, action="store_true")
+    evaluate.add_argument(OptionName.REINDEX.value, action="store_true")
+    evaluate.set_defaults(func=cmd_evaluate)
+
+    if include_advanced:
+        add_advanced_parsers(subparsers)
+
+    return parser
+
+
+def add_advanced_parsers(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
+    index_selected = subparsers.add_parser(
+        CommandName.INDEX_SELECTED.value,
+        help="Index agent-selected file ranges from a JSON payload on stdin.",
+    )
+    index_selected.add_argument(OptionName.JSON.value, action="store_true")
+    index_selected.set_defaults(func=cmd_index_selected)
 
     tree = subparsers.add_parser(CommandName.TREE.value, help="Print a gitignore-aware repository tree.")
     tree.add_argument(OptionName.PATH.value, default=None)
@@ -124,7 +179,8 @@ def build_parser() -> argparse.ArgumentParser:
     symbols.set_defaults(func=cmd_symbols)
 
     open_result = subparsers.add_parser(
-        CommandName.OPEN.value, help="Open the best search result in the configured editor."
+        CommandName.OPEN.value,
+        help="Open the best search result in the configured editor.",
     )
     open_result.add_argument("query", nargs="+")
     open_result.add_argument(OptionName.RANK.value, type=int, default=1)
@@ -141,14 +197,6 @@ def build_parser() -> argparse.ArgumentParser:
     ask.add_argument(OptionName.TOOLSET.value, default=None)
     ask.add_argument(OptionName.HYPOTHESIS.value, default=None)
     ask.set_defaults(func=cmd_ask)
-
-    evaluate = subparsers.add_parser(CommandName.EVALUATE.value, help="Evaluate retrieval on the configured dataset.")
-    evaluate.add_argument(OptionName.DATASET.value, type=Path, default=None)
-    evaluate.add_argument(OptionName.LIMIT.value, type=int, default=None)
-    evaluate.add_argument(OptionName.DETAILS.value, action="store_true")
-    evaluate.add_argument(OptionName.JSON.value, action="store_true")
-    evaluate.add_argument(OptionName.REINDEX.value, action="store_true")
-    evaluate.set_defaults(func=cmd_evaluate)
 
     evaluate_indexing = subparsers.add_parser(
         CommandName.EVALUATE_INDEXING.value,
@@ -185,8 +233,6 @@ def build_parser() -> argparse.ArgumentParser:
     monitor.add_argument("--refresh", type=float, default=0.5)
     monitor.add_argument("--max-events", type=int, default=200)
     monitor.set_defaults(func=cmd_monitor)
-
-    return parser
 
 
 def normalize_argv(argv: list[str] | None) -> list[str] | None:
@@ -388,6 +434,11 @@ def cmd_chat(args: argparse.Namespace, config: AppConfig) -> int:
 
 
 def cmd_evaluate(args: argparse.Namespace, config: AppConfig) -> int:
+    benchmark = resolve_benchmark_profile(args)
+    if benchmark is not None and args.config is None and benchmark.config_path is not None:
+        config = ConfigLoader().load(benchmark.config_path)
+        EnvFileLoader().load(config.env_file.path, config.env_file.override)
+
     vector_store = create_vector_store(config)
     if args.reindex or not vector_store.exists():
         if args.json:
@@ -397,7 +448,7 @@ def cmd_evaluate(args: argparse.Namespace, config: AppConfig) -> int:
             cmd_index(args, config)
         vector_store = create_vector_store(config)
 
-    dataset = args.dataset or config.evaluation.dataset
+    dataset = args.dataset or (benchmark.dataset if benchmark is not None else config.evaluation.dataset)
     limit = args.limit or config.evaluation.limit
     provider = make_embedding_provider(config, vector_store.metadata())
     plugin_manager = make_plugin_manager(config)
@@ -412,20 +463,35 @@ def cmd_evaluate(args: argparse.Namespace, config: AppConfig) -> int:
         workers=config.evaluation.workers,
     )
     if args.json:
-        print(json.dumps({"metrics": metrics, "results": [eval_result_to_json(result) for result in results]}, indent=2))
+        print(
+            json.dumps(
+                {
+                    "benchmark": benchmark.to_json() if benchmark is not None else None,
+                    "config": str(args.config or (benchmark.config_path if benchmark is not None else Defaults.CONFIG_PATH)),
+                    "dataset": str(dataset),
+                    "limit": limit,
+                    "metrics": metrics,
+                    "results": [eval_result_to_json(result) for result in results],
+                },
+                indent=2,
+            )
+        )
         return 0
 
-    for name, value in metrics.items():
-        print(f"{name}: {value:.4f}" if isinstance(value, float) else f"{name}: {value}")
-    if args.details:
-        print()
-        for result in results:
-            status = "hit" if result.hit else "miss"
-            print(f"{result.case_id}: {status} rr={result.reciprocal_rank:.4f}")
-            print(f"  query: {result.query}")
-            print(f"  expected: {', '.join(result.expected)}")
-            print(f"  top: {', '.join(result.retrieved[:3])}")
+    EvaluationRenderer(config.ui.color).render(
+        metrics,
+        results,
+        benchmark=benchmark.to_json() if benchmark is not None else None,
+        details=args.details,
+    )
     return 0
+
+
+def resolve_benchmark_profile(args: argparse.Namespace) -> BenchmarkProfile | None:
+    name = getattr(args, "benchmark", None)
+    if not name:
+        return None
+    return BenchmarkProfileRegistry().get(str(name))
 
 
 def cmd_evaluate_indexing(args: argparse.Namespace, config: AppConfig) -> int:

@@ -23,10 +23,12 @@ class CommandName(StrEnum):
 
 
 class OptionName(StrEnum):
+    BENCHMARK = "--benchmark"
     CONFIG = "--config"
     DATASET = "--dataset"
     DETAILS = "--details"
     EXTENSION = "--extension"
+    HELP_ALL = "--help-all"
     HYPOTHESIS = "--hypothesis"
     JSON = "--json"
     LIMIT = "--limit"
