@@ -130,6 +130,15 @@ llm_rerank:
   include_reasons: false
   preserve_top_candidate: false
 
+cross_encoder_rerank:
+  provider: llama_cpp
+  model: Qwen3-Reranker-0.6B
+  url: http://127.0.0.1:8080/v1/rerank
+  candidate_limit: 90
+  max_document_chars: 650
+  timeout_ms: 30000
+  preserve_top_candidate: false
+
 graph:
   enabled: true
   artifact: .code-diver/intellij-postrank-h3-manifest-graph.json
@@ -195,6 +204,34 @@ experiments:
         api_version: v1
         timeout_ms: 30000
       description: "Branch C with compact file manifests plus summaries, then Gemini 3.5 Flash rerank."
+    - name: h3_manifest_union_cross_encoder_qwen3_0_6b
+      tools:
+        - code_diver_search
+        - code_diver_outline
+        - code_diver_symbols
+        - code_diver_rg
+      cross_encoder_rerank:
+        provider: llama_cpp
+        model: Qwen3-Reranker-0.6B
+        url: http://127.0.0.1:8080/v1/rerank
+        candidate_limit: 90
+        max_document_chars: 650
+        timeout_ms: 30000
+      description: "Branch C with compact file manifests plus summaries, then Qwen3-Reranker-0.6B cross-encoder rerank."
+    - name: h3_manifest_union_cross_encoder_qwen3_4b
+      tools:
+        - code_diver_search
+        - code_diver_outline
+        - code_diver_symbols
+        - code_diver_rg
+      cross_encoder_rerank:
+        provider: llama_cpp
+        model: Qwen3-Reranker-4B
+        url: http://127.0.0.1:8080/v1/rerank
+        candidate_limit: 60
+        max_document_chars: 650
+        timeout_ms: 45000
+      description: "Branch C with compact file manifests plus summaries, then Qwen3-Reranker-4B cross-encoder rerank."
     - name: h4_manifest_multiquery_rerank_gemini_flash_35
       tools:
         - code_diver_search

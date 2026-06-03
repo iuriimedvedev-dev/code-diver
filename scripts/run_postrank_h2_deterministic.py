@@ -29,6 +29,7 @@ from code_diver.generation import create_generation_provider
 from code_diver.graph import CodeGraphStore
 from code_diver.inspection import FileOutlineService, RgService, SymbolsService
 from code_diver.orchestration.json_response import JsonResponse
+from code_diver.reranking import RerankProviderFactory
 from code_diver.services import DatasetLoader, IdentifierAliasLocator
 from code_diver.store import create_vector_store
 from code_diver.agent.model_cost_estimator import ModelCostEstimator
@@ -125,7 +126,10 @@ class DeterministicPostrankH2:
             provider = make_embedding_provider(retrieval_config, vector_store.metadata())
             strategy = make_retrieval_strategy(retrieval_config, provider, vector_store)
             generation_provider = create_generation_provider(config)
-            rerank = make_rerank_tool_handler(config, generation_provider)
+            if self.args.postrank_reranker == "cross_encoder":
+                rerank = RerankProviderFactory().create(config.cross_encoder_rerank)
+            else:
+                rerank = make_rerank_tool_handler(config, generation_provider)
             ephemeral = make_ephemeral_search_tool_handler(config)
             alias_locator = self._alias_locator(config)
             outline = FileOutlineService(config.root, inspection_exclude_patterns(config), config.scanner.max_file_bytes)
@@ -179,7 +183,13 @@ class DeterministicPostrankH2:
                                 tool_metrics,
                             )
                     tool_metrics["candidate_count_total"] += len(candidates)
-                    reranked, rerank_metrics, rerank_degraded = self._rerank(rerank, case.query, candidates, tool_metrics)
+                    reranked, rerank_metrics, rerank_degraded = self._rerank(
+                        rerank,
+                        case.query,
+                        candidates,
+                        tool_metrics,
+                        config,
+                    )
                     if rerank_degraded:
                         degraded_case_ids.add(str(case.id))
                     self._merge_usage(usage, rerank_metrics)
@@ -725,7 +735,10 @@ Input query: {query}
         query: str,
         candidates: list[dict[str, Any]],
         metrics: dict[str, Any],
+        config: Any,
     ) -> tuple[list[dict[str, Any]], dict[str, Any], bool]:
+        if self.args.postrank_reranker == "cross_encoder":
+            return self._cross_encoder_rerank(rerank, query, candidates, metrics, config)
         cumulative = {
             "modelCalls": 0,
             "inputTokens": 0,
@@ -774,6 +787,100 @@ Input query: {query}
             metrics["rerank_errors"] += 1
             metrics["rerank_error_attempts"] += 1
         return last_ranked, cumulative, degraded
+
+    def _cross_encoder_rerank(
+        self,
+        rerank_provider: Any,
+        query: str,
+        candidates: list[dict[str, Any]],
+        metrics: dict[str, Any],
+        config: Any,
+    ) -> tuple[list[dict[str, Any]], dict[str, Any], bool]:
+        cumulative = {
+            "modelCalls": 0,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "totalTokens": 0,
+            "estimatedCost": 0.0,
+            "models": [],
+            "errors": 0,
+            "attempts": 1,
+        }
+        if not candidates:
+            return [], cumulative, False
+        rerank_config = config.cross_encoder_rerank
+        candidate_limit = min(max(int(rerank_config.candidate_limit), 1), len(candidates))
+        rerank_candidates = candidates[:candidate_limit]
+        tail_candidates = candidates[candidate_limit:]
+        documents = [
+            self._cross_encoder_document(candidate, int(rerank_config.max_document_chars))
+            for candidate in rerank_candidates
+        ]
+        return_limit = max(self.limit, int(self.args.rerank_return_limit or self.limit))
+        metrics["rerank_calls"] += 1
+        started = time.perf_counter()
+        try:
+            scores = rerank_provider.rerank(query, documents, min(return_limit, len(rerank_candidates)))
+            ranked: list[dict[str, Any]] = []
+            seen_indexes: set[int] = set()
+            for score in scores:
+                index = int(score.index)
+                if index < 0 or index >= len(rerank_candidates) or index in seen_indexes:
+                    continue
+                seen_indexes.add(index)
+                clone = dict(rerank_candidates[index])
+                clone["crossEncoderScore"] = float(score.score)
+                clone["rerankRank"] = len(ranked) + 1
+                ranked.append(clone)
+            ranked.extend(dict(candidate) for index, candidate in enumerate(rerank_candidates) if index not in seen_indexes)
+            ranked.extend(tail_candidates)
+            ranked = self._dedupe_final_files(ranked, return_limit)
+            ranked = self._preserve_base_files(
+                ranked,
+                candidates,
+                self.args.protected_base_files,
+                self.limit,
+                self.args.protected_base_mode,
+                self.args.llm_prefix_files,
+            )
+            cumulative.update(
+                {
+                    "modelCalls": 1,
+                    "models": [str(getattr(rerank_provider, "model", rerank_config.model))],
+                    "durationMs": (time.perf_counter() - started) * 1000,
+                }
+            )
+            return ranked, cumulative, False
+        except Exception as exc:
+            metrics["rerank_errors"] += 1
+            metrics["rerank_error_attempts"] += 1
+            cumulative.update(
+                {
+                    "modelCalls": 1,
+                    "models": [str(getattr(rerank_provider, "model", rerank_config.model))],
+                    "errors": 1,
+                    "degraded": True,
+                    "error": str(exc),
+                    "durationMs": (time.perf_counter() - started) * 1000,
+                }
+            )
+            return candidates[: self.limit], cumulative, True
+
+    def _cross_encoder_document(self, candidate: dict[str, Any], max_chars: int) -> str:
+        parts = [
+            f"path: {candidate.get('path') or ''}",
+            f"title: {candidate.get('title') or ''}",
+            f"source: {candidate.get('source') or ''}",
+            f"score: {float(candidate.get('score') or 0.0):.6f}",
+        ]
+        start_line = candidate.get("startLine")
+        end_line = candidate.get("endLine")
+        if start_line or end_line:
+            parts.append(f"lines: {start_line or ''}-{end_line or ''}")
+        preview = str(candidate.get("preview") or candidate.get("content") or "")
+        if preview:
+            parts.extend(["content:", preview[:max_chars]])
+        return "\n".join(parts)
 
     def _dedupe_final_files(self, ranked: list[dict[str, Any]], limit: int) -> list[dict[str, Any]]:
         if not self.args.dedupe_final_files:
@@ -1165,6 +1272,7 @@ def main() -> int:
     parser.add_argument("--rerank-return-limit", type=int, default=0)
     parser.add_argument("--rerank-attempts", type=int, default=2)
     parser.add_argument("--rerank-mode", default="file_first")
+    parser.add_argument("--postrank-reranker", choices=["llm", "cross_encoder"], default="llm")
     parser.add_argument("--dedupe-final-files", action="store_true")
     parser.add_argument("--protected-base-files", type=int, default=0)
     parser.add_argument("--protected-base-mode", choices=["prefix", "rescue"], default="prefix")
