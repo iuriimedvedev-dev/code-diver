@@ -2,7 +2,7 @@
 
 ## Status
 
-This review covers the IntelliJ 1000-case code-search evaluation. It combines local checks, a parallel subagent audit, and a Claude Code CLI audit.
+This review covers the IntelliJ 1000-case code-search evaluation. It combines local checks, a parallel subagent audit, and a Claude Code CLI audit. The full Claude audit artifact is stored at `.code-diver/reports/claude-audits/eval-validity-2026-06-03.md`.
 
 ## Main Conclusion
 
@@ -150,6 +150,13 @@ Best near-term candidates:
 | `CodeSearchNetRetrieval` / CoSQA | Classic semantic snippet/function retrieval. | Useful for embedding sanity, less representative of repo navigation. | Low/medium. |
 
 Recommendation: start with `SWEbenchCodeRetrieval`, then CoREB for reranker quality.
+
+Implementation plan:
+
+1. Add a benchmark adapter interface that maps external rows to the existing `EvalCase` shape without modifying the original datasets.
+2. Start with `mteb/SWEbenchCodeRetrieval`: index one repository at a time, run file-level retrieval, and report `file_hit_rate@1/3/5/10`, MRR, nDCG, Recall, Precision, latency, and index size.
+3. Add CoREB as a reranker/model benchmark: treat its graded qrels as the source of nDCG/Recall and compare cross-encoder rerankers on a fixed candidate pool.
+4. Keep IntelliJ as the large-repo stress benchmark, but label it `internal/synthetic` until the leakage-filtered and human-authored holdout slices exist.
 
 ## Next Experiment Direction
 
