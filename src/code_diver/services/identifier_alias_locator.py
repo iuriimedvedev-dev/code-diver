@@ -106,27 +106,40 @@ class IdentifierAliasLocator:
         documents: list[IdentifierAliasDocument] = []
         for path, items in by_path.items():
             aliases = self._aliases(path, items)
+            representative_items = self._representative_items(items, resolver)
             texts = [path, " ".join(aliases)]
             preview_parts: list[str] = []
-            for item in sorted(items, key=lambda candidate: self._item_priority(candidate, resolver)):
-                kind = resolver.resolve(item)
-                if kind in {CodeItemIndexKind.FILE_MANIFEST, CodeItemIndexKind.FILE_SUMMARY, CodeItemIndexKind.SYMBOL}:
-                    texts.append(item.title)
-                    texts.append(item.content)
-                    if len(preview_parts) < 4:
-                        preview_parts.append(self._compact(item.content, 220))
+            for item in representative_items:
+                texts.append(item.title)
+                texts.append(item.content)
+                if len(preview_parts) < 2:
+                    preview_parts.append(self._compact(item.content, 260))
             text = "\n".join(texts)
             documents.append(
                 IdentifierAliasDocument(
                     path=path,
                     title=f"{path}::identifier_alias",
-                    text=text,
+                    text="",
                     tokens=Counter(token for token in tokenize(text) if len(token) >= 2),
                     aliases=tuple(aliases),
                     preview=self._compact(" ".join(preview_parts), 520),
                 )
             )
         return documents
+
+    def _representative_items(
+        self,
+        items: list[CodeItem],
+        resolver: CodeItemIndexKindResolver,
+    ) -> list[CodeItem]:
+        manifests = [item for item in items if resolver.resolve(item) == CodeItemIndexKind.FILE_MANIFEST]
+        if manifests:
+            return sorted(manifests, key=lambda item: item.id)[:1]
+        summaries = [item for item in items if resolver.resolve(item) == CodeItemIndexKind.FILE_SUMMARY]
+        if summaries:
+            return sorted(summaries, key=lambda item: item.id)[:1]
+        symbols = [item for item in items if resolver.resolve(item) == CodeItemIndexKind.SYMBOL]
+        return sorted(symbols, key=lambda item: (item.start_line or 0, item.id))[:12]
 
     def _aliases(self, path: str, items: list[CodeItem]) -> list[str]:
         aliases: list[str] = [path, Path(path).name, Path(path).stem]
