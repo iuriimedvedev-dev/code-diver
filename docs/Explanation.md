@@ -177,7 +177,9 @@ The explicit matrix we tested was:
   - Gemini 3.5 Flash via Vertex.
   - Qwen3.5 4B OptiQ 4bit via local MLX-compatible server.
 
-Results on the original narrow IntelliJ 1000-case expected set:
+Results on the original narrow IntelliJ 1000-case expected set.
+
+Important: these numbers are not the final product-quality numbers after the answer-set correction. They are still useful for comparing Branch A vs Branch B under the same old evaluator, but they undercount broad multi-file answers. The 6-way matrix must be rerun on `datasets/intellij_eval_1000.answer_sets.jsonl` before we use it for final model selection.
 
 | Ranker | Branch | Cases | Hit@1 | Hit@3 | Hit@5 | Hit@10 | Recall@10 | Precision@10 | MRR@10 | Mean ms | Estimated cost |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -197,7 +199,7 @@ Interpretation:
 - **Qwen3.5 4B local was usable but weaker** as a generative reranker. It was slower in this setup and lower on Hit@1/Hit@10.
 - The ephemeral branch's higher `Precision@10` is misleading: it returns fewer repeated file-level hits but misses the expected file much more often.
 
-The later answer-set evaluation changed the dataset, not the branch winner. The best production direction remains:
+The later answer-set evaluation changed the dataset, not the branch winner. However, it means the old 6-way absolute metrics are conservative and not directly comparable to the final `Hit@10=0.976` answer-set gate. The best production direction remains:
 
 ```text
 compact persistent file/manifest locator

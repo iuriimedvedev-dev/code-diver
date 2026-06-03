@@ -66,7 +66,9 @@ Approaches:
 - **Branch A:** locator -> structured `outline`/`symbols`/`rg` probes -> listwise LLM rerank.
 - **Branch B:** locator -> temporary syntax-aware vector index over candidate files -> vector search -> listwise LLM rerank.
 
-Results on the original narrow IntelliJ expected set:
+Results on the original narrow IntelliJ expected set.
+
+Important: these are **not** final answer-set metrics. They are valid for comparing the two branch mechanics on the old evaluator, but the absolute Hit/Recall values undercount broad multi-answer queries. The 6-way matrix needs an answer-set rerun for final model selection.
 
 | Ranker | Branch | Cases | Hit@1 | Hit@3 | Hit@5 | Hit@10 | Recall@10 | Precision@10 | MRR@10 | Mean ms | Estimated cost |
 |---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
@@ -83,7 +85,7 @@ Conclusion:
 - Branch B was the wrong shape for this implementation. Re-indexing localized files added latency and did not improve recall; it also caused the reranker to see lower-quality chunk candidates.
 - Gemini 3.5 Flash had the best strict ranking quality in the old matrix, but Gemini 3.1 Flash-Lite was close on Hit@10 for much lower cost.
 - Qwen3.5 4B local reranking was viable but not competitive with Gemini for this benchmark.
-- The later `answer_sets` run did not invalidate this matrix. It fixed the ground truth for broad multi-answer queries and showed the best Branch C setup can pass `Hit@10 >= 0.95`.
+- The later `answer_sets` run did not invalidate the Branch A vs Branch B direction, but it invalidated the old absolute values as final product-quality numbers. It fixed the ground truth for broad multi-answer queries and showed the best Branch C setup can pass `Hit@10 >= 0.95`.
 
 ## 1000-Case Gate
 
@@ -133,6 +135,41 @@ Tool counters:
 | 90.0 | 50,000 | 140,000 | 1,000 |
 
 Conclusion: the configured setup passes the target `Hit@10 >= 0.95` on the full 1000-case IntelliJ answer-set evaluation. The lower 95% confidence bound is also above the target.
+
+## 6-Way Answer-Set Rerun Status
+
+The old 6-way table above was produced before `answer_sets`. Because the old full H2 artifacts were saved without retrieved-result details, they cannot be safely rescored offline. The correct follow-up is to rerun the 6 rows against `datasets/intellij_eval_1000.answer_sets.jsonl`.
+
+Started full 6x1000 rerun:
+
+```bash
+uv run python scripts/run_postrank_h2_deterministic.py \
+  --config configs/intellij-postrank-h2.yml \
+  --dataset datasets/intellij_eval_1000.answer_sets.jsonl \
+  --cases 1000 \
+  --progress-every 50 \
+  --locator-limit 30 \
+  --probe-files 5 \
+  --ephemeral-limit 30 \
+  --rerank-candidate-limit 30 \
+  --partial-dir .code-diver/reports/partials-h2-answer-set-sixway-1000 \
+  --output .code-diver/reports/intellij-h2-answer-set-sixway-1000.json \
+  --report .code-diver/reports/intellij-h2-answer-set-sixway-1000.html \
+  --hypothesis h2a_grep_read_rerank_gemini_flash_lite \
+  --hypothesis h2b_ephemeral_rerank_gemini_flash_lite \
+  --hypothesis h2a_grep_read_rerank_gemini_flash_35 \
+  --hypothesis h2b_ephemeral_rerank_gemini_flash_35 \
+  --hypothesis h2a_grep_read_rerank_qwen35_4b \
+  --hypothesis h2b_ephemeral_rerank_qwen35_4b
+```
+
+Runtime tracking:
+
+- screen: `code-diver-h2-answer-set-sixway-1000`
+- log: `.code-diver/reports/overnight-h2/h2-answer-set-sixway-1000.log`
+- partials: `.code-diver/reports/partials-h2-answer-set-sixway-1000`
+
+The full 6x1000 answer-set matrix is running and should replace the old narrow matrix for final model selection when complete.
 
 ## Remaining Quality Work
 
