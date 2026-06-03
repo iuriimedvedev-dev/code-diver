@@ -204,6 +204,143 @@ experiments:
         api_version: v1
         timeout_ms: 30000
       description: "Branch C with compact file manifests plus summaries, then Gemini 3.5 Flash rerank."
+    - name: ai_h3_agentic_gemini_flash_lite
+      tools:
+        - code_diver_h3_search
+        - code_diver_outline
+        - code_diver_symbols
+        - code_diver_rg
+        - code_diver_grep
+        - code_diver_read
+        - code_diver_rerank
+      generation:
+        provider: vertex
+        model: gemini-3.1-flash-lite
+        fallback_models: []
+        project: "236777862453"
+        location: global
+        temperature: 0
+        thinking_budget: 256
+        api_version: v1
+        timeout_ms: 30000
+      description: "Agentic H3: Gemini Flash-Lite chooses H3 search queries, verifies with read-only tools, then reranks."
+    - name: ai_h3_agentic_gemini_flash_35
+      tools:
+        - code_diver_h3_search
+        - code_diver_outline
+        - code_diver_symbols
+        - code_diver_rg
+        - code_diver_grep
+        - code_diver_read
+        - code_diver_rerank
+      generation:
+        provider: vertex
+        model: gemini-3.5-flash
+        fallback_models:
+          - gemini-2.5-flash
+        project: "236777862453"
+        location: global
+        temperature: 0
+        thinking_budget: 1024
+        api_version: v1
+        timeout_ms: 30000
+      description: "Agentic H3: Gemini 3.5 Flash chooses H3 search queries, verifies with read-only tools, then reranks."
+    - name: ai_h3_agentic_qwen35_4b
+      tools:
+        - code_diver_h3_search
+        - code_diver_outline
+        - code_diver_symbols
+        - code_diver_rg
+        - code_diver_grep
+        - code_diver_read
+        - code_diver_rerank
+      generation:
+        provider: openai_compatible
+        model: mlx-community/Qwen3.5-4B-OptiQ-4bit
+        url: http://127.0.0.1:8012/v1/chat/completions
+        api_key: local
+        temperature: 0
+        thinking_budget:
+        max_tokens: 1536
+        timeout_ms: 120000
+      description: "Agentic H3: local Qwen3.5 4B chooses H3 search queries, verifies with read-only tools, then reranks."
+    - name: ai_h3_agentic_gemma4_e4b_optiq
+      tools:
+        - code_diver_h3_search
+        - code_diver_outline
+        - code_diver_symbols
+        - code_diver_rg
+        - code_diver_grep
+        - code_diver_read
+        - code_diver_rerank
+      generation:
+        provider: openai_compatible
+        model: mlx-community/gemma-4-e4b-it-OptiQ-4bit
+        url: http://127.0.0.1:8012/v1/chat/completions
+        api_key: local
+        temperature: 0
+        thinking_budget:
+        max_tokens: 512
+        timeout_ms: 120000
+      description: "Agentic H3 smoke: local Gemma 4 E4B OptiQ chooses H3 search queries and reranks."
+    - name: ai_h3_agentic_gemini_lite_rerank_qwen35_4b
+      tools:
+        - code_diver_h3_search
+        - code_diver_outline
+        - code_diver_symbols
+        - code_diver_rg
+        - code_diver_grep
+        - code_diver_read
+        - code_diver_rerank
+      generation:
+        provider: vertex
+        model: gemini-3.1-flash-lite
+        fallback_models: []
+        project: "236777862453"
+        location: global
+        temperature: 0
+        thinking_budget: 256
+        api_version: v1
+        timeout_ms: 30000
+      rerank_generation:
+        provider: openai_compatible
+        model: mlx-community/Qwen3.5-4B-OptiQ-4bit
+        url: http://127.0.0.1:8012/v1/chat/completions
+        api_key: local
+        temperature: 0
+        thinking_budget:
+        max_tokens: 1536
+        timeout_ms: 120000
+      description: "Role split: Gemini Flash-Lite orchestrates H3/tools; local Qwen3.5 4B reranks final candidates."
+    - name: ai_h3_agentic_qwen35_4b_rerank_gemini_lite
+      tools:
+        - code_diver_h3_search
+        - code_diver_outline
+        - code_diver_symbols
+        - code_diver_rg
+        - code_diver_grep
+        - code_diver_read
+        - code_diver_rerank
+      generation:
+        provider: openai_compatible
+        model: mlx-community/Qwen3.5-4B-OptiQ-4bit
+        url: http://127.0.0.1:8012/v1/chat/completions
+        api_key: local
+        temperature: 0
+        thinking_budget:
+        max_tokens: 1536
+        timeout_ms: 120000
+      rerank_generation:
+        provider: vertex
+        model: gemini-3.1-flash-lite
+        fallback_models: []
+        project: "236777862453"
+        location: global
+        temperature: 0
+        thinking_budget: 256
+        api_version: v1
+        timeout_ms: 30000
+      description: "Role split: local Qwen3.5 4B orchestrates H3/tools; Gemini Flash-Lite reranks final candidates."
     - name: h3_manifest_union_cross_encoder_qwen3_0_6b
       tools:
         - code_diver_search

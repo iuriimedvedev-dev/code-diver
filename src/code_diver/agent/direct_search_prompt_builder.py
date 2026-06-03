@@ -100,6 +100,10 @@ When ready, return up to {limit} results:
             lines.append(
                 '- Semantic or informal "where is X handled" queries: call code_diver_search first. It is the primary hybrid vector/BM25/symbol/GraphRAG candidate generator.'
             )
+        if "code_diver_h3_search" in names:
+            lines.append(
+                "- For IntelliJ-scale or H3 hypotheses, use code_diver_h3_search as the strongest first-pass candidate tool. Choose precise code-like queries yourself: identifiers, verb+noun methods, class-name hypotheses, path/package terms, and short lexical anchors. You may call it multiple times with different queries and merge the evidence."
+            )
         if "code_diver_tree" in names or "code_diver_rg" in names:
             parts = [tool for tool in ["code_diver_tree", "code_diver_rg"] if tool in names]
             lines.append(f"- Path, config, package, frontend, or filename queries: use {' and '.join(parts)} when they can narrow the file neighborhood.")
@@ -113,7 +117,11 @@ When ready, return up to {limit} results:
             lines.append(
                 f"- Once candidate files exist, prefer code_diver_outline{read_suffix}. Outline gives imports, symbols, signatures, and line ranges without reading source bodies."
             )
-        workflow_tools = [tool for tool in ["code_diver_search", "code_diver_symbols", "code_diver_outline", "code_diver_rg"] if tool in names]
+        workflow_tools = [
+            tool
+            for tool in ["code_diver_h3_search", "code_diver_search", "code_diver_symbols", "code_diver_outline", "code_diver_rg"]
+            if tool in names
+        ]
         if workflow_tools:
             lines.append(
                 f"- Workflow queries such as called, created, dispatched, registered, routed, pipeline, strategy, execution: combine {', '.join(workflow_tools[:3])} with rewritten workflow terms."
@@ -140,8 +148,12 @@ When ready, return up to {limit} results:
 
     def _default_flow(self, names: set[str]) -> list[str]:
         steps: list[str] = []
-        if "code_diver_search" in names:
-            steps.append("Generate candidates with code_diver_search using the user's original wording.")
+        if "code_diver_h3_search" in names:
+            steps.append(
+                "Think of 2-4 precise code-search queries, then call code_diver_h3_search for the strongest one or several in parallel."
+            )
+        elif "code_diver_search" in names:
+            steps.append("Generate candidates with code_diver_search using a precise query you choose from the user's wording.")
         candidate_tools = [tool for tool in ["code_diver_symbols", "code_diver_rg", "code_diver_grep", "code_diver_outline"] if tool in names]
         if candidate_tools:
             steps.append(f"If recall looks weak or the query is ambiguous, run a second candidate pass with {', '.join(candidate_tools)}.")
@@ -163,6 +175,17 @@ When ready, return up to {limit} results:
         except json.JSONDecodeError:
             tools = []
         names = [str(tool.get("name") or "") for tool in tools if isinstance(tool, dict)]
+        if "code_diver_h3_search" in names:
+            return {
+                "name": "code_diver_h3_search",
+                "arguments": {
+                    "query": "command creation factory handler",
+                    "limit": 30,
+                    "candidateLimit": 90,
+                    "profileLimit": 120,
+                    "probeFiles": 5,
+                },
+            }
         if "code_diver_search" in names:
             return {"name": "code_diver_search", "arguments": {"query": "auth login session handling", "limit": 10}}
         if "code_diver_rg" in names:

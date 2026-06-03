@@ -20,6 +20,7 @@ class DirectToolExecutor:
         root: Path,
         allowed_tools: list[str],
         search_handler: Callable[[str, int], str] | None = None,
+        h3_search_handler: Callable[[str, int, dict[str, Any]], dict[str, Any]] | None = None,
         rerank_handler: Callable[[str, list[dict[str, Any]], int, dict[str, Any]], dict[str, Any]] | None = None,
         ephemeral_search_handler: Callable[[str, list[str], int, dict[str, Any]], dict[str, Any]] | None = None,
         exclude: list[str] | None = None,
@@ -30,6 +31,7 @@ class DirectToolExecutor:
         self.guard = PathGuard(root)
         self.allowed_tools = set(allowed_tools)
         self.search_handler = search_handler
+        self.h3_search_handler = h3_search_handler
         self.rerank_handler = rerank_handler
         self.ephemeral_search_handler = ephemeral_search_handler
         self.exclude = exclude or []
@@ -99,6 +101,10 @@ class DirectToolExecutor:
                 raise ValueError("code_diver_search is not available without a search handler")
             raw = self.search_handler(str(args.get("query") or ""), int(args.get("limit") or 10))
             return self._search_payload(raw)
+        if call.name == "code_diver_h3_search":
+            if self.h3_search_handler is None:
+                raise ValueError("code_diver_h3_search is not available without an H3 search handler")
+            return self.h3_search_handler(str(args.get("query") or ""), int(args.get("limit") or 30), args)
         if call.name == "code_diver_rerank":
             if self.rerank_handler is None:
                 raise ValueError("code_diver_rerank is not available without a rerank handler")

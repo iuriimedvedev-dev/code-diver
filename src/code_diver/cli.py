@@ -13,6 +13,7 @@ from typing import Any
 
 from .config import AppConfig, ConfigLoader
 from .agent import DirectIndexingOrchestrator, DirectSearchOrchestrator
+from .agent.h3_search_tool_handler import H3SearchToolHandler
 from .agent.rerank_tool_handler import RerankToolHandler
 from .ai_indexing import AiCodebaseScanner, HybridCodebaseScanner
 from .domain import CodeItemIndexKindResolver, EvalResult, SearchResult
@@ -540,19 +541,36 @@ def cmd_evaluate_search_tools(args: argparse.Namespace, config: AppConfig) -> in
         search_vector_store = None
         try:
             search_handler = None
+            h3_search_handler = None
             generation_provider = create_generation_provider(eval_config)
+            rerank_generation_provider = generation_provider
+            if getattr(hypothesis, "rerank_generation", None) is not None:
+                rerank_generation_provider = create_generation_provider(
+                    replace(eval_config, generation=hypothesis.rerank_generation)
+                )
             rerank_handler = (
-                make_rerank_tool_handler(eval_config, generation_provider) if "code_diver_rerank" in tools else None
+                make_rerank_tool_handler(eval_config, rerank_generation_provider)
+                if "code_diver_rerank" in tools
+                else None
             )
             ephemeral_search_handler = (
                 make_ephemeral_search_tool_handler(eval_config) if "code_diver_ephemeral_search" in tools else None
             )
-            if "code_diver_search" in tools:
+            if "code_diver_search" in tools or "code_diver_h3_search" in tools:
                 search_vector_store = create_vector_store(eval_config)
                 search_provider = make_embedding_provider(eval_config, search_vector_store.metadata())
-                search_handler = make_search_tool_handler(
-                    make_retrieval_strategy(eval_config, search_provider, search_vector_store)
-                )
+                if "code_diver_search" in tools:
+                    search_handler = make_search_tool_handler(
+                        make_retrieval_strategy(eval_config, search_provider, search_vector_store)
+                    )
+                if "code_diver_h3_search" in tools:
+                    h3_handler = H3SearchToolHandler(
+                        eval_config,
+                        search_provider,
+                        search_vector_store,
+                        exclude=inspection_exclude_patterns(eval_config),
+                    )
+                    h3_search_handler = h3_handler.search
             orchestrator = DirectSearchOrchestrator(
                 root=eval_config.root,
                 generation_provider=generation_provider,
@@ -560,6 +578,7 @@ def cmd_evaluate_search_tools(args: argparse.Namespace, config: AppConfig) -> in
                 log_path=log_path,
                 include_prompts=eval_config.trace.include_prompts,
                 search_handler=search_handler,
+                h3_search_handler=h3_search_handler,
                 rerank_handler=rerank_handler,
                 ephemeral_search_handler=ephemeral_search_handler,
                 exclude=inspection_exclude_patterns(eval_config),

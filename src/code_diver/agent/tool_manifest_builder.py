@@ -23,6 +23,29 @@ class ToolManifestBuilder:
                 "args": {"query": "free-text query", "limit": 10},
             },
             {
+                "name": "code_diver_h3_search",
+                "stage": "candidate_generation",
+                "parallel_safe": True,
+                "best_for": [
+                    "strong IntelliJ-scale H3 candidate generation",
+                    "multiple alternate semantic/symbol/path queries chosen by the LLM",
+                    "file-level manifest+summary retrieval with lexical/path/symbol profiles and probe signals",
+                ],
+                "avoid_for": [
+                    "final ranking without rerank or verification",
+                    "exact-only confirmation when rg/grep already has a concrete literal",
+                ],
+                "returns": "ranked structured candidates from H3 union profiles, alias matches, outlines, symbols, and rg probes",
+                "args": {
+                    "query": "LLM-selected precise search query, not necessarily the raw user query",
+                    "limit": 30,
+                    "candidateLimit": "optional candidate pool size, max 120",
+                    "profileLimit": "optional per-profile retrieval size, max 200",
+                    "probeFiles": "optional number of top files to outline/symbol/rg probe",
+                    "aliasLimit": "optional identifier alias candidate count",
+                },
+            },
+            {
                 "name": "code_diver_tree",
                 "stage": "repo_map",
                 "parallel_safe": True,
@@ -96,7 +119,7 @@ class ToolManifestBuilder:
                 "stage": "ranking",
                 "parallel_safe": False,
                 "best_for": [
-                    "ranking candidates after code_diver_search, rg, grep, or symbols produced plausible matches",
+                    "ranking candidates after code_diver_search, code_diver_h3_search, rg, grep, or symbols produced plausible matches",
                     "semantic/workflow ambiguity where final ordering matters",
                     "choosing the best owning file/symbol before read verification",
                 ],

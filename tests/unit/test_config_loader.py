@@ -374,6 +374,13 @@ experiments:
       strategy: cross_encoder_rerank
       generation:
         model: gemini-override
+      rerank_generation:
+        provider: openai_compatible
+        model: qwen-rerank-local
+        url: http://127.0.0.1:8012/v1/chat/completions
+        fallback_models: []
+        thinking_budget:
+        max_tokens: 1024
       hybrid_search:
         lexical_weight: 0.4
       llm_rerank:
@@ -393,6 +400,13 @@ experiments:
     assert hypothesis.generation.location == "europe-west4"
     assert hypothesis.generation.fallback_models == ["fallback-a"]
     assert hypothesis.generation.timeout_ms == 111
+    assert hypothesis.rerank_generation is not None
+    assert hypothesis.rerank_generation.provider == "openai_compatible"
+    assert hypothesis.rerank_generation.model == "qwen-rerank-local"
+    assert hypothesis.rerank_generation.url == "http://127.0.0.1:8012/v1/chat/completions"
+    assert hypothesis.rerank_generation.fallback_models == []
+    assert hypothesis.rerank_generation.thinking_budget is None
+    assert hypothesis.rerank_generation.max_tokens == 1024
     assert hypothesis.hybrid_search is not None
     assert hypothesis.hybrid_search.candidate_limit == 80
     assert hypothesis.hybrid_search.vector_weight == 0.6

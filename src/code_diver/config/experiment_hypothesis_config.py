@@ -15,6 +15,7 @@ class ExperimentHypothesisConfig:
     toolset: str | None = None
     tools: list[str] = field(default_factory=list)
     generation: GenerationConfig | None = None
+    rerank_generation: GenerationConfig | None = None
     hybrid_search: HybridSearchConfig | None = None
     llm_rerank: LlmRerankConfig | None = None
     cross_encoder_rerank: CrossEncoderRerankConfig | None = None

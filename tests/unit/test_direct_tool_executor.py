@@ -86,6 +86,7 @@ def test_direct_tool_executor_manifest_describes_allowed_tools(tmp_path: Path) -
 def test_direct_tool_executor_manifest_all_allowed_tools_have_operational_metadata(tmp_path: Path) -> None:
     allowed = {
         "code_diver_search",
+        "code_diver_h3_search",
         "code_diver_tree",
         "code_diver_outline",
         "code_diver_symbols",
@@ -107,6 +108,55 @@ def test_direct_tool_executor_manifest_all_allowed_tools_have_operational_metada
         assert row["avoid_for"]
         assert row["returns"]
         assert row["args"]
+
+
+def test_direct_tool_executor_h3_candidates_flow_into_rerank_bank(tmp_path: Path) -> None:
+    rerank_seen: list[dict[str, object]] = []
+
+    def h3_handler(query: str, limit: int, args: dict[str, object]) -> dict[str, object]:
+        assert query == "auth token"
+        assert limit == 3
+        assert args["profileLimit"] == 40
+        return {
+            "candidates": [
+                {
+                    "id": "src/auth.py:10",
+                    "path": "src/auth.py",
+                    "title": "AuthService",
+                    "startLine": 10,
+                    "endLine": 20,
+                    "score": 0.91,
+                    "indexKind": "file_manifest",
+                    "source": "h3:balanced",
+                }
+            ],
+            "metrics": {"candidateCount": 1, "source": "h3_manifest_union"},
+        }
+
+    def rerank_handler(
+        query: str,
+        candidates: list[dict[str, object]],
+        limit: int,
+        args: dict[str, object],
+    ) -> dict[str, object]:
+        rerank_seen.extend(candidates)
+        return {"candidates": candidates[:limit], "metrics": {"candidateCount": len(candidates)}}
+
+    executor = DirectToolExecutor(
+        tmp_path,
+        ["code_diver_h3_search", "code_diver_rerank"],
+        h3_search_handler=h3_handler,
+        rerank_handler=rerank_handler,
+    )
+
+    first = executor.execute(
+        ToolCall("code_diver_h3_search", {"query": "auth token", "limit": 3, "profileLimit": 40})
+    )
+    second = executor.execute(ToolCall("code_diver_rerank", {"query": "where auth token?", "limit": 5}))
+
+    assert json.loads(first.content)["ok"] is True
+    assert json.loads(second.content)["ok"] is True
+    assert [candidate["path"] for candidate in rerank_seen] == ["src/auth.py"]
 
 
 def test_direct_tool_executor_tree_uses_gitignore_excludes_and_absolute_path_inside_root(tmp_path: Path) -> None:

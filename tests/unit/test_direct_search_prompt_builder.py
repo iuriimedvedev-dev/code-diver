@@ -93,6 +93,29 @@ def test_search_prompt_describes_hybrid_tool_routing_policy() -> None:
     assert "Verify cheaply with code_diver_rg, code_diver_outline, code_diver_symbols" in prompt
 
 
+def test_search_prompt_describes_agentic_h3_multiquery_policy() -> None:
+    prompt = DirectSearchPromptBuilder().build(
+        hypothesis_name="ai_h3_agentic_gemini_flash_lite",
+        query="where is command creation handled?",
+        tool_manifest=json.dumps(
+            [
+                {"name": "code_diver_h3_search"},
+                {"name": "code_diver_outline"},
+                {"name": "code_diver_rg"},
+                {"name": "code_diver_rerank"},
+            ]
+        ),
+        history=[],
+        limit=10,
+    )
+
+    assert "code_diver_h3_search as the strongest first-pass candidate tool" in prompt
+    assert "Choose precise code-like queries yourself" in prompt
+    assert "You may call it multiple times with different queries" in prompt
+    assert "Think of 2-4 precise code-search queries" in prompt
+    assert "tool_calls in parallel" in prompt
+
+
 def test_search_prompt_only_mentions_available_tools() -> None:
     prompt = DirectSearchPromptBuilder().build(
         hypothesis_name="ephemeral_rerank_only",

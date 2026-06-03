@@ -32,6 +32,7 @@ class DirectSearchOrchestrator:
         log_path: Path,
         include_prompts: bool = True,
         search_handler: Callable[[str, int], str] | None = None,
+        h3_search_handler: Callable[[str, int, dict[str, Any]], dict[str, Any]] | None = None,
         rerank_handler: Callable[[str, list[dict[str, Any]], int, dict[str, Any]], dict[str, Any]] | None = None,
         ephemeral_search_handler: Callable[[str, list[str], int, dict[str, Any]], dict[str, Any]] | None = None,
         exclude: list[str] | None = None,
@@ -41,6 +42,7 @@ class DirectSearchOrchestrator:
         self.generation_provider = generation_provider
         self.allowed_tools = allowed_tools
         self.search_handler = search_handler
+        self.h3_search_handler = h3_search_handler
         self.rerank_handler = rerank_handler
         self.ephemeral_search_handler = ephemeral_search_handler
         self.exclude = exclude or []
@@ -56,6 +58,7 @@ class DirectSearchOrchestrator:
             self.root,
             self.allowed_tools,
             search_handler=self.search_handler,
+            h3_search_handler=self.h3_search_handler,
             rerank_handler=self.rerank_handler,
             ephemeral_search_handler=self.ephemeral_search_handler,
             exclude=self.exclude,
@@ -321,6 +324,7 @@ class DirectSearchOrchestrator:
             return False
         candidate_tools = {
             "code_diver_search",
+            "code_diver_h3_search",
             "code_diver_grep",
             "code_diver_rg",
             "code_diver_symbols",
@@ -339,6 +343,7 @@ class DirectSearchOrchestrator:
             return False
         candidate_tools = {
             "code_diver_search",
+            "code_diver_h3_search",
             "code_diver_grep",
             "code_diver_rg",
             "code_diver_symbols",

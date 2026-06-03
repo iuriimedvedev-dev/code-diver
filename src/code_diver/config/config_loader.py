@@ -559,6 +559,9 @@ class ConfigLoader:
                     generation=self._generation(mapping.get("generation"), base=generation)
                     if mapping.get("generation") is not None
                     else None,
+                    rerank_generation=self._generation(mapping.get("rerank_generation"), base=generation)
+                    if mapping.get("rerank_generation") is not None
+                    else None,
                     hybrid_search=self._hybrid_search(mapping.get("hybrid_search"), base=hybrid_search)
                     if mapping.get("hybrid_search") is not None
                     else None,
