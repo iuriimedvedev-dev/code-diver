@@ -27,6 +27,7 @@ The abandoned Gemini 3.5 artifact is a zero-byte file and should not be used for
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | Pure H3 + Gemini Lite rerank | 100 | 0.76 | 0.97 | 0.97 | 1.00 | 0.939 | 0.159 | 0.919 | 0.847 | 0.796 | 12,719 | 16,748 | $0.220 |
 | Agentic H3 + Gemini Lite | 100 | 0.56 | 0.75 | 0.78 | 0.80 | 0.748 | 0.209 | 0.724 | 0.654 | 0.611 | 14,630 | 20,038 | $0.866 |
+| Agentic H3 bounded tools + Gemini Lite | 100 | 0.55 | 0.73 | 0.74 | 0.75 | 0.679 | 0.282 | 0.655 | 0.607 | 0.562 | 15,055 | 21,711 | $0.870 |
 
 ## Tool Usage
 
@@ -99,6 +100,25 @@ The fixes are intentionally runtime-enforced. The prompt and manifest now descri
 
 Early bounded traces show the expected latency effect: grep/rg probes dropped from multi-second broad scans to low hundreds of milliseconds. The first bounded Gemini Lite run still did not beat Pure H3, so the next valid run must include all three bounded policies: scoped grep/rg, staged batches, and scoped symbols.
 
+The full bounded Gemini Lite run confirms the split:
+
+| Tool | Calls | Mean ms | P95 ms | Max ms |
+| --- | ---: | ---: | ---: | ---: |
+| `code_diver_h3_search` | 150 | 552.0 | 670.1 | 4,937.0 |
+| `code_diver_symbols` | 32 | 13.6 | 21.5 | 195.9 |
+| `code_diver_rg` | 60 | 191.9 | 390.4 | 849.8 |
+| `code_diver_grep` | 22 | 287.4 | 368.4 | 441.0 |
+| `code_diver_rerank` | 76 | 2,507.8 | 4,606.6 | 5,457.0 |
+
+So the tool-layer bug is largely fixed. The remaining problem is agent policy and candidate quality: bounded Agentic H3 made 572 model calls and 479 tool calls for 100 cases, but still dropped to Hit@10 `0.75`. It is now clear that the current open-ended agent loop is not the right default path.
+
+Current interpretation:
+
+```text
+Pure H3 full union is the baseline.
+Bounded Agentic H3 is a diagnostic/hard-case experiment, not a production winner.
+```
+
 ## Next Experiments
 
 The next fair matrix should separate the variables:
@@ -110,5 +130,6 @@ The next fair matrix should separate the variables:
 | Agentic planner over Pure H3 candidate generation | Can the LLM improve query variants while keeping deterministic candidate construction? |
 | Pure H3 first, agent only on low-confidence cases | Use agentic reasoning only where the deterministic result is uncertain. |
 | Qwen3-Reranker cross-encoder after Pure H3 | Test a cheaper specialized reranker before spending tokens on an LLM. |
+| Confidence-gated agent | Run Pure H3 first; invoke the agent only when top score margin, rerank confidence, or source agreement is weak. |
 
 Current recommendation: keep **Pure H3 + Gemini 3.1 Flash Lite rerank** as the best active baseline, and treat agentic search as a gated hard-case layer until it proves a quality gain.

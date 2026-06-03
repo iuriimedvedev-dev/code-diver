@@ -219,6 +219,7 @@ Gemini 3.5 Flash is not part of the active matrix now because the cost is too hi
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | Pure H3 + Gemini 3.1 Flash Lite rerank | 100 | 0.76 | 0.97 | 0.97 | 1.00 | 0.939 | 0.159 | 0.847 | 0.796 | 12,719 | $0.220 |
 | Agentic H3 + Gemini 3.1 Flash Lite | 100 | 0.56 | 0.75 | 0.78 | 0.80 | 0.748 | 0.209 | 0.654 | 0.611 | 14,630 | $0.866 |
+| Agentic H3 bounded tools + Gemini 3.1 Flash Lite | 100 | 0.55 | 0.73 | 0.74 | 0.75 | 0.679 | 0.282 | 0.607 | 0.562 | 15,055 | $0.870 |
 
 Current conclusion:
 
@@ -258,6 +259,24 @@ LLM chooses query variants
 ```
 
 This preserves the useful part of the agentic approach while preventing accidental repository-wide scans.
+
+The bounded run fixed tool latency but did not fix quality. On 100 IntelliJ cases, bounded Agentic H3 dropped to Hit@10 `0.75` while Pure H3 stayed at Hit@10 `1.00`. The useful conclusion is that broad scans were a real bug, but not the main quality limiter.
+
+After bounding, tool timings looked healthy:
+
+| Tool | Mean ms | P95 ms | Meaning |
+| --- | ---: | ---: | --- |
+| `code_diver_symbols` | 13.6 | 21.5 | Symbol probes are now candidate-scoped instead of scanning huge directories. |
+| `code_diver_rg` | 191.9 | 390.4 | Regex probes are now bounded to candidate files. |
+| `code_diver_grep` | 287.4 | 368.4 | Literal probes are now bounded to candidate files. |
+| `code_diver_rerank` | 2,507.8 | 4,606.6 | Reranking/model calls are now the dominant latency. |
+
+So the next quality lever is not more raw tool freedom. It is better policy:
+
+1. run Pure H3 first;
+2. look at confidence, score margin, source agreement, and whether expected answer type is multi-file;
+3. invoke the agent only for low-confidence/hard cases;
+4. make the agent use H3 as a query-planning/reranking assistant, not as an open-ended replacement for deterministic retrieval.
 
 ## TUI Goal
 
