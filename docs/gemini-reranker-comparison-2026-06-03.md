@@ -1,114 +1,103 @@
-# Gemini Reranker Comparison - 2026-06-03
+# Gemini H3 Reranker Comparison - 2026-06-03
 
-This is an interim comparison from saved artifacts only. No new evaluation was run for this report.
+This is an interim H3-only comparison from saved artifacts. No new evaluation was run for this report.
 
 Compared models:
 
 - `gemini-3.5-flash`
 - `gemini-3.1-flash-lite`
 
+Important scope correction: H2 is obsolete for the current architecture and is intentionally excluded from the main comparison. The active decision path is H3 and later successors.
+
 ## Executive Summary
 
-Gemini 3.5 Flash is the stronger reranker when the ranking position matters, especially Hit@1, MRR, and nDCG.
+On the H3 data we have, Gemini 3.5 Flash is the stronger reranker when first-rank quality matters.
 
-Gemini 3.1 Flash-Lite is the better cost/value model: it often preserves almost the same Hit@10 and Recall@10, while costing roughly 5-7x less in the saved IntelliJ runs.
+Gemini 3.1 Flash-Lite remains interesting as a cheaper API baseline, but the saved H3 runs show the same pattern as before: Flash-Lite keeps broad top-k coverage close, while Gemini 3.5 is better at ordering the best answer first.
 
-The practical conclusion:
+Current practical conclusion:
 
-- Use Gemini 3.5 Flash as the oracle / quality ceiling / hard-case adjudicator.
-- Use Gemini 3.1 Flash-Lite for cheap API comparison runs.
-- Use local cross-encoder rerankers for full iterative sweeps.
+- Use Gemini 3.5 Flash as the H3 oracle / quality ceiling / hard-case adjudicator.
+- Do not spend more money on legacy H2 comparisons.
+- The missing fair comparison is `H3 manifest + Gemini 3.1 Flash-Lite` on the same answer-set dataset as the current Gemini 3.5 ceiling.
+- Local Qwen3 cross-encoder rerankers should be optimized against the H3 Gemini 3.5 ceiling, not against H2.
 
-## Comparable Answer-Set Runs
+## H3 Head-To-Head: Union Strict Eval
 
-Dataset: `datasets/intellij_eval_1000.answer_sets.jsonl`.
+Dataset: older strict IntelliJ 1000-case eval.
 
-These are the fairest full 1000-case comparisons currently saved for H2 branch A and branch B.
-
-| Scenario | Model | Cases | Hit@1 | Hit@3 | Hit@5 | Hit@10 | Recall@10 | Precision@10 | MRR@10 | nDCG@10 | Mean ms | p95 ms | Cost |
-| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| H2 A grep/read | Gemini 3.5 Flash | 1000 | 0.785 | 0.868 | 0.875 | 0.882 | 0.861 | 0.112 | 0.826 | 0.820 | 3190 | 5675 | $12.78 |
-| H2 A grep/read | Gemini 3.1 Flash-Lite | 1000 | 0.719 | 0.859 | 0.875 | 0.883 | 0.864 | 0.114 | 0.790 | 0.796 | 2851 | 5153 | $2.03 |
-| H2 B ephemeral index | Gemini 3.5 Flash | 1000 | 0.778 | 0.858 | 0.859 | 0.869 | 0.849 | 0.111 | 0.817 | 0.810 | 6389 | 11296 | $14.22 |
-| H2 B ephemeral index | Gemini 3.1 Flash-Lite | 1000 | 0.738 | 0.845 | 0.857 | 0.866 | 0.846 | 0.111 | 0.792 | 0.792 | 6390 | 11387 | $2.26 |
-
-Answer-set deltas, Gemini 3.5 Flash minus Gemini 3.1 Flash-Lite:
-
-| Scenario | Hit@1 | Hit@3 | Hit@5 | Hit@10 | Recall@10 | MRR@10 | nDCG@10 | Mean ms | Cost ratio |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| H2 A grep/read | +0.066 | +0.009 | +0.000 | -0.001 | -0.003 | +0.036 | +0.024 | +339 | 6.3x |
-| H2 B ephemeral index | +0.040 | +0.013 | +0.002 | +0.003 | +0.003 | +0.025 | +0.018 | -1 | 6.3x |
-
-Interpretation:
-
-- Flash-Lite nearly matches top-k coverage.
-- Gemini 3.5 is materially better at putting the right answer first.
-- On these two H2 branches, Gemini 3.5 buys +4.0 to +6.6 Hit@1 points and +2.5 to +3.6 MRR points for about 6.3x cost.
-
-## Comparable Strict Runs
-
-Dataset: older strict IntelliJ 1000-case runs. These numbers are useful for trend analysis, but they should not be mixed directly with answer-set metrics.
+This is the only completed 1000-case H3 head-to-head currently saved for Gemini 3.5 Flash vs Gemini 3.1 Flash-Lite.
 
 | Scenario | Model | Cases | Hit@1 | Hit@3 | Hit@5 | Hit@10 | Recall@10 | Precision@10 | MRR@10 | nDCG@10 | Mean ms | p95 ms | Cost |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| H2 A grep/read | Gemini 3.5 Flash | 1000 | 0.735 | 0.827 | 0.840 | 0.856 | 0.856 | 0.086 | 0.785 | 0.802 | 3070 | 5118 | $13.51 |
-| H2 A grep/read | Gemini 3.1 Flash-Lite | 1000 | 0.700 | 0.815 | 0.828 | 0.850 | 0.850 | 0.085 | 0.760 | 0.783 | 2319 | 4419 | $2.16 |
-| H2 B ephemeral index | Gemini 3.5 Flash | 1000 | 0.562 | 0.601 | 0.621 | 0.635 | 0.635 | 0.218 | 0.585 | 0.606 | 8436 | 13935 | $14.03 |
-| H2 B ephemeral index | Gemini 3.1 Flash-Lite | 1000 | 0.530 | 0.595 | 0.608 | 0.630 | 0.630 | 0.202 | 0.563 | 0.588 | 7301 | 12677 | $2.28 |
 | H3 union | Gemini 3.5 Flash | 1000 | 0.758 | 0.799 | 0.842 | 0.863 | 0.863 | 0.226 | 0.788 | 0.817 | 5557 | 11368 | $32.72 |
 | H3 union | Gemini 3.1 Flash-Lite | 1000 | 0.690 | 0.793 | 0.826 | 0.861 | 0.861 | 0.183 | 0.747 | 0.784 | 7698 | 18962 | $5.33 |
 
-Strict-run deltas, Gemini 3.5 Flash minus Gemini 3.1 Flash-Lite:
+Delta, Gemini 3.5 Flash minus Gemini 3.1 Flash-Lite:
 
-| Scenario | Hit@1 | Hit@3 | Hit@5 | Hit@10 | Recall@10 | MRR@10 | nDCG@10 | Mean ms | Cost ratio |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| H2 A grep/read | +0.035 | +0.012 | +0.012 | +0.006 | +0.006 | +0.025 | +0.019 | +751 | 6.3x |
-| H2 B ephemeral index | +0.032 | +0.006 | +0.013 | +0.005 | +0.005 | +0.022 | +0.018 | +1135 | 6.2x |
-| H3 union | +0.068 | +0.006 | +0.016 | +0.002 | +0.002 | +0.041 | +0.033 | -2141 | 6.1x |
+| Scenario | Hit@1 | Hit@3 | Hit@5 | Hit@10 | Recall@10 | Precision@10 | MRR@10 | nDCG@10 | Mean ms | Cost ratio |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| H3 union | +0.068 | +0.006 | +0.016 | +0.002 | +0.002 | +0.043 | +0.041 | +0.033 | -2141 | 6.1x |
 
 Interpretation:
 
-- The same pattern repeats: Gemini 3.5 improves first-rank quality more than broad top-k coverage.
-- On H3 union, Gemini 3.5 is both higher quality and faster in this saved run, but much more expensive.
-- The old strict labels understate some multi-answer workflows, so answer-set metrics should be preferred for current decisions.
+- Hit@10 is effectively tied: `0.863` vs `0.861`.
+- Hit@1 is not tied: Gemini 3.5 wins by `+6.8` points.
+- MRR and nDCG also move meaningfully in favor of Gemini 3.5.
+- This means candidate recall is already mostly solved at H3 union level; the model difference is primarily rank ordering.
+- The strict dataset is not the preferred current benchmark, but this remains a valid H3 model-vs-model comparison.
 
-## Partial H4 Multi-Query Runs
+## H3 Quality Ceiling: Manifest Answer-Set Eval
 
-These runs are only 175/1000 cases, so treat them as directional.
+Dataset: `datasets/intellij_eval_1000.answer_sets.jsonl`.
 
-| Scenario | Model | Cases | Hit@1 | Hit@3 | Hit@5 | Hit@10 | Recall@10 | Precision@10 | MRR@10 | nDCG@10 | Mean ms | p95 ms | Cost |
-| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| H4 multi-query | Gemini 3.5 Flash | 175/1000 | 0.714 | 0.800 | 0.857 | 0.863 | 0.863 | 0.227 | 0.764 | 0.801 | 12744 | 20747 | $5.82 |
-| H4 multi-query | Gemini 3.1 Flash-Lite | 175/1000 | 0.657 | 0.800 | 0.834 | 0.869 | 0.869 | 0.173 | 0.730 | 0.776 | 12745 | 19049 | $0.95 |
-
-Partial H4 delta:
-
-| Scenario | Hit@1 | Hit@3 | Hit@5 | Hit@10 | Recall@10 | MRR@10 | nDCG@10 | Mean ms | Cost ratio |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| H4 multi-query | +0.057 | +0.000 | +0.023 | -0.006 | -0.006 | +0.034 | +0.025 | -1 | 6.1x |
-
-## Non-Comparable Quality Ceiling
-
-The strongest saved Gemini 3.5 result does not currently have a completed Gemini 3.1 Flash-Lite counterpart on the exact same H3 manifest answer-set setup.
+This is the current best saved result and the relevant quality ceiling.
 
 | Scenario | Model | Cases | Hit@1 | Hit@3 | Hit@5 | Hit@10 | Recall@10 | Precision@10 | MRR@10 | nDCG@10 | Mean ms | p95 ms | Cost |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | H3 manifest, answer-set v2 | Gemini 3.5 Flash | 1000 | 0.871 | 0.903 | 0.943 | 0.976 | 0.964 | 0.419 | 0.898 | 0.908 | 6542 | 9285 | $34.94 |
 
-This is the current measured quality ceiling. It should remain the oracle baseline until a local or cheaper API setup beats it on the same 1000-case answer-set eval.
+This result does not yet have a completed Gemini 3.1 Flash-Lite counterpart on the exact same H3 manifest answer-set setup. Until that run exists, we should not claim a final H3 manifest head-to-head between Gemini 3.5 and Flash-Lite.
 
-## Current Conclusion
+Still, this H3 manifest result is the number that matters for current architecture decisions:
 
-Gemini 3.5 Flash is probably the best API reranker we have measured so far. The value is concentrated in ranking sharpness:
+- It is the best measured API reranker result.
+- It beats the project target of Hit@10 `0.95`.
+- It is strong on Hit@5: `0.943`.
+- It is strong on first-rank ordering: Hit@1 `0.871`, MRR `0.898`.
+- It is expensive enough that we should not use it for routine full sweeps.
 
-- It consistently improves Hit@1.
-- It consistently improves MRR and nDCG.
-- It does not usually improve Hit@10 much over Flash-Lite, because candidate recall is already mostly solved by the upstream retrieval stage.
+## H3 Current Local Reference
 
-Gemini 3.1 Flash-Lite is still useful. It is much cheaper and often enough when we only care about top-k candidate coverage.
+The active local H3 + Qwen3-Reranker 0.6B run is still partial, but it is already useful as a zero-API-cost reference.
 
-For the next full comparison table, add:
+| Scenario | Model | Cases | Hit@1 | Hit@3 | Hit@5 | Hit@10 | MRR@10 | nDCG@10 | Mean ms | Cost |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| H3 manifest union CE | Qwen3-Reranker 0.6B local | 450/1000 | 0.747 | 0.936 | 0.947 | 0.962 | 0.840 | 0.841 | 3791 | $0 |
 
-1. H3 manifest + Gemini 3.1 Flash-Lite on the same answer-set dataset.
-2. H3 manifest + local Qwen3-Reranker 0.6B and 4B.
-3. A confidence-gated cascade: local reranker first, Gemini 3.5 only on low-margin or disputed cases.
+Interpretation:
+
+- Local CE is already near the Gemini 3.5 ceiling on Hit@5 and Hit@10.
+- Local CE is still materially behind on Hit@1 and MRR.
+- The remaining quality problem is ranking sharpness, not broad recall.
+
+## Current H3-Only Conclusion
+
+Gemini 3.5 Flash is the best measured H3 reranker right now.
+
+The strongest evidence is:
+
+1. On completed H3 union head-to-head, Gemini 3.5 beats Flash-Lite by `+6.8` Hit@1, `+4.1` MRR, and `+3.3` nDCG points while Hit@10 is almost identical.
+2. On H3 manifest answer-set, Gemini 3.5 reaches the current ceiling: Hit@1 `0.871`, Hit@5 `0.943`, Hit@10 `0.976`, MRR `0.898`, nDCG `0.908`.
+3. The local Qwen3-Reranker path is good enough for cheap iteration, but it has not yet matched Gemini 3.5 on first-rank quality.
+
+Next H3-only comparisons to run:
+
+1. `H3 manifest + Gemini 3.1 Flash-Lite` on `datasets/intellij_eval_1000.answer_sets.jsonl`.
+2. `H3 manifest + Qwen3-Reranker 0.6B` full 1000-case final.
+3. `H3 manifest + Qwen3-Reranker 4B` full 1000-case final.
+4. Confidence cascade: local Qwen3 reranker first, Gemini 3.5 only for low-margin cases.
+
+## Archived Context
+
+H2 results are deliberately not included here. They are useful only as historical debugging context for the grep/read and ephemeral-index branches. They should not guide the current model choice.
