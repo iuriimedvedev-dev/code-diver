@@ -281,6 +281,45 @@ So the next quality lever is not more raw tool freedom. It is better policy:
 
 Qwen3.5 4B local is a useful counterpoint: it beat bounded Gemini Lite on the 100-case slice, but at roughly 3x the Gemini bounded latency and 3.5x the Pure H3 latency. That suggests the local model may be useful for offline sweeps or hard-case reranking, but not as the default interactive orchestrator unless we reduce model turns sharply.
 
+## Final 2026-06-03 Research Slice
+
+The current research slice is closed for architecture direction. The saved metrics say:
+
+```text
+Pure H3 is the strong baseline.
+Agentic H3 is currently worse, more expensive, and slower.
+Gemini 3.5 Flash is the quality ceiling but not a routine model because of cost.
+Gemini 3.1 Flash Lite is the cheap API reranker/entrypoint to keep testing.
+Qwen3.5 4B local is viable as a local candidate, but too slow in the current agentic loop.
+```
+
+The strongest valid full result is the non-agentic H3 manifest answer-set run:
+
+| Setup | Cases | Hit@1 | Hit@3 | Hit@5 | Hit@10 | Recall@10 | Precision@10 | MRR@10 | nDCG@10 | Mean ms | Cost | Degraded |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| H3 manifest + Gemini 3.5 Flash | 1000 | 0.871 | 0.903 | 0.943 | 0.976 | 0.964 | 0.419 | 0.898 | 0.908 | 6542 | $34.94 | 0 |
+
+This proves the `Hit@10 >= 0.95` target is reachable, but it is too expensive for routine iteration.
+
+The current agentic evidence does not beat Pure H3:
+
+| Setup | Cases | Hit@1 | Hit@10 | nDCG@10 | Mean ms | Cost | Status |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| Pure H3 + Gemini Lite | 100 | 0.76 | 1.00 | 0.847 | 12,719 | $0.220 | valid calibration |
+| Agentic H3 + Gemini Lite | 100 | 0.56 | 0.80 | 0.654 | 14,630 | $0.866 | valid calibration |
+| Agentic H3 bounded + Gemini Lite | 100 | 0.55 | 0.75 | 0.607 | 15,055 | $0.870 | valid calibration |
+| Agentic H3 bounded + Qwen3.5 4B local | 100 | 0.65 | 0.85 | 0.701 | 44,570 | local | valid calibration |
+
+The attempted 1000-case agentic slice is not valid for search-quality selection:
+
+| Run | State | Why not valid |
+| --- | --- | --- |
+| Pure H3 + Gemini Lite 1000 partial | 800 / 1000, `degraded=true`, `degraded_cases=372`, `rerank_errors=744` | Directional only; fail-soft fallback mixed into metrics. |
+| Agentic H3 bounded + Gemini Lite 1000 | `error_count=555` | ADC reauthentication failures were counted as search misses. |
+| Agentic H3 bounded + Qwen3.5 4B 1000 | zero-byte artifact | No usable metrics. |
+
+Operationally, the next fix is not another model sweep. The runner must fail fast on ADC/auth failures, expose `valid/degraded/invalid` status in reports, and reject quality comparisons when degraded cases or rerank errors exceed a configured threshold.
+
 ## TUI Goal
 
 The UI should make the search process inspectable:
