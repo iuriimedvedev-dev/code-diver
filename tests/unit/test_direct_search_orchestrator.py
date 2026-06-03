@@ -132,6 +132,59 @@ def test_direct_search_orchestrator_stages_unscoped_text_probe_after_candidate_t
     assert [candidate["path"] for candidate in rg_payload["result"]["candidates"]] == ["src/candidate.py"]
 
 
+def test_direct_search_orchestrator_stages_unscoped_symbols_after_h3(tmp_path: Path) -> None:
+    candidate = tmp_path / "src" / "candidate.py"
+    candidate.parent.mkdir()
+    candidate.write_text("class TargetOwner:\n    pass\n", encoding="utf-8")
+    unrelated = tmp_path / "other" / "unrelated.py"
+    unrelated.parent.mkdir()
+    unrelated.write_text("class TargetOwner:\n    pass\n", encoding="utf-8")
+    log_path = tmp_path / "search.jsonl"
+    provider = FakeSearchGenerationProvider(
+        [
+            json.dumps(
+                {
+                    "reason": "parallel candidate and symbols",
+                    "tool_calls": [
+                        {"name": "code_diver_h3_search", "arguments": {"query": "target owner", "limit": 10}},
+                        {"name": "code_diver_symbols", "arguments": {"query": "TargetOwner", "limit": 10}},
+                    ],
+                }
+            ),
+            json.dumps(
+                {
+                    "reason": "found target",
+                    "results": [{"path": "src/candidate.py", "startLine": 1}],
+                    "final": "done",
+                }
+            ),
+        ]
+    )
+
+    def h3_handler(query: str, limit: int, args: dict[str, object]) -> dict[str, object]:
+        return {
+            "candidates": [{"path": "src/candidate.py", "score": 0.9}],
+            "metrics": {"candidateCount": 1},
+        }
+
+    result = DirectSearchOrchestrator(
+        root=tmp_path,
+        generation_provider=provider,
+        allowed_tools=["code_diver_h3_search", "code_diver_symbols"],
+        log_path=log_path,
+        h3_search_handler=h3_handler,
+    ).search(hypothesis_name="agentic_h3", case_id="case-1", query="where is target owner?", limit=10)
+
+    assert result.error is None
+    assert result.retrieved == ["src/candidate.py"]
+    events = [json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines()]
+    tool_results = [event["payload"] for event in events if event["event"] == "tool_result"]
+    assert [payload["name"] for payload in tool_results] == ["code_diver_h3_search", "code_diver_symbols"]
+    symbol_payload = json.loads(tool_results[1]["content"])
+    assert symbol_payload["metrics"]["scopedToCandidateFiles"] is True
+    assert [candidate["path"] for candidate in symbol_payload["result"]["candidates"]] == ["src/candidate.py"]
+
+
 def test_direct_search_orchestrator_caps_read_calls_per_case(tmp_path: Path) -> None:
     source = tmp_path / "src" / "service.py"
     source.parent.mkdir()

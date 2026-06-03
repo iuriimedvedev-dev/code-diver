@@ -563,11 +563,11 @@ class DirectSearchOrchestrator:
         return call.name in {
             "code_diver_h3_search",
             "code_diver_search",
-            "code_diver_symbols",
-            "code_diver_outline",
         }
 
     def _is_unscoped_text_probe(self, call: ToolCall) -> bool:
+        if call.name == "code_diver_symbols":
+            return self._is_unscoped_path(call.arguments.get("path"))
         if call.name in {"code_diver_grep", "code_diver_rg"}:
             return self._is_unscoped_path(call.arguments.get("path"))
         if call.name != "code_diver_inspect":

@@ -63,14 +63,7 @@ class DirectToolExecutor:
                 limit=int(args.get("limit") or 200),
             )
         if call.name == "code_diver_symbols":
-            path = self._validated_optional_path(args.get("path"))
-            if path is None and "code_diver_search" in self.allowed_tools:
-                raise ValueError("code_diver_symbols requires a path when code_diver_search is available")
-            return SymbolsService(self.root, self.exclude, self.max_file_bytes).structured(
-                path=path,
-                limit=int(args.get("limit") or 200),
-                query=self._optional_str(args.get("query") or args.get("symbol") or args.get("terms")),
-            )
+            return self._symbols(args)
         if call.name == "code_diver_outline":
             return FileOutlineService(self.root, self.exclude, self.max_file_bytes).structured(
                 self._validated_required_path(args.get("file") or args.get("path")),
@@ -252,6 +245,22 @@ class DirectToolExecutor:
             include_text=include_text,
         )
 
+    def _symbols(self, args: dict[str, Any]) -> dict[str, Any]:
+        requested_path = self._optional_str(args.get("path"))
+        path = self._validated_optional_path(requested_path)
+        limit = int(args.get("limit") or 200)
+        query = self._optional_str(args.get("query") or args.get("symbol") or args.get("terms"))
+        scope_paths = self._candidate_scope_paths(requested_path)
+        if scope_paths:
+            return self._scoped_symbols(scope_paths, limit, query)
+        if path is None and self._has_candidate_search_tool():
+            raise ValueError("code_diver_symbols requires a path or candidate bank when candidate search is available")
+        return SymbolsService(self.root, self.exclude, self.max_file_bytes).structured(
+            path=path,
+            limit=limit,
+            query=query,
+        )
+
     def _candidate_scope_paths(self, requested_path: str | None) -> list[str]:
         paths = self.scoped_search.paths(requested_path, self.candidate_bank)
         valid_paths: list[str] = []
@@ -303,6 +312,45 @@ class DirectToolExecutor:
             },
         }
 
+    def _scoped_symbols(self, paths: list[str], limit: int, query: str | None) -> dict[str, Any]:
+        service = SymbolsService(self.root, self.exclude, self.max_file_bytes)
+        symbols: list[dict[str, Any]] = []
+        scanned_files = 0
+        remaining = max(limit, 1)
+        for path in paths:
+            if remaining <= 0:
+                break
+            payload = service.structured(path=path, limit=remaining, query=query)
+            rows = payload.get("symbols") or []
+            if isinstance(rows, list):
+                symbols.extend(row for row in rows if isinstance(row, dict))
+            metrics = payload.get("metrics") or {}
+            if isinstance(metrics, dict):
+                scanned_files += int(metrics.get("scannedFiles") or 0)
+            remaining = max(limit - len(symbols), 0)
+        return {
+            "query": {
+                "path": None,
+                "query": query,
+                "scopedToCandidateFiles": True,
+                "candidateScopeFiles": paths,
+            },
+            "symbols": symbols,
+            "candidates": self._symbol_candidates(symbols),
+            "metrics": {
+                "symbolCount": len(symbols),
+                "candidateCount": len({symbol.get("path") for symbol in symbols}),
+                "scannedFiles": scanned_files,
+                "limit": limit,
+                "truncated": len(symbols) >= limit,
+                "scopedToCandidateFiles": True,
+                "scopedFileCount": len(paths),
+            },
+        }
+
+    def _has_candidate_search_tool(self) -> bool:
+        return bool({"code_diver_search", "code_diver_h3_search"} & self.allowed_tools)
+
     def manifest(self) -> str:
         return ToolManifestBuilder().build(self.allowed_tools)
 
@@ -353,6 +401,32 @@ class DirectToolExecutor:
             )
         candidates.sort(key=lambda item: (-int(item["matchCount"]), item["path"]))
         return candidates
+
+    def _symbol_candidates(self, symbols: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        candidates: dict[str, dict[str, Any]] = {}
+        for symbol in symbols:
+            path = str(symbol.get("path") or "")
+            if not path:
+                continue
+            start_line = int(symbol.get("startLine") or 1)
+            end_line = int(symbol.get("endLine") or start_line)
+            candidate = candidates.setdefault(
+                path,
+                {
+                    "path": path,
+                    "startLine": start_line,
+                    "endLine": end_line,
+                    "symbolCount": 0,
+                    "confidence": 0.55,
+                    "symbols": [],
+                },
+            )
+            candidate["startLine"] = min(int(candidate["startLine"]), start_line)
+            candidate["endLine"] = max(int(candidate["endLine"]), end_line)
+            candidate["symbolCount"] += 1
+            candidate["confidence"] = min(0.95, 0.55 + int(candidate["symbolCount"]) * 0.05)
+            candidate["symbols"].append(str(symbol.get("name") or ""))
+        return sorted(candidates.values(), key=lambda item: (-int(item["symbolCount"]), item["path"]))
 
     def _search_payload(self, raw: str) -> dict[str, Any]:
         try:

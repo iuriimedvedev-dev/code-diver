@@ -62,11 +62,11 @@ class ToolManifestBuilder:
                 "best_for": ["classes", "functions", "methods", "commands", "handlers", "services", "models"],
                 "avoid_for": [
                     "queries that only mention prose concepts with no structural clue",
-                    "full-repo scans when code_diver_search can provide candidate paths first",
+                    "full-repo scans when code_diver_search or code_diver_h3_search can provide candidate paths first",
                 ],
-                "returns": "structured symbols and file candidates, no source text",
+                "returns": "structured symbols and file candidates, no source text; unscoped calls after candidates exist are automatically limited to candidate files",
                 "args": {
-                    "path": "relative file or directory; required when code_diver_search is also available",
+                    "path": "relative file or directory; required when code_diver_search or code_diver_h3_search is also available unless candidate files already exist",
                     "limit": 100,
                     "query": "optional fuzzy symbol name or terms",
                 },

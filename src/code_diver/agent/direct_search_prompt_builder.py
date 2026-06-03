@@ -110,7 +110,7 @@ When ready, return up to {limit} results:
         if "code_diver_symbols" in names:
             prefix = "run code_diver_search first or in parallel with " if "code_diver_search" in names else "run "
             lines.append(
-                f"- Class/function/method/command/handler/service/model/schema queries: {prefix}code_diver_symbols only when scoped to a known path such as src, a likely package directory, or a top candidate file. Never call code_diver_symbols without path when code_diver_search is available."
+                f"- Class/function/method/command/handler/service/model/schema queries: {prefix}code_diver_symbols only when scoped to a known path such as src, a likely package directory, or a top candidate file. Never call code_diver_symbols without path when code_diver_search or code_diver_h3_search is available."
             )
         if "code_diver_outline" in names:
             read_suffix = " before code_diver_read" if "code_diver_read" in names else ""
