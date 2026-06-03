@@ -4,7 +4,7 @@
 
 This note reviews the current evaluation paths and defines the reproducible open benchmark profile used as the public verification path.
 
-Implementation status: `code-diver evaluate --benchmark ...` now exposes first-class benchmark profiles, including `open-protogen-hash-vector-30`.
+Implementation status: `code-diver evaluate --benchmark ...` now exposes first-class benchmark profiles, including `codesearchnet-mteb-python-1000`.
 
 The current codebase has three relevant eval paths:
 
@@ -111,55 +111,61 @@ Reproducibility gaps:
 
 Use one public, dependency-light baseline profile as the CI and reproducibility anchor:
 
-**Profile name:** `open-protogen-hash-vector-30`
+**Profile name:** `codesearchnet-mteb-python-1000`
 
 Purpose:
 
-- Verify that indexing, retrieval, metric computation, dataset loading, tracing, and report generation are reproducible without cloud APIs or local model servers.
+- Verify that benchmark download, indexing, retrieval, metric computation, dataset loading, tracing, and report generation are reproducible without cloud APIs or local model servers.
 - Provide a one-command benchmark that a person can run before trusting any expensive IntelliJ/model-rerank result.
 
-Current runnable command, assuming the target corpus is checked out at `../protogen`:
+Current runnable command:
 
 ```bash
-mkdir -p .code-diver/reports/open-repro && \
-uv run code-diver --config configs/protogen-baseline.yml evaluate \
-  --benchmark open-protogen-hash-vector-30 \
+mkdir -p .code-diver/reports/codesearchnet && \
+uv run code-diver --config configs/codesearchnet-mteb-python-hash.yml evaluate \
+  --benchmark codesearchnet-mteb-python-1000 \
   --limit 10 \
-  --details \
   --json \
+  --yes \
   --reindex \
-  | tee .code-diver/reports/open-repro/protogen-hash-vector-30.json
+  | tee .code-diver/reports/codesearchnet/codesearchnet-mteb-python-hash.json
 ```
 
 Why this profile:
 
-- `configs/protogen-baseline.yml` uses `storage.provider: json` and `embedding.provider: hash`.
+- It uses the public `mteb/CodeSearchNetRetrieval` benchmark from Hugging Face.
+- `configs/codesearchnet-mteb-python-hash.yml` uses `storage.provider: json` and `embedding.provider: hash`.
 - It does not require Qdrant, ClickHouse, Gemini, OpenAI, Vertex, vLLM, llama.cpp, or any API key.
-- `datasets/protogen_eval_30.jsonl` is small enough for CI and local preflight.
+- The profile prepares the Python 1000-case test split locally under `.code-diver/benchmarks/`.
 - Hash embeddings are not a quality claim, but they are useful as a deterministic harness check.
+- Without `--yes`, the CLI asks before downloading missing benchmark assets.
 
 Validation run from this pass:
 
 | Metric | Value |
 | --- | ---: |
-| Cases | 30 |
-| Hit@1 | 0.000 |
-| Hit@3 | 0.033 |
-| Hit@5 | 0.067 |
-| Hit@10 | 0.133 |
-| Recall@10 | 0.133 |
-| Precision@10 | 0.020 |
-| File Recall@10 | 0.117 |
-| nDCG@10 | 0.056 |
-| Mean ms | 227.9 |
+| Cases | 1000 |
+| Corpus files | 1000 |
+| Local prepared assets | 13 MB |
+| Indexed items | 1001 |
+| Hit@1 | 0.164 |
+| Hit@3 | 0.300 |
+| Hit@5 | 0.364 |
+| Hit@10 | 0.476 |
+| Recall@10 | 0.476 |
+| Precision@10 | 0.0476 |
+| nDCG@10 | 0.304 |
+| MAP@10 | 0.251 |
+| Mean ms | 95.3 |
+| p95 ms | 127.2 |
 | Degraded cases | 0 |
 
-These low quality numbers are acceptable for the profile's purpose. It proves the benchmark pipeline is runnable and deterministic without external services; it is not the target search-quality setup.
+These quality numbers are a hash-embedding baseline. They prove the benchmark pipeline is runnable and reproducible without external services; they are not the target search-quality setup.
 
 Open-profile requirement:
 
-- The target corpus must be version-pinned and obtainable by anyone. The current config points to `../protogen`; that is acceptable only if the benchmark release documents a public source URL and exact commit or ships a source tarball with a checksum.
-- If `protogen` cannot be made public, this profile should be replaced with a small in-repo fixture corpus plus an in-repo eval set. The important part is that the benchmark target is not a private sibling checkout.
+- The target corpus must be version-pinned and obtainable by anyone. The public profile uses Hugging Face `mteb/CodeSearchNetRetrieval`.
+- The generated local corpus and JSONL dataset are runtime artifacts and should not be committed.
 
 The IntelliJ answer-set benchmark should remain a separate `internal/stress` profile unless the exact IntelliJ checkout, dataset governance, and answer-set versioning are published with the run. Its current value is quality research; it is not the minimal reproducibility anchor.
 
