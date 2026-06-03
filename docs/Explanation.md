@@ -209,6 +209,30 @@ compact persistent file/manifest locator
 -> answer-set-aware evaluation
 ```
 
+### Agentic H3 Status
+
+The latest 100-case IntelliJ run compared a direct deterministic H3 branch against an agentic loop where Gemini 3.1 Flash Lite starts the search, calls tools, and then reranks/verifies candidates.
+
+Gemini 3.5 Flash is not part of the active matrix now because the cost is too high for repeated experiment loops.
+
+| Strategy | Cases | Hit@1 | Hit@3 | Hit@5 | Hit@10 | Recall@10 | Precision@10 | nDCG@10 | MAP@10 | Mean ms | Cost |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Pure H3 + Gemini 3.1 Flash Lite rerank | 100 | 0.76 | 0.97 | 0.97 | 1.00 | 0.939 | 0.159 | 0.847 | 0.796 | 12,719 | $0.220 |
+| Agentic H3 + Gemini 3.1 Flash Lite | 100 | 0.56 | 0.75 | 0.78 | 0.80 | 0.748 | 0.209 | 0.654 | 0.611 | 14,630 | $0.866 |
+
+Current conclusion:
+
+```text
+Agentic fast-H3 currently loses to Pure full-H3.
+```
+
+This is not a rejection of agentic search in general. It means the present loop is too open-ended: it makes more model calls, sometimes runs broad grep/rg probes, and still gets weaker candidates than the tuned deterministic H3 branch. The next useful test is not "more agent"; it is a controlled split:
+
+1. deterministic fast-H3 plus one rerank, to isolate the fast candidate generator;
+2. agentic query planning over the same deterministic H3 candidate construction;
+3. agent only on low-confidence/hard cases after Pure H3 has already run;
+4. stricter tool policy: grep/rg should be scoped to candidate files once candidates exist.
+
 ## TUI Goal
 
 The UI should make the search process inspectable:
