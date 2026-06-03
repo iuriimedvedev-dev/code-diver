@@ -50,7 +50,7 @@ The implementation exceeded the original 4-6 hour assignment scope because it al
 | Local embeddings | Qwen3 Embedding 0.6B/4B 4-bit | 0.6B is the best practical local default; 4B improves raw recall but is much slower to index. |
 | API embeddings | Gemini Embedding 001, 3072 dims | Best measured raw candidate generator so far. |
 | Local rerank | Qwen3-Reranker 0.6B/4B via llama.cpp `/v1/rerank` | Dedicated cross-encoder rerank is cleaner than using a generative JSON judge. 4B is under test. |
-| API rerank | Gemini Flash Lite | Best measured quality/cost balance so far. |
+| API rerank | Gemini 3.5 Flash, Gemini Flash Lite | Gemini 3.5 Flash is the best measured quality ceiling on IntelliJ H3. Flash-Lite remains the best measured quality/cost balance. |
 | Generative local judge | Gemma E4B OptiQ, Gemma E2B, Qwen3.5 4B | Useful as a hard-case fallback, not ideal as the always-on reranker. |
 
 ## Evaluation Datasets
@@ -87,6 +87,14 @@ IntelliJ 1000 baseline:
 | Qwen3 Embedding 0.6B file-summary-only hybrid | 0.280 | 0.380 | 0.444 | 0.336 | 0.362 | 40.8ms |
 
 The IntelliJ baseline is intentionally under-indexed. The prepared quality config is `configs/intellij-community-hybrid-quality.yml`.
+
+IntelliJ H3 quality ceiling, answer-set eval:
+
+| Pipeline | Hit@1 | Hit@3 | Hit@5 | Hit@10 | MRR@10 | nDCG@10 | Mean latency | Cost |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| H3 manifest + Gemini 3.5 Flash rerank | 0.871 | 0.903 | 0.943 | 0.976 | 0.898 | 0.908 | 6542ms | $34.94/1000 cases |
+
+This is the current best measured reranker result, not the default iteration profile. It is kept as the oracle baseline while local cross-encoder rerankers are optimized against it.
 
 ## Progress Log
 
