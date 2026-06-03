@@ -114,6 +114,7 @@ class DeterministicPostrankH2:
             "ephemeral_build_ms_total": 0.0,
             "ephemeral_query_ms_total": 0.0,
             "temporary_vectors_total": 0,
+            "protected_base_files": int(self.args.protected_base_files),
         }
         try:
             retrieval_config = self._retrieval_config(config)
@@ -750,13 +751,58 @@ Input query: {query}
             self._merge_rerank_metrics(cumulative, rerank_metrics)
             ranked = result.get("candidates")
             if isinstance(ranked, list) and ranked:
-                last_ranked = ranked[: self.limit]
+                last_ranked = self._preserve_base_files(ranked[: self.limit], candidates, self.args.protected_base_files, self.limit)
             if not rerank_metrics.get("errors") and not rerank_metrics.get("degraded"):
                 return last_ranked, cumulative, degraded
             degraded = True
             metrics["rerank_errors"] += 1
             metrics["rerank_error_attempts"] += 1
         return last_ranked, cumulative, degraded
+
+    def _preserve_base_files(
+        self,
+        ranked: list[dict[str, Any]],
+        candidates: list[dict[str, Any]],
+        preserve_count: int,
+        limit: int,
+    ) -> list[dict[str, Any]]:
+        preserve_count = max(int(preserve_count), 0)
+        if preserve_count <= 0 or limit <= 0:
+            return ranked[:limit]
+
+        protected: list[dict[str, Any]] = []
+        protected_files: set[str] = set()
+        for candidate in candidates:
+            path = str(candidate.get("path") or "").strip()
+            if not path:
+                continue
+            file_path = direct_search_file_path(path)
+            if file_path in protected_files:
+                continue
+            protected_files.add(file_path)
+            clone = dict(candidate)
+            clone.setdefault("source", str(candidate.get("source") or "base_protected"))
+            clone["protectedBaseRank"] = len(protected) + 1
+            protected.append(clone)
+            if len(protected) >= preserve_count:
+                break
+
+        merged: list[dict[str, Any]] = []
+        seen_files: set[str] = set()
+        for candidate in [*protected, *ranked]:
+            path = str(candidate.get("path") or "").strip()
+            if not path:
+                continue
+            file_path = direct_search_file_path(path)
+            if file_path in seen_files:
+                continue
+            seen_files.add(file_path)
+            clone = dict(candidate)
+            clone["rerankRank"] = len(merged) + 1
+            merged.append(clone)
+            if len(merged) >= limit:
+                break
+        return merged
 
     def _merge_rerank_metrics(self, target: dict[str, Any], source: dict[str, Any]) -> None:
         target["modelCalls"] += int(source.get("modelCalls") or source.get("model_calls") or 0)
@@ -1075,6 +1121,7 @@ def main() -> int:
     parser.add_argument("--rerank-candidate-limit", type=int, default=30)
     parser.add_argument("--rerank-attempts", type=int, default=2)
     parser.add_argument("--rerank-mode", default="file_first")
+    parser.add_argument("--protected-base-files", type=int, default=0)
     parser.add_argument("--alias-graph", type=Path, default=None)
     parser.add_argument("--disable-graph-retrieval", action="store_true")
     parser.add_argument("--progress-every", type=int, default=25)
