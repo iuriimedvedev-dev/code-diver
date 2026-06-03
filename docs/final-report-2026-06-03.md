@@ -95,6 +95,22 @@ Fresh local run:
 
 This is a **pipeline baseline**, not the quality target. It uses deterministic hash embeddings so reviewers can download and run the benchmark without API keys or local model servers. The next quality benchmark profile should swap in the real Pure H3 embedding/rerank stack.
 
+Additional public CodeSearchNet comparison is in `docs/codesearchnet-market-comparison-2026-06-03.md`.
+
+Current no-key matrix snapshot:
+
+| Setup | Hit@1 | Hit@3 | Hit@5 | Hit@10 | nDCG@10 | Mean ms/query | Status |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| Vector chunks | 0.164 | 0.300 | 0.364 | 0.476 | 0.304 | 86 | Stable baseline. |
+| H2 line+symbol hybrid | 0.295 | 0.510 | 0.595 | 0.708 | 0.493 | 195 | Best matching pair, but later drifted. |
+| Pure H3 | 0.320 | 0.607 | 0.681 | 0.775 | 0.552 | 316 | Best completed no-key quality run. |
+
+Market comparison: public MTEB `CodeSearchNetRetrieval` Python rows for strong embedding models are around `0.94-0.967` official score, with `voyage-code-3`, `Qwen3-Embedding-8B`, `gemini-embedding-001`, `embeddinggemma-300m`, and `Qwen3-Embedding-4B` all far above our hash-only public profiles. We are not SOTA on this benchmark yet; the next valid quality run must use a real code-aware embedder.
+
+Evaluation caveat: `h2_line_symbol_hybrid` produced different results across deterministic no-key runs (`Hit@10` ranged from `0.622` to `0.708`, verify single-run `0.675`). Treat that as an eval/retrieval determinism bug, likely unstable candidate ordering or tie-breaking in hybrid ranking. Fix it before using repeated-run variance as a quality claim.
+
+Claude audit status: attempted with Claude Code Opus 4.8, but the CLI returned `Not logged in · Please run /login`. See `docs/claude-audit-pure-h3-eval-2026-06-03.md`; no Claude findings were produced.
+
 ## Current Product Defaults
 
 Without a config file, Code Diver now applies built-in Pure H3 indexing/search defaults:
