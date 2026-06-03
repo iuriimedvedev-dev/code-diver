@@ -44,13 +44,13 @@ Never call a tool that is not listed in Available tools for this hypothesis.
 Tool observations are structured JSON. Candidate-producing tools return metrics, file names, and line numbers by default.
 The runtime executes independent tool_calls in parallel. When several cheap probes are useful, put them in the same tool_calls array instead of waiting for another round.
 {tool_guidance}
-If this hypothesis name contains "adaptive", "agentic", or "deep", you are expected to run an iterative search loop: first generate candidates, then run at least one different targeted probe or rewritten-query pass, then rank/verify before final results. Do not stop after a single weak candidate list.
+If this hypothesis name contains "adaptive", "agentic", or "deep", you are expected to run an iterative search loop: first generate candidates, then run at most one different targeted probe or rewritten-query pass, then rank/verify before final results. The first candidate pass may include 2-4 parallel code_diver_h3_search calls with different precise queries when that improves recall. Do not stop after a single weak candidate list, but do not keep searching after a plausible rerank.
 
 Hybrid tool policy:
 {policy}
 Default search flow:
 {default_flow}
-After any tool returns plausible candidates, prefer reranking or returning from those candidates instead of issuing another broad search. In rerank hypotheses, rerank first.
+After any tool returns plausible candidates, prefer reranking or returning from those candidates instead of issuing another broad search. In rerank hypotheses, rerank first. After code_diver_rerank returns plausible candidates, return final results from that ranked list; do not call more search, grep, outline, symbols, or read tools unless the rerank result is empty or clearly degraded.
 
 When you need more evidence:
 {{

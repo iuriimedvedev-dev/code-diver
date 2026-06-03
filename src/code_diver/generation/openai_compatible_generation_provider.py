@@ -16,6 +16,7 @@ class OpenAICompatibleGenerationProvider(OpenAIGenerationProvider):
         url: str | None = None,
         timeout_seconds: float = Defaults.OPENAI_TIMEOUT_SECONDS,
         max_tokens: int | None = None,
+        response_format: bool = True,
         retry_attempts: int = Defaults.GENERATION_RETRY_ATTEMPTS,
         retry_base_delay_seconds: float = Defaults.GENERATION_RETRY_BASE_DELAY_SECONDS,
         retry_max_delay_seconds: float = Defaults.GENERATION_RETRY_MAX_DELAY_SECONDS,
@@ -30,7 +31,7 @@ class OpenAICompatibleGenerationProvider(OpenAIGenerationProvider):
             retry_max_delay_seconds=retry_max_delay_seconds,
         )
         self.name = "openai_compatible"
-        self._response_format_supported = True
+        self._response_format_supported = response_format
         self.max_tokens = max_tokens
 
     def generate_json(self, prompt: str) -> str:

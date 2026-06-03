@@ -30,7 +30,6 @@ The tested hypotheses were:
 
 | Run | JSON artifact | Trace |
 | --- | --- | --- |
-| Gemini Lite Vertex before reauth | `.code-diver/reports/h3-agentic-2026-06-03/gemini-lite-10.json` | `.code-diver/traces/orchestrator-search/7e617ca3551f/ai_h3_agentic_gemini_flash_lite.jsonl` |
 | Gemini Lite API | `.code-diver/reports/h3-agentic-2026-06-03/gemini-lite-api-10.json` | `.code-diver/traces/orchestrator-search/2fd466e11e52/ai_h3_agentic_gemini_flash_lite.jsonl` |
 | Gemini Lite Vertex after reauth | `.code-diver/reports/h3-agentic-2026-06-03/gemini-lite-vertex-10.json` | `.code-diver/traces/orchestrator-search/03c55dd2ad9c/ai_h3_agentic_gemini_flash_lite.jsonl` |
 | Qwen3.5 4B local | `.code-diver/reports/h3-agentic-2026-06-03/qwen35-4b-10.json` | `.code-diver/traces/orchestrator-search/60dcb9659c5e/ai_h3_agentic_qwen35_4b.jsonl` |
@@ -40,13 +39,13 @@ The tested hypotheses were:
 
 | Setup | Valid | Cases | Errors | Hit@1 | Hit@3 | Hit@5 | Hit@10 | Recall@10 | Precision@10 | nDCG@10 | MAP@10 | Mean ms | P95 ms | Model calls | Tool calls | Tokens | Cost field |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| Gemini Lite Vertex before reauth | No | 10 | 10 | 0.00 | 0.00 | 0.00 | 0.00 | 0.000 | 0.000 | 0.000 | 0.000 | 950 | 7,898 | 0 | 0 | 0 | $0.000 |
 | Gemini Lite API | Yes | 10 | 0 | 0.60 | 0.80 | 0.80 | 0.90 | 0.750 | 0.309 | 0.658 | 0.588 | 12,411 | 21,180 | 57 | 44 | 316,311 | $0.087 |
 | Gemini Lite Vertex after reauth | Yes | 10 | 0 | 0.70 | 0.80 | 0.80 | 0.80 | 0.700 | 0.487 | 0.685 | 0.650 | 11,725 | 16,426 | 56 | 48 | 290,977 | $0.082 |
 | Qwen3.5 4B local | Yes | 10 | 0 | 0.60 | 0.70 | 0.70 | 0.90 | 0.750 | 0.200 | 0.695 | 0.659 | 47,613 | 64,287 | 58 | 59 | 341,455 | local estimate $0.607 |
 | Gemma 4 E4B local | Yes | 10 | 0 | 0.50 | 0.70 | 0.70 | 0.70 | 0.625 | 0.342 | 0.552 | 0.508 | 40,605 | 50,106 | 59 | 54 | 355,526 | local estimate $0.633 |
 
 The local `Cost field` is the configured token-cost estimator, not actual spend.
+The failed pre-reauth Vertex attempt is intentionally excluded from this table because it measured ADC state, not search quality.
 
 ## Findings
 
@@ -56,7 +55,7 @@ Qwen3.5 4B local is the stronger local candidate. It matched Gemini API on Hit@1
 
 Gemma 4 E4B local is valid but weaker here. It produced lower Hit@1, Hit@10, nDCG, and MAP than Qwen3.5 4B while still being very slow. The trace also showed an `agent_response_retry`, which means the output contract is less stable than needed for large runs.
 
-The invalid pre-reauth Vertex run confirms a harness bug: infrastructure failures still become search misses. Runs with auth failures must be marked invalid or fail fast.
+The failed pre-reauth Vertex attempt confirms a harness bug: infrastructure failures can become search misses if the runner does not fail fast. Such runs must be marked invalid and excluded from quality tables.
 
 ## Agentic Loop Behavior
 

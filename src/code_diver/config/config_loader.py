@@ -161,6 +161,7 @@ class ConfigLoader:
             max_tokens=self._optional_int(
                 mapping.get("max_tokens", base.max_tokens if base is not None else Defaults.GENERATION_MAX_TOKENS)
             ),
+            response_format=bool(mapping.get("response_format", base.response_format if base is not None else True)),
             retry_attempts=int(
                 mapping.get(
                     "retry_attempts",

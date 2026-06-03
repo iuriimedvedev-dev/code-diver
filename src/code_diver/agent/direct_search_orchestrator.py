@@ -22,6 +22,7 @@ class DirectSearchOrchestrator:
     MAX_ROUNDS = 5
     MAX_PARALLEL_TOOLS = 6
     MAX_READ_CALLS = 10
+    MIN_AGENTIC_RERANK_RESULTS = 1
 
     def __init__(
         self,
@@ -180,6 +181,9 @@ class DirectSearchOrchestrator:
                         )
                         tool_names_used.update(item.name for item in tool_results)
                         fallback_paths = self._fallback_paths(tool_results) or fallback_paths
+                        early_paths = self._agentic_rerank_early_stop_paths(hypothesis_name, tool_results, limit)
+                        if early_paths:
+                            return self._complete_with_rerank_early_stop(result, case_id, early_paths, limit)
                         history.append(
                             {
                                 "round": round_index,
@@ -254,6 +258,9 @@ class DirectSearchOrchestrator:
                     )
                     tool_names_used.update(item.name for item in tool_results)
                     fallback_paths = self._fallback_paths(tool_results) or fallback_paths
+                    early_paths = self._agentic_rerank_early_stop_paths(hypothesis_name, tool_results, limit)
+                    if early_paths:
+                        return self._complete_with_rerank_early_stop(result, case_id, early_paths, limit)
                     history.append(
                         {
                             "round": round_index,
@@ -307,6 +314,9 @@ class DirectSearchOrchestrator:
                 tool_names_used.update(item.name for item in tool_results)
                 candidate_tool_calls += self._candidate_tool_count(tool_results)
                 fallback_paths = self._fallback_paths(tool_results) or fallback_paths
+                early_paths = self._agentic_rerank_early_stop_paths(hypothesis_name, tool_results, limit)
+                if early_paths:
+                    return self._complete_with_rerank_early_stop(result, case_id, early_paths, limit)
                 history.append(
                     {
                         "round": round_index,
@@ -685,6 +695,41 @@ class DirectSearchOrchestrator:
             if path and path not in paths:
                 paths.append(path)
         return paths
+
+    def _agentic_rerank_early_stop_paths(
+        self,
+        hypothesis_name: str,
+        tool_results: list[ToolResult],
+        limit: int,
+    ) -> list[str]:
+        if not self._adaptive_hypothesis(hypothesis_name):
+            return []
+        for result in tool_results:
+            if result.name != "code_diver_rerank" or not result.ok:
+                continue
+            paths = self._paths_from_tool_result(result, preferred_tool="code_diver_rerank")
+            if len(paths) >= self.MIN_AGENTIC_RERANK_RESULTS:
+                return paths[:limit]
+        return []
+
+    def _complete_with_rerank_early_stop(
+        self,
+        result: DirectSearchResult,
+        case_id: str,
+        paths: list[str],
+        limit: int,
+    ) -> DirectSearchResult:
+        result.retrieved = paths[:limit]
+        self.logger.write(
+            "search_case_completed",
+            {
+                "case_id": case_id,
+                "retrieved": result.retrieved,
+                "usage": result.usage_json(),
+                "fallback": "agentic_rerank_early_stop",
+            },
+        )
+        return result
 
     def _with_fallback_paths(self, paths: list[str], fallback_paths: list[str], limit: int) -> list[str]:
         merged = list(paths)

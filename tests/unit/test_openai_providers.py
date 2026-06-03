@@ -104,6 +104,24 @@ def test_openai_compatible_generation_provider_retries_without_response_format(m
     assert "response_format" not in calls[2]
 
 
+def test_openai_compatible_generation_provider_can_disable_response_format(monkeypatch) -> None:
+    provider = OpenAICompatibleGenerationProvider(
+        model="local-model",
+        api_key="local",
+        response_format=False,
+    )
+    calls: list[dict] = []
+
+    def fake_post(payload):
+        calls.append(payload)
+        return {"choices": [{"message": {"content": '{"results":[]}'}}]}
+
+    monkeypatch.setattr(provider, "_post", fake_post)
+
+    assert provider.generate_json("rank") == '{"results":[]}'
+    assert "response_format" not in calls[0]
+
+
 def test_openai_compatible_generation_provider_accepts_reasoning_content(monkeypatch) -> None:
     provider = OpenAICompatibleGenerationProvider(model="local-model", api_key="local")
 

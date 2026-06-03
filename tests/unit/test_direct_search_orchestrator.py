@@ -698,3 +698,61 @@ def test_direct_search_orchestrator_requires_adaptive_evidence_before_final(tmp_
     assert result.retrieved == ["src/auth.py"]
     events = [json.loads(line)["event"] for line in log_path.read_text(encoding="utf-8").splitlines()]
     assert "adaptive_evidence_required" in events
+
+
+def test_direct_search_orchestrator_stops_agentic_loop_after_rerank(tmp_path: Path) -> None:
+    log_path = tmp_path / "search.jsonl"
+    provider = FakeSearchGenerationProvider(
+        [
+            json.dumps(
+                {
+                    "reason": "generate candidates",
+                    "tool_calls": [{"name": "code_diver_h3_search", "arguments": {"query": "auth handler", "limit": 3}}],
+                }
+            ),
+            json.dumps(
+                {
+                    "reason": "rerank candidates",
+                    "tool_calls": [{"name": "code_diver_rerank", "arguments": {"query": "auth handler", "limit": 3}}],
+                }
+            ),
+            json.dumps(
+                {
+                    "reason": "would over-search if called",
+                    "tool_calls": [{"name": "code_diver_read", "arguments": {"file": "src/a.py"}}],
+                }
+            ),
+        ]
+    )
+
+    def h3_handler(query: str, limit: int, args: dict[str, object]) -> dict[str, object]:
+        return {
+            "candidates": [
+                {"id": "a", "path": "src/a.py", "title": "A", "score": 0.9},
+                {"id": "b", "path": "src/b.py", "title": "B", "score": 0.8},
+            ],
+            "metrics": {"candidateCount": 2},
+        }
+
+    def rerank_handler(query: str, candidates: list[dict], limit: int, args: dict) -> dict:
+        return {
+            "candidates": [candidates[1], candidates[0]],
+            "metrics": {"modelCalls": 1, "inputTokens": 10, "outputTokens": 2, "totalTokens": 12},
+        }
+
+    result = DirectSearchOrchestrator(
+        root=tmp_path,
+        generation_provider=provider,
+        allowed_tools=["code_diver_h3_search", "code_diver_rerank", "code_diver_read"],
+        log_path=log_path,
+        h3_search_handler=h3_handler,
+        rerank_handler=rerank_handler,
+    ).search(hypothesis_name="ai_h3_agentic_test", case_id="case-1", query="where is auth?", limit=3)
+
+    assert result.error is None
+    assert result.retrieved == ["src/b.py", "src/a.py"]
+    assert result.model_calls == 3
+    assert len(provider.prompts) == 2
+    events = [json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines()]
+    completed = [event for event in events if event["event"] == "search_case_completed"]
+    assert completed[-1]["payload"]["fallback"] == "agentic_rerank_early_stop"
