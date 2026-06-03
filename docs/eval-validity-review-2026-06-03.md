@@ -2,7 +2,7 @@
 
 ## Status
 
-This is an interim review of the IntelliJ 1000-case code-search evaluation. It combines local checks and a parallel subagent audit. A Claude Code CLI audit is running separately and should be appended when it completes.
+This review covers the IntelliJ 1000-case code-search evaluation. It combines local checks, a parallel subagent audit, and a Claude Code CLI audit.
 
 ## Main Conclusion
 
@@ -15,6 +15,40 @@ The current H3 manifest result is directionally strong, but the headline `Hit@10
 | Older `multi_expected` labels | ~0.938 | Stricter pre-expansion comparison point. |
 
 The system is not bogus. It still looks strong under stricter labels. But the `0.976` number should not be used alone as a product-quality claim.
+
+## Automated Validation
+
+I added a reproducible validator:
+
+```bash
+uv run python scripts/validate_eval_dataset.py datasets/intellij_eval_1000.answer_sets.jsonl --root ../intellij-community --max-glob-matches 100
+```
+
+Latest validation summary:
+
+| Check | Value |
+|---|---:|
+| Rows | 1000 |
+| Mean expected size | 1.28 |
+| Max expected size | 10 |
+| Multi-answer rate | 7.1% |
+| Unique exact expected paths | 713 |
+| Glob labels | 72 |
+| Errors | 5 |
+| Warnings | 927 |
+
+Issue breakdown:
+
+| Issue | Count | Severity |
+|---|---:|---|
+| `glob matches no files` | 5 | Error |
+| `glob matches too many files` | 18 | Warning |
+| `glob overlaps exact expected paths` | 35 | Warning |
+| `mixed exact paths and glob alternatives` | 35 | Warning |
+| `high query/path token overlap` | 838 | Warning |
+| `duplicate normalized queries` | 1 | Warning |
+
+The five hard errors are `glob:` labels that match no files in the current IntelliJ checkout. Those should be removed or replaced before treating `answer_sets` as a clean benchmark.
 
 ## Dataset Shape
 
@@ -73,6 +107,10 @@ Case source mix in `answer_sets`:
 
    H3 is a file locator. Raw item-level `hit_rate@3/@5` can be misleading when multiple chunks from the same file occupy early ranks. I added `file_hit_rate@1/@3/@5` in commit `0c7c5f9`.
 
+7. Claude audit found direct filename leakage in ~188/1000 queries.
+
+   This is the stricter version of the overlap warning: queries like "where is java manifest util implemented" directly reveal `JavaManifestUtil.java`. These should be filtered into a separate "lexical/path" slice rather than mixed into a human-intent headline.
+
 ## H3 Rescoring Note
 
 Using saved H3 diagnostics, file-deduped top files give:
@@ -97,6 +135,8 @@ Add or enforce these before using the IntelliJ benchmark as a stable research cl
 5. Strict rescoring: always report `full`, `no_glob`, and `exact_only` metrics.
 6. Holdout split: keep a human-authored or LLM-paraphrased set that is never used to patch answer sets.
 7. Per-case persistence: final reports should keep enough raw retrieved order to recompute metrics exactly, not only aggregate metrics.
+8. Leakage-filtered slice: report metrics after removing obvious filename/symbol-revealing queries.
+9. Deduplicated-query slice: collapse repeated natural-language queries so common patterns do not get repeated weight.
 
 ## External Benchmarks To Add
 
