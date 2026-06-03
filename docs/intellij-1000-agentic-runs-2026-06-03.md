@@ -88,3 +88,21 @@ Bounded tools fixed the main tool-layer latency bugs:
 - broad `symbols(path="java")` style calls are intersected with candidate files.
 
 The remaining bottleneck is model policy: the agent still makes many model/rerank turns, and quality depends on whether fast H3 candidate generation contains the right files before rerank.
+
+## Live Snapshot - 2026-06-03 21:03 Berlin
+
+The 1000-case run state at this checkpoint:
+
+| Setup | State | Completed | Failed | Hit@1 | Hit@3 | Hit@5 | Hit@10 | Recall@10 | Precision@10 | nDCG@10 | MAP@10 | Mean ms | Cost / usage |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| Pure H3 + Gemini Lite | Running, valid partial | 450 / 1000 | 0 | 0.816 | 0.933 | 0.976 | 0.996 | 0.978 | 0.349 | 0.887 | 0.851 | 14,680 | $0.924, 428 model calls |
+| Agentic H3 bounded + Gemini Lite | Invalid, interrupted by ADC reauth failures | 446 / 1000 | 554 | 0.290 | 0.341 | 0.355 | 0.361 | 0.347 | 0.121 | 0.313 | 0.297 | 6,846 | $3.869 before failure |
+| Agentic H3 bounded + Qwen3.5 4B | Running | 151 / 1000 | 0 | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | local |
+
+The Gemini-agentic row is intentionally marked invalid. Its aggregate metrics count 554 infrastructure failures as search misses after ADC returned:
+
+```text
+Reauthentication is needed. Please run gcloud auth application-default login to reauthenticate.
+```
+
+That row can be used for operational cost/failure analysis, but not for search-quality comparison. The Pure H3 partial is still valid because its partial artifact reports `errors: []`; however, it already has 21 degraded cases by case 450, so the final report must separate normal and degraded cases before making a conclusion.
