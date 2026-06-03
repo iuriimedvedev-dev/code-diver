@@ -251,6 +251,8 @@ class DirectToolExecutor:
         limit = int(args.get("limit") or 200)
         query = self._optional_str(args.get("query") or args.get("symbol") or args.get("terms"))
         scope_paths = self._candidate_scope_paths(requested_path)
+        if not scope_paths:
+            scope_paths = self._candidate_scope_paths_under(path)
         if scope_paths:
             return self._scoped_symbols(scope_paths, limit, query)
         if path is None and self._has_candidate_search_tool():
@@ -267,6 +269,26 @@ class DirectToolExecutor:
         for path in paths:
             valid_paths.append(self._validated_required_path(path))
         return valid_paths
+
+    def _candidate_scope_paths_under(self, requested_path: str | None) -> list[str]:
+        if not requested_path or not self.candidate_bank:
+            return []
+        resolved = self.guard.resolve(requested_path)
+        if resolved.is_file():
+            return []
+        prefix = requested_path.strip().removeprefix("./").rstrip("/")
+        if not prefix:
+            return []
+        paths: list[str] = []
+        for candidate in self.candidate_bank:
+            path = str(candidate.get("path") or candidate.get("file") or "").strip().removeprefix("./")
+            if not path:
+                continue
+            if path == prefix or path.startswith(f"{prefix}/"):
+                paths.append(self._validated_required_path(path))
+            if len(paths) >= self.scoped_search.max_files:
+                break
+        return paths
 
     def _scoped_grep(
         self,

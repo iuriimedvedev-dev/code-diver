@@ -242,6 +242,37 @@ def test_direct_tool_executor_scopes_unscoped_symbols_to_candidate_bank(tmp_path
     assert [symbol["path"] for symbol in payload["result"]["symbols"]] == ["src/candidate.py"]
 
 
+def test_direct_tool_executor_intersects_broad_symbol_directory_with_candidate_bank(tmp_path: Path) -> None:
+    candidate = tmp_path / "java" / "src" / "candidate.py"
+    candidate.parent.mkdir(parents=True)
+    candidate.write_text("class TargetOwner:\n    pass\n", encoding="utf-8")
+    unrelated = tmp_path / "java" / "other" / "unrelated.py"
+    unrelated.parent.mkdir(parents=True)
+    unrelated.write_text("class TargetOwner:\n    pass\n", encoding="utf-8")
+
+    def h3_handler(query: str, limit: int, args: dict[str, object]) -> dict[str, object]:
+        return {
+            "candidates": [{"path": "java/src/candidate.py", "score": 0.9}],
+            "metrics": {"candidateCount": 1},
+        }
+
+    executor = DirectToolExecutor(
+        tmp_path,
+        ["code_diver_h3_search", "code_diver_symbols"],
+        h3_search_handler=h3_handler,
+    )
+    executor.execute(ToolCall("code_diver_h3_search", {"query": "target owner"}))
+
+    result = executor.execute(ToolCall("code_diver_symbols", {"path": "java", "query": "TargetOwner", "limit": 10}))
+
+    payload = json.loads(result.content)
+    assert result.ok is True
+    assert payload["metrics"]["scopedToCandidateFiles"] is True
+    assert payload["metrics"]["scopedFileCount"] == 1
+    assert payload["metrics"]["scannedFiles"] == 1
+    assert [candidate["path"] for candidate in payload["result"]["candidates"]] == ["java/src/candidate.py"]
+
+
 def test_direct_tool_executor_scopes_inspect_literals_to_candidate_bank(tmp_path: Path) -> None:
     candidate = tmp_path / "src" / "candidate.py"
     candidate.parent.mkdir()

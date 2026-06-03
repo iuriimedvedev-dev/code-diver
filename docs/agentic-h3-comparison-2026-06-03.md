@@ -85,6 +85,20 @@ This does not prove that all agentic search is bad. It proves that the current a
 3. **The model over-searches.** Even after enough candidates exist, it may continue tool calls instead of reranking. We added forced rerank after two candidate-producing passes, but the loop is still heavier than the deterministic runner.
 4. **LLM planning is not automatically better than tuned retrieval.** The tuned deterministic branch already encodes strong retrieval behavior: profile union, outline/symbol/rg probes, and one focused rerank.
 
+## Fixes From Trace Analysis
+
+We found three runtime issues that made the first agentic runs worse than the idea itself:
+
+| Issue | Evidence | Fix |
+| --- | --- | --- |
+| Unscoped grep/rg after candidates | `code_diver_rg` could scan the full IntelliJ tree for a vague pattern even after H3 returned candidate files. | Executor scopes unscoped grep/rg to the candidate bank after candidates exist. |
+| Parallel race between H3 and probes | If the model requested H3 and rg in one parallel batch, rg ran before the candidate bank was populated. | Orchestrator stages first-pass candidate calls before delayed unscoped probes, while preserving result order. |
+| Broad symbol paths | A call such as `code_diver_symbols(path="java")` scanned 47,194 files and took 17.5s in trace. | Symbols require path/candidate bank under H3/search. Broad symbol directories are intersected with candidate files once candidates exist. |
+
+The fixes are intentionally runtime-enforced. The prompt and manifest now describe the policy, but correctness does not depend on the model obeying every instruction.
+
+Early bounded traces show the expected latency effect: grep/rg probes dropped from multi-second broad scans to low hundreds of milliseconds. The first bounded Gemini Lite run still did not beat Pure H3, so the next valid run must include all three bounded policies: scoped grep/rg, staged batches, and scoped symbols.
+
 ## Next Experiments
 
 The next fair matrix should separate the variables:
