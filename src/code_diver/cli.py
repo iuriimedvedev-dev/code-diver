@@ -16,7 +16,7 @@ from .agent import DirectIndexingOrchestrator, DirectSearchOrchestrator
 from .agent.h3_search_tool_handler import H3SearchToolHandler
 from .agent.rerank_tool_handler import RerankToolHandler
 from .ai_indexing import AiCodebaseScanner, HybridCodebaseScanner
-from .benchmarks import BenchmarkProfile, BenchmarkProfileRegistry
+from .benchmarks import BenchmarkAssetService, BenchmarkProfile, BenchmarkProfileRegistry
 from .domain import CodeItemIndexKindResolver, EvalResult, SearchResult
 from .env import EnvFileLoader
 from .experiments import ExperimentRunner
@@ -91,6 +91,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(normalized)
     try:
         config = ConfigLoader().load(args.config)
+        config = apply_runtime_config(args, config)
         EnvFileLoader().load(config.env_file.path, config.env_file.override)
         return int(args.func(args, config))
     except KeyboardInterrupt:
@@ -104,6 +105,7 @@ def main(argv: list[str] | None = None) -> int:
 def build_parser(include_advanced: bool = False) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="code-diver", description="Config-first codebase RAG CLI.")
     parser.add_argument(OptionName.CONFIG.value, type=Path, default=None, help="YAML config path.")
+    parser.add_argument(OptionName.ROOT.value, type=Path, default=None, help="Repository root for built-in profiles.")
     parser.add_argument(
         OptionName.HELP_ALL.value,
         action="store_true",
@@ -113,6 +115,7 @@ def build_parser(include_advanced: bool = False) -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True, metavar=command_metavar)
 
     index = subparsers.add_parser(CommandName.INDEX.value, help="Index repository code into the configured artifact.")
+    index.add_argument("index_root", nargs="?", type=Path, default=None)
     index.set_defaults(func=cmd_index)
 
     search = subparsers.add_parser(CommandName.SEARCH.value, help="Search indexed code.")
@@ -133,6 +136,7 @@ def build_parser(include_advanced: bool = False) -> argparse.ArgumentParser:
     evaluate.add_argument(OptionName.DETAILS.value, action="store_true")
     evaluate.add_argument(OptionName.JSON.value, action="store_true")
     evaluate.add_argument(OptionName.REINDEX.value, action="store_true")
+    evaluate.add_argument(OptionName.YES.value, action="store_true", help="Allow benchmark asset downloads without asking.")
     evaluate.set_defaults(func=cmd_evaluate)
 
     if include_advanced:
@@ -245,17 +249,89 @@ def normalize_argv(argv: list[str] | None) -> list[str] | None:
     index = 0
     while index < len(raw):
         token = raw[index]
-        if token == OptionName.CONFIG.value and index + 1 < len(raw):
+        if token in {OptionName.CONFIG.value, OptionName.ROOT.value} and index + 1 < len(raw):
             config_tokens.extend([token, raw[index + 1]])
             index += 2
             continue
-        if token.startswith(f"{OptionName.CONFIG.value}="):
+        if token.startswith(f"{OptionName.CONFIG.value}=") or token.startswith(f"{OptionName.ROOT.value}="):
             config_tokens.append(token)
             index += 1
             continue
         normalized.append(token)
         index += 1
     return [*config_tokens, *normalized]
+
+
+def apply_runtime_config(args: argparse.Namespace, config: AppConfig) -> AppConfig:
+    root = runtime_root(args)
+    if should_apply_builtin_pure_h3(args):
+        config = apply_builtin_pure_h3(config)
+    if root is not None:
+        config = replace(config, root=root)
+    return config
+
+
+def runtime_root(args: argparse.Namespace) -> Path | None:
+    command_root = getattr(args, "index_root", None)
+    if command_root is not None:
+        return command_root
+    global_root = getattr(args, "root", None)
+    return global_root if global_root is not None else None
+
+
+def should_apply_builtin_pure_h3(args: argparse.Namespace) -> bool:
+    if getattr(args, "benchmark", None):
+        return False
+    if getattr(args, "config", None) is not None:
+        return False
+    return not Defaults.CONFIG_PATH.exists()
+
+
+def apply_builtin_pure_h3(config: AppConfig) -> AppConfig:
+    scanner = replace(
+        config.scanner,
+        line_chunks=False,
+        chunk_lines=220,
+        structural_chunks=False,
+        symbol_chunks=False,
+        symbol_body=False,
+        file_summary_chunks=True,
+        file_manifest_chunks=True,
+        max_symbols_per_file=96,
+    )
+    search = replace(config.search, strategy="hybrid", limit=10, preview_lines=10)
+    hybrid = replace(
+        config.hybrid_search,
+        candidate_limit=280,
+        lexical_candidate_limit=900,
+        vector_weight=0.34,
+        lexical_weight=0.34,
+        path_weight=0.18,
+        symbol_weight=0.10,
+        symbol_match_weight=0.10,
+        graph_weight=0.0,
+        file_vote_weight=0.06,
+        graph_depth=0,
+        graph_neighbor_limit=0,
+        vector_kind_limits={"file_summary": 170, "file_manifest": 170},
+        vector_kind_multipliers={"file_summary": 1.0, "file_manifest": 1.08},
+        routing_enabled=True,
+        lexical_scoring="bm25",
+        fusion="weighted",
+        preserve_vector_top=True,
+        vector_top_score_margin=0.03,
+        item_kind_weights={"file_summary": 1.0, "file_manifest": 1.08},
+        min_token_length=3,
+    )
+    graph = replace(
+        config.graph,
+        ast_enabled=False,
+        reference_edges_enabled=False,
+        call_edges_enabled=False,
+        expansion_depth=0,
+        neighbor_limit=0,
+    )
+    return replace(config, scanner=scanner, search=search, hybrid_search=hybrid, graph=graph)
 
 
 def cmd_index(_: argparse.Namespace, config: AppConfig) -> int:
@@ -438,6 +514,8 @@ def cmd_evaluate(args: argparse.Namespace, config: AppConfig) -> int:
     if benchmark is not None and args.config is None and benchmark.config_path is not None:
         config = ConfigLoader().load(benchmark.config_path)
         EnvFileLoader().load(config.env_file.path, config.env_file.override)
+    if benchmark is not None:
+        BenchmarkAssetService().ensure(benchmark, assume_yes=bool(getattr(args, "yes", False)))
 
     vector_store = create_vector_store(config)
     if args.reindex or not vector_store.exists():

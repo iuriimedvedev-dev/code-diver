@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from .benchmark_profile import BenchmarkProfile
+from .benchmark_preparation import BenchmarkPreparation
 
 
 class BenchmarkProfileRegistry:
@@ -16,18 +17,20 @@ class BenchmarkProfileRegistry:
                     description="Tiny built-in smoke benchmark for CLI wiring.",
                 ),
                 BenchmarkProfile(
-                    name="open-protogen-hash-vector-30",
-                    dataset=Path("datasets/protogen_eval_30.jsonl"),
-                    config_path=Path("configs/protogen-baseline.yml"),
-                    description="Deterministic 30-case protogen hash/vector benchmark for local reproducibility checks.",
-                    setup_hint="Place the protogen repository at ../protogen, then run evaluate with --reindex.",
-                ),
-                BenchmarkProfile(
-                    name="protogen-open",
-                    dataset=Path("datasets/protogen_eval_100.jsonl"),
-                    config_path=Path("configs/protogen-baseline.yml"),
-                    description="Small open-style code search benchmark used for quick local verification.",
-                    setup_hint="Place the protogen repository at ../protogen, then run index/evaluate.",
+                    name="codesearchnet-mteb-python-1000",
+                    dataset=Path(".code-diver/benchmarks/mteb-codesearchnet-python/codesearchnet_python_1000.jsonl"),
+                    config_path=Path("configs/codesearchnet-mteb-python-hash.yml"),
+                    description="Public MTEB CodeSearchNetRetrieval Python semantic code search benchmark.",
+                    external_repo="https://huggingface.co/datasets/mteb/CodeSearchNetRetrieval",
+                    setup_hint="Run evaluate with this benchmark profile; Code Diver will ask before downloading missing assets.",
+                    preparation=BenchmarkPreparation(
+                        kind="mteb_codesearchnet",
+                        dataset_name="mteb/CodeSearchNetRetrieval",
+                        language="python",
+                        limit=1000,
+                        output_root=Path(".code-diver/benchmarks/mteb-codesearchnet-python"),
+                        estimated_download_mb=25,
+                    ),
                 ),
                 BenchmarkProfile(
                     name="intellij-1000-answer-sets",
