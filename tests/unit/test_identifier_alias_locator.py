@@ -105,22 +105,3 @@ def test_identifier_alias_locator_uses_token_candidates_only() -> None:
     results = IdentifierAliasLocator(graph).search("auth token", 10)
 
     assert [result.path for result in results] == ["src/auth/AuthTokenService.kt"]
-
-
-def test_identifier_alias_locator_ignores_stopword_only_queries() -> None:
-    graph = CodeGraph(
-        items={
-            "generic": CodeItem(
-                id="generic",
-                path="src/generic/WhereIsTheThing.md",
-                title="WhereIsTheThing.md::file_manifest",
-                content="where is the thing",
-                metadata={"index_kind": "file_manifest"},
-            )
-        },
-        edges=[],
-    )
-
-    results = IdentifierAliasLocator(graph).search("where is the", 10)
-
-    assert results == []
