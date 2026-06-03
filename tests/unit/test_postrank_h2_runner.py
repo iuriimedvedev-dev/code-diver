@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -90,3 +91,21 @@ def test_preserve_base_files_rescue_mode_keeps_llm_prefix_then_base_files() -> N
         "src/base_2.py",
         "src/base_3.py",
     ]
+
+
+def test_dedupe_final_files_keeps_unique_files_and_symbol_variants_once() -> None:
+    runner = object.__new__(DeterministicPostrankH2)
+    runner.args = SimpleNamespace(dedupe_final_files=True)
+
+    result = runner._dedupe_final_files(
+        [
+            {"path": "src/a.py::ClassA", "id": "a-class"},
+            {"path": "src/a.py::ClassA.method", "id": "a-method"},
+            {"path": "src/b.py", "id": "b"},
+            {"path": "src/c.py#L10", "id": "c"},
+        ],
+        limit=3,
+    )
+
+    assert [candidate["path"] for candidate in result] == ["src/a.py::ClassA", "src/b.py", "src/c.py#L10"]
+    assert [candidate["rerankRank"] for candidate in result] == [1, 2, 3]

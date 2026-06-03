@@ -734,6 +734,7 @@ Input query: {query}
         }
         last_ranked: list[dict[str, Any]] = candidates[: self.limit]
         degraded = False
+        return_limit = max(self.limit, int(self.args.rerank_return_limit or self.limit))
         for attempt in range(1, max(int(self.args.rerank_attempts), 1) + 1):
             metrics["rerank_calls"] += 1
             cumulative["attempts"] = attempt
@@ -741,7 +742,7 @@ Input query: {query}
                 result = rerank(
                     query,
                     candidates,
-                    self.limit,
+                    return_limit,
                     {
                         "mode": self.args.rerank_mode if attempt == 1 else "compact",
                         "candidateLimit": self.args.rerank_candidate_limit,
@@ -754,8 +755,9 @@ Input query: {query}
             self._merge_rerank_metrics(cumulative, rerank_metrics)
             ranked = result.get("candidates")
             if isinstance(ranked, list) and ranked:
+                ranked = self._dedupe_final_files(ranked, return_limit)
                 last_ranked = self._preserve_base_files(
-                    ranked[: self.limit],
+                    ranked,
                     candidates,
                     self.args.protected_base_files,
                     self.limit,
@@ -768,6 +770,26 @@ Input query: {query}
             metrics["rerank_errors"] += 1
             metrics["rerank_error_attempts"] += 1
         return last_ranked, cumulative, degraded
+
+    def _dedupe_final_files(self, ranked: list[dict[str, Any]], limit: int) -> list[dict[str, Any]]:
+        if not self.args.dedupe_final_files:
+            return ranked[:limit]
+        rows: list[dict[str, Any]] = []
+        seen_files: set[str] = set()
+        for candidate in ranked:
+            path = str(candidate.get("path") or "").strip()
+            if not path:
+                continue
+            file_path = direct_search_file_path(path)
+            if file_path in seen_files:
+                continue
+            seen_files.add(file_path)
+            clone = dict(candidate)
+            clone["rerankRank"] = len(rows) + 1
+            rows.append(clone)
+            if len(rows) >= limit:
+                break
+        return rows
 
     def _preserve_base_files(
         self,
@@ -1136,8 +1158,10 @@ def main() -> int:
     parser.add_argument("--query-variant-limit", type=int, default=8)
     parser.add_argument("--ephemeral-limit", type=int, default=30)
     parser.add_argument("--rerank-candidate-limit", type=int, default=30)
+    parser.add_argument("--rerank-return-limit", type=int, default=0)
     parser.add_argument("--rerank-attempts", type=int, default=2)
     parser.add_argument("--rerank-mode", default="file_first")
+    parser.add_argument("--dedupe-final-files", action="store_true")
     parser.add_argument("--protected-base-files", type=int, default=0)
     parser.add_argument("--protected-base-mode", choices=["prefix", "rescue"], default="prefix")
     parser.add_argument("--llm-prefix-files", type=int, default=0)
