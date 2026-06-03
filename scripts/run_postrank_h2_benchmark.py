@@ -62,6 +62,8 @@ class PostrankH2Benchmark:
         self.embedding_model = args.embedding_model
         self.generation_model = args.generation_model
         self.generation_max_tokens = args.generation_max_tokens
+        self.generation_prompt_concurrency = args.generation_prompt_concurrency
+        self.generation_decode_concurrency = args.generation_decode_concurrency
         self.hypotheses = args.hypothesis
         self.start_embedding = not args.no_start_embedding
         self.start_generation = not args.no_start_generation
@@ -146,9 +148,9 @@ class PostrankH2Benchmark:
                 "--temp",
                 "0",
                 "--prompt-concurrency",
-                "1",
+                str(self.generation_prompt_concurrency),
                 "--decode-concurrency",
-                "1",
+                str(self.generation_decode_concurrency),
                 "--chat-template-args",
                 '{"enable_thinking": false}',
             ],
@@ -250,6 +252,8 @@ def main() -> int:
     parser.add_argument("--embedding-model", default="mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ")
     parser.add_argument("--generation-model", default="mlx-community/Qwen3.5-4B-OptiQ-4bit")
     parser.add_argument("--generation-max-tokens", type=int, default=1536)
+    parser.add_argument("--generation-prompt-concurrency", type=int, default=2)
+    parser.add_argument("--generation-decode-concurrency", type=int, default=2)
     parser.add_argument("--hypothesis", action="append", default=[])
     parser.add_argument("--startup-timeout-seconds", type=int, default=1200)
     parser.add_argument("--no-start-embedding", action="store_true")
