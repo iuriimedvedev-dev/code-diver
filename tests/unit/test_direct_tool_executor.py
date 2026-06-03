@@ -159,6 +159,89 @@ def test_direct_tool_executor_h3_candidates_flow_into_rerank_bank(tmp_path: Path
     assert [candidate["path"] for candidate in rerank_seen] == ["src/auth.py"]
 
 
+def test_direct_tool_executor_scopes_unscoped_rg_to_candidate_bank(tmp_path: Path) -> None:
+    candidate = tmp_path / "src" / "candidate.py"
+    candidate.parent.mkdir()
+    candidate.write_text("class TargetOwner:\n    pass\n", encoding="utf-8")
+    unrelated = tmp_path / "other" / "unrelated.py"
+    unrelated.parent.mkdir()
+    unrelated.write_text("class TargetOwner:\n    pass\n", encoding="utf-8")
+
+    def h3_handler(query: str, limit: int, args: dict[str, object]) -> dict[str, object]:
+        return {
+            "candidates": [{"path": "src/candidate.py", "score": 0.9}],
+            "metrics": {"candidateCount": 1},
+        }
+
+    executor = DirectToolExecutor(tmp_path, ["code_diver_h3_search", "code_diver_rg"], h3_search_handler=h3_handler)
+    executor.execute(ToolCall("code_diver_h3_search", {"query": "target owner"}))
+
+    result = executor.execute(ToolCall("code_diver_rg", {"pattern": "TargetOwner", "limit": 10}))
+
+    payload = json.loads(result.content)
+    assert result.ok is True
+    assert payload["metrics"]["scopedToCandidateFiles"] is True
+    assert payload["metrics"]["scopedFileCount"] == 1
+    assert [candidate["path"] for candidate in payload["result"]["candidates"]] == ["src/candidate.py"]
+    assert [match["path"] for match in payload["result"]["matches"]] == ["src/candidate.py"]
+
+
+def test_direct_tool_executor_respects_explicit_rg_path_after_candidate_bank(tmp_path: Path) -> None:
+    candidate = tmp_path / "src" / "candidate.py"
+    candidate.parent.mkdir()
+    candidate.write_text("class TargetOwner:\n    pass\n", encoding="utf-8")
+    unrelated = tmp_path / "other" / "unrelated.py"
+    unrelated.parent.mkdir()
+    unrelated.write_text("class TargetOwner:\n    pass\n", encoding="utf-8")
+
+    def h3_handler(query: str, limit: int, args: dict[str, object]) -> dict[str, object]:
+        return {
+            "candidates": [{"path": "src/candidate.py", "score": 0.9}],
+            "metrics": {"candidateCount": 1},
+        }
+
+    executor = DirectToolExecutor(tmp_path, ["code_diver_h3_search", "code_diver_rg"], h3_search_handler=h3_handler)
+    executor.execute(ToolCall("code_diver_h3_search", {"query": "target owner"}))
+
+    result = executor.execute(ToolCall("code_diver_rg", {"pattern": "TargetOwner", "path": "other", "limit": 10}))
+
+    payload = json.loads(result.content)
+    assert result.ok is True
+    assert "scopedToCandidateFiles" not in payload["metrics"]
+    assert [candidate["path"] for candidate in payload["result"]["candidates"]] == ["other/unrelated.py"]
+
+
+def test_direct_tool_executor_scopes_inspect_literals_to_candidate_bank(tmp_path: Path) -> None:
+    candidate = tmp_path / "src" / "candidate.py"
+    candidate.parent.mkdir()
+    candidate.write_text("TargetOwner\n", encoding="utf-8")
+    unrelated = tmp_path / "other" / "unrelated.py"
+    unrelated.parent.mkdir()
+    unrelated.write_text("TargetOwner\n", encoding="utf-8")
+
+    def h3_handler(query: str, limit: int, args: dict[str, object]) -> dict[str, object]:
+        return {
+            "candidates": [{"path": "src/candidate.py", "score": 0.9}],
+            "metrics": {"candidateCount": 1},
+        }
+
+    executor = DirectToolExecutor(
+        tmp_path,
+        ["code_diver_h3_search", "code_diver_inspect"],
+        h3_search_handler=h3_handler,
+    )
+    executor.execute(ToolCall("code_diver_h3_search", {"query": "target owner"}))
+
+    result = executor.execute(
+        ToolCall("code_diver_inspect", {"literals": [{"pattern": "TargetOwner", "limit": 10}]})
+    )
+
+    payload = json.loads(result.content)
+    section = payload["result"]["sections"][0]["result"]
+    assert section["metrics"]["scopedToCandidateFiles"] is True
+    assert [candidate["path"] for candidate in section["candidates"]] == ["src/candidate.py"]
+
+
 def test_direct_tool_executor_tree_uses_gitignore_excludes_and_absolute_path_inside_root(tmp_path: Path) -> None:
     (tmp_path / ".gitignore").write_text("ignored/\n", encoding="utf-8")
     source = tmp_path / "src" / "service.py"

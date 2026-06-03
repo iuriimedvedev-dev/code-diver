@@ -131,6 +131,9 @@ When ready, return up to {limit} results:
             lines.append(
                 f"- Exact strings, config keys, CLI flags, error names: use {' or '.join(exact_tools)} as an exact probe, preferably parallel with semantic search when available."
             )
+            lines.append(
+                "- After candidate files exist, unscoped grep/rg is automatically limited to those candidate files. Use explicit path only when you intentionally want a specific package/file scope."
+            )
         if "code_diver_ephemeral_search" in names:
             lines.append(
                 "- For vague semantic/workflow queries where top candidate files are known but lexical evidence is weak, use code_diver_ephemeral_search over those files and inspect its returned chunks."

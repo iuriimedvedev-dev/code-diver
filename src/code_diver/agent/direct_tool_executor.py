@@ -7,6 +7,7 @@ from typing import Any, Callable
 
 from ..inspection.path_guard import PathGuard
 from ..inspection import FileOutlineService, GrepService, ReadExcerptService, RgService, SymbolsService, TreeService
+from .candidate_scoped_search import CandidateScopedSearch
 from .tool_call import ToolCall
 from .tool_manifest_builder import ToolManifestBuilder
 from .tool_result import ToolResult
@@ -26,6 +27,7 @@ class DirectToolExecutor:
         exclude: list[str] | None = None,
         max_file_bytes: int = 1_000_000,
         max_inspect_reads: int = 10,
+        max_scoped_probe_files: int = 30,
     ):
         self.root = root
         self.guard = PathGuard(root)
@@ -37,6 +39,7 @@ class DirectToolExecutor:
         self.exclude = exclude or []
         self.max_file_bytes = max_file_bytes
         self.max_inspect_reads = max_inspect_reads
+        self.scoped_search = CandidateScopedSearch(max_scoped_probe_files)
         self.candidate_bank: list[dict[str, Any]] = []
 
     def execute(self, call: ToolCall) -> ToolResult:
@@ -75,19 +78,9 @@ class DirectToolExecutor:
                 symbol_limit=int(args.get("symbolLimit", args.get("symbol_limit", 200)) or 200),
             )
         if call.name == "code_diver_grep":
-            return GrepService(self.root, self.exclude, self.max_file_bytes).structured(
-                str(args.get("pattern") or ""),
-                path=self._validated_optional_path(args.get("path")),
-                limit=int(args.get("limit") or 100),
-                include_text=bool(args.get("includeText") or args.get("include_text") or False),
-            )
+            return self._grep(args)
         if call.name == "code_diver_rg":
-            return RgService(self.root, self.exclude, self.max_file_bytes).structured(
-                str(args.get("pattern") or ""),
-                path=self._validated_optional_path(args.get("path")),
-                limit=int(args.get("limit") or 100),
-                include_text=bool(args.get("includeText") or args.get("include_text") or False),
-            )
+            return self._rg(args)
         if call.name == "code_diver_read":
             return ReadExcerptService(self.root, self.exclude, self.max_file_bytes).structured(
                 self._validated_required_path(args.get("file") or args.get("path")),
@@ -178,12 +171,7 @@ class DirectToolExecutor:
                 {
                     "kind": "grep",
                     "query": {"pattern": value.get("pattern"), "path": path},
-                    "result": GrepService(self.root, self.exclude, self.max_file_bytes).structured(
-                        str(value.get("pattern") or ""),
-                        path=path,
-                        limit=int(value.get("limit") or 100),
-                        include_text=bool(value.get("includeText") or value.get("include_text") or False),
-                    ),
+                    "result": self._grep(value),
                 }
             )
         for value in args.get("regexes") or []:
@@ -193,12 +181,7 @@ class DirectToolExecutor:
                 {
                     "kind": "rg",
                     "query": {"pattern": value.get("pattern"), "path": path},
-                    "result": RgService(self.root, self.exclude, self.max_file_bytes).structured(
-                        str(value.get("pattern") or ""),
-                        path=path,
-                        limit=int(value.get("limit") or 100),
-                        include_text=bool(value.get("includeText") or value.get("include_text") or False),
-                    ),
+                    "result": self._rg(value),
                 }
             )
         for value in args.get("reads") or []:
@@ -237,6 +220,89 @@ class DirectToolExecutor:
             },
         }
 
+    def _grep(self, args: dict[str, Any]) -> dict[str, Any]:
+        pattern = str(args.get("pattern") or "")
+        requested_path = self._optional_str(args.get("path"))
+        path = self._validated_optional_path(requested_path)
+        limit = int(args.get("limit") or 100)
+        include_text = bool(args.get("includeText") or args.get("include_text") or False)
+        scope_paths = self._candidate_scope_paths(requested_path)
+        if scope_paths:
+            return self._scoped_grep(pattern, scope_paths, limit, include_text, regex=False)
+        return GrepService(self.root, self.exclude, self.max_file_bytes).structured(
+            pattern,
+            path=path,
+            limit=limit,
+            include_text=include_text,
+        )
+
+    def _rg(self, args: dict[str, Any]) -> dict[str, Any]:
+        pattern = str(args.get("pattern") or "")
+        requested_path = self._optional_str(args.get("path"))
+        path = self._validated_optional_path(requested_path)
+        limit = int(args.get("limit") or 100)
+        include_text = bool(args.get("includeText") or args.get("include_text") or False)
+        scope_paths = self._candidate_scope_paths(requested_path)
+        if scope_paths:
+            return self._scoped_grep(pattern, scope_paths, limit, include_text, regex=True)
+        return RgService(self.root, self.exclude, self.max_file_bytes).structured(
+            pattern,
+            path=path,
+            limit=limit,
+            include_text=include_text,
+        )
+
+    def _candidate_scope_paths(self, requested_path: str | None) -> list[str]:
+        paths = self.scoped_search.paths(requested_path, self.candidate_bank)
+        valid_paths: list[str] = []
+        for path in paths:
+            valid_paths.append(self._validated_required_path(path))
+        return valid_paths
+
+    def _scoped_grep(
+        self,
+        pattern: str,
+        paths: list[str],
+        limit: int,
+        include_text: bool,
+        *,
+        regex: bool,
+    ) -> dict[str, Any]:
+        matches = []
+        remaining = max(limit, 1)
+        grep_service = GrepService(self.root, self.exclude, self.max_file_bytes)
+        rg_service = RgService(self.root, self.exclude, self.max_file_bytes)
+        for path in paths:
+            if remaining <= 0:
+                break
+            if regex:
+                found = rg_service.search_matches(pattern, path=path, limit=remaining)
+            else:
+                found = grep_service.search(pattern, path=path, limit=remaining)
+            matches.extend(found)
+            remaining = max(limit - len(matches), 0)
+        return {
+            "query": {
+                "pattern": pattern,
+                "path": None,
+                "regex": regex,
+                "includeText": include_text,
+                "scopedToCandidateFiles": True,
+                "candidateScopeFiles": paths,
+            },
+            "candidates": self._grep_candidates(matches),
+            "matches": [self._grep_match_json(match, include_text) for match in matches],
+            "metrics": {
+                "matchCount": len(matches),
+                "candidateCount": len({match.path for match in matches}),
+                "limit": limit,
+                "truncated": len(matches) >= limit,
+                "scopedToCandidateFiles": True,
+                "scopedFileCount": len(paths),
+                "backend": "rg" if regex else "grep",
+            },
+        }
+
     def manifest(self) -> str:
         return ToolManifestBuilder().build(self.allowed_tools)
 
@@ -262,6 +328,31 @@ class DirectToolExecutor:
         if isinstance(value, dict):
             return value
         return {key: value}
+
+    def _grep_match_json(self, match: Any, include_text: bool) -> dict[str, Any]:
+        payload: dict[str, Any] = {"path": match.path, "line": match.line}
+        if include_text:
+            payload["text"] = match.text
+        return payload
+
+    def _grep_candidates(self, matches: list[Any]) -> list[dict[str, Any]]:
+        by_path: dict[str, list[int]] = {}
+        for match in matches:
+            by_path.setdefault(match.path, []).append(match.line)
+        candidates: list[dict[str, Any]] = []
+        for path, lines in by_path.items():
+            candidates.append(
+                {
+                    "path": path,
+                    "startLine": min(lines),
+                    "endLine": max(lines),
+                    "matchCount": len(lines),
+                    "confidence": min(0.95, 0.45 + len(lines) * 0.08),
+                    "evidenceLines": lines[:20],
+                }
+            )
+        candidates.sort(key=lambda item: (-int(item["matchCount"]), item["path"]))
+        return candidates
 
     def _search_payload(self, raw: str) -> dict[str, Any]:
         try:

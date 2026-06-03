@@ -94,7 +94,7 @@ class ToolManifestBuilder:
                 "parallel_safe": True,
                 "best_for": ["known literal names", "config keys", "error messages", "CLI flags"],
                 "avoid_for": ["broad informal queries where the anchor is unknown"],
-                "returns": "structured file candidates and line numbers; text only when includeText=true",
+                "returns": "structured file candidates and line numbers; text only when includeText=true; unscoped calls after candidates exist are automatically limited to candidate files",
                 "args": {"pattern": "literal text", "path": "optional relative path", "limit": 100},
             },
             {
@@ -103,7 +103,7 @@ class ToolManifestBuilder:
                 "parallel_safe": True,
                 "best_for": ["small regex over concrete anchors", "handler|route|command alternatives"],
                 "avoid_for": ["large vague regexes across the whole repo"],
-                "returns": "structured file candidates and line numbers; text only when includeText=true",
+                "returns": "structured file candidates and line numbers; text only when includeText=true; unscoped calls after candidates exist are automatically limited to candidate files",
                 "args": {"pattern": "regex", "path": "optional relative path", "limit": 100},
             },
             {
