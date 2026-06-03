@@ -354,7 +354,7 @@ class DeterministicPostrankH2:
         metrics["union_candidate_count_total"] += len(self._dedupe_candidates(raw_union))
         union = self._balanced_candidate_mix(profile_groups, self.args.rerank_candidate_limit)
         probed = self._branch_a_candidates(query, union[: self.args.union_probe_files], outline, symbols, rg, metrics)
-        alias = self._alias_candidates(alias_locator, query, metrics, limit=max(24, self.locator_limit))
+        alias = self._alias_candidates(alias_locator, query, metrics, limit=self._alias_limit())
         return self._balanced_candidate_mix(
             [(union, 0.72), (alias, 0.18), (probed, 0.10)],
             self.args.rerank_candidate_limit,
@@ -394,7 +394,7 @@ class DeterministicPostrankH2:
         probed = self._branch_a_candidates(query, union[: self.args.union_probe_files], outline, symbols, rg, metrics)
         alias_rows: list[dict[str, Any]] = []
         for search_query in searches[: max(int(self.args.query_variant_limit), 1)]:
-            alias_rows.extend(self._alias_candidates(alias_locator, search_query, metrics, limit=24))
+            alias_rows.extend(self._alias_candidates(alias_locator, search_query, metrics, limit=self._alias_limit()))
         alias = self._dedupe_candidates(alias_rows)
         return self._balanced_candidate_mix(
             [(union, 0.70), (alias, 0.20), (probed, 0.10)],
@@ -445,6 +445,9 @@ class DeterministicPostrankH2:
             )
         metrics["alias_candidate_count_total"] += len(rows)
         return rows
+
+    def _alias_limit(self) -> int:
+        return max(int(self.args.alias_limit), 0)
 
     def _union_locator_candidates(
         self,
@@ -1122,6 +1125,7 @@ def main() -> int:
     parser.add_argument("--rerank-attempts", type=int, default=2)
     parser.add_argument("--rerank-mode", default="file_first")
     parser.add_argument("--protected-base-files", type=int, default=0)
+    parser.add_argument("--alias-limit", type=int, default=50)
     parser.add_argument("--alias-graph", type=Path, default=None)
     parser.add_argument("--disable-graph-retrieval", action="store_true")
     parser.add_argument("--progress-every", type=int, default=25)

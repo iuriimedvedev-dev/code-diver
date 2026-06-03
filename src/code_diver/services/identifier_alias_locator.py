@@ -13,6 +13,39 @@ from .identifier_alias_document import IdentifierAliasDocument
 from .tokenizer import tokenize
 
 PATH_SPLIT_RE = re.compile(r"[^A-Za-z0-9]+")
+QUERY_STOPWORDS = frozenset(
+    {
+        "a",
+        "an",
+        "and",
+        "are",
+        "as",
+        "at",
+        "be",
+        "by",
+        "code",
+        "codebase",
+        "does",
+        "for",
+        "from",
+        "here",
+        "in",
+        "into",
+        "is",
+        "it",
+        "of",
+        "on",
+        "or",
+        "the",
+        "there",
+        "this",
+        "to",
+        "where",
+        "which",
+        "who",
+        "with",
+    }
+)
 
 
 class IdentifierAliasLocator:
@@ -23,7 +56,7 @@ class IdentifierAliasLocator:
         self.document_indexes_by_token = self._document_indexes_by_token(self.documents)
 
     def search(self, query: str, limit: int) -> list[IdentifierAliasCandidate]:
-        query_tokens = tuple(token for token in tokenize(query) if len(token) >= 2)
+        query_tokens = self._query_tokens(query)
         if not query_tokens or limit <= 0:
             return []
         candidate_indexes = self._candidate_indexes(query_tokens)
@@ -36,6 +69,18 @@ class IdentifierAliasLocator:
         scored = [candidate for candidate in scored if candidate.score > 0]
         scored.sort(key=lambda candidate: (candidate.score, candidate.path), reverse=True)
         return scored[:limit]
+
+    def _query_tokens(self, query: str) -> tuple[str, ...]:
+        return tuple(
+            token
+            for token in tokenize(query)
+            if len(token) >= 2 and token not in QUERY_STOPWORDS and not self._too_common(token)
+        )
+
+    def _too_common(self, token: str) -> bool:
+        if len(self.documents) < 1000:
+            return False
+        return self.document_frequency.get(token, 0) / len(self.documents) > 0.20
 
     def _score_document(
         self,
