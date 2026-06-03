@@ -220,6 +220,7 @@ Gemini 3.5 Flash is not part of the active matrix now because the cost is too hi
 | Pure H3 + Gemini 3.1 Flash Lite rerank | 100 | 0.76 | 0.97 | 0.97 | 1.00 | 0.939 | 0.159 | 0.847 | 0.796 | 12,719 | $0.220 |
 | Agentic H3 + Gemini 3.1 Flash Lite | 100 | 0.56 | 0.75 | 0.78 | 0.80 | 0.748 | 0.209 | 0.654 | 0.611 | 14,630 | $0.866 |
 | Agentic H3 bounded tools + Gemini 3.1 Flash Lite | 100 | 0.55 | 0.73 | 0.74 | 0.75 | 0.679 | 0.282 | 0.607 | 0.562 | 15,055 | $0.870 |
+| Agentic H3 bounded tools + Qwen3.5 4B local | 100 | 0.65 | 0.79 | 0.81 | 0.85 | 0.777 | 0.145 | 0.701 | 0.654 | 44,570 | local |
 
 Current conclusion:
 
@@ -277,6 +278,8 @@ So the next quality lever is not more raw tool freedom. It is better policy:
 2. look at confidence, score margin, source agreement, and whether expected answer type is multi-file;
 3. invoke the agent only for low-confidence/hard cases;
 4. make the agent use H3 as a query-planning/reranking assistant, not as an open-ended replacement for deterministic retrieval.
+
+Qwen3.5 4B local is a useful counterpoint: it beat bounded Gemini Lite on the 100-case slice, but at roughly 3x the Gemini bounded latency and 3.5x the Pure H3 latency. That suggests the local model may be useful for offline sweeps or hard-case reranking, but not as the default interactive orchestrator unless we reduce model turns sharply.
 
 ## TUI Goal
 

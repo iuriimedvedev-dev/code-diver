@@ -28,6 +28,7 @@ The abandoned Gemini 3.5 artifact is a zero-byte file and should not be used for
 | Pure H3 + Gemini Lite rerank | 100 | 0.76 | 0.97 | 0.97 | 1.00 | 0.939 | 0.159 | 0.919 | 0.847 | 0.796 | 12,719 | 16,748 | $0.220 |
 | Agentic H3 + Gemini Lite | 100 | 0.56 | 0.75 | 0.78 | 0.80 | 0.748 | 0.209 | 0.724 | 0.654 | 0.611 | 14,630 | 20,038 | $0.866 |
 | Agentic H3 bounded tools + Gemini Lite | 100 | 0.55 | 0.73 | 0.74 | 0.75 | 0.679 | 0.282 | 0.655 | 0.607 | 0.562 | 15,055 | 21,711 | $0.870 |
+| Agentic H3 bounded tools + Qwen3.5 4B local | 100 | 0.65 | 0.79 | 0.81 | 0.85 | 0.777 | 0.145 | 0.771 | 0.701 | 0.654 | 44,570 | 52,690 | local |
 
 ## Tool Usage
 
@@ -111,6 +112,8 @@ The full bounded Gemini Lite run confirms the split:
 | `code_diver_rerank` | 76 | 2,507.8 | 4,606.6 | 5,457.0 |
 
 So the tool-layer bug is largely fixed. The remaining problem is agent policy and candidate quality: bounded Agentic H3 made 572 model calls and 479 tool calls for 100 cases, but still dropped to Hit@10 `0.75`. It is now clear that the current open-ended agent loop is not the right default path.
+
+The local Qwen3.5 4B bounded run reached better quality than bounded Gemini Lite on this 100-case slice: Hit@10 `0.85` and Hit@1 `0.65`. The cost is latency: mean `44.6s` and p95 `52.7s`. Its tool calls were fast after bounding, but local generative rerank/model turns averaged several seconds each. This makes Qwen useful as a local quality hypothesis, not yet as an interactive default.
 
 Current interpretation:
 
