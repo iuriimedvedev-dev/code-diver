@@ -253,6 +253,59 @@ Observed smoke result on MacBook M3 Max:
 
 Decision: Gemma 4 12B Q4_K_M is technically ready for agent-axis smoke. It should be compared against Qwen3.5 4B and Gemma E4B with the same fixed candidate generator and the same tool budget.
 
+## Agent Axis: H6.1 Candidate Tool + Gemini Lite Rerank
+
+Fixed variables:
+
+| Axis | Value |
+| --- | --- |
+| Dataset | CodeSearchNet/MTEB Python local positive slice |
+| Candidate generator | H6.1 EmbeddingGemma file-metadata hybrid (`file_summary` + `file_manifest`) |
+| Reranker tool | Gemini 3.1 Flash Lite through Gemini API key |
+| Toolset | `code_diver_h3_search`, outline/symbol/rg/grep/read, `code_diver_rerank` |
+| Changed variable | Agent/planner model only |
+
+Valid reports:
+
+```text
+.code-diver/reports/codesearchnet-agent-axis-gemini-lite-api-25.json
+.code-diver/reports/codesearchnet-agent-axis-qwen35-4b-api-rerank-10.json
+.code-diver/reports/codesearchnet-agent-axis-gemma4-e4b-api-rerank-10.json
+```
+
+Results:
+
+| Agent model | Cases | Hit@1 | Hit@3 | Hit@5 | Hit@10 | MRR@10 | nDCG@10 | Precision@10 | Mean ms | p95 ms | Cost estimator | Errors |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Gemini 3.1 Flash Lite | 25 | 0.760 | 0.920 | 0.920 | 0.920 | 0.833 | 0.856 | 0.232 | 11,320 | 20,022 | $0.206 | 0 |
+| Qwen3.5 4B OptiQ 4-bit | 10 | 0.800 | 1.000 | 1.000 | 1.000 | 0.883 | 0.913 | 0.100 | 37,020 | 47,739 | $0.468 estimator | 0 |
+| Gemma 4 E4B OptiQ 4-bit | 10 | 0.800 | 0.900 | 0.900 | 0.900 | 0.833 | 0.850 | 0.450 | 56,573 | 77,396 | $0.686 estimator | 0 |
+| Gemma 4 12B IT Q4_K_M | 0 completed | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | runtime failure |
+
+Interpretation:
+
+- H6.2 is not the baseline for this axis. The agent-axis runs are built on the better H6.1 EmbeddingGemma candidate generator.
+- Qwen3.5 4B produced the best 10-case quality row, but the sample is too small and the confidence interval is wide. It is a promotion candidate, not a winner.
+- Gemini Lite remains the practical interactive planner because it is 3-5x faster than the local planners in this setup.
+- Gemma E4B follows the protocol after increasing `max_tokens` and adding a no-Markdown-fence prompt guard, but its latency is too high for the default planner role.
+- Gemma 4 12B started and generated valid tool calls, but with llama.cpp loaded it blocked the local retrieval path after the first H3 tool call for more than 4 minutes. Treat this as runtime-not-viable until the planner and embedding/search runtimes are isolated.
+
+Invalid or partial reports retained only for debugging:
+
+| Report | Why invalid |
+| --- | --- |
+| `.code-diver/reports/codesearchnet-agent-axis-gemini-lite-100.INVALID-vertex-auth.json` | Vertex ADC expired mid-run; later cases became authentication misses. |
+| `.code-diver/reports/codesearchnet-agent-axis-gemini-lite-api-25.INVALID-api-version.json` | Gemini API was run with Vertex-oriented `api_version: v1`; all cases failed with generation-config schema errors. |
+| `.code-diver/reports/codesearchnet-agent-axis-qwen35-4b-partial.json` | Early 6-case latency smoke before switching rerank transport from Vertex to Gemini API. |
+| `.code-diver/reports/codesearchnet-agent-axis-gemma4-12b-api-rerank-3.RUNTIME-FAIL.json` | 12B runtime stalled before completing a case. |
+
+Decision:
+
+- Do not adopt H6.2 as the default; it missed the requested `+0.05` quality threshold.
+- Use H6.1 static/grid weights over EmbeddingGemma as the current best candidate-generator baseline.
+- Promote Qwen3.5 4B and Gemini Lite to a larger same-cases agent-axis comparison only after adding stricter wall-clock/tool-call caps.
+- Do not promote Gemma 12B on the current Mac runtime. Re-test only with runtime isolation or a separate machine/GPU.
+
 ## Reranker Axis: Qwen3-Reranker 0.6B Cross-Encoder Gate
 
 Report:

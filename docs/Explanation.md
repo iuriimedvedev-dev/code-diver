@@ -337,6 +337,25 @@ The current agentic evidence does not beat Pure H3:
 | Agentic H3 bounded + Gemini Lite | 100 | 0.55 | 0.75 | 0.607 | 15,055 | $0.870 | valid calibration |
 | Agentic H3 bounded + Qwen3.5 4B local | 100 | 0.65 | 0.85 | 0.701 | 44,570 | local | valid calibration |
 
+The 2026-06-04 H6 pass changed the baseline for model-axis testing:
+
+| Question | Current answer |
+| --- | --- |
+| Did H6.2 MLP weights help enough? | No. It did not clear the requested `+0.05`; on Qwen0.6B Hit@10 stayed `0.950`, and on EmbeddingGemma it dropped from `0.983` to `0.980`. |
+| What candidate generator should model-axis tests use? | H6.1 static/grid weights over EmbeddingGemma-300M file metadata. |
+| What was the best measured local embedding so far? | EmbeddingGemma-300M in the same H3/H6 setup: validation Hit@1 `0.863`, Hit@10 `0.983`, MRR `0.911`. |
+
+Fresh agent/planner axis over that H6.1 + EmbeddingGemma generator:
+
+| Agent model | Cases | Hit@1 | Hit@3 | Hit@5 | Hit@10 | MRR@10 | nDCG@10 | Mean ms | Status |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| Gemini 3.1 Flash Lite | 25 | 0.760 | 0.920 | 0.920 | 0.920 | 0.833 | 0.856 | 11,320 | valid, practical latency |
+| Qwen3.5 4B OptiQ 4-bit | 10 | 0.800 | 1.000 | 1.000 | 1.000 | 0.883 | 0.913 | 37,020 | promising quality, too slow for default |
+| Gemma 4 E4B OptiQ 4-bit | 10 | 0.800 | 0.900 | 0.900 | 0.900 | 0.833 | 0.850 | 56,573 | valid protocol after prompt/output-budget fix, too slow |
+| Gemma 4 12B IT Q4_K_M | 0 | n/a | n/a | n/a | n/a | n/a | n/a | n/a | runtime stalled before first completed case |
+
+These are small agent-axis samples, so they are not final quality rankings. They do show the practical tradeoff: local planners can be accurate on easy early cases, but current latency is 3-5x worse than Gemini Lite and Gemma 12B needs runtime isolation before it is worth evaluating.
+
 The attempted 1000-case agentic slice is not valid for search-quality selection:
 
 | Run | State | Why not valid |
