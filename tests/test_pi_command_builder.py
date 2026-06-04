@@ -20,8 +20,8 @@ def test_pi_command_builder_uses_configured_extension_prompt_and_tools() -> None
     config = AppConfig(
         root=Path("/repo"),
         pi=PiConfig(
-            binary="npx",
-            launcher_args=["-y", "@earendil-works/pi-coding-agent"],
+            binary="npm",
+            launcher_args=["exec", "--", "pi"],
             extension=Path(".pi/extensions/code-diver-rag.ts"),
             prompt_template=Path(".pi/prompts/code-diver-rag.md"),
             provider="google",
@@ -34,9 +34,10 @@ def test_pi_command_builder_uses_configured_extension_prompt_and_tools() -> None
     command = PiCommandBuilder().build(config, prompt="Explain retrieval", print_mode=True)
 
     assert command == [
-        "npx",
-        "-y",
-        "@earendil-works/pi-coding-agent",
+        "npm",
+        "exec",
+        "--",
+        "pi",
         "-p",
         "--extension",
         ".pi/extensions/code-diver-rag.ts",

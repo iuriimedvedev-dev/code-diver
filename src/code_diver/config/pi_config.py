@@ -9,7 +9,7 @@ from ..settings import Defaults
 @dataclass(slots=True)
 class PiConfig:
     binary: str = Defaults.PI_BINARY
-    launcher_args: list[str] = field(default_factory=list)
+    launcher_args: list[str] = field(default_factory=lambda: list(Defaults.PI_LAUNCHER_ARGS))
     extension: Path = Defaults.PI_EXTENSION
     prompt_template: Path | None = Defaults.PI_PROMPT_TEMPLATE
     provider: str | None = Defaults.PI_PROVIDER

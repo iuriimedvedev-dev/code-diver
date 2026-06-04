@@ -7,6 +7,7 @@ import pytest
 
 from code_diver.cli import (
     chat_prompt_and_session,
+    cmd_init,
     cmd_monitor,
     cmd_search,
     config_for_indexing_hypothesis,
@@ -160,6 +161,37 @@ def test_current_repo_collection_prefix_falls_back_to_collection_name() -> None:
     config = AppConfig(storage=StorageConfig(qdrant=QdrantConfig(collection="manual_collection")))
 
     assert current_repo_collection_prefix(config) == "manual_collection"
+
+
+def test_cmd_init_installs_pi_runtime_before_runtime_wizard(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[str] = []
+
+    class FakePiRuntimeManager:
+        def install(self) -> None:
+            calls.append("pi-install")
+
+    class FakeRuntimeSetupWizard:
+        def run(self, **kwargs) -> None:
+            calls.append("runtime-wizard")
+
+    monkeypatch.setattr("code_diver.cli.PiRuntimeManager", FakePiRuntimeManager)
+    monkeypatch.setattr("code_diver.cli.RuntimeSetupWizard", FakeRuntimeSetupWizard)
+    monkeypatch.setattr("code_diver.cli.ensure_storage_runtime", lambda config, progress=True: calls.append("qdrant"))
+
+    result = cmd_init(
+        Namespace(
+            embedding="gemini",
+            platform="api",
+            runtime=None,
+            skip_install=False,
+            start=False,
+            yes=True,
+        ),
+        AppConfig(),
+    )
+
+    assert result == 0
+    assert calls == ["pi-install", "runtime-wizard", "qdrant"]
 
 
 def test_make_search_tool_handler_reuses_injected_strategy() -> None:

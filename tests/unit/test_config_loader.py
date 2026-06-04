@@ -55,8 +55,8 @@ indexing:
     max_context_chars: 1000
     discovery_patterns: ["class ", "interface "]
 pi:
-  binary: npx
-  launcher_args: [-y, "@earendil-works/pi-coding-agent"]
+  binary: npm
+  launcher_args: [exec, "--", pi]
   fallback_models: [google/gemini-3-flash-preview, google/gemini-2.5-flash]
   timeout_seconds: 77
   session_dir: {tmp_path}/pi-sessions
@@ -230,8 +230,8 @@ plugins:
     assert config.indexing.ai.max_items == 8
     assert config.indexing.ai.max_context_chars == 1000
     assert config.indexing.ai.discovery_patterns == ["class ", "interface "]
-    assert config.pi.binary == "npx"
-    assert config.pi.launcher_args == ["-y", "@earendil-works/pi-coding-agent"]
+    assert config.pi.binary == "npm"
+    assert config.pi.launcher_args == ["exec", "--", "pi"]
     assert config.pi.fallback_models == ["google/gemini-3-flash-preview", "google/gemini-2.5-flash"]
     assert config.pi.timeout_seconds == 77
     assert config.pi.session_dir == tmp_path / "pi-sessions"

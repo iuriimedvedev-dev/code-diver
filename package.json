@@ -7,8 +7,9 @@
     "extensions": ["./.pi/extensions/code-diver-rag.ts"],
     "prompts": ["./.pi/prompts"]
   },
-  "peerDependencies": {
-    "@earendil-works/pi-coding-agent": "*",
-    "typebox": "*"
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "0.78.0",
+    "@earendil-works/pi-tui": "0.78.0",
+    "typebox": "1.1.38"
   }
 }

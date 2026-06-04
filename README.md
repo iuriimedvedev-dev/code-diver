@@ -7,6 +7,7 @@
 ```bash
 uv sync
 export GEMINI_API_KEY="..."
+uv run code-diver init --platform api --embedding gemini --yes
 ```
 
 The default `code-diver.yml` uses Gemini for embeddings and the Search agent model, so you need one of:
@@ -51,10 +52,16 @@ The public CLI intentionally exposes the assignment surface: `index`, `search`, 
 
 ```bash
 uv sync
+uv run code-diver init --platform api --embedding gemini --yes
 uv run code-diver index .
 uv run code-diver search "how does indexing work?"
 uv run code-diver evaluate --benchmark sample --json
 ```
+
+`code-diver init` installs Search agent npm dependencies and configures the
+embedding runtime. Use `--skip-install` only when dependencies are already present
+or when you are running a docs/config dry run. For local embeddings, pick a local
+profile instead, for example `uv run code-diver init --platform apple-metal --embedding qwen3-0.6b --yes --start`.
 
 `index` shows a compact progress UI by default: index profile, what is embedded, file
 discovery, scan, embedding batches, save, and graph build. Long operations without their own
@@ -400,10 +407,11 @@ Pi arguments and the active tool allowlist are configured in `code-diver.yml`:
 
 ```yaml
 pi:
-  binary: npx
+  binary: npm
   launcher_args:
-    - -y
-    - "@earendil-works/pi-coding-agent"
+    - exec
+    - --
+    - pi
   extension: .pi/extensions/code-diver-rag.ts
   prompt_template: .pi/prompts/code-diver-rag.md
   provider: google

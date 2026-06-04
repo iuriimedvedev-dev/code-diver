@@ -77,3 +77,35 @@ def test_pi_runner_launch_status_hides_raw_command_and_empty_hypothesis(capsys) 
     assert "command" not in captured.err
     assert "hypothesis" not in captured.err
     assert "@earendil-works/pi-coding-agent" not in captured.err
+
+
+def test_pi_runner_uses_project_cwd_for_local_npm_runtime(monkeypatch, tmp_path: Path) -> None:
+    config = AppConfig(
+        root=tmp_path / "repo",
+        pi=PiConfig(
+            binary="npm",
+            launcher_args=["exec", "--", "pi"],
+            model="google/gemini-3.1-flash-lite",
+        ),
+    )
+    captured: dict[str, object] = {}
+
+    class FakeRuntimeManager:
+        def cwd_for_command(self, command: list[str]) -> Path | None:
+            return tmp_path if command[:4] == ["npm", "exec", "--", "pi"] else None
+
+        def ensure_available(self) -> None:
+            captured["ensured"] = True
+
+    def fake_call(command: list[str], **kwargs) -> int:
+        captured["command"] = command
+        captured["cwd"] = kwargs.get("cwd")
+        return 0
+
+    runner = PiRunner()
+    runner.runtime_manager = FakeRuntimeManager()  # type: ignore[assignment]
+    monkeypatch.setattr("subprocess.call", fake_call)
+
+    assert runner.run_print(config, Path("code-diver.yml"), "hello") == 0
+    assert captured["ensured"] is True
+    assert captured["cwd"] == str(tmp_path)

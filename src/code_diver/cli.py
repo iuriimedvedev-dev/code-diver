@@ -32,7 +32,7 @@ from .graph import CodeGraphBuilder, CodeGraphStore
 from .inspection import GrepService, ReadExcerptService, RgService, SymbolsService, TreeService
 from .metrics import ClickHouseClient, ClickHouseDockerClient, ClickHouseMetricsRepository, ExperimentMetricsMapper
 from .orchestration import OrchestratedCodebaseScanner
-from .pi import PiRunner, PiSessionOptions
+from .pi import PiRunner, PiRuntimeManager, PiSessionOptions
 from .plugins import PluginManager
 from .providers import create_embedding_provider
 from .runtime import EmbeddingRuntimeManager, QdrantRuntimeManager, RuntimeConfigStore, RuntimeSetupWizard
@@ -714,6 +714,12 @@ def graph_activity_message(config: AppConfig, item_count: int) -> str:
 
 
 def cmd_init(args: argparse.Namespace, config: AppConfig) -> int:
+    if bool(args.skip_install):
+        render_status_line("skipping Search agent npm dependency install because --skip-install was passed", "yellow")
+    else:
+        with render_activity("installing Search agent npm dependencies from package-lock/package.json", style="blue"):
+            PiRuntimeManager().install()
+        render_status_line("Search agent npm runtime is installed", "green")
     RuntimeSetupWizard().run(
         profile_key=args.embedding,
         platform=args.platform,

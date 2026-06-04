@@ -34,7 +34,8 @@ class Defaults:
     HASH_DIMENSIONS = 256
     HASH_MODEL = "hash-token-v1"
 
-    PI_BINARY = "pi"
+    PI_BINARY = "npm"
+    PI_LAUNCHER_ARGS = ["exec", "--", "pi"]
     PI_EXTENSION = Path(".pi/extensions/code-diver-rag.ts")
     PI_PROMPT_TEMPLATE = Path(".pi/prompts/code-diver-rag.md")
     PI_PROVIDER = "google"

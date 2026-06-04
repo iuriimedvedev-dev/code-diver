@@ -14,12 +14,14 @@ from rich.table import Table
 
 from ..config import AppConfig
 from .pi_command_builder import PiCommandBuilder
+from .pi_runtime_manager import PiRuntimeManager
 from .pi_session_options import PiSessionOptions
 
 
 class PiRunner:
     def __init__(self, command_builder: PiCommandBuilder | None = None):
         self.command_builder = command_builder or PiCommandBuilder()
+        self.runtime_manager = PiRuntimeManager()
 
     def run_interactive(
         self,
@@ -147,8 +149,9 @@ class PiRunner:
             if index:
                 print(f"Search agent model fallback: {model}", file=sys.stderr, flush=True)
             command = command_factory(model)
+            self._ensure_runtime(command)
             self._print_launch_status(command, model, toolset, hypothesis)
-            last_code = subprocess.call(command, env=env)
+            last_code = subprocess.call(command, env=env, **self._subprocess_kwargs(command))
             if last_code == 0:
                 return 0
         return last_code
@@ -168,6 +171,7 @@ class PiRunner:
             if index:
                 print(f"Search agent model fallback: {model}", file=sys.stderr, flush=True)
             command = command_factory(model)
+            self._ensure_runtime(command)
             self._print_launch_status(command, model, toolset, hypothesis)
             try:
                 completed = subprocess.run(
@@ -176,6 +180,7 @@ class PiRunner:
                     capture_output=True,
                     text=True,
                     timeout=config.pi.timeout_seconds,
+                    **self._subprocess_kwargs(command),
                 )
             except subprocess.TimeoutExpired as exc:
                 self._write_captured_stderr(self._text(exc.stderr))
@@ -216,8 +221,6 @@ class PiRunner:
         console.print(
             Panel(table, title="[bold]Launching Search Agent[/bold]", border_style="cyan", padding=(0, 1))
         )
-        if command and command[0] == "npx":
-            console.print("[dim][code-diver] npx may spend a moment resolving the agent package.[/dim]")
 
     def _flag_value(self, command: list[str], flag: str) -> str | None:
         try:
@@ -227,6 +230,14 @@ class PiRunner:
         if index + 1 >= len(command):
             return None
         return command[index + 1]
+
+    def _ensure_runtime(self, command: list[str]) -> None:
+        if self.runtime_manager.cwd_for_command(command) is not None:
+            self.runtime_manager.ensure_available()
+
+    def _subprocess_kwargs(self, command: list[str]) -> dict[str, str]:
+        cwd = self.runtime_manager.cwd_for_command(command)
+        return {"cwd": str(cwd)} if cwd is not None else {}
 
     def _write_captured_stderr(self, text: str) -> None:
         if not text:
@@ -253,6 +264,7 @@ class PiRunner:
             if index:
                 self._write_log_event(log_path, {"type": "runner_fallback", "model": model})
             command = command_factory(model)
+            self._ensure_runtime(command)
             self._write_log_event(
                 log_path,
                 {
@@ -269,6 +281,7 @@ class PiRunner:
                     capture_output=True,
                     text=True,
                     timeout=config.pi.timeout_seconds,
+                    **self._subprocess_kwargs(command),
                 )
             except subprocess.TimeoutExpired as exc:
                 self._append_stdout(log_path, self._text(exc.stdout))

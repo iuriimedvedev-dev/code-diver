@@ -31,10 +31,11 @@ indexing:
   mode: scanner
 
 pi:
-  binary: npx
+  binary: npm
   launcher_args:
-    - -y
-    - "@earendil-works/pi-coding-agent"
+    - exec
+    - --
+    - pi
   extension: .pi/extensions/code-diver-rag.ts
   prompt_template: .pi/prompts/code-diver-rag.md
   provider: google
