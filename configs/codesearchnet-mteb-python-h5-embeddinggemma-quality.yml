@@ -1,0 +1,119 @@
+root: .code-diver/benchmarks/mteb-codesearchnet-python/corpus
+artifact: .code-diver/benchmarks/mteb-codesearchnet-python/index-h5-embeddinggemma-300m-quality.json
+
+storage:
+  provider: json
+
+embedding:
+  provider: sentence_transformers
+  model: google/embeddinggemma-300m
+  dimensions: 768
+  batch_size: 96
+  workers: 1
+  max_input_chars: 1200
+  query_prefix: "task: code retrieval | query: "
+  document_prefix: "title: none | text: "
+
+indexing:
+  mode: scanner
+
+scanner:
+  include:
+    - "**/*.py"
+  max_file_bytes: 200000
+  line_chunks: false
+  chunk_lines: 220
+  structural_chunks: false
+  symbol_chunks: false
+  symbol_body: false
+  file_summary_chunks: true
+  file_manifest_chunks: true
+  max_symbols_per_file: 96
+
+search:
+  limit: 10
+  preview_lines: 8
+  strategy: hybrid
+
+hybrid_search:
+  candidate_limit: 280
+  lexical_candidate_limit: 900
+  vector_weight: 0.42
+  lexical_weight: 0.26
+  path_weight: 0.12
+  symbol_weight: 0.10
+  symbol_match_weight: 0.10
+  graph_weight: 0.0
+  file_vote_weight: 0.06
+  graph_depth: 0
+  graph_neighbor_limit: 0
+  vector_kind_limits:
+    file_summary: 170
+    file_manifest: 170
+  vector_kind_multipliers:
+    file_summary: 1.0
+    file_manifest: 1.08
+  routing_enabled: true
+  lexical_scoring: bm25
+  fusion: weighted
+  preserve_vector_top: true
+  vector_top_score_margin: 0.03
+  item_kind_weights:
+    file_summary: 1.0
+    file_manifest: 1.08
+  min_token_length: 3
+
+cross_encoder_rerank:
+  provider: llama_cpp
+  model: Qwen3-Reranker-0.6B-Q4_K_M.gguf
+  url: http://127.0.0.1:8080/v1/rerank
+  api_key: local
+  candidate_limit: 30
+  max_document_chars: 900
+  timeout_ms: 30000
+  preserve_top_candidate: false
+  preserve_top_score_margin: 0.0
+
+llm_rerank:
+  candidate_limit: 30
+  rerank_limit: 10
+  max_preview_chars: 700
+  mode: precision
+  include_reasons: false
+  preserve_top_candidate: false
+
+graph:
+  enabled: true
+  artifact: .code-diver/benchmarks/mteb-codesearchnet-python/graph-h5-embeddinggemma-300m-quality.json
+  ast_enabled: false
+  reference_edges_enabled: false
+  call_edges_enabled: false
+  expansion_depth: 0
+  neighbor_limit: 0
+
+trace:
+  enabled: true
+  artifact: .code-diver/traces/codesearchnet-mteb-python-h5-embeddinggemma-quality.jsonl
+  include_prompts: false
+
+evaluation:
+  dataset: .code-diver/benchmarks/mteb-codesearchnet-python/codesearchnet_python_1000.jsonl
+  limit: 10
+  workers: 1
+
+experiments:
+  suite: codesearchnet-mteb-python-h5-embeddinggemma-quality
+  strategies:
+    - hybrid
+  hypotheses:
+    - name: h3_embeddinggemma_no_ranker
+      strategy: hybrid
+      description: "H3 candidate generation over EmbeddingGemma 300M file metadata."
+    - name: h3_embeddinggemma_qwen3_reranker_0_6b
+      strategy: cross_encoder_rerank
+      description: "EmbeddingGemma H3 candidates reranked by local Qwen3-Reranker 0.6B."
+
+metrics:
+  enabled: false
+
+plugins: []

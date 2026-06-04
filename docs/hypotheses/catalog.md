@@ -311,7 +311,7 @@ Status meanings:
 | Decision | Active. Every new local-model claim must name which axis changed and which two axes were fixed. |
 | Failure modes | Mixed-axis runs cannot identify causality; local serving failures can masquerade as model quality; agentic loops can over-search and spend latency without improving recall. |
 | Follow-ups | Add run manifests with axis labels; add report grouping by changed axis; run Qwen3 4B embedding once local serving is stable; test Qwen3-Reranker through a real rerank endpoint. |
-| Links | [H5 hybrid weight calibration](../h5-hybrid-weight-calibration-2026-06-04.md), [code embedding model research](../code-embedding-model-research-2026-06-04.md), `scripts/benchmark_embedding_models.py`, `scripts/benchmark_generation_models.py` |
+| Links | [local model axis experiments](../local-model-axis-experiments-2026-06-04.md), [H5 hybrid weight calibration](../h5-hybrid-weight-calibration-2026-06-04.md), [code embedding model research](../code-embedding-model-research-2026-06-04.md), `scripts/benchmark_embedding_models.py`, `scripts/benchmark_generation_models.py` |
 
 ## EMBED-MATRIX - Local And API Embedding Candidates
 
@@ -325,13 +325,13 @@ Status meanings:
 | Search/ranking flow | Swap embedding provider/model; keep H3/H5 flow fixed. |
 | Model/provider matrix | Current practical default Qwen3-Embedding-0.6B; candidates include Qwen3-Embedding-4B, EmbeddingGemma-300m, Gemini Embedding, Voyage Code 3, Jina code embeddings, Codestral Embed. |
 | Dataset | Next matrix should use CodeSearchNet local positive slice and larger-negative/full-corpus public profile when available. |
-| Metrics | Qwen3-Embedding-0.6B current Pure H3 CodeSearchNet Hit@10 `0.961`; public MTEB extract lists Qwen3-Embedding-0.6B official score `0.94325`, Qwen3-Embedding-4B `0.96004`, EmbeddingGemma-300m `0.96180`, Gemini embedding `0.96495`, Voyage Code 3 `0.96688`. |
+| Metrics | Qwen3-Embedding-0.6B current Pure H3 CodeSearchNet Hit@10 `0.961`; 100-case same-stack smoke: Qwen0.6B file Hit@1/10 `0.750`/`0.950`, EmbeddingGemma-300M file Hit@1/10 `0.810`/`0.950`; public MTEB extract lists Qwen3-Embedding-0.6B official score `0.94325`, Qwen3-Embedding-4B `0.96004`, EmbeddingGemma-300m `0.96180`, Gemini embedding `0.96495`, Voyage Code 3 `0.96688`. |
 | Cost/latency/index-size | Qwen 0.6B is already integrated and fast enough; larger/API models have unmeasured Code Diver cost in the same stack. |
 | Result summary | Qwen 0.6B is the practical default today, but public benchmark data justifies testing 4B, EmbeddingGemma, Gemini, and Voyage. |
 | Decision | Active model matrix. Do not claim a new winner until same-stack runs exist. |
 | Failure modes | Official MTEB scores are not directly comparable to Code Diver local positive-slice metrics; API models add cost/quota; gated licenses may block local setup. |
 | Follow-ups | Add run manifests with model/provider versions, config hashes, index hashes, and dataset hashes. |
-| Links | [code embedding model research](../code-embedding-model-research-2026-06-04.md), [market comparison](../codesearchnet-market-comparison-2026-06-03.md), `configs/codesearchnet-mteb-python-h5-qwen-quality.yml` |
+| Links | [local model axis experiments](../local-model-axis-experiments-2026-06-04.md), [code embedding model research](../code-embedding-model-research-2026-06-04.md), [market comparison](../codesearchnet-market-comparison-2026-06-03.md), `configs/codesearchnet-mteb-python-h5-qwen-quality.yml` |
 
 ## RERANK-MATRIX - LLM And Cross-Encoder Ranking
 

@@ -6,6 +6,7 @@ from .gemini_embedding_provider import GeminiEmbeddingProvider
 from .hash_embedding_provider import HashEmbeddingProvider
 from .openai_compatible_embedding_provider import OpenAICompatibleEmbeddingProvider
 from .openai_embedding_provider import OpenAIEmbeddingProvider
+from .sentence_transformers_embedding_provider import SentenceTransformersEmbeddingProvider
 from .vertex_embedding_provider import VertexEmbeddingProvider
 
 
@@ -72,5 +73,14 @@ def create_embedding_provider(
             max_input_chars=max_input_chars,
             retry_attempts=retry_attempts,
             retry_delay_seconds=retry_delay_seconds,
+        )
+    if provider_id is EmbeddingProviderId.SENTENCE_TRANSFORMERS:
+        return SentenceTransformersEmbeddingProvider(
+            model=model or Defaults.EMBEDDING_MODEL,
+            dimensions=dimensions,
+            batch_size=batch_size,
+            document_prefix=document_prefix,
+            query_prefix=query_prefix,
+            max_input_chars=max_input_chars,
         )
     raise ValueError(f"Unknown embedding provider: {provider}")

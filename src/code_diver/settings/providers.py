@@ -8,6 +8,7 @@ class EmbeddingProviderId(StrEnum):
     HASH = "hash"
     OPENAI = "openai"
     OPENAI_COMPATIBLE = "openai_compatible"
+    SENTENCE_TRANSFORMERS = "sentence_transformers"
     VERTEX = "vertex"
 
 

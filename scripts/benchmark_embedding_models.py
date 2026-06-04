@@ -38,11 +38,13 @@ class EmbeddingBenchmarkRunner:
         EnvFileLoader().load(self.base_config.env_file.path, self.base_config.env_file.override)
         self.run_id = str(self.suite.get("run_id") or uuid.uuid4().hex[:12])
 
-    def run(self) -> dict[str, Any]:
+    def run(self, only: set[str] | None = None) -> dict[str, Any]:
         output_path = Path(self.suite.get("output", f".code-diver/reports/embedding-benchmark-{self.run_id}.json"))
         output_path.parent.mkdir(parents=True, exist_ok=True)
         rows = []
         for model in self.suite.get("models", []):
+            if only and model["name"] not in only:
+                continue
             rows.append(self._run_model(model))
             output_path.write_text(json.dumps({"run_id": self.run_id, "results": rows}, indent=2), encoding="utf-8")
         return {"run_id": self.run_id, "output": str(output_path), "results": rows}
@@ -251,8 +253,9 @@ class EmbeddingBenchmarkRunner:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--suite", type=Path, required=True)
+    parser.add_argument("--only", action="append", default=[])
     args = parser.parse_args()
-    result = EmbeddingBenchmarkRunner(args.suite).run()
+    result = EmbeddingBenchmarkRunner(args.suite).run(set(args.only) if args.only else None)
     print(json.dumps(result, indent=2))
     return 0
 
