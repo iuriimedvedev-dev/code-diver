@@ -56,7 +56,11 @@ uv run code-diver search "how does indexing work?"
 uv run code-diver evaluate --benchmark sample --json
 ```
 
-`index` shows a compact progress UI by default: preflight, file discovery, scan, embedding batches, save, and graph build. Disable it when scripting:
+`index` shows a compact progress UI by default: index profile, what is embedded, file
+discovery, scan, embedding batches, save, and graph build. Long operations without their own
+progress bar show an animated spinner at the end of the status phrase, so provider startup,
+runtime checks, graph build, and agent runs do not look frozen. Disable progress when
+scripting:
 
 ```bash
 uv run code-diver index . --no-progress

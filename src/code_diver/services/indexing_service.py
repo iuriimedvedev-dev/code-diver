@@ -70,8 +70,13 @@ class IndexingService:
         self._finish_scan_progress(len(scanned_items))
         plugin_items = self.plugin_manager.collect_items(root, plugin_config or {})
         items = self.plugin_manager.transform_items(self._dedupe_items([*scanned_items, *plugin_items]))
-        self._progress_message(f"prepared {len(items)} index items ({len(scanned_items)} scanner, {len(plugin_items)} plugin)")
         composition = IndexCompositionAnalyzer().analyze(items)
+        self._progress_message(
+            "prepared retrieval records: "
+            f"items={len(items)} files={composition['unique_paths']} "
+            f"scanner={len(scanned_items)} plugin={len(plugin_items)} "
+            f"kinds={self._format_counts(composition['items_by_kind'])}"
+        )
         self.trace_logger.write(
             "index_items_prepared",
             {
@@ -86,10 +91,10 @@ class IndexingService:
         )
         preparer = EmbeddingTextPreparer(self.options.embedding_max_input_chars)
         self._progress_message(
-            "embedding "
-            f"{len(items)} items with {provider.name} "
-            f"model={provider.model} batch_size={self.options.embedding_batch_size} "
-            f"workers={self.options.embedding_workers}"
+            "embedding retrieval texts: "
+            f"items={len(items)} provider={provider.name} model={provider.model} "
+            f"batch_size={self.options.embedding_batch_size} workers={self.options.embedding_workers} "
+            f"max_chars={self.options.embedding_max_input_chars or 'provider-default'}"
         )
         dimensions = self._embed_and_save(root, provider, items, preparer)
         self.trace_logger.write(
@@ -305,7 +310,7 @@ class IndexingService:
     def _start_save_progress(self) -> None:
         if self._progress is None:
             return
-        self._save_task = self._progress.add_task("saving index", total=None)
+        self._save_task = self._progress.add_task("saving vector index", total=None)
 
     def _finish_save_progress(self) -> None:
         if self._progress is None or self._save_task is None:
@@ -314,10 +319,15 @@ class IndexingService:
 
     def _progress_message(self, message: str) -> None:
         if self._progress is not None:
-            self._progress.console.print(f"[dim][code-diver] {message}[/dim]")
+            self._progress.console.print(f"[dim]\\[code-diver] {message}[/dim]")
             return
         if self.options.progress:
             print(f"[code-diver] {message}", file=sys.stderr)
+
+    def _format_counts(self, counts: dict[str, int]) -> str:
+        if not counts:
+            return "none"
+        return ", ".join(f"{key}={value}" for key, value in sorted(counts.items()))
 
     def _item_batches(self, items: list[CodeItem], size: int):
         for offset in range(0, len(items), size):

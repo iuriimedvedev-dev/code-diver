@@ -13,6 +13,7 @@ from typing import Any
 
 from rich.console import Console
 from rich.panel import Panel
+from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.table import Table
 
 from .config import AppConfig, ConfigLoader
@@ -96,7 +97,23 @@ def render_status_panel(title: str, rows: list[tuple[str, object]], border_style
 
 
 def render_status_line(message: str, style: str = "cyan") -> None:
-    status_console().print(f"[{style}][code-diver][/{style}] {message}")
+    status_console().print(f"[{style}]\\[code-diver][/{style}] {message}")
+
+
+@contextlib.contextmanager
+def render_activity(message: str, enabled: bool = True, style: str = "cyan"):
+    if not enabled:
+        yield
+        return
+    progress = Progress(
+        TextColumn(f"[{style}]\\[code-diver][/{style}] {message}"),
+        SpinnerColumn("dots"),
+        console=status_console(),
+        transient=True,
+    )
+    with progress:
+        progress.add_task("working", total=None)
+        yield
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -420,21 +437,26 @@ def cmd_index(args: argparse.Namespace, config: AppConfig) -> int:
                 ("root", config.root.resolve()),
                 ("store", store_label(config)),
                 ("scanner", config.indexing.mode),
+                ("profile", index_profile_label(config)),
+                ("embeds", index_content_label(config)),
+                ("graph", graph_label(config)),
                 ("include", config.scanner.include or ["default-code-files"]),
                 ("exclude", f"{len(config.scanner.exclude)} configured patterns"),
             ],
         )
-        render_status_line("initializing embedding provider", "cyan")
-    provider = make_embedding_provider(config)
+    with render_activity(embedding_activity_message(config), enabled=progress):
+        provider = make_embedding_provider(config)
     if progress:
         render_status_panel(
             "Embedding",
             [
                 ("provider", provider.name),
                 ("model", provider.model),
+                ("endpoint", config.embedding.url or config.embedding.location or "provider default"),
                 ("dimensions", provider.dimensions or "auto"),
                 ("batch size", config.embedding.batch_size),
                 ("workers", config.embedding.workers),
+                ("max chars", config.embedding.max_input_chars or "provider default"),
             ],
             border_style="magenta",
         )
@@ -446,19 +468,18 @@ def cmd_index(args: argparse.Namespace, config: AppConfig) -> int:
             plugin_config={"config": config},
         )
         if config.graph.enabled:
-            if progress:
-                render_status_line("building graph artifact", "cyan")
-            GraphIndexingService(
-                CodeGraphBuilder(
-                    ast_enabled=config.graph.ast_enabled,
-                    reference_edges_enabled=config.graph.reference_edges_enabled,
-                    call_edges_enabled=config.graph.call_edges_enabled,
-                ),
-                CodeGraphStore(config.graph.artifact),
-            ).build(
-                config.root,
-                items,
-            )
+            with render_activity(graph_activity_message(config, len(items)), enabled=progress):
+                GraphIndexingService(
+                    CodeGraphBuilder(
+                        ast_enabled=config.graph.ast_enabled,
+                        reference_edges_enabled=config.graph.reference_edges_enabled,
+                        call_edges_enabled=config.graph.call_edges_enabled,
+                    ),
+                    CodeGraphStore(config.graph.artifact),
+                ).build(
+                    config.root,
+                    items,
+                )
             if progress:
                 render_status_line(f"saved graph artifact: {config.graph.artifact}", "green")
         print(
@@ -472,6 +493,68 @@ def cmd_index(args: argparse.Namespace, config: AppConfig) -> int:
     finally:
         close_vector_store(indexing_service.vector_store)
     return 0
+
+
+def embedding_activity_message(config: AppConfig) -> str:
+    model = config.embedding.model or "provider default"
+    provider = config.embedding.provider or Defaults.EMBEDDING_PROVIDER
+    if config.embedding.provider == EmbeddingProviderId.OPENAI_COMPATIBLE.value:
+        return (
+            "checking embedding runtime from init config and preparing local client: "
+            f"model={model} endpoint={config.embedding.url}"
+        )
+    if config.embedding.provider in {"gemini", "vertex"}:
+        location = f" location={config.embedding.location}" if config.embedding.location else ""
+        return f"creating API embedding client: provider={provider} model={model}{location}"
+    return f"creating embedding client: provider={provider} model={model}"
+
+
+def index_profile_label(config: AppConfig) -> str:
+    if (
+        config.scanner.file_summary_chunks
+        and config.scanner.file_manifest_chunks
+        and not config.scanner.line_chunks
+        and not config.scanner.structural_chunks
+        and not config.scanner.symbol_chunks
+    ):
+        return "H5 file locator"
+    return "custom"
+
+
+def index_content_label(config: AppConfig) -> str:
+    enabled: list[str] = []
+    if config.scanner.file_summary_chunks:
+        enabled.append("file summaries")
+    if config.scanner.file_manifest_chunks:
+        enabled.append("file manifests")
+    if config.scanner.line_chunks:
+        enabled.append("line chunks")
+    if config.scanner.structural_chunks:
+        enabled.append("AST chunks")
+    if config.scanner.symbol_chunks:
+        enabled.append("symbols")
+    return ", ".join(enabled) if enabled else "scanner output"
+
+
+def graph_label(config: AppConfig) -> str:
+    if not config.graph.enabled:
+        return "disabled"
+    enabled = []
+    if config.graph.ast_enabled:
+        enabled.append("AST")
+    if config.graph.reference_edges_enabled:
+        enabled.append("references")
+    if config.graph.call_edges_enabled:
+        enabled.append("calls")
+    suffix = ", ".join(enabled) if enabled else "containment"
+    return f"enabled ({suffix})"
+
+
+def graph_activity_message(config: AppConfig, item_count: int) -> str:
+    return (
+        "building graph artifact from indexed items: "
+        f"items={item_count} artifact={config.graph.artifact} {graph_label(config)}"
+    )
 
 
 def cmd_init(args: argparse.Namespace, config: AppConfig) -> int:
@@ -549,13 +632,18 @@ def cmd_search(args: argparse.Namespace, config: AppConfig) -> int:
     if args.interactive:
         prompt = build_code_exploration_prompt(query) if query else None
         return PiRunner().run_interactive(config, args.config, prompt=prompt)
-    exit_code, output = PiRunner().run_print_capture(
-        config,
-        args.config,
-        build_code_exploration_prompt(query),
-        toolset=None,
-        hypothesis=None,
-    )
+    with render_activity(
+        "running Search agent: planning tool calls, reading bounded excerpts, preparing answer",
+        enabled=True,
+        style="green",
+    ):
+        exit_code, output = PiRunner().run_print_capture(
+            config,
+            args.config,
+            build_code_exploration_prompt(query),
+            toolset=None,
+            hypothesis=None,
+        )
     if output.strip():
         MarkdownRenderer(config.ui).render(output)
     return exit_code
