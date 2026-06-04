@@ -34,7 +34,7 @@ from .orchestration import OrchestratedCodebaseScanner
 from .pi import PiRunner
 from .plugins import PluginManager
 from .providers import create_embedding_provider
-from .runtime import EmbeddingRuntimeManager, RuntimeConfigStore, RuntimeSetupWizard
+from .runtime import EmbeddingRuntimeManager, QdrantRuntimeManager, RuntimeConfigStore, RuntimeSetupWizard
 from .settings import (
     CommandName,
     Defaults,
@@ -63,7 +63,7 @@ from .services.evaluation_statistics import EvaluationStatistics
 from .strategies import RetrievalStrategyFactory
 from .store import create_vector_store
 from .tracing import TraceLogger
-from .ui import EditorOpener, EvaluationRenderer, MarkdownRenderer, SearchRenderer, TraceMonitor
+from .ui import EditorOpener, EvaluationRenderer, MarkdownRenderer, TraceMonitor
 
 
 ADVANCED_COMMANDS = {
@@ -114,6 +114,25 @@ def render_activity(message: str, enabled: bool = True, style: str = "cyan"):
     with progress:
         progress.add_task("working", total=None)
         yield
+
+
+def ensure_storage_runtime(config: AppConfig, progress: bool = True) -> None:
+    manager = QdrantRuntimeManager(config)
+    if not manager.should_manage():
+        return
+    with render_activity(
+        f"checking local Qdrant from config: {config.storage.qdrant.url}",
+        enabled=progress,
+        style="blue",
+    ):
+        status = manager.ensure_running()
+    if progress and status.started:
+        render_status_line(f"started local Qdrant: {config.storage.qdrant.url}", "green")
+
+
+def make_vector_store(config: AppConfig, progress: bool = False):
+    ensure_storage_runtime(config, progress=progress)
+    return create_vector_store(config)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -430,6 +449,7 @@ def apply_builtin_pure_h3(config: AppConfig) -> AppConfig:
 
 def cmd_index(args: argparse.Namespace, config: AppConfig) -> int:
     progress = not bool(getattr(args, "no_progress", False) or getattr(args, "quiet", False))
+    ensure_storage_runtime(config, progress=progress)
     if progress:
         render_status_panel(
             "Index",
@@ -566,6 +586,7 @@ def cmd_init(args: argparse.Namespace, config: AppConfig) -> int:
         start=bool(args.start),
         yes=bool(args.yes),
     )
+    ensure_storage_runtime(config, progress=True)
     return 0
 
 
@@ -582,7 +603,7 @@ def cmd_index_selected(args: argparse.Namespace, config: AppConfig) -> int:
         return 0
     provider = make_embedding_provider(config)
     service = SelectedIndexingService(
-        create_vector_store(config),
+        make_vector_store(config),
         IndexingOptions(
             embedding_batch_size=config.embedding.batch_size,
             embedding_workers=config.embedding.workers,
@@ -660,7 +681,7 @@ def code_explorer_preflight(config: AppConfig, config_path: Path | None) -> bool
             ("tools", ", ".join(config.pi.tools) if config.pi.tools else "(none configured)"),
         ],
     )
-    vector_store = create_vector_store(config)
+    vector_store = make_vector_store(config)
     try:
         if not vector_store.exists():
             render_status_panel(
@@ -828,14 +849,14 @@ def cmd_evaluate(args: argparse.Namespace, config: AppConfig) -> int:
     if benchmark is not None:
         BenchmarkAssetService().ensure(benchmark, assume_yes=bool(getattr(args, "yes", False)))
 
-    vector_store = create_vector_store(config)
+    vector_store = make_vector_store(config, progress=not bool(args.json))
     if args.reindex or not vector_store.exists():
         if args.json:
             with contextlib.redirect_stdout(sys.stderr):
                 cmd_index(args, config)
         else:
             cmd_index(args, config)
-        vector_store = create_vector_store(config)
+        vector_store = make_vector_store(config, progress=not bool(args.json))
 
     dataset = args.dataset or (benchmark.dataset if benchmark is not None else config.evaluation.dataset)
     limit = args.limit or config.evaluation.limit
@@ -892,7 +913,7 @@ def cmd_evaluate_indexing(args: argparse.Namespace, config: AppConfig) -> int:
         eval_config = config_for_indexing_hypothesis(config, hypothesis.name, run_id)
         log_path = indexing_hypothesis_log_path(config, hypothesis.name, run_id)
         tools = resolve_hypothesis_tools(config, hypothesis.name)
-        vector_store = create_vector_store(eval_config)
+        vector_store = make_vector_store(eval_config)
         embedding_provider = make_embedding_provider(eval_config)
         graph_indexer = make_graph_indexer(eval_config)
         started = perf_counter()
@@ -916,7 +937,7 @@ def cmd_evaluate_indexing(args: argparse.Namespace, config: AppConfig) -> int:
             graph_indexer=graph_indexer,
         ).run(hypothesis.name, cases)
         close_vector_store(vector_store)
-        vector_store = create_vector_store(eval_config)
+        vector_store = make_vector_store(eval_config)
         indexing_duration_ms = (perf_counter() - started) * 1000
         row: dict[str, Any] = {
             "hypothesis": hypothesis.name,
@@ -1012,7 +1033,7 @@ def cmd_evaluate_search_tools(args: argparse.Namespace, config: AppConfig) -> in
                 make_ephemeral_search_tool_handler(eval_config) if "code_diver_ephemeral_search" in tools else None
             )
             if "code_diver_search" in tools or "code_diver_h3_search" in tools:
-                search_vector_store = create_vector_store(eval_config)
+                search_vector_store = make_vector_store(eval_config)
                 search_provider = make_embedding_provider(eval_config, search_vector_store.metadata())
                 if "code_diver_search" in tools:
                     search_handler = make_search_tool_handler(
@@ -1113,13 +1134,13 @@ def cmd_experiment(args: argparse.Namespace, config: AppConfig) -> int:
         missing = selected - {hypothesis.name for hypothesis in config.experiments.hypotheses}
         if missing:
             raise ValueError(f"Unknown experiment hypothesis: {', '.join(sorted(missing))}")
-    vector_store = None if args.reindex else create_vector_store(config)
+    vector_store = None if args.reindex else make_vector_store(config)
     needs_index = args.reindex or not vector_store.exists()
     if needs_index:
         if vector_store is not None:
             close_vector_store(vector_store)
         cmd_index(args, config)
-        vector_store = create_vector_store(config)
+        vector_store = make_vector_store(config)
 
     provider = make_embedding_provider(config, vector_store.metadata())
     plugin_manager = make_plugin_manager(config)
@@ -1178,7 +1199,7 @@ def normalize_query(query: str | list[str]) -> str:
 
 
 def run_search(config: AppConfig, query: str, limit: int) -> list[SearchResult]:
-    vector_store = create_vector_store(config)
+    vector_store = make_vector_store(config)
     try:
         if not vector_store.exists():
             raise ValueError(f"Index not found in {store_label(config)}. Run `code-diver index` first.")
@@ -1193,7 +1214,7 @@ def make_indexing_service(config: AppConfig, progress: bool = True) -> IndexingS
     return IndexingService(
         make_codebase_scanner(config),
         make_plugin_manager(config),
-        create_vector_store(config),
+        make_vector_store(config),
         IndexingOptions(
             embedding_batch_size=config.embedding.batch_size,
             embedding_workers=config.embedding.workers,

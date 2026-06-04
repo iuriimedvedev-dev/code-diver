@@ -68,9 +68,11 @@ uv run code-diver index . --quiet
 ```
 
 The scanner enumerates files through `rg --files --no-require-git`, so it honors
-`.gitignore` for both Git repositories and unpacked source trees. For large repositories use
-the Docker Qdrant service from `docker compose up -d qdrant`; embedded local Qdrant storage
-is only suitable for small smoke indexes and gets slow above tens of thousands of points.
+`.gitignore` for both Git repositories and unpacked source trees. The default config uses
+local Qdrant at `http://localhost:6333`; `init`, `index`, `search`, and `evaluate` check
+that service and start `docker compose up -d qdrant` automatically when Docker is available.
+Embedded local Qdrant storage is only suitable for small smoke indexes and gets slow above
+tens of thousands of points.
 
 `search` is the code-exploration entrypoint: it launches the configured read-only Search agent, which searches, verifies with bounded reads/grep/symbol tools, and explains the code with file/line citations. It prints a preflight summary first: root, config, index store, model, tools, and missing-index guidance when needed.
 
@@ -267,7 +269,9 @@ experiments:
     - graph
 ```
 
-Start the local runtime stack before Qdrant/metrics-backed experiment runs:
+`code-diver` starts the `qdrant` service automatically for the default local vector store.
+Start the full local runtime stack manually only when you also want ClickHouse metrics and
+Grafana dashboards:
 
 ```bash
 docker compose up -d qdrant clickhouse grafana
@@ -275,7 +279,8 @@ curl -fsS http://localhost:6333/collections
 curl -fsS http://localhost:18123/ping
 ```
 
-If another Qdrant is already bound to `6333`, either reuse that running instance or start this stack on alternate host ports:
+If another Qdrant is already bound to `6333`, either reuse that running instance or start
+this stack on alternate host ports and update `storage.qdrant.url` in YAML:
 
 ```bash
 QDRANT_PORT=6335 QDRANT_GRPC_PORT=6336 docker compose up -d qdrant

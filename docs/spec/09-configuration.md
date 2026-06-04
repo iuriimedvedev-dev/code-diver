@@ -79,9 +79,10 @@ server; later commands only check readiness and fail with an actionable message 
 down.
 
 **Default vector store:** `code-diver.yml` points Qdrant at `http://localhost:6333` and uses
-larger upsert batches for normal development runs. Embedded Qdrant `location:` mode remains
-available in custom YAML for tiny smoke tests, but it is intentionally not the default for
-large codebases.
+larger upsert batches for normal development runs. `init`, `index`, `search`, and
+`evaluate` treat that local URL as managed infrastructure and start the `qdrant` Docker
+Compose service when it is not already reachable. Embedded Qdrant `location:` mode and
+remote Qdrant URLs are left unmanaged by design.
 
 **New `ScannerConfig` knob:** `structural_chunks` (`False`) — see
 [02](./02-indexing.md) structural chunking.
