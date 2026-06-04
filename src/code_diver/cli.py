@@ -728,7 +728,10 @@ def cmd_init(args: argparse.Namespace, config: AppConfig) -> int:
         start=bool(args.start),
         yes=bool(args.yes),
     )
-    ensure_storage_runtime(config, progress=True)
+    try:
+        ensure_storage_runtime(config, progress=True)
+    except Exception as exc:
+        render_status_line(f"storage runtime was not started during init: {exc}", "yellow")
     return 0
 
 

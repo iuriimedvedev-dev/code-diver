@@ -194,6 +194,39 @@ def test_cmd_init_installs_pi_runtime_before_runtime_wizard(monkeypatch: pytest.
     assert calls == ["pi-install", "runtime-wizard", "qdrant"]
 
 
+def test_cmd_init_warns_when_storage_runtime_is_unavailable(monkeypatch: pytest.MonkeyPatch, capsys) -> None:
+    class FakePiRuntimeManager:
+        def install(self) -> None:
+            pass
+
+    class FakeRuntimeSetupWizard:
+        def run(self, **kwargs) -> None:
+            pass
+
+    monkeypatch.setattr("code_diver.cli.PiRuntimeManager", FakePiRuntimeManager)
+    monkeypatch.setattr("code_diver.cli.RuntimeSetupWizard", FakeRuntimeSetupWizard)
+
+    def fail_storage(config, progress=True):
+        raise RuntimeError("Docker CLI was not found")
+
+    monkeypatch.setattr("code_diver.cli.ensure_storage_runtime", fail_storage)
+
+    result = cmd_init(
+        Namespace(
+            embedding="gemini",
+            platform="api",
+            runtime=None,
+            skip_install=False,
+            start=False,
+            yes=True,
+        ),
+        AppConfig(),
+    )
+
+    assert result == 0
+    assert "storage runtime was not started during init" in capsys.readouterr().err
+
+
 def test_make_search_tool_handler_reuses_injected_strategy() -> None:
     strategy = FakeStrategy()
     handler = make_search_tool_handler(strategy)

@@ -74,7 +74,13 @@ class QdrantRuntimeManager:
                 f"Expected compose file: {self.compose_file}."
             )
         command = ["docker", "compose", "-f", str(self.compose_file), "up", "-d", self.service_name]
-        result = subprocess.run(command, capture_output=True, text=True, check=False)
+        try:
+            result = subprocess.run(command, capture_output=True, text=True, check=False)
+        except FileNotFoundError as exc:
+            raise RuntimeError(
+                "Local Qdrant is configured but the Docker CLI was not found. "
+                "Install Docker, start Qdrant yourself, or use JSON storage for offline smoke runs."
+            ) from exc
         if result.returncode != 0:
             details = (result.stderr or result.stdout or "").strip()
             raise RuntimeError(
