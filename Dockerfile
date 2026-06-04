@@ -19,7 +19,7 @@ RUN apk add --no-cache \
 
 RUN pip install --no-cache-dir uv
 
-COPY pyproject.toml uv.lock README.md package.json ./
+COPY pyproject.toml uv.lock README.md package.json package-lock.json ./
 COPY src ./src
 COPY configs ./configs
 COPY datasets ./datasets
