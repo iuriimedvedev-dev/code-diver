@@ -57,12 +57,12 @@ Every config field default reads `Defaults.X`; `ConfigLoader` then does
 `file_summary_chunks: true`, and `file_manifest_chunks: true`. The persistent index
 embeds file metadata, not full source bodies.
 
-**Built-in embedding extractor profiles:** `index --embedding qwen3-0.6b`,
-`index --embedding qwen3-4b`, `index --embedding qwen3-0.6b-vllm`,
-`index --embedding qwen3-4b-vllm`, and `index --embedding gemini` override only the
-embedding block for that run. Apple profiles use MLX-converted Qwen checkpoints; CUDA,
-ROCm, and CPU profiles use regular Hugging Face Qwen checkpoints through vLLM. Gemini is
-API/Vertex only.
+**Built-in embedding extractor profiles:** `init --embedding qwen3-0.6b`,
+`init --embedding qwen3-4b`, `init --embedding qwen3-0.6b-vllm`,
+`init --embedding qwen3-4b-vllm`, and `init --embedding gemini` write the default extractor
+into `.code-diver/runtime.yml`. `index` uses that configured extractor automatically. Apple
+profiles use MLX-converted Qwen checkpoints; CUDA, ROCm, and CPU profiles use regular
+Hugging Face Qwen checkpoints through vLLM. Gemini is API/Vertex only.
 
 **Runtime setup:** `code-diver init` writes `.code-diver/runtime.yml`. In a TTY, it opens an
 arrow-key setup wizard for platform, embedding extractor, runtime backend, port, and install

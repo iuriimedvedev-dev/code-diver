@@ -13,7 +13,6 @@ from typing import Any
 
 from rich.console import Console
 from rich.panel import Panel
-from rich.prompt import Prompt
 from rich.table import Table
 
 from .config import AppConfig, ConfigLoader
@@ -164,17 +163,6 @@ def build_parser(include_advanced: bool = False) -> argparse.ArgumentParser:
 
     index = subparsers.add_parser(CommandName.INDEX.value, help="Index repository code into the configured artifact.")
     index.add_argument("index_root", nargs="?", type=Path, default=None)
-    index.add_argument(
-        "--embedding",
-        choices=EmbeddingProfileRegistry().keys(),
-        default=None,
-        help="Use a built-in embedding extractor profile for this indexing run.",
-    )
-    index.add_argument(
-        "--no-embedding-prompt",
-        action="store_true",
-        help="Do not ask for an embedding extractor in interactive terminals.",
-    )
     index.add_argument("--no-progress", action="store_true", help="Disable indexing progress bars.")
     index.add_argument("-q", "--quiet", action="store_true", help="Only print the final indexing summary.")
     index.set_defaults(func=cmd_index)
@@ -425,7 +413,6 @@ def apply_builtin_pure_h3(config: AppConfig) -> AppConfig:
 
 def cmd_index(args: argparse.Namespace, config: AppConfig) -> int:
     progress = not bool(getattr(args, "no_progress", False) or getattr(args, "quiet", False))
-    config = maybe_prompt_embedding_profile(args, config, progress)
     if progress:
         render_status_panel(
             "Index",
@@ -497,32 +484,6 @@ def cmd_init(args: argparse.Namespace, config: AppConfig) -> int:
         yes=bool(args.yes),
     )
     return 0
-
-
-def maybe_prompt_embedding_profile(args: argparse.Namespace, config: AppConfig, progress: bool) -> AppConfig:
-    if getattr(args, "embedding", None) or getattr(args, "no_embedding_prompt", False):
-        return config
-    if not progress or not sys.stdin.isatty() or not sys.stderr.isatty():
-        return config
-    registry = EmbeddingProfileRegistry()
-    choices = {str(index): profile for index, profile in enumerate(registry.profiles(), start=1)}
-    table = Table(title="Embedding Extractor", show_header=True, header_style="bold magenta")
-    table.add_column("#", justify="right", style="cyan", no_wrap=True)
-    table.add_column("Profile", style="bold")
-    table.add_column("Notes")
-    for key, profile in choices.items():
-        table.add_row(key, profile.label, profile.description)
-    table.add_row("c", f"Configured: {config.embedding.provider}/{config.embedding.model}", "use YAML as-is")
-    status_console().print(table)
-    selected = Prompt.ask(
-        "Select embedding extractor",
-        choices=[*choices.keys(), "c"],
-        default="c",
-        console=status_console(),
-    )
-    if selected == "c":
-        return config
-    return apply_embedding_profile(config, choices[selected].key)
 
 
 def cmd_index_selected(args: argparse.Namespace, config: AppConfig) -> int:

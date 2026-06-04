@@ -198,13 +198,10 @@ only check that the endpoint is reachable.
 uv run code-diver init --embedding qwen3-0.6b --runtime external --skip-install --yes
 ```
 
-The `index` command can still override the configured extractor explicitly:
+After `init`, `index` uses the configured extractor automatically:
 
 ```bash
-uv run code-diver index ../my-repo --embedding qwen3-0.6b
-uv run code-diver index ../my-repo --embedding qwen3-4b
-uv run code-diver index ../my-repo --embedding gemini
-uv run code-diver index ../my-repo --no-embedding-prompt
+uv run code-diver index ../my-repo
 ```
 
 Available built-in extractor profiles:
@@ -217,7 +214,10 @@ Available built-in extractor profiles:
 | `qwen3-4b-vllm` | `Qwen/Qwen3-Embedding-4B` via vLLM | Stronger CUDA/ROCm/CPU profile. |
 | `gemini` | `gemini-embedding-2` API | Remote API/Vertex path; no local Gemini embedding model. |
 
-Local embedding configs can set `embedding.workers` for parallel embedding requests and `embedding.max_input_chars` to fit smaller local model context windows. For small local embedding contexts, use `batch_size: 1` and increase `workers` instead of sending large multi-input batches.
+Local embedding configs can still set `embedding.workers` for parallel embedding requests
+and `embedding.max_input_chars` to fit smaller local model context windows. For small local
+embedding contexts, use `batch_size: 1` and increase `workers` instead of sending large
+multi-input batches.
 
 ```bash
 uv run code-diver --config configs/protogen-local.yml index
