@@ -217,6 +217,7 @@ class ConfigLoader:
             model=mapping.get("model", Defaults.PI_MODEL),
             fallback_models=self._string_list(mapping.get("fallback_models")),
             timeout_seconds=int(mapping.get("timeout_seconds", Defaults.PI_TIMEOUT_SECONDS)),
+            session_dir=Path(mapping.get("session_dir", Defaults.PI_SESSION_DIR)),
             tools=self._string_list(mapping.get("tools")),
             toolsets={
                 str(name): self._string_list(tools)

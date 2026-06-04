@@ -40,6 +40,7 @@ class Defaults:
     PI_PROVIDER = "google"
     PI_MODEL = "google/gemini-3.5-flash"
     PI_TIMEOUT_SECONDS = 180
+    PI_SESSION_DIR = Path(".code-diver/pi-sessions")
 
     GENERATION_PROVIDER = "gemini"
     GENERATION_MODEL = "gemini-3.5-flash"

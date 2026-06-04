@@ -395,13 +395,24 @@ pi:
   model: google/gemini-3.1-flash-lite
   fallback_models:
     - google/gemini-2.5-flash
+  session_dir: .code-diver/pi-sessions
   env:
     PI_CACHE_RETENTION: long
   tools:
     - code_diver_search
 ```
 
-The tool allowlist should stay read-only. Do not add `bash` or editing tools for this assistant; use the `code_diver_*` tools for repository inspection. Pi sessions, compaction, cache accounting, and interactive rendering are handled by Pi; Code Diver supplies the read-only tools and the code-search prompt.
+The tool allowlist should stay read-only. Do not add `bash` or editing tools for this assistant; use the `code_diver_*` tools for repository inspection. Pi sessions, compaction, cache accounting, and interactive rendering are handled by Pi; Code Diver supplies the read-only tools, the code-search prompt, and a project-local session directory.
+
+Useful chat session commands:
+
+```bash
+uv run code-diver chat --name "Team builder investigation"
+uv run code-diver chat continue
+uv run code-diver chat resume
+uv run code-diver chat resume <partial-session-id>
+uv run code-diver chat --session <path-or-id>
+```
 
 `search` renders colored, syntax-highlighted snippets and uses a pager for larger result sets. Editor opening is configured in `code-diver.yml`:
 

@@ -32,7 +32,7 @@ from .graph import CodeGraphBuilder, CodeGraphStore
 from .inspection import GrepService, ReadExcerptService, RgService, SymbolsService, TreeService
 from .metrics import ClickHouseClient, ClickHouseDockerClient, ClickHouseMetricsRepository, ExperimentMetricsMapper
 from .orchestration import OrchestratedCodebaseScanner
-from .pi import PiRunner
+from .pi import PiRunner, PiSessionOptions
 from .plugins import PluginManager
 from .providers import create_embedding_provider
 from .runtime import EmbeddingRuntimeManager, QdrantRuntimeManager, RuntimeConfigStore, RuntimeSetupWizard
@@ -297,8 +297,14 @@ def add_advanced_parsers(subparsers: argparse._SubParsersAction[argparse.Argumen
     open_result.add_argument(OptionName.RANK.value, type=int, default=1)
     open_result.set_defaults(func=cmd_open)
 
-    chat = subparsers.add_parser(CommandName.CHAT.value, help="Start the interactive Search agent.")
-    chat.add_argument("prompt", nargs="?", default=None)
+    chat = subparsers.add_parser(CommandName.CHAT.value, help="Start or resume the interactive Search agent.")
+    chat.add_argument("prompt", nargs="*", default=[])
+    chat.add_argument("--resume", "-r", action="store_true", help="Select a saved Code Diver chat session to resume.")
+    chat.add_argument("--continue", "-c", dest="continue_session", action="store_true", help="Continue the last session.")
+    chat.add_argument(OptionName.SESSION.value, default=None, help="Resume a specific Pi session path or partial id.")
+    chat.add_argument(OptionName.SESSION_ID.value, default=None, help="Use an exact project session id.")
+    chat.add_argument(OptionName.SESSION_DIR.value, type=Path, default=None, help="Override Code Diver chat session storage.")
+    chat.add_argument(OptionName.NAME.value, default=None, help="Set the session display name.")
     chat.add_argument(OptionName.TOOLSET.value, default=None)
     chat.add_argument(OptionName.HYPOTHESIS.value, default=None)
     chat.set_defaults(func=cmd_chat)
@@ -990,7 +996,41 @@ def cmd_ask(args: argparse.Namespace, config: AppConfig) -> int:
 
 
 def cmd_chat(args: argparse.Namespace, config: AppConfig) -> int:
-    return PiRunner().run_interactive(config, args.config, args.prompt, toolset=args.toolset, hypothesis=args.hypothesis)
+    prompt, session = chat_prompt_and_session(args, config)
+    return PiRunner().run_interactive(
+        config,
+        args.config,
+        prompt,
+        toolset=args.toolset,
+        hypothesis=args.hypothesis,
+        session=session,
+    )
+
+
+def chat_prompt_and_session(args: argparse.Namespace, config: AppConfig) -> tuple[str | None, PiSessionOptions]:
+    words = list(getattr(args, "prompt", []) or [])
+    resume = bool(getattr(args, "resume", False))
+    continue_session = bool(getattr(args, "continue_session", False))
+    session = getattr(args, "session", None)
+    session_id = getattr(args, "session_id", None)
+
+    if words and words[0] in {"resume", "continue"}:
+        mode = words.pop(0)
+        resume = resume or mode == "resume"
+        continue_session = continue_session or mode == "continue"
+        if words and not session and not session_id:
+            session = words.pop(0)
+
+    prompt = normalize_query(words) if words else None
+    session_dir = getattr(args, "session_dir", None) or config.pi.session_dir
+    return prompt, PiSessionOptions(
+        session_dir=session_dir,
+        resume=resume,
+        continue_session=continue_session,
+        session=session,
+        session_id=session_id,
+        name=getattr(args, "name", None),
+    )
 
 
 def cmd_evaluate(args: argparse.Namespace, config: AppConfig) -> int:

@@ -42,6 +42,7 @@ pi:
   fallback_models:
     - google/gemini-2.5-flash
   timeout_seconds: 180
+  session_dir: .code-diver/pi-sessions
   tools:
     - code_diver_search
     - code_diver_inspect

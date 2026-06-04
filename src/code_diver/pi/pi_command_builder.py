@@ -4,6 +4,7 @@ from pathlib import Path
 
 from ..config import AppConfig
 from ..settings import Defaults, EnvironmentVariable, OptionName, VectorStoreProviderId
+from .pi_session_options import PiSessionOptions
 
 
 class PiCommandBuilder:
@@ -15,6 +16,7 @@ class PiCommandBuilder:
         toolset: str | None = None,
         hypothesis: str | None = None,
         model: str | None = None,
+        session: PiSessionOptions | None = None,
     ) -> list[str]:
         pi_config = config.pi
         command = [pi_config.binary, *pi_config.launcher_args]
@@ -37,6 +39,7 @@ class PiCommandBuilder:
         if tools:
             command.extend([OptionName.TOOLS.value, ",".join(tools)])
 
+        command.extend(self._session_args(config, session))
         command.extend(pi_config.extra_args)
         if prompt:
             command.append(prompt)
@@ -83,3 +86,27 @@ class PiCommandBuilder:
         if toolset not in toolsets:
             raise ValueError(f"Unknown Search agent toolset: {toolset}")
         return toolsets[toolset]
+
+    def _session_args(self, config: AppConfig, session: PiSessionOptions | None) -> list[str]:
+        if session is None:
+            return []
+        args: list[str] = []
+        session_dir = session.session_dir or config.pi.session_dir
+        if session_dir is not None:
+            args.extend([OptionName.SESSION_DIR.value, str(self._project_path(config, session_dir))])
+        if session.resume:
+            args.append("--resume")
+        if session.continue_session:
+            args.append("--continue")
+        if session.session:
+            args.extend([OptionName.SESSION.value, session.session])
+        if session.session_id:
+            args.extend([OptionName.SESSION_ID.value, session.session_id])
+        if session.name:
+            args.extend([OptionName.NAME.value, session.name])
+        return args
+
+    def _project_path(self, config: AppConfig, path: Path) -> Path:
+        if path.is_absolute():
+            return path
+        return config.root / path

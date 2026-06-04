@@ -6,6 +6,7 @@ from argparse import Namespace
 import pytest
 
 from code_diver.cli import (
+    chat_prompt_and_session,
     cmd_monitor,
     cmd_search,
     config_for_indexing_hypothesis,
@@ -315,3 +316,44 @@ def test_cmd_search_falls_back_to_deterministic_results_when_agent_binary_is_mis
     assert exit_code == 0
     assert rendered[0][0] == "where auth"
     assert rendered[0][1][0].item.path == "src/auth.py"
+
+
+def test_chat_prompt_and_session_supports_resume_sugar(tmp_path: Path) -> None:
+    prompt, session = chat_prompt_and_session(
+        Namespace(
+            prompt=["resume", "abc123", "continue", "the", "search"],
+            resume=False,
+            continue_session=False,
+            session=None,
+            session_id=None,
+            session_dir=None,
+            name=None,
+        ),
+        AppConfig(root=tmp_path, pi=PiConfig(session_dir=Path(".code-diver/chats"))),
+    )
+
+    assert prompt == "continue the search"
+    assert session.resume is True
+    assert session.session == "abc123"
+    assert session.session_dir == Path(".code-diver/chats")
+
+
+def test_chat_prompt_and_session_supports_continue_flag(tmp_path: Path) -> None:
+    prompt, session = chat_prompt_and_session(
+        Namespace(
+            prompt=["what", "next"],
+            resume=False,
+            continue_session=True,
+            session=None,
+            session_id="stable-id",
+            session_dir=tmp_path / "sessions",
+            name="Investigation",
+        ),
+        AppConfig(root=tmp_path),
+    )
+
+    assert prompt == "what next"
+    assert session.continue_session is True
+    assert session.session_id == "stable-id"
+    assert session.session_dir == tmp_path / "sessions"
+    assert session.name == "Investigation"

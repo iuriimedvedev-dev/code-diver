@@ -15,6 +15,7 @@ from rich.table import Table
 
 from ..config import AppConfig
 from .pi_command_builder import PiCommandBuilder
+from .pi_session_options import PiSessionOptions
 
 
 class PiRunner:
@@ -28,6 +29,7 @@ class PiRunner:
         prompt: str | None = None,
         toolset: str | None = None,
         hypothesis: str | None = None,
+        session: PiSessionOptions | None = None,
     ) -> int:
         return self._run_with_fallbacks(
             config,
@@ -39,6 +41,7 @@ class PiRunner:
                 toolset=toolset,
                 hypothesis=hypothesis,
                 model=model,
+                session=session,
             ),
             toolset,
             hypothesis,
@@ -51,6 +54,7 @@ class PiRunner:
         prompt: str,
         toolset: str | None = None,
         hypothesis: str | None = None,
+        session: PiSessionOptions | None = None,
     ) -> int:
         return self._run_with_fallbacks(
             config,
@@ -62,6 +66,7 @@ class PiRunner:
                 toolset=toolset,
                 hypothesis=hypothesis,
                 model=model,
+                session=session,
             ),
             toolset,
             hypothesis,
@@ -74,6 +79,7 @@ class PiRunner:
         prompt: str,
         toolset: str | None = None,
         hypothesis: str | None = None,
+        session: PiSessionOptions | None = None,
     ) -> tuple[int, str]:
         return self._run_with_fallbacks_capture(
             config,
@@ -85,6 +91,7 @@ class PiRunner:
                 toolset=toolset,
                 hypothesis=hypothesis,
                 model=model,
+                session=session,
             ),
             toolset,
             hypothesis,
@@ -98,6 +105,7 @@ class PiRunner:
         log_path: Path,
         toolset: str | None = None,
         hypothesis: str | None = None,
+        session: PiSessionOptions | None = None,
     ) -> int:
         return self._run_with_fallbacks_logged(
             config,
@@ -108,6 +116,7 @@ class PiRunner:
                 toolset,
                 hypothesis,
                 model,
+                session,
             ),
             toolset,
             hypothesis,
@@ -298,6 +307,7 @@ class PiRunner:
         toolset: str | None,
         hypothesis: str | None,
         model: str | None,
+        session: PiSessionOptions | None = None,
     ) -> list[str]:
         command = self.command_builder.build(
             config,
@@ -306,6 +316,7 @@ class PiRunner:
             toolset=toolset,
             hypothesis=hypothesis,
             model=model,
+            session=session,
         )
         command.extend(["--mode", "json", prompt])
         return command
