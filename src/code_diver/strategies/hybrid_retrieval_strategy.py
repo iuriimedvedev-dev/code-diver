@@ -19,6 +19,7 @@ from .hybrid_lexical_index import HybridLexicalIndex
 from .hybrid_query import HybridQuery
 from .hybrid_query_analyzer import HybridQueryAnalyzer
 from .hybrid_query_router import HybridQueryRouter
+from .hybrid_rank_context import HybridRankContext
 from .retrieval_strategy import RetrievalStrategy
 
 LEXICAL_SCORING_BM25 = "bm25"
@@ -55,11 +56,31 @@ class HybridRetrievalStrategy(RetrievalStrategy):
         self._cache_lock = RLock()
 
     def search(self, query: str, limit: int) -> list[SearchResult]:
+        context = self.collect_rank_context(query, limit)
+        if context is None:
+            vector_results = self.base_strategy.search(query, max(limit, self.config.candidate_limit))
+            return vector_results[:limit]
+
+        results = self.rank_context(context, limit)
+        self._trace_rank_stages(
+            query,
+            context.route_name,
+            context.scores,
+            context.vector_results,
+            results,
+            context.config,
+            effective_graph_depth=context.effective_graph_depth,
+            effective_graph_neighbor_limit=context.effective_graph_neighbor_limit,
+            graph_candidate_count=context.graph_candidate_count,
+        )
+        return results
+
+    def collect_rank_context(self, query: str, limit: int) -> HybridRankContext | None:
         vector_limit = max(limit, self.config.candidate_limit)
         vector_results = self.base_strategy.search(query, vector_limit)
         graph = self._load_graph()
         if graph is None:
-            return vector_results[:limit]
+            return None
 
         scores = self._seed_vector_scores(vector_results)
         query_profile = self.analyzer.analyze(query)
@@ -96,23 +117,23 @@ class HybridRetrievalStrategy(RetrievalStrategy):
             existing.graph_score = max(existing.graph_score, graph_score)
 
         self._apply_file_vote_scores(scores, active_config)
-        if active_config.fusion == FUSION_RRF:
-            results = self._rrf_results(scores, vector_results, limit, active_config)
-        else:
-            results = self._weighted_results(scores, limit, active_config)
-        results = self._preserve_vector_top(results, vector_results, limit, active_config)
-        self._trace_rank_stages(
-            query,
-            route_name,
-            scores,
-            vector_results,
-            results,
-            active_config,
+        return HybridRankContext(
+            query=query,
+            route_name=route_name,
+            scores=scores,
+            vector_results=vector_results,
+            config=active_config,
             effective_graph_depth=graph_profile.depth,
             effective_graph_neighbor_limit=graph_profile.neighbor_limit,
             graph_candidate_count=len(graph_scores),
         )
-        return results
+
+    def rank_context(self, context: HybridRankContext, limit: int) -> list[SearchResult]:
+        if context.config.fusion == FUSION_RRF:
+            results = self._rrf_results(context.scores, context.vector_results, limit, context.config)
+        else:
+            results = self._weighted_results(context.scores, limit, context.config)
+        return self._preserve_vector_top(results, context.vector_results, limit, context.config)
 
     def _seed_vector_scores(self, vector_results: list[SearchResult]) -> dict[str, HybridCandidateScore]:
         normalized = self._normalize({result.item.id: result.score for result in vector_results})
