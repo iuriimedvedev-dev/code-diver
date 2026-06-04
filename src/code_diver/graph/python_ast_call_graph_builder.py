@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import warnings
 from pathlib import Path
 
 from ..domain import CodeItem
@@ -31,7 +32,9 @@ class PythonAstCallGraphBuilder:
 
     def _parse(self, path: Path) -> ast.AST | None:
         try:
-            return ast.parse(path.read_text(encoding="utf-8", errors="replace"))
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", SyntaxWarning)
+                return ast.parse(path.read_text(encoding="utf-8", errors="replace"))
         except (OSError, SyntaxError):
             return None
 

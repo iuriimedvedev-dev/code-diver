@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 import re
+import warnings
 from pathlib import Path
 
 from ..domain import CodeSymbol
@@ -42,7 +43,9 @@ class CodeSymbolExtractor:
 
     def _python_symbols(self, text: str) -> list[CodeSymbol]:
         try:
-            tree = ast.parse(text)
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", SyntaxWarning)
+                tree = ast.parse(text)
         except SyntaxError:
             return []
         parent_by_id = {id(child): parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)}

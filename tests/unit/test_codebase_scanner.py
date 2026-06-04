@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import warnings
 from pathlib import Path
 
 import pytest
@@ -118,6 +119,24 @@ def build_app():
         "app.py::build_app",
     ]
     assert [(item.start_line, item.end_line) for item in structural] == [(1, 3), (4, 6), (9, 10)]
+
+
+def test_scanner_suppresses_python_invalid_escape_warnings(tmp_path: Path) -> None:
+    (tmp_path / "regexes.py").write_text(
+        'PATTERN = "\\("\n\n'
+        "def parse_regex():\n"
+        "    return PATTERN\n",
+        encoding="utf-8",
+    )
+
+    scanner = CodebaseScanner(include=["*.py"], structural_chunks=True, symbol_chunks=True)
+
+    with warnings.catch_warnings(record=True) as captured:
+        warnings.simplefilter("always")
+        items = scanner.scan(tmp_path)
+
+    assert items
+    assert not [warning for warning in captured if issubclass(warning.category, SyntaxWarning)]
 
 
 def test_scanner_can_add_file_summary_items(tmp_path: Path) -> None:

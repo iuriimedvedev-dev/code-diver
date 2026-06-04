@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 import re
+import warnings
 from pathlib import Path
 
 from ..domain import CodeItem, CodeItemIndexKind, CodeItemIndexKindResolver
@@ -103,7 +104,9 @@ class CodeGraphBuilder:
 
     def _python_imports(self, rel_path: str, text: str) -> set[str]:
         try:
-            tree = ast.parse(text)
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", SyntaxWarning)
+                tree = ast.parse(text)
         except SyntaxError:
             return set()
         imports: set[str] = set()

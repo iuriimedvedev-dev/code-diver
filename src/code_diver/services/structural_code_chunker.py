@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 import hashlib
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -43,7 +44,9 @@ class StructuralCodeChunker:
 
     def _python_spans(self, text: str, line_count: int) -> list[StructuralSpan]:
         try:
-            tree = ast.parse(text)
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", SyntaxWarning)
+                tree = ast.parse(text)
         except SyntaxError:
             return []
         spans: list[StructuralSpan] = []

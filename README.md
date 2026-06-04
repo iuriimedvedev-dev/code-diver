@@ -9,7 +9,19 @@ uv sync
 export GEMINI_API_KEY="..."
 ```
 
-Advanced research commands, visible with `--help-all`, can still integrate optional orchestration backends. Secrets can live in `.env`; the CLI loads it before creating providers. `.env` is ignored by git.
+The default `code-diver.yml` uses Gemini for embeddings and the Search agent model, so you need one of:
+
+```bash
+export GEMINI_API_KEY="..."
+```
+
+or Google ADC credentials:
+
+```bash
+gcloud auth application-default login
+```
+
+Secrets can live in `.env`; the CLI loads it before creating providers. `.env` is ignored by git. Advanced research commands, visible with `--help-all`, can still integrate optional orchestration backends.
 
 The no-config path is intentionally local-first:
 
@@ -17,7 +29,7 @@ The no-config path is intentionally local-first:
 - local embedding default for quality runs: Qwen3-Embedding-0.6B through an OpenAI-compatible local server;
 - optional quality rerank: Gemini 3.1 Flash Lite or a local reranker, configured in YAML.
 
-Configuration lives in `code-diver.yml`. For local, reproducible experiments without an API key, set:
+Configuration lives in `code-diver.yml`. For local, reproducible experiments without Gemini credentials, set:
 
 ```yaml
 embedding:
