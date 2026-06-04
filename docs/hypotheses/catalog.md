@@ -278,20 +278,40 @@ Status meanings:
 | Field | Value |
 | --- | --- |
 | ID | `H6.2` |
-| Status | proposed / smoke in progress |
-| Motivation | Test whether a tiny learned scorer over hybrid features can learn non-linear interactions that fixed weighted sums miss. |
-| Assumptions | Features such as vector score, lexical score, path score, symbol coverage, graph score, file vote, and item-kind weight may interact non-linearly; a 1-3 layer MLP might improve head ranking. |
+| Status | active research, rejected as current default |
+| Motivation | Test whether a tiny learned scorer over hybrid features can learn non-linear interactions or per-candidate dynamic weights that fixed weighted sums miss. |
+| Assumptions | Features such as vector score, lexical score, path score, symbol coverage, graph score, file vote, and item-kind weight may interact non-linearly; a 1-3 layer MLP or dynamic weight-vector predictor might improve head ranking. |
 | Index composition | Same H5 file-metadata index and same candidate feature cache as H6.1. |
-| Search/ranking flow | H3 candidate generation -> feature cache -> candidate-level binary labels from expected files -> NumPy MLP scorer -> file-deduped ranking -> validation metrics. |
+| Search/ranking flow | H3 candidate generation -> feature cache -> candidate-level binary labels from expected files -> NumPy MLP scorer. `scalar` mode predicts one candidate score; `weights` mode predicts a vector over hybrid signals and scores by weighted sum. |
 | Model/provider matrix | No embedding/model changes; local NumPy MLP only. This is not a generative LLM and adds no API cost. |
 | Dataset | Smoke uses the 80/20 split and cached H6 features; intended full run is 700/300 and then 10k if available. |
-| Metrics | Pending. Initial implementation exists in `scripts/calibrate_hybrid_weights.py` with `--mlp-depth 0..3`, `--mlp-hidden-size`, `--mlp-epochs`, and `--feature-cache`. |
+| Metrics | Smoke manual/grid validation file Hit@1 `0.600`, Hit@5 `0.850`, Hit@10 `0.850`, MRR `0.708`; scalar MLP Hit@1/3/5/10 `0.550`, MRR `0.550`; dynamic-weight MLP Hit@1 `0.600`, Hit@3 `0.750`, Hit@5 `0.800`, Hit@10 `0.850`, MRR `0.684`. |
 | Cost/latency/index-size | Training is local CPU over cached candidate features. Feature collection cost is shared with H6.1; subsequent MLP runs can use `--reuse-feature-cache`. |
-| Result summary | Not yet accepted. This is deliberately speculative and should be rejected unless it beats H6.1 on held-out file Hit@1/MRR without hurting Hit@10. |
-| Decision | Proposed. Keep out of defaults until measured on held-out validation and a locked final split. |
+| Result summary | Implemented and smoke-tested. Both naive variants fail to beat the fixed/grid weights today. Dynamic weights are closer than scalar scoring, but still worse in top-ordering. |
+| Decision | Keep out of defaults. Continue only with better loss design, route-specific training, or larger validation if H6.1 plateaus. |
 | Failure modes | Candidate-level labels are imbalanced; MLP can overfit train candidates; binary candidate labels may not optimize listwise ranking; no feature cache means collection dominates runtime. |
-| Follow-ups | Compare depth 0, 1, 2, 3; add route-specific training; add pairwise/listwise loss if binary classifier does not improve ranking. |
+| Follow-ups | Compare depth 0, 1, 2, 3; add route-specific training; add pairwise/listwise loss; test whether dynamic weights are useful only on low-confidence H3 cases. |
 | Links | [H5 hybrid weight calibration](../h5-hybrid-weight-calibration-2026-06-04.md), `scripts/calibrate_hybrid_weights.py` |
+
+## LOCAL-MODEL-AXIS - Three-Axis Local Model Search
+
+| Field | Value |
+| --- | --- |
+| ID | `LOCAL-MODEL-AXIS` |
+| Status | active |
+| Motivation | Separate three different model choices that affect different parts of H5: embedding recall, reranking order, and agentic tool planning. |
+| Assumptions | Changing several models at once hides causality. Each run should change exactly one axis against a fixed H5 baseline. |
+| Index composition | Baseline index shape is H5 file-first metadata: file summaries + file manifests + bounded graph metadata, no code-body vectors by default. |
+| Search/ranking flow | Baseline: H3/H5 candidate generation -> bounded reranker. Agentic variants wrap the same H3/H5 tool as a callable search primitive, then optionally inspect/rerank. |
+| Model/provider matrix | Axis 1 embeddings: Qwen3-Embedding-0.6B, Qwen3-Embedding-4B, EmbeddingGemma-300M, API controls if needed. Axis 2 rerankers: Qwen3-Reranker 0.6B/4B cross-encoder, Qwen3.5 4B listwise, Gemma E2B/E4B listwise, Gemini Lite API control. Axis 3 agents: Qwen3.5 4B, Gemma E2B/E4B, Gemini Lite API control. |
+| Dataset | Start with CodeSearchNet/MTEB Python 1,000-case slice, then promote winners to larger-negative/public-compatible and IntelliJ answer-set runs. |
+| Metrics | Required: Hit@1/3/5/10, Recall@3/5/10, Precision@R/top-k, MRR@10, nDCG@10, latency p50/p95/mean, tokens, tool calls, index size, cache warmup time, and failure/degraded count. |
+| Cost/latency/index-size | Embedding-axis runs rebuild indexes; reranker-axis runs reuse the same index; agent-axis runs reuse the same index and candidate tool but add model/tool-call cost. |
+| Result summary | This is the experimental plan for local models. Existing evidence: Qwen3-Embedding-0.6B is the practical baseline; EmbeddingGemma works through Sentence Transformers but not current vLLM-Metal serving; local generative rankers have trailed Gemini Lite so far; true cross-encoder rerankers remain the highest-priority local reranker test. |
+| Decision | Active. Every new local-model claim must name which axis changed and which two axes were fixed. |
+| Failure modes | Mixed-axis runs cannot identify causality; local serving failures can masquerade as model quality; agentic loops can over-search and spend latency without improving recall. |
+| Follow-ups | Add run manifests with axis labels; add report grouping by changed axis; run Qwen3 4B embedding once local serving is stable; test Qwen3-Reranker through a real rerank endpoint. |
+| Links | [H5 hybrid weight calibration](../h5-hybrid-weight-calibration-2026-06-04.md), [code embedding model research](../code-embedding-model-research-2026-06-04.md), `scripts/benchmark_embedding_models.py`, `scripts/benchmark_generation_models.py` |
 
 ## EMBED-MATRIX - Local And API Embedding Candidates
 

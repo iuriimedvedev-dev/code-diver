@@ -40,6 +40,7 @@ FEATURE_KEYS = (
     "file_vote",
     "kind_weight",
 )
+SCORING_FEATURE_KEYS = FEATURE_KEYS[:7]
 
 
 def main() -> int:
@@ -55,6 +56,7 @@ def main() -> int:
     parser.add_argument("--reuse-feature-cache", action="store_true")
     parser.add_argument("--grid-step", choices=["coarse", "medium"], default="coarse")
     parser.add_argument("--mlp-depth", type=int, choices=[0, 1, 2, 3], default=0)
+    parser.add_argument("--mlp-output", choices=["scalar", "weights"], default="scalar")
     parser.add_argument("--mlp-hidden-size", type=int, default=16)
     parser.add_argument("--mlp-epochs", type=int, default=160)
     parser.add_argument("--mlp-learning-rate", type=float, default=0.02)
@@ -128,6 +130,7 @@ def main() -> int:
             validation_features,
             limit=args.limit,
             depth=args.mlp_depth,
+            output_mode=args.mlp_output,
             hidden_size=args.mlp_hidden_size,
             epochs=args.mlp_epochs,
             learning_rate=args.mlp_learning_rate,
@@ -310,6 +313,7 @@ def _train_and_score_mlp(
     *,
     limit: int,
     depth: int,
+    output_mode: str,
     hidden_size: int,
     epochs: int,
     learning_rate: float,
@@ -323,25 +327,27 @@ def _train_and_score_mlp(
             "reason": "not enough positive/negative candidates",
             "duration_ms": (perf_counter() - started) * 1000,
         }
-    model = _init_mlp(train_x.shape[1], depth, hidden_size, seed)
+    output_size = len(SCORING_FEATURE_KEYS) if output_mode == "weights" else 1
+    model = _init_mlp(train_x.shape[1], depth, hidden_size, output_size, seed)
     pos_count = float(train_y.sum())
     neg_count = float(len(train_y) - pos_count)
     pos_weight = min(max(neg_count / max(pos_count, 1.0), 1.0), 30.0)
     for epoch in range(epochs):
-        loss = _mlp_step(model, train_x, train_y, learning_rate, pos_weight)
+        loss = _mlp_step(model, train_x, train_y, learning_rate, pos_weight, output_mode)
         if (epoch + 1) % 50 == 0:
             print(f"mlp epoch: {epoch + 1}/{epochs} loss={loss:.5f}", flush=True)
     return {
         "enabled": True,
         "depth": depth,
+        "output_mode": output_mode,
         "hidden_size": hidden_size,
         "epochs": epochs,
         "learning_rate": learning_rate,
         "positive_candidates": int(pos_count),
         "negative_candidates": int(neg_count),
         "positive_weight": pos_weight,
-        "train": _score_mlp_profile(train_rows, model, limit)["metrics"],
-        "validation": _score_mlp_profile(validation_rows, model, limit)["metrics"],
+        "train": _score_mlp_profile(train_rows, model, limit, output_mode)["metrics"],
+        "validation": _score_mlp_profile(validation_rows, model, limit, output_mode)["metrics"],
         "duration_ms": (perf_counter() - started) * 1000,
     }
 
@@ -357,9 +363,15 @@ def _candidate_matrix(rows: list[dict[str, Any]]) -> tuple[np.ndarray, np.ndarra
     return np.asarray(x_rows, dtype=np.float64), np.asarray(y_rows, dtype=np.float64).reshape(-1, 1)
 
 
-def _init_mlp(input_size: int, depth: int, hidden_size: int, seed: int) -> list[dict[str, np.ndarray]]:
+def _init_mlp(
+    input_size: int,
+    depth: int,
+    hidden_size: int,
+    output_size: int,
+    seed: int,
+) -> list[dict[str, np.ndarray]]:
     rng = np.random.default_rng(seed)
-    widths = [input_size, *([hidden_size] * depth), 1]
+    widths = [input_size, *([hidden_size] * depth), output_size]
     model = []
     for left, right in zip(widths, widths[1:]):
         scale = np.sqrt(2.0 / max(left, 1))
@@ -378,6 +390,7 @@ def _mlp_step(
     y: np.ndarray,
     learning_rate: float,
     pos_weight: float,
+    output_mode: str,
 ) -> float:
     activations = [x]
     pre_activations = []
@@ -385,16 +398,25 @@ def _mlp_step(
     for index, layer in enumerate(model):
         z = current @ layer["w"] + layer["b"]
         pre_activations.append(z)
-        if index == len(model) - 1:
-            current = _sigmoid(z)
-        else:
-            current = np.maximum(z, 0.0)
+        current = z if index == len(model) - 1 else np.maximum(z, 0.0)
         activations.append(current)
 
-    predictions = np.clip(activations[-1], 1e-7, 1 - 1e-7)
+    logits = activations[-1]
+    if output_mode == "weights":
+        dynamic_weights = _softmax(logits)
+        score = np.sum(dynamic_weights * x[:, : len(SCORING_FEATURE_KEYS)], axis=1, keepdims=True) * x[:, 7:8]
+    else:
+        score = logits
+    predictions = np.clip(_sigmoid(score), 1e-7, 1 - 1e-7)
     weights = np.where(y > 0.5, pos_weight, 1.0)
     loss = -float(np.mean(weights * (y * np.log(predictions) + (1.0 - y) * np.log(1.0 - predictions))))
-    grad = weights * (predictions - y) / max(len(y), 1)
+    grad_score = weights * (predictions - y) / max(len(y), 1)
+    if output_mode == "weights":
+        signal_grad = grad_score * x[:, : len(SCORING_FEATURE_KEYS)] * x[:, 7:8]
+        weighted_grad_sum = np.sum(signal_grad * dynamic_weights, axis=1, keepdims=True)
+        grad = dynamic_weights * (signal_grad - weighted_grad_sum)
+    else:
+        grad = grad_score
 
     for index in reversed(range(len(model))):
         if index < len(model) - 1:
@@ -416,16 +438,23 @@ def _sigmoid(values: np.ndarray) -> np.ndarray:
     return 1.0 / (1.0 + np.exp(-np.clip(values, -40.0, 40.0)))
 
 
+def _softmax(values: np.ndarray) -> np.ndarray:
+    shifted = values - np.max(values, axis=1, keepdims=True)
+    exp = np.exp(np.clip(shifted, -40.0, 40.0))
+    return exp / np.maximum(exp.sum(axis=1, keepdims=True), 1e-12)
+
+
 def _score_mlp_profile(
     rows: list[dict[str, Any]],
     model: list[dict[str, np.ndarray]],
     limit: int,
+    output_mode: str,
 ) -> dict[str, Any]:
     per_case = []
     for row in rows:
         files = row["fallback_files"]
         if row["candidates"]:
-            files = _rank_mlp_feature_row(row, model, limit)
+            files = _rank_mlp_feature_row(row, model, limit, output_mode)
         per_case.append(_file_metrics(files, row["case"].expected, limit))
     return {
         "metrics": {
@@ -441,9 +470,14 @@ def _score_mlp_profile(
     }
 
 
-def _rank_mlp_feature_row(row: dict[str, Any], model: list[dict[str, np.ndarray]], limit: int) -> list[str]:
+def _rank_mlp_feature_row(
+    row: dict[str, Any],
+    model: list[dict[str, np.ndarray]],
+    limit: int,
+    output_mode: str,
+) -> list[str]:
     matrix = np.asarray([[float(candidate[key]) for key in FEATURE_KEYS] for candidate in row["candidates"]])
-    scores = _mlp_predict(model, matrix).reshape(-1).tolist()
+    scores = _mlp_scores(model, matrix, output_mode).reshape(-1).tolist()
     ranked = sorted(
         zip(row["candidates"], scores),
         key=lambda pair: (pair[1], pair[0]["vector"], pair[0]["lexical"], pair[0]["path"]),
@@ -455,15 +489,21 @@ def _rank_mlp_feature_row(row: dict[str, Any], model: list[dict[str, np.ndarray]
     return paths[:limit]
 
 
-def _mlp_predict(model: list[dict[str, np.ndarray]], x: np.ndarray) -> np.ndarray:
+def _mlp_logits(model: list[dict[str, np.ndarray]], x: np.ndarray) -> np.ndarray:
     current = x
     for index, layer in enumerate(model):
         current = current @ layer["w"] + layer["b"]
-        if index == len(model) - 1:
-            current = _sigmoid(current)
-        else:
+        if index < len(model) - 1:
             current = np.maximum(current, 0.0)
     return current
+
+
+def _mlp_scores(model: list[dict[str, np.ndarray]], x: np.ndarray, output_mode: str) -> np.ndarray:
+    logits = _mlp_logits(model, x)
+    if output_mode == "weights":
+        dynamic_weights = _softmax(logits)
+        return np.sum(dynamic_weights * x[:, : len(SCORING_FEATURE_KEYS)], axis=1, keepdims=True) * x[:, 7:8]
+    return logits
 
 
 def _rank_feature_row(row: dict[str, Any], weights: dict[str, float], limit: int) -> list[str]:

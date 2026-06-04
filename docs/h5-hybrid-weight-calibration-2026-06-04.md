@@ -118,7 +118,12 @@ Interpretation:
 
 ## H6.2 MLP Smoke
 
-The calibration script also has an experimental NumPy MLP scorer:
+The calibration script also has an experimental NumPy MLP scorer. It supports two output modes:
+
+| Mode | Meaning |
+| --- | --- |
+| `scalar` | The MLP predicts one candidate score directly. |
+| `weights` | The MLP predicts a dynamic weight vector over the hybrid signals, then scores the candidate as a weighted signal sum. |
 
 ```bash
 uv run python scripts/calibrate_hybrid_weights.py \
@@ -134,7 +139,7 @@ uv run python scripts/calibrate_hybrid_weights.py \
   --mlp-learning-rate 0.03
 ```
 
-Smoke result:
+Scalar-output smoke result:
 
 | Profile | Validation file hit@1 | hit@3 | hit@5 | hit@10 | file MRR@10 |
 | --- | ---: | ---: | ---: | ---: | ---: |
@@ -142,4 +147,29 @@ Smoke result:
 | Best linear/grid profile | 0.600 | 0.850 | 0.850 | 0.850 | 0.708 |
 | MLP depth 1, hidden 8 | 0.550 | 0.550 | 0.550 | 0.550 | 0.550 |
 
-Interpretation: the first naive candidate-level MLP is worse than the manual/grid scorers on the smoke split. The failure is likely objective mismatch and imbalance: only `158` positive candidate rows versus `69,678` negative rows in the 80-case train split. Do not promote H6.2 unless a full split with better loss/design beats H6.1 on held-out file Hit@1/MRR without hurting Hit@10.
+Vector-output smoke command:
+
+```bash
+uv run python scripts/calibrate_hybrid_weights.py \
+  --config configs/codesearchnet-mteb-python-h5-qwen-quality.yml \
+  --train-size 80 \
+  --validation-size 20 \
+  --feature-cache .code-diver/tmp/h5-calibration-smoke-features.json \
+  --reuse-feature-cache \
+  --output .code-diver/reports/h5-hybrid-mlp-vector-calibration-smoke.json \
+  --mlp-output weights \
+  --mlp-depth 1 \
+  --mlp-hidden-size 8 \
+  --mlp-epochs 30 \
+  --mlp-learning-rate 0.03
+```
+
+Vector-output smoke result:
+
+| Profile | Validation file hit@1 | hit@3 | hit@5 | hit@10 | file MRR@10 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Manual H5 | 0.600 | 0.850 | 0.850 | 0.850 | 0.708 |
+| Best linear/grid profile | 0.600 | 0.850 | 0.850 | 0.850 | 0.708 |
+| MLP dynamic weights, depth 1, hidden 8 | 0.600 | 0.750 | 0.800 | 0.850 | 0.684 |
+
+Interpretation: the scalar MLP is clearly worse on smoke. The dynamic-weight MLP preserves Hit@1/Hit@10 but worsens top-3/top-5 ordering and MRR. That means the idea is implemented and testable, but it is not yet a quality win. The failure is likely objective mismatch and imbalance: only `158` positive candidate rows versus `69,678` negative rows in the 80-case train split. Do not promote H6.2 unless a full split with better loss/design beats H6.1 on held-out file Hit@1/MRR without hurting Hit@10.
