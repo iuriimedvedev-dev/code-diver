@@ -40,7 +40,7 @@ class UnknownDimensionProvider:
     dimensions = 0
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
-        return [[0.1, 0.2, 0.3]]
+        return [[0.1, 0.2, 0.3] for _ in texts]
 
     def embed_query(self, query: str) -> list[float]:
         return [0.1, 0.2, 0.3]

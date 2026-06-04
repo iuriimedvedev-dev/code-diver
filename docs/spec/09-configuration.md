@@ -57,6 +57,12 @@ Every config field default reads `Defaults.X`; `ConfigLoader` then does
 `file_summary_chunks: true`, and `file_manifest_chunks: true`. The persistent index
 embeds file metadata, not full source bodies.
 
+**Built-in embedding extractor profiles:** `index --embedding qwen3-0.6b`,
+`index --embedding qwen3-4b`, and `index --embedding gemini` override only the embedding
+block for that run. In an interactive terminal, `index` can ask for the extractor unless
+`--no-embedding-prompt` is passed. Qwen profiles expect a local OpenAI-compatible
+vLLM/MLX embedding server on `127.0.0.1:8001`; Gemini is API/Vertex only.
+
 **New `ScannerConfig` knob:** `structural_chunks` (`False`) — see
 [02](./02-indexing.md) structural chunking.
 

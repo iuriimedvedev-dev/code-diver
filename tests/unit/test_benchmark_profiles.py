@@ -6,7 +6,13 @@ from pathlib import Path
 import pytest
 
 from code_diver.benchmarks import BenchmarkAssetService, BenchmarkPreparation, BenchmarkProfile, BenchmarkProfileRegistry
-from code_diver.cli import apply_builtin_pure_h3, build_parser, normalize_argv, resolve_benchmark_profile
+from code_diver.cli import (
+    apply_builtin_pure_h3,
+    apply_embedding_profile,
+    build_parser,
+    normalize_argv,
+    resolve_benchmark_profile,
+)
 from code_diver.config import AppConfig
 
 
@@ -43,6 +49,22 @@ def test_index_parser_accepts_repository_root() -> None:
     args = build_parser().parse_args(["index", "/tmp/repo"])
 
     assert str(args.index_root) == "/tmp/repo"
+
+
+def test_index_parser_accepts_embedding_profile() -> None:
+    args = build_parser().parse_args(["index", "--embedding", "qwen3-0.6b", "/tmp/repo"])
+
+    assert args.embedding == "qwen3-0.6b"
+    assert str(args.index_root) == "/tmp/repo"
+
+
+def test_embedding_profile_overrides_embedding_config() -> None:
+    config = apply_embedding_profile(AppConfig(), "qwen3-4b", announce=False)
+
+    assert config.embedding.provider == "openai_compatible"
+    assert config.embedding.model == "mlx-community/Qwen3-Embedding-4B-4bit-DWQ"
+    assert config.embedding.url == "http://127.0.0.1:8001/v1/embeddings"
+    assert config.embedding.max_input_chars == 400
 
 
 def test_global_root_can_be_parsed_before_subcommand() -> None:

@@ -22,12 +22,19 @@ class ParallelEmbeddingService:
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
         if not texts:
             return []
+        batches = list(self._batches(texts))
         if self.workers == 1:
-            vectors = self.provider.embed_documents(texts)
-            self._notify(1, 1)
+            vectors: list[list[float]] = []
+            for completed, (_, batch) in enumerate(batches, start=1):
+                batch_vectors = self.provider.embed_documents(batch)
+                if len(batch_vectors) != len(batch):
+                    raise RuntimeError(
+                        f"Embedding provider returned {len(batch_vectors)} vectors for {len(batch)} inputs."
+                    )
+                vectors.extend(batch_vectors)
+                self._notify(completed, len(batches))
             return vectors
 
-        batches = list(self._batches(texts))
         vectors: list[list[float] | None] = [None] * len(texts)
         completed = 0
         with ThreadPoolExecutor(max_workers=self.workers) as executor:

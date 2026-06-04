@@ -13,9 +13,11 @@ from typing import Any
 
 from rich.console import Console
 from rich.panel import Panel
+from rich.prompt import Prompt
 from rich.table import Table
 
 from .config import AppConfig, ConfigLoader
+from .config.embedding_profile_registry import EmbeddingProfileRegistry
 from .agent import DirectIndexingOrchestrator, DirectSearchOrchestrator
 from .agent.h3_search_tool_handler import H3SearchToolHandler
 from .agent.rerank_tool_handler import RerankToolHandler
@@ -137,6 +139,17 @@ def build_parser(include_advanced: bool = False) -> argparse.ArgumentParser:
 
     index = subparsers.add_parser(CommandName.INDEX.value, help="Index repository code into the configured artifact.")
     index.add_argument("index_root", nargs="?", type=Path, default=None)
+    index.add_argument(
+        "--embedding",
+        choices=EmbeddingProfileRegistry().keys(),
+        default=None,
+        help="Use a built-in embedding extractor profile for this indexing run.",
+    )
+    index.add_argument(
+        "--no-embedding-prompt",
+        action="store_true",
+        help="Do not ask for an embedding extractor in interactive terminals.",
+    )
     index.add_argument("--no-progress", action="store_true", help="Disable indexing progress bars.")
     index.add_argument("-q", "--quiet", action="store_true", help="Only print the final indexing summary.")
     index.set_defaults(func=cmd_index)
@@ -297,7 +310,19 @@ def apply_runtime_config(args: argparse.Namespace, config: AppConfig) -> AppConf
         config = apply_builtin_pure_h3(config)
     if root is not None:
         config = replace(config, root=root)
+    embedding_profile = getattr(args, "embedding", None)
+    if embedding_profile:
+        config = apply_embedding_profile(config, embedding_profile, announce=False)
     return config
+
+
+def apply_embedding_profile(config: AppConfig, profile_key: str, announce: bool = True) -> AppConfig:
+    profile = EmbeddingProfileRegistry().get(profile_key)
+    if announce:
+        render_status_line(f"embedding extractor: {profile.label}", "green")
+        if profile.startup_hint:
+            render_status_line(f"local server expected: {profile.startup_hint}", "yellow")
+    return replace(config, embedding=profile.config)
 
 
 def runtime_root(args: argparse.Namespace) -> Path | None:
@@ -365,6 +390,7 @@ def apply_builtin_pure_h3(config: AppConfig) -> AppConfig:
 
 def cmd_index(args: argparse.Namespace, config: AppConfig) -> int:
     progress = not bool(getattr(args, "no_progress", False) or getattr(args, "quiet", False))
+    config = maybe_prompt_embedding_profile(args, config, progress)
     if progress:
         render_status_panel(
             "Index",
@@ -391,34 +417,65 @@ def cmd_index(args: argparse.Namespace, config: AppConfig) -> int:
             border_style="magenta",
         )
     indexing_service = make_indexing_service(config, progress=progress)
-    items = indexing_service.build(
-        root=config.root,
-        provider=provider,
-        plugin_config={"config": config},
-    )
-    if config.graph.enabled:
-        if progress:
-            render_status_line("building graph artifact", "cyan")
-        GraphIndexingService(
-            CodeGraphBuilder(
-                ast_enabled=config.graph.ast_enabled,
-                reference_edges_enabled=config.graph.reference_edges_enabled,
-                call_edges_enabled=config.graph.call_edges_enabled,
-            ),
-            CodeGraphStore(config.graph.artifact),
-        ).build(
+    try:
+        items = indexing_service.build(
             config.root,
-            items,
+            provider=provider,
+            plugin_config={"config": config},
         )
-        if progress:
-            render_status_line(f"saved graph artifact: {config.graph.artifact}", "green")
-    print(
-        f"Indexed {len(items)} items -> {store_label(config)} "
-        f"({provider.name}, model={provider.model}, dimensions={provider.dimensions})"
-    )
-    print(format_index_composition(items))
-    close_vector_store(indexing_service.vector_store)
+        if config.graph.enabled:
+            if progress:
+                render_status_line("building graph artifact", "cyan")
+            GraphIndexingService(
+                CodeGraphBuilder(
+                    ast_enabled=config.graph.ast_enabled,
+                    reference_edges_enabled=config.graph.reference_edges_enabled,
+                    call_edges_enabled=config.graph.call_edges_enabled,
+                ),
+                CodeGraphStore(config.graph.artifact),
+            ).build(
+                config.root,
+                items,
+            )
+            if progress:
+                render_status_line(f"saved graph artifact: {config.graph.artifact}", "green")
+        print(
+            f"Indexed {len(items)} items -> {store_label(config)} "
+            f"({provider.name}, model={provider.model}, dimensions={provider.dimensions})"
+        )
+        print(format_index_composition(items))
+    except KeyboardInterrupt:
+        render_status_line("indexing interrupted; staged index writes were discarded", "yellow")
+        raise
+    finally:
+        close_vector_store(indexing_service.vector_store)
     return 0
+
+
+def maybe_prompt_embedding_profile(args: argparse.Namespace, config: AppConfig, progress: bool) -> AppConfig:
+    if getattr(args, "embedding", None) or getattr(args, "no_embedding_prompt", False):
+        return config
+    if not progress or not sys.stdin.isatty() or not sys.stderr.isatty():
+        return config
+    registry = EmbeddingProfileRegistry()
+    choices = {str(index): profile for index, profile in enumerate(registry.profiles(), start=1)}
+    table = Table(title="Embedding Extractor", show_header=True, header_style="bold magenta")
+    table.add_column("#", justify="right", style="cyan", no_wrap=True)
+    table.add_column("Profile", style="bold")
+    table.add_column("Notes")
+    for key, profile in choices.items():
+        table.add_row(key, profile.label, profile.description)
+    table.add_row("c", f"Configured: {config.embedding.provider}/{config.embedding.model}", "use YAML as-is")
+    status_console().print(table)
+    selected = Prompt.ask(
+        "Select embedding extractor",
+        choices=[*choices.keys(), "c"],
+        default="c",
+        console=status_console(),
+    )
+    if selected == "c":
+        return config
+    return apply_embedding_profile(config, choices[selected].key)
 
 
 def cmd_index_selected(args: argparse.Namespace, config: AppConfig) -> int:

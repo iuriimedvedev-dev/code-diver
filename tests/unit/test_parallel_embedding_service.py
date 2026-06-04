@@ -19,9 +19,11 @@ class RecordingEmbeddingProvider(EmbeddingProvider):
         self.model = "recording"
         self.dimensions = 1
         self.thread_ids: set[int] = set()
+        self.calls: list[list[str]] = []
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
         self.thread_ids.add(threading.get_ident())
+        self.calls.append(list(texts))
         time.sleep(0.02)
         return [[float(text)] for text in texts]
 
@@ -38,6 +40,22 @@ def test_parallel_embedding_service_preserves_vector_order() -> None:
 
     assert vectors == [[0.0], [1.0], [2.0], [3.0], [4.0], [5.0], [6.0], [7.0]]
     assert len(provider.thread_ids) > 1
+
+
+def test_single_worker_embedding_service_still_batches_and_reports_progress() -> None:
+    provider = RecordingEmbeddingProvider()
+    progress: list[tuple[int, int]] = []
+
+    vectors = ParallelEmbeddingService(
+        provider,
+        batch_size=2,
+        workers=1,
+        on_batch_complete=lambda completed, total: progress.append((completed, total)),
+    ).embed_documents(["0", "1", "2", "3", "4"])
+
+    assert vectors == [[0.0], [1.0], [2.0], [3.0], [4.0]]
+    assert provider.calls == [["0", "1"], ["2", "3"], ["4"]]
+    assert progress == [(1, 3), (2, 3), (3, 3)]
 
 
 def test_embedding_text_preparer_limits_input_length() -> None:

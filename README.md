@@ -161,6 +161,25 @@ Gemini Embedding 2 is not wire-compatible with `gemini-embedding-001`: existing 
 
 For local embeddings on Apple Silicon, use an OpenAI-compatible embedding server backed by vLLM/MLX. The current preferred path is vLLM pooling on `http://127.0.0.1:8001/v1/embeddings`, with Gemini or Vertex kept for orchestration/reranking experiments. `configs/protogen-local.yml` is kept for fully local OpenAI-compatible experiments on `http://localhost:1234/v1`.
 
+Gemini embeddings are not available as a local downloadable model in this project. The local embedding profiles are Qwen/MLX/vLLM-compatible models; Gemini Embedding 2 is API/Vertex only and requires `GEMINI_API_KEY` or gcloud ADC.
+
+The `index` command can select a built-in embedding extractor interactively in a terminal, or explicitly with `--embedding`:
+
+```bash
+uv run code-diver index ../my-repo --embedding qwen3-0.6b
+uv run code-diver index ../my-repo --embedding qwen3-4b
+uv run code-diver index ../my-repo --embedding gemini
+uv run code-diver index ../my-repo --no-embedding-prompt
+```
+
+Available built-in extractor profiles:
+
+| Profile | Backend | Notes |
+| --- | --- | --- |
+| `qwen3-0.6b` | `mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ` via local vLLM/MLX | Current practical local default. |
+| `qwen3-4b` | `mlx-community/Qwen3-Embedding-4B-4bit-DWQ` via local vLLM/MLX | Stronger raw candidate generator, much slower; downloads on first serve if missing. |
+| `gemini` | `gemini-embedding-2` API | Remote API/Vertex path; no local Gemini embedding model. |
+
 Local embedding configs can set `embedding.workers` for parallel embedding requests and `embedding.max_input_chars` to fit smaller local model context windows. For small local embedding contexts, use `batch_size: 1` and increase `workers` instead of sending large multi-input batches.
 
 ```bash
