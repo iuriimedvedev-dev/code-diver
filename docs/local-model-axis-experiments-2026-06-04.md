@@ -83,6 +83,53 @@ Interpretation:
 
 Decision: use H6.1 static calibrated weights as the immediate search-quality baseline. Keep H6.2 active because it clears the improvement threshold over manual H3, but do not put it ahead of H6.1 until a ranking-loss MLP beats the static grid profile.
 
+## Embedding Axis Under H6
+
+The next run changed only the embedding model and reran the same H3/H6 calibration protocol.
+
+EmbeddingGemma report:
+
+```text
+.code-diver/reports/h6-2-mlp-weights-embeddinggemma-codesearchnet-1000.json
+```
+
+EmbeddingGemma feature cache:
+
+```text
+.code-diver/tmp/h6-embeddinggemma-codesearchnet-1000-features.json
+```
+
+Validation comparison:
+
+| Embedding | Scorer | file Hit@1 | file Hit@3 | file Hit@5 | file Hit@10 | file MRR@10 |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| Qwen3-Embedding-0.6B 4-bit | Manual routed H3 | 0.000 | 0.283 | 0.377 | 0.443 | 0.159 |
+| Qwen3-Embedding-0.6B 4-bit | H6.2 dynamic-weight MLP | 0.357 | 0.467 | 0.533 | 0.643 | 0.436 |
+| Qwen3-Embedding-0.6B 4-bit | H6.1 static/grid | 0.533 | 0.707 | 0.750 | 0.807 | 0.628 |
+| EmbeddingGemma-300M | Manual routed H3 | 0.853 | 0.947 | 0.963 | 0.983 | 0.902 |
+| EmbeddingGemma-300M | H6.2 dynamic-weight MLP | 0.843 | 0.937 | 0.957 | 0.980 | 0.894 |
+| EmbeddingGemma-300M | H6.1 static/grid | 0.863 | 0.953 | 0.973 | 0.983 | 0.911 |
+
+Best EmbeddingGemma H6.1 weights:
+
+```yaml
+vector_weight: 0.5625
+lexical_weight: 0.1875
+path_weight: 0.08333333333333334
+symbol_weight: 0.04166666666666667
+symbol_match_weight: 0.04166666666666667
+graph_weight: 0.08333333333333334
+file_vote_weight: 0.0
+```
+
+Interpretation:
+
+- Embedding model is a bigger factor than H6.2 on this benchmark.
+- EmbeddingGemma-300M with manual routed H3 already beats Qwen0.6B with H6.1 static/grid.
+- H6.2 clears the improvement threshold only for the weak Qwen0.6B setup. It does not improve EmbeddingGemma.
+- The current best candidate generator is EmbeddingGemma-300M + H6.1 static/grid weights.
+- H6.2 should be tested next with a pairwise/listwise ranking loss, but the current binary-loss MLP is not the default.
+
 ## Embedding Axis: 100-Case Smoke
 
 Suite:
