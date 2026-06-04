@@ -10,7 +10,7 @@ class EmbeddingProfileRegistry:
             EmbeddingProfile(
                 key="qwen3-0.6b",
                 label="Qwen3 Embedding 0.6B 4-bit",
-                description="Apple Metal local vLLM/MLX server, best practical local default",
+                description="Apple Silicon vLLM-Metal server, best practical local default",
                 config=EmbeddingConfig(
                     provider="openai_compatible",
                     model="mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ",
@@ -24,9 +24,9 @@ class EmbeddingProfileRegistry:
                     query_prefix="Represent this code search query for retrieving relevant files: ",
                 ),
                 platforms=("apple-metal", "external"),
-                runtime="vllm",
+                runtime="vllm-metal",
                 startup_hint=(
-                    ".code-diver/runtime/vllm/bin/vllm serve "
+                    ".code-diver/runtime/vllm-metal/bin/vllm serve "
                     "mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ --runner pooling "
                     "--host 127.0.0.1 --port 8001 --max-model-len 512"
                 ),
@@ -34,7 +34,7 @@ class EmbeddingProfileRegistry:
             EmbeddingProfile(
                 key="qwen3-4b",
                 label="Qwen3 Embedding 4B 4-bit",
-                description="Apple Metal local vLLM/MLX server, stronger but slower; downloads model on first serve",
+                description="Apple Silicon vLLM-Metal server, stronger but slower; downloads model on first serve",
                 config=EmbeddingConfig(
                     provider="openai_compatible",
                     model="mlx-community/Qwen3-Embedding-4B-4bit-DWQ",
@@ -48,9 +48,9 @@ class EmbeddingProfileRegistry:
                     query_prefix="Represent this code search query for retrieving relevant files: ",
                 ),
                 platforms=("apple-metal", "external"),
-                runtime="vllm",
+                runtime="vllm-metal",
                 startup_hint=(
-                    ".code-diver/runtime/vllm/bin/vllm serve "
+                    ".code-diver/runtime/vllm-metal/bin/vllm serve "
                     "mlx-community/Qwen3-Embedding-4B-4bit-DWQ --runner pooling "
                     "--host 127.0.0.1 --port 8001 --max-model-len 512"
                 ),

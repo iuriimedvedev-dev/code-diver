@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import sys
-from pathlib import Path
 
 import questionary
 from rich.console import Console
@@ -9,7 +8,7 @@ from rich.prompt import IntPrompt
 
 from ..config.embedding_profile_registry import EmbeddingProfileRegistry
 from .embedding_runtime_manager import EmbeddingRuntimeManager
-from .runtime_config import RuntimeConfig
+from .runtime_config import RuntimeConfig, default_runtime_install_dir
 from .runtime_config_store import RuntimeConfigStore
 
 
@@ -49,7 +48,7 @@ class RuntimeSetupWizard:
         port = 8001 if yes else IntPrompt.ask("Embedding server port", default=8001, console=self.console)
         config = RuntimeConfig(
             embedding_profile=profile_key,
-            install_dir=Path(".code-diver/runtime/vllm"),
+            install_dir=default_runtime_install_dir(platform),
             backend=backend,
             platform=platform,
             port=port,

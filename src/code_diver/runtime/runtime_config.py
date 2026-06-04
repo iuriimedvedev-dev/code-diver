@@ -5,6 +5,12 @@ from pathlib import Path
 from typing import Any
 
 
+def default_runtime_install_dir(platform: str) -> Path:
+    if platform == "apple-metal":
+        return Path(".code-diver/runtime/vllm-metal")
+    return Path(".code-diver/runtime/vllm")
+
+
 @dataclass(frozen=True, slots=True)
 class RuntimeConfig:
     embedding_profile: str
@@ -29,6 +35,14 @@ class RuntimeConfig:
     def vllm_binary(self) -> Path:
         return self.install_dir / "bin" / "vllm"
 
+    @property
+    def dependency_group(self) -> str | None:
+        if self.platform == "apple-metal":
+            return "runtime-apple-metal"
+        if self.platform in {"nvidia-cuda", "amd-rocm", "cpu"}:
+            return "runtime-vllm"
+        return None
+
     def to_yaml_data(self) -> dict[str, Any]:
         return {
             "embedding_profile": self.embedding_profile,
@@ -46,7 +60,9 @@ class RuntimeConfig:
     def from_yaml_data(cls, data: dict[str, Any]) -> "RuntimeConfig":
         return cls(
             embedding_profile=str(data["embedding_profile"]),
-            install_dir=Path(data.get("install_dir", ".code-diver/runtime/vllm")),
+            install_dir=Path(
+                data.get("install_dir", default_runtime_install_dir(str(data.get("platform", "apple-metal"))))
+            ),
             backend=str(data.get("backend", "host-uv")),
             platform=str(data.get("platform", "apple-metal")),
             host=str(data.get("host", "127.0.0.1")),

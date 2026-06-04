@@ -163,7 +163,11 @@ For OpenAI, set `OPENAI_API_KEY` and use `generation.provider: openai` plus `emb
 
 Gemini Embedding 2 is not wire-compatible with `gemini-embedding-001`: existing Gemini embedding artifacts must be rebuilt after switching models.
 
-For local embeddings on Apple Silicon, use an OpenAI-compatible embedding server backed by vLLM/MLX. The current preferred path is vLLM pooling on `http://127.0.0.1:8001/v1/embeddings`, with Gemini or Vertex kept for orchestration/reranking experiments. `configs/protogen-local.yml` is kept for fully local OpenAI-compatible experiments on `http://localhost:1234/v1`.
+For local embeddings on Apple Silicon, use an OpenAI-compatible embedding server backed by
+vLLM-Metal. The current preferred path is vLLM pooling on
+`http://127.0.0.1:8001/v1/embeddings`, with Gemini or Vertex kept for
+orchestration/reranking experiments. `configs/protogen-local.yml` is kept for fully local
+OpenAI-compatible experiments on `http://localhost:1234/v1`.
 
 Gemini embeddings are not available as a local downloadable model in this project. The local embedding profiles are Qwen/MLX/vLLM-compatible models; Gemini Embedding 2 is API/Vertex only and requires `GEMINI_API_KEY` or gcloud ADC.
 
@@ -176,9 +180,16 @@ uv run code-diver init
 
 The wizard asks for platform, embedding extractor, runtime backend, port, and install
 confirmation. Use arrow keys to move, Enter to select, and Ctrl-C to cancel. In `host-uv`
-mode Code Diver creates `.code-diver/runtime/vllm` with `uv`, downloads the selected model
-on first serve, starts the embedding server as a subprocess, and writes logs to
-`.code-diver/runtime/logs/embedding-server.log`.
+mode Code Diver creates a platform-specific runtime venv with `uv`, installs the matching
+dependency group, downloads the selected model on first serve, starts the embedding server
+as a subprocess, and writes logs to `.code-diver/runtime/logs/embedding-server.log`.
+
+Runtime dependency groups:
+
+| Platform | Runtime group | Install dir |
+| --- | --- | --- |
+| `apple-metal` | `runtime-apple-metal` | `.code-diver/runtime/vllm-metal` |
+| `nvidia-cuda`, `amd-rocm`, `cpu` | `runtime-vllm` | `.code-diver/runtime/vllm` |
 
 For CI, containers, or scripted setup, pass explicit flags:
 
@@ -212,8 +223,8 @@ Available built-in extractor profiles:
 
 | Profile | Backend | Notes |
 | --- | --- | --- |
-| `qwen3-0.6b` | `mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ` via Apple Metal vLLM/MLX | Current practical local default on Apple Silicon. |
-| `qwen3-4b` | `mlx-community/Qwen3-Embedding-4B-4bit-DWQ` via Apple Metal vLLM/MLX | Stronger raw candidate generator, much slower; downloads on first serve if missing. |
+| `qwen3-0.6b` | `mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ` via vLLM-Metal | Current practical local default on Apple Silicon. |
+| `qwen3-4b` | `mlx-community/Qwen3-Embedding-4B-4bit-DWQ` via vLLM-Metal | Stronger raw candidate generator, much slower; downloads on first serve if missing. |
 | `qwen3-0.6b-vllm` | `Qwen/Qwen3-Embedding-0.6B` via vLLM | Nvidia CUDA, AMD ROCm, or CPU profile. |
 | `qwen3-4b-vllm` | `Qwen/Qwen3-Embedding-4B` via vLLM | Stronger CUDA/ROCm/CPU profile. |
 | `gemini` | `gemini-embedding-2` API | Remote API/Vertex path; no local Gemini embedding model. |
