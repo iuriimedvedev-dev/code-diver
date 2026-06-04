@@ -75,6 +75,23 @@ def test_runtime_setup_wizard_writes_host_uv_runtime_without_install(tmp_path: P
     assert store.load().install_dir == Path(".code-diver/runtime/vllm-metal")
 
 
+def test_runtime_setup_wizard_writes_embeddinggemma_runtime_without_install(tmp_path: Path) -> None:
+    store = RuntimeConfigStore(tmp_path / "runtime.yml")
+
+    config = RuntimeSetupWizard(store=store).run(
+        profile_key="embeddinggemma-300m",
+        platform="apple-metal",
+        backend="host-uv",
+        install=False,
+        yes=True,
+    )
+
+    assert config.embedding_profile == "embeddinggemma-300m"
+    assert config.backend == "host-uv"
+    assert config.auto_start is True
+    assert store.load().embedding_profile == "embeddinggemma-300m"
+
+
 def test_runtime_setup_wizard_yes_uses_default_profile(tmp_path: Path) -> None:
     store = RuntimeConfigStore(tmp_path / "runtime.yml")
 

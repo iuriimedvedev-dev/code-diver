@@ -78,6 +78,24 @@ def test_init_parser_accepts_runtime_backend() -> None:
     assert args.yes is True
 
 
+def test_init_parser_accepts_embeddinggemma_profile() -> None:
+    args = build_parser().parse_args(
+        [
+            "init",
+            "--platform",
+            "apple-metal",
+            "--embedding",
+            "embeddinggemma-300m",
+            "--runtime",
+            "host-uv",
+            "--skip-install",
+            "--yes",
+        ]
+    )
+
+    assert args.embedding == "embeddinggemma-300m"
+
+
 def test_embedding_profile_overrides_embedding_config() -> None:
     config = apply_embedding_profile(AppConfig(), "qwen3-4b", announce=False)
 
@@ -85,6 +103,17 @@ def test_embedding_profile_overrides_embedding_config() -> None:
     assert config.embedding.model == "mlx-community/Qwen3-Embedding-4B-4bit-DWQ"
     assert config.embedding.url == "http://127.0.0.1:8001/v1/embeddings"
     assert config.embedding.max_input_chars == 400
+
+
+def test_embeddinggemma_profile_uses_code_retrieval_prompts() -> None:
+    config = apply_embedding_profile(AppConfig(), "embeddinggemma-300m", announce=False)
+
+    assert config.embedding.provider == "openai_compatible"
+    assert config.embedding.model == "google/embeddinggemma-300m"
+    assert config.embedding.dimensions == 768
+    assert config.embedding.document_prefix == "title: none | text: "
+    assert config.embedding.query_prefix == "task: code retrieval | query: "
+    assert config.embedding.max_input_chars == 1200
 
 
 def test_global_root_can_be_parsed_before_subcommand() -> None:

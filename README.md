@@ -112,6 +112,7 @@ search:
 ```
 
 See [docs/assignment-plan-progress.md](docs/assignment-plan-progress.md) for the assignment plan, estimates, progress log, and deliverable map. See [docs/current-research-state-2026-06-04.md](docs/current-research-state-2026-06-04.md) for the current research conclusion, [docs/final-report-2026-06-03.md](docs/final-report-2026-06-03.md) for the compact final report, [docs/metrics.md](docs/metrics.md) for metric definitions, and [docs/Explanation.md](docs/Explanation.md) for a plain-language explanation of the retrieval strategies.
+See [docs/code-embedding-model-research-2026-06-04.md](docs/code-embedding-model-research-2026-06-04.md) for the current code embedding model shortlist, including EmbeddingGemma.
 
 ## Tests
 
@@ -212,6 +213,15 @@ uv run code-diver init --platform nvidia-cuda --embedding qwen3-0.6b-vllm --runt
 uv run code-diver init --platform amd-rocm --embedding qwen3-0.6b-vllm --runtime host-uv --yes --start
 ```
 
+For the latest small Gemma-family embedding model, use EmbeddingGemma. It is a gated
+Hugging Face model, so accept the model license and export `HF_TOKEN` before first start:
+
+```bash
+export HF_TOKEN="..."
+uv run code-diver init --platform apple-metal --embedding embeddinggemma-300m --runtime host-uv --yes --start
+uv run code-diver init --platform nvidia-cuda --embedding embeddinggemma-300m-vllm --runtime host-uv --yes --start
+```
+
 If you already run a compatible `/v1/embeddings` endpoint in Docker or on another host, use
 `external` mode. Code Diver will not install or start a model process; later commands will
 only check that the endpoint is reachable.
@@ -234,6 +244,8 @@ Available built-in extractor profiles:
 | `qwen3-4b` | `mlx-community/Qwen3-Embedding-4B-4bit-DWQ` via vLLM-Metal | Stronger raw candidate generator, much slower; downloads on first serve if missing. |
 | `qwen3-0.6b-vllm` | `Qwen/Qwen3-Embedding-0.6B` via vLLM | Nvidia CUDA, AMD ROCm, or CPU profile. |
 | `qwen3-4b-vllm` | `Qwen/Qwen3-Embedding-4B` via vLLM | Stronger CUDA/ROCm/CPU profile. |
+| `embeddinggemma-300m` | `google/embeddinggemma-300m` via vLLM-Metal | Small latest Gemma-family embedding model; gated HF license; uses code-retrieval prompts. |
+| `embeddinggemma-300m-vllm` | `google/embeddinggemma-300m` via vLLM | Nvidia CUDA, AMD ROCm, or CPU profile for EmbeddingGemma. |
 | `gemini` | `gemini-embedding-2` API | Remote API/Vertex path; no local Gemini embedding model. |
 
 Local embedding configs can still set `embedding.workers` for parallel embedding requests

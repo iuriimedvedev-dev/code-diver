@@ -102,6 +102,53 @@ class EmbeddingProfileRegistry:
                 ),
             ),
             EmbeddingProfile(
+                key="embeddinggemma-300m",
+                label="EmbeddingGemma 300M",
+                description="Apple Silicon vLLM-Metal server; tiny Gemma-family embedding model, gated HF license",
+                config=EmbeddingConfig(
+                    provider="openai_compatible",
+                    model="google/embeddinggemma-300m",
+                    dimensions=768,
+                    api_key="local",
+                    url="http://127.0.0.1:8001/v1/embeddings",
+                    batch_size=96,
+                    workers=4,
+                    max_input_chars=1200,
+                    document_prefix="title: none | text: ",
+                    query_prefix="task: code retrieval | query: ",
+                ),
+                platforms=("apple-metal", "external"),
+                runtime="vllm-metal",
+                startup_hint=(
+                    ".code-diver/runtime/vllm-metal/bin/vllm serve "
+                    "google/embeddinggemma-300m --runner pooling "
+                    "--host 127.0.0.1 --port 8001 --max-model-len 2048"
+                ),
+            ),
+            EmbeddingProfile(
+                key="embeddinggemma-300m-vllm",
+                label="EmbeddingGemma 300M",
+                description="vLLM server for Nvidia CUDA, AMD ROCm, or CPU; gated HF license",
+                config=EmbeddingConfig(
+                    provider="openai_compatible",
+                    model="google/embeddinggemma-300m",
+                    dimensions=768,
+                    api_key="local",
+                    url="http://127.0.0.1:8001/v1/embeddings",
+                    batch_size=96,
+                    workers=4,
+                    max_input_chars=1200,
+                    document_prefix="title: none | text: ",
+                    query_prefix="task: code retrieval | query: ",
+                ),
+                platforms=("nvidia-cuda", "amd-rocm", "cpu", "external"),
+                runtime="vllm",
+                startup_hint=(
+                    ".code-diver/runtime/vllm/bin/vllm serve google/embeddinggemma-300m "
+                    "--runner pooling --host 127.0.0.1 --port 8001 --max-model-len 2048"
+                ),
+            ),
+            EmbeddingProfile(
                 key="gemini",
                 label="Gemini Embedding 2 API",
                 description="remote Gemini API; requires GEMINI_API_KEY or gcloud ADC",
