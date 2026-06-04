@@ -12,6 +12,22 @@ Code Diver has three independent model axes:
 
 Experiments must change one axis at a time. If two or three axes change together, the result is not causal enough to choose a default.
 
+## Validity Fixes Found During This Pass
+
+Two experiment-infrastructure issues were found while setting up the H6/model-axis matrix:
+
+1. `scripts/benchmark_embedding_models.py` isolated Qdrant collection, graph, and trace paths per embedding model, but did not isolate the JSON `artifact` path. With `storage.provider: json`, a later model run could overwrite an earlier model's index file. This happened locally: `index-h5-qwen3-0_6b-quality.json` contained `provider=sentence_transformers`, `model=google/embeddinggemma-300m`, `dimensions=768`.
+2. Existing index metadata was not checked against the active YAML config before query/eval provider creation. A stale artifact could therefore be evaluated under the wrong model label.
+
+Both are fixed in code:
+
+- embedding benchmark runs now suffix JSON artifacts per model;
+- `make_embedding_provider` fails fast when artifact provider/model/dimensions disagree with the config.
+
+Impact: old Qwen/H6 reports that relied on `index-pure-h3.json` or `index-h5-qwen3-0_6b-quality.json` are suspect unless they are rerun after reindexing. The EmbeddingGemma report remains valid because its artifact metadata matches its config.
+
+The Qwen3-Reranker llama.cpp setup also needed a runtime correction. `llama-server --ctx-size 2048 --parallel 4` gives roughly `512` tokens per slot, causing CodeSearchNet docstring queries to fail at `/v1/rerank`. The valid reranker gate uses `--ctx-size 8192 --parallel 4` so each slot has enough context.
+
 ## H6.1 / H6.2 Calibration Status
 
 H6.1 calibrated fixed hybrid weights on the 700/300 CodeSearchNet split. It improved head ranking slightly, but did not improve candidate coverage:

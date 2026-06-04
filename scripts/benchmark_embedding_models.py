@@ -164,7 +164,10 @@ class EmbeddingBenchmarkRunner:
                 f"{self.base_config.trace.artifact.stem}_{model['name']}_{self.run_id}{self.base_config.trace.artifact.suffix}"
             ),
         )
-        return replace(self.base_config, embedding=embedding, storage=storage, graph=graph, trace=trace)
+        artifact = self.base_config.artifact.with_name(
+            f"{self.base_config.artifact.stem}_{model['name']}_{self.run_id}{self.base_config.artifact.suffix}"
+        )
+        return replace(self.base_config, artifact=artifact, embedding=embedding, storage=storage, graph=graph, trace=trace)
 
     def _apply_config_overrides(self, config: Any, overrides: dict[str, Any]) -> Any:
         if not overrides:

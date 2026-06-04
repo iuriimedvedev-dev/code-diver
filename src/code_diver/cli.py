@@ -1617,6 +1617,8 @@ def make_trace_logger(config: AppConfig) -> TraceLogger:
 def make_embedding_provider(config: AppConfig, payload: dict[str, Any] | None = None):
     ensure_configured_embedding_runtime(config)
     embedding = config.embedding
+    if payload:
+        validate_embedding_metadata(config, payload)
     provider_name = embedding.provider or str((payload or {}).get(SchemaKey.PROVIDER.value, Defaults.EMBEDDING_PROVIDER))
     model = embedding.model or (payload or {}).get(SchemaKey.MODEL.value)
     dimensions = embedding.dimensions
@@ -1637,6 +1639,35 @@ def make_embedding_provider(config: AppConfig, payload: dict[str, Any] | None = 
         query_prefix=embedding.query_prefix,
         max_input_chars=embedding.max_input_chars,
     )
+
+
+def validate_embedding_metadata(config: AppConfig, payload: dict[str, Any]) -> None:
+    expected_provider = config.embedding.provider
+    actual_provider = str(payload.get(SchemaKey.PROVIDER.value) or "")
+    if expected_provider and actual_provider and expected_provider != actual_provider:
+        raise ValueError(
+            "Index embedding provider mismatch: "
+            f"config expects {expected_provider!r}, artifact has {actual_provider!r}. "
+            "Rebuild the index with `--reindex` or select the matching config."
+        )
+
+    expected_model = config.embedding.model
+    actual_model = str(payload.get(SchemaKey.MODEL.value) or "")
+    if expected_model and actual_model and expected_model != actual_model:
+        raise ValueError(
+            "Index embedding model mismatch: "
+            f"config expects {expected_model!r}, artifact has {actual_model!r}. "
+            "Rebuild the index with `--reindex` or select the matching config."
+        )
+
+    expected_dimensions = config.embedding.dimensions
+    actual_dimensions = payload.get(SchemaKey.DIMENSIONS.value)
+    if expected_dimensions is not None and actual_dimensions is not None and int(expected_dimensions) != int(actual_dimensions):
+        raise ValueError(
+            "Index embedding dimensions mismatch: "
+            f"config expects {expected_dimensions}, artifact has {actual_dimensions}. "
+            "Rebuild the index with `--reindex` or select the matching config."
+        )
 
 
 def ensure_configured_embedding_runtime(config: AppConfig) -> None:

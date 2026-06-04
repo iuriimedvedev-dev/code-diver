@@ -331,6 +331,27 @@ def test_openai_compatible_provider_does_not_inherit_store_dimensions() -> None:
     assert provider.send_dimensions is False
 
 
+def test_embedding_provider_rejects_stale_artifact_provider() -> None:
+    config = AppConfig(embedding=EmbeddingConfig(provider="openai_compatible", model="qwen", dimensions=None))
+
+    with pytest.raises(ValueError, match="provider mismatch"):
+        make_embedding_provider(config, {"provider": "sentence_transformers", "model": "qwen", "dimensions": 1024})
+
+
+def test_embedding_provider_rejects_stale_artifact_model() -> None:
+    config = AppConfig(embedding=EmbeddingConfig(provider="hash", model="expected", dimensions=512))
+
+    with pytest.raises(ValueError, match="model mismatch"):
+        make_embedding_provider(config, {"provider": "hash", "model": "actual", "dimensions": 512})
+
+
+def test_embedding_provider_rejects_stale_artifact_dimensions() -> None:
+    config = AppConfig(embedding=EmbeddingConfig(provider="hash", model="hash-token-v1", dimensions=512))
+
+    with pytest.raises(ValueError, match="dimensions mismatch"):
+        make_embedding_provider(config, {"provider": "hash", "model": "hash-token-v1", "dimensions": 768})
+
+
 def test_cmd_monitor_requires_explicit_trace_when_tracing_is_disabled(capsys) -> None:
     config = AppConfig(trace=TraceConfig(enabled=False, artifact=Path("old-trace.jsonl"), include_prompts=False))
 
