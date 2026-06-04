@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { Type } from "typebox";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { Box, Text } from "@earendil-works/pi-tui";
 
 type ToolContext = {
   cwd: string;
@@ -51,6 +52,8 @@ type SelectedIndexItem = {
 };
 
 export default function (pi: ExtensionAPI) {
+  registerCodeDiverWelcome(pi);
+
   pi.registerTool({
     name: "code_diver_index",
     label: "Code Diver Index",
@@ -398,6 +401,42 @@ export default function (pi: ExtensionAPI) {
       return textResult(result.stdout || result.stderr);
     },
   });
+}
+
+function registerCodeDiverWelcome(pi: ExtensionAPI) {
+  pi.registerMessageRenderer("code-diver-welcome", (message, _options, theme) => {
+    const text = new Text(typeof message.content === "string" ? message.content : codeDiverWelcomeText(""), 0, 0);
+    const box = new Box(1, 1, (token) => theme.bg("customMessageBg", token));
+    box.addChild(text);
+    return box;
+  });
+
+  pi.on("session_start", async (event, ctx) => {
+    if (event.reason !== "startup") {
+      return;
+    }
+    if ("hasUI" in ctx && !ctx.hasUI) {
+      return;
+    }
+    pi.sendMessage({
+      customType: "code-diver-welcome",
+      content: codeDiverWelcomeText(ctx.cwd),
+      display: true,
+    });
+  });
+}
+
+function codeDiverWelcomeText(cwd: string): string {
+  const repository = cwd ? `Repository: ${cwd}` : "Repository: current workspace";
+  return [
+    "Code Diver Search agent",
+    "",
+    repository,
+    "",
+    "I can search the local Code Diver index, inspect symbols, run grep/rg, read bounded excerpts, open code locations, explain code flows with file/line evidence, refresh indexes, and run retrieval evaluations.",
+    "",
+    "This session is read-only for source code. Ask a code question to start.",
+  ].join("\n");
 }
 
 function appendPathAndLimit(args: string[], path?: string, limit?: number) {
