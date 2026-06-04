@@ -73,3 +73,16 @@ def test_runtime_setup_wizard_writes_host_uv_runtime_without_install(tmp_path: P
     assert config.backend == "host-uv"
     assert config.auto_start is True
     assert store.load().install_dir == Path(".code-diver/runtime/vllm")
+
+
+def test_runtime_setup_wizard_yes_uses_default_profile(tmp_path: Path) -> None:
+    store = RuntimeConfigStore(tmp_path / "runtime.yml")
+
+    config = RuntimeSetupWizard(store=store).run(
+        platform="apple-metal",
+        backend="host-uv",
+        install=False,
+        yes=True,
+    )
+
+    assert config.embedding_profile == "qwen3-0.6b"

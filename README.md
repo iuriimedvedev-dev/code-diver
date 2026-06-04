@@ -163,10 +163,20 @@ For local embeddings on Apple Silicon, use an OpenAI-compatible embedding server
 
 Gemini embeddings are not available as a local downloadable model in this project. The local embedding profiles are Qwen/MLX/vLLM-compatible models; Gemini Embedding 2 is API/Vertex only and requires `GEMINI_API_KEY` or gcloud ADC.
 
-Run setup once before local embedding indexing. The wizard asks for platform and model.
-In `host-uv` mode Code Diver creates `.code-diver/runtime/vllm` with `uv`, downloads the
-selected model on first serve, starts the embedding server as a subprocess, and writes logs
-to `.code-diver/runtime/logs/embedding-server.log`.
+Run setup once before local embedding indexing. The default path is the interactive
+arrow-key TUI wizard:
+
+```bash
+uv run code-diver init
+```
+
+The wizard asks for platform, embedding extractor, runtime backend, port, and install
+confirmation. Use arrow keys to move, Enter to select, and Ctrl-C to cancel. In `host-uv`
+mode Code Diver creates `.code-diver/runtime/vllm` with `uv`, downloads the selected model
+on first serve, starts the embedding server as a subprocess, and writes logs to
+`.code-diver/runtime/logs/embedding-server.log`.
+
+For CI, containers, or scripted setup, pass explicit flags:
 
 ```bash
 uv run code-diver init --platform apple-metal --embedding qwen3-0.6b --runtime host-uv --yes --start

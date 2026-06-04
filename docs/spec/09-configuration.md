@@ -64,13 +64,15 @@ embedding block for that run. Apple profiles use MLX-converted Qwen checkpoints;
 ROCm, and CPU profiles use regular Hugging Face Qwen checkpoints through vLLM. Gemini is
 API/Vertex only.
 
-**Runtime setup:** `code-diver init` writes `.code-diver/runtime.yml`. `--runtime host-uv`
-installs vLLM/MLX into `.code-diver/runtime/vllm` with `uv` and lets later commands
-autostart the embedding server subprocess. `--platform apple-metal` installs `vllm` plus
-`mlx-lm`; `--platform nvidia-cuda`, `amd-rocm`, and `cpu` install `vllm`. `--runtime
-external` records that the endpoint is managed outside Code Diver, for example by Docker or
-a remote server; later commands only check readiness and fail with an actionable message if
-it is down.
+**Runtime setup:** `code-diver init` writes `.code-diver/runtime.yml`. In a TTY, it opens an
+arrow-key setup wizard for platform, embedding extractor, runtime backend, port, and install
+confirmation. Non-interactive automation should pass `--platform`, `--embedding`,
+`--runtime`, and usually `--yes`. `--runtime host-uv` installs vLLM/MLX into
+`.code-diver/runtime/vllm` with `uv` and lets later commands autostart the embedding server
+subprocess. `--platform apple-metal` installs `vllm` plus `mlx-lm`; `--platform
+nvidia-cuda`, `amd-rocm`, and `cpu` install `vllm`. `--runtime external` records that the
+endpoint is managed outside Code Diver, for example by Docker or a remote server; later
+commands only check readiness and fail with an actionable message if it is down.
 
 **New `ScannerConfig` knob:** `structural_chunks` (`False`) — see
 [02](./02-indexing.md) structural chunking.
