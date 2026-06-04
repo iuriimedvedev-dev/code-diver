@@ -6,6 +6,7 @@ from argparse import Namespace
 import pytest
 
 from code_diver.cli import (
+    build_chat_welcome_prompt,
     chat_prompt_and_session,
     cmd_monitor,
     cmd_search,
@@ -336,6 +337,26 @@ def test_chat_prompt_and_session_supports_resume_sugar(tmp_path: Path) -> None:
     assert session.resume is True
     assert session.session == "abc123"
     assert session.session_dir == Path(".code-diver/chats")
+
+
+def test_chat_prompt_and_session_starts_fresh_chat_with_welcome_prompt(tmp_path: Path) -> None:
+    prompt, session = chat_prompt_and_session(
+        Namespace(
+            prompt=[],
+            resume=False,
+            continue_session=False,
+            session=None,
+            session_id=None,
+            session_dir=None,
+            name=None,
+        ),
+        AppConfig(root=tmp_path),
+    )
+
+    assert prompt == build_chat_welcome_prompt()
+    assert "Do not call tools" in prompt
+    assert session.resume is False
+    assert session.continue_session is False
 
 
 def test_chat_prompt_and_session_supports_continue_flag(tmp_path: Path) -> None:

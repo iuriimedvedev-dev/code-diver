@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import os
-import shlex
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -202,22 +201,32 @@ class PiRunner:
         toolset: str | None,
         hypothesis: str | None,
     ) -> None:
-        display_command = list(command)
-        if display_command and len(display_command[-1]) > 200:
-            display_command[-1] = "<prompt>"
         console = Console(stderr=True, color_system="auto")
         table = Table.grid(padding=(0, 2))
         table.add_column(style="bold cyan", no_wrap=True)
         table.add_column()
         table.add_row("model", model or "default")
-        table.add_row("toolset", toolset or "default")
-        table.add_row("hypothesis", hypothesis or "none")
-        table.add_row("command", shlex.join(display_command))
+        if toolset:
+            table.add_row("toolset", toolset)
+        if hypothesis:
+            table.add_row("hypothesis", hypothesis)
+        session_dir = self._flag_value(command, "--session-dir")
+        if session_dir:
+            table.add_row("sessions", session_dir)
         console.print(
             Panel(table, title="[bold]Launching Search Agent[/bold]", border_style="cyan", padding=(0, 1))
         )
         if command and command[0] == "npx":
             console.print("[dim][code-diver] npx may spend a moment resolving the agent package.[/dim]")
+
+    def _flag_value(self, command: list[str], flag: str) -> str | None:
+        try:
+            index = command.index(flag)
+        except ValueError:
+            return None
+        if index + 1 >= len(command):
+            return None
+        return command[index + 1]
 
     def _write_captured_stderr(self, text: str) -> None:
         if not text:

@@ -54,3 +54,26 @@ def test_pi_runner_writes_json_mode_log(monkeypatch, tmp_path: Path) -> None:
     text = log_path.read_text(encoding="utf-8")
     assert '{"type":"agent_end"}' in text
     assert '"type": "runner_stderr"' in text
+
+
+def test_pi_runner_launch_status_hides_raw_command_and_empty_hypothesis(capsys) -> None:
+    PiRunner()._print_launch_status(
+        [
+            "npx",
+            "-y",
+            "@earendil-works/pi-coding-agent",
+            "--session-dir",
+            "/repo/.code-diver/pi-sessions",
+            "long prompt",
+        ],
+        model="google/gemini-3.1-flash-lite",
+        toolset=None,
+        hypothesis=None,
+    )
+
+    captured = capsys.readouterr()
+    assert "google/gemini-3.1-flash-lite" in captured.err
+    assert "/repo/.code-diver/pi-sessions" in captured.err
+    assert "command" not in captured.err
+    assert "hypothesis" not in captured.err
+    assert "@earendil-works/pi-coding-agent" not in captured.err
