@@ -1,6 +1,6 @@
 # Code Diver
 
-`code-diver` is a small CLI sandbox for codebase RAG experiments. The CLI is the entrypoint. Reproducible evals use a direct provider-backed orchestrator; `chat` and `ask` still launch the optional Pi interactive backend.
+`code-diver` is a local code exploration assistant and retrieval-evaluation sandbox. It indexes a repository into local artifacts, answers natural-language code-navigation queries with cited files/snippets, and runs reproducible retrieval evaluations.
 
 ## Setup
 
@@ -9,15 +9,13 @@ uv sync
 export GEMINI_API_KEY="..."
 ```
 
-By default `chat` and `ask` launch Pi through `npx -y @earendil-works/pi-coding-agent`.
-Secrets can also live in `.env`; the CLI loads it before creating providers. `.env` is ignored by git.
+Advanced research commands, visible with `--help-all`, can still integrate optional orchestration backends. Secrets can live in `.env`; the CLI loads it before creating providers. `.env` is ignored by git.
 
-Gemini-backed defaults:
+The no-config path is intentionally local-first:
 
-- Pi model: `google/gemini-3.5-flash`
-- generation model: `gemini-3.5-flash`
-- embedding model: `gemini-embedding-2`
-- embedding dimensions: `768`
+- indexing/search default: Pure H3 file-first hybrid retrieval;
+- local embedding default for quality runs: Qwen3-Embedding-0.6B through an OpenAI-compatible local server;
+- optional quality rerank: Gemini 3.1 Flash Lite or a local reranker, configured in YAML.
 
 Configuration lives in `code-diver.yml`. For local, reproducible experiments without an API key, set:
 
@@ -30,19 +28,32 @@ embedding:
 ## Commands
 
 ```bash
-uv run code-diver index
+uv run code-diver index /path/to/repo
 uv run code-diver search "where is authentication configured?"
-uv run code-diver tree
-uv run code-diver grep "authenticate"
-uv run code-diver rg "auth.*user"
-uv run code-diver open "where is authentication configured?"
-uv run code-diver chat
-uv run code-diver ask "summarize the retrieval pipeline"
-uv run code-diver evaluate
-uv run code-diver evaluate-indexing
-uv run code-diver evaluate-search-tools
-uv run code-diver experiment
+uv run code-diver evaluate --benchmark codesearchnet-mteb-python-1000
 ```
+
+The public CLI intentionally exposes the assignment surface: `index`, `search`, and `evaluate`. Research and inspection commands are still available behind `--help-all`.
+
+### Quickstart
+
+```bash
+uv sync
+uv run code-diver index .
+uv run code-diver search "how does indexing work?"
+uv run code-diver evaluate --benchmark sample --json
+```
+
+For the public benchmark slice:
+
+```bash
+uv run code-diver evaluate \
+  --benchmark codesearchnet-mteb-python-1000 \
+  --yes \
+  --reindex
+```
+
+Without `--yes`, the CLI asks before downloading missing benchmark assets.
 
 ## Retrieval Experiments
 
@@ -56,7 +67,7 @@ search:
   strategy: vector # vector, recursive, graph
 ```
 
-See [docs/assignment-plan-progress.md](docs/assignment-plan-progress.md) for the assignment plan, estimates, progress log, and deliverable map. See [docs/research.md](docs/research.md) for the current codebase RAG research notes and experiment plan, [docs/metrics.md](docs/metrics.md) for metric definitions and current run comparisons, and [docs/optimization-audit.md](docs/optimization-audit.md) for the latest optimization audit and roadmap.
+See [docs/assignment-plan-progress.md](docs/assignment-plan-progress.md) for the assignment plan, estimates, progress log, and deliverable map. See [docs/current-research-state-2026-06-04.md](docs/current-research-state-2026-06-04.md) for the current research conclusion, [docs/final-report-2026-06-03.md](docs/final-report-2026-06-03.md) for the compact final report, [docs/metrics.md](docs/metrics.md) for metric definitions, and [docs/Explanation.md](docs/Explanation.md) for a plain-language explanation of the retrieval strategies.
 
 ## Tests
 

@@ -18,7 +18,8 @@ Core CLI:
 | `index` | Done | Builds deterministic code items, embeddings, Qdrant/JSON artifacts, and optional graph artifacts. |
 | `search` | Done | Returns colored, syntax-highlighted, file-linked results with snippets and editor opening support. |
 | `evaluate` | Done | Runs JSONL datasets and reports retrieval quality, file-level metrics, latency, and bucket diagnostics. |
-| `experiment` | Done | Runs configured retrieval hypotheses from YAML and can record metrics. |
+
+The public CLI exposes exactly the assignment commands: `index`, `search`, and `evaluate`. Research commands are hidden behind `--help-all`.
 
 ## Time Plan
 
@@ -60,6 +61,7 @@ The implementation exceeded the original 4-6 hour assignment scope because it al
 | `datasets/protogen_eval.jsonl` | 10 | Smoke and e2e checks. |
 | `datasets/protogen_eval_100.jsonl` | 100 | Main fast quality benchmark. |
 | `datasets/intellij_eval_1000.jsonl` | 1000 | Large-repository stress benchmark. |
+| `codesearchnet-mteb-python-1000` | 1000 | Public reproducible benchmark slice prepared by `evaluate --benchmark`. |
 
 ## Current Best Results
 
@@ -107,11 +109,10 @@ This is the current best measured reranker result, not the default iteration pro
 
 ## Known Gaps
 
-1. README should be tightened for assignment review: quickstart, target repo, sample search, and evaluation commands should be easier to scan.
-2. IntelliJ quality index has been prepared but not fully evaluated yet.
-3. Ensemble retrieval across two or more independent embedding indexes is not implemented yet; current hybrid retrieval combines multiple item kinds/signals inside one vector collection.
-4. Local Qwen3-Reranker 4B must be re-run after the debug fixes with a short-list cascade (`candidate_limit: 3/5/10`) and isolated llama.cpp microbenchmarks.
-5. Some research/audit docs are extensive and should be summarized for the final submission.
+1. The public CodeSearchNet runner is a local positive-slice, not the official full-corpus MTEB protocol.
+2. Ensemble retrieval across two or more independent embedding indexes is not implemented yet; current hybrid retrieval combines multiple item kinds/signals inside one vector collection.
+3. Local Qwen3-Reranker 4B still needs a clean follow-up run with a short-list cascade (`candidate_limit: 3/5/10`) and isolated llama.cpp microbenchmarks.
+4. Some research/audit docs are extensive; the recommended reviewer entry points are `README.md`, this progress log, `docs/current-research-state-2026-06-04.md`, and `docs/final-report-2026-06-03.md`.
 
 ## Reproducible Commands
 
