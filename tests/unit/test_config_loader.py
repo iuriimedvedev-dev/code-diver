@@ -111,11 +111,15 @@ hybrid_search:
   stop_words: [where, handled]
 llm_rerank:
   candidate_limit: 22
+  rerank_limit: 3
   max_preview_chars: 333
   mode: file_first
   include_reasons: false
   preserve_top_candidate: true
   preserve_top_score_margin: 0.2
+  retry_attempts: 4
+  retry_base_delay_seconds: 0.5
+  retry_max_delay_seconds: 5
 cross_encoder_rerank:
   provider: llama_cpp
   model: qwen3-reranker-0.6b-q4
@@ -270,11 +274,15 @@ plugins:
     assert config.hybrid_search.min_token_length == 4
     assert config.hybrid_search.stop_words == ["where", "handled"]
     assert config.llm_rerank.candidate_limit == 22
+    assert config.llm_rerank.rerank_limit == 3
     assert config.llm_rerank.max_preview_chars == 333
     assert config.llm_rerank.mode == "file_first"
     assert config.llm_rerank.include_reasons is False
     assert config.llm_rerank.preserve_top_candidate is True
     assert config.llm_rerank.preserve_top_score_margin == 0.2
+    assert config.llm_rerank.retry_attempts == 4
+    assert config.llm_rerank.retry_base_delay_seconds == 0.5
+    assert config.llm_rerank.retry_max_delay_seconds == 5
     assert config.cross_encoder_rerank.provider == "llama_cpp"
     assert config.cross_encoder_rerank.model == "qwen3-reranker-0.6b-q4"
     assert config.cross_encoder_rerank.url == "http://127.0.0.1:8080/v1/rerank"

@@ -21,6 +21,7 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
         timeout_seconds: float = Defaults.OPENAI_TIMEOUT_SECONDS,
         document_prefix: str | None = Defaults.EMBEDDING_DOCUMENT_PREFIX,
         query_prefix: str | None = Defaults.EMBEDDING_QUERY_PREFIX,
+        max_input_chars: int | None = Defaults.EMBEDDING_MAX_INPUT_CHARS,
         send_dimensions: bool = True,
     ):
         self.name = EmbeddingProviderId.OPENAI.value
@@ -31,6 +32,7 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
         self.timeout_seconds = timeout_seconds
         self.document_prefix = document_prefix
         self.query_prefix = query_prefix
+        self.max_input_chars = max_input_chars
         self.send_dimensions = send_dimensions
         self.api_key = api_key or os.environ.get(EnvironmentVariable.OPENAI_API_KEY.value)
         if not self.api_key:
@@ -39,17 +41,23 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
         vectors: list[list[float]] = []
         for batch in _batches(texts, self.batch_size):
-            vectors.extend(self._embed([self._prefixed(self.document_prefix, text) for text in batch]))
+            vectors.extend(self._embed([self._bounded_prefixed(self.document_prefix, text) for text in batch]))
         return vectors
 
     def embed_query(self, query: str) -> list[float]:
-        vectors = self._embed([self._prefixed(self.query_prefix, query)])
+        vectors = self._embed([self._bounded_prefixed(self.query_prefix, query)])
         if not vectors:
             raise RuntimeError("OpenAI returned no query embedding.")
         return vectors[0]
 
     def _prefixed(self, prefix: str | None, text: str) -> str:
         return f"{prefix}{text}" if prefix else text
+
+    def _bounded_prefixed(self, prefix: str | None, text: str) -> str:
+        prefixed = self._prefixed(prefix, text)
+        if self.max_input_chars is None or self.max_input_chars <= 0:
+            return prefixed
+        return prefixed[: self.max_input_chars]
 
     def _embed(self, texts: list[str]) -> list[list[float]]:
         payload: dict[str, Any] = {

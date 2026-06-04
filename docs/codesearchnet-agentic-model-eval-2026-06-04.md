@@ -1,13 +1,14 @@
 # CodeSearchNet Agentic Model Eval - 2026-06-04
 
-This report records the public MTEB CodeSearchNetRetrieval Python checks after adding bounded H3 Agentic behavior.
+This report records the public CodeSearchNet/MTEB Python positive-slice checks after adding bounded H3 Agentic behavior and the first real Qwen-embedding quality profile.
 
 The short version:
 
 ```text
 Agents improved top-rank ordering, especially Hit@1.
-Agents did not improve recall/Hit@10 on the public 100-case slice.
-Pure H3 is still the default, but its public config is not a real quality ceiling because it uses hash embeddings and file-level chunks.
+Open-ended agents did not improve recall/Hit@10 on the discarded hash slice.
+Hash-index runs are now treated only as discarded harness/control data.
+The first valid quality profile uses Qwen3-Embedding-0.6B over file metadata, with H3 as candidate generator and LLM as final ranker.
 Gemma 4 12B Q4_K_M runs on Apple Silicon through llama.cpp, but the current OpenAI-compatible chat protocol is not usable yet.
 ```
 
@@ -45,7 +46,27 @@ Two changes were made before the public rerun:
 
 The prompt still allows the first candidate pass to fan out into 2-4 parallel `code_diver_h3_search` calls with different LLM-chosen queries. The new guard only stops the loop after a plausible rerank.
 
-## Public Metrics
+## Quality Metrics
+
+These rows use `configs/codesearchnet-mteb-python-h5-qwen-quality.yml`: local Qwen3-Embedding-0.6B file metadata index, H3 hybrid candidate generation, and optional LLM final ranking. They are local positive-slice numbers, not official full-corpus MTEB scores.
+
+| Setup | Cases | Index | Ranker | Hit@1 | Hit@3 | Hit@5 | Hit@10 | Recall@10 | Precision@10 | nDCG@10 | MAP@10 | Mean ms | P95 ms |
+| --- | ---: | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Pure H3 quality | 1000 | Qwen3-Embedding-0.6B file metadata | none | 0.823 | 0.919 | 0.944 | 0.961 | 0.961 | 0.177 | 0.900 | 0.880 | 555 | 605 |
+| H5 quality | 1000 | Qwen3-Embedding-0.6B file metadata | Gemini 3.1 Flash Lite top-10 | 0.904 | 0.965 | 0.977 | 0.982 | 0.982 | 0.182 | 0.948 | 0.936 | 3,020 | 4,708 |
+| H5 local | 1000 | Qwen3-Embedding-0.6B file metadata | Qwen3.5 4B compact top-10 | 0.842 | 0.936 | 0.953 | 0.967 | 0.967 | 0.176 | 0.913 | 0.895 | 7,708 | 9,727 |
+
+Interpretation:
+
+- Real semantic embeddings changed the conclusion: the same file-first H3 idea reaches the `Hit@10 >= 0.95` target on the 1000-case public slice.
+- Gemini Flash Lite LLM ranking materially improves ordering: `Hit@1 +0.081`, `MRR@10 +0.058`, `nDCG@10 +0.048`.
+- The LLM ranker costs about `+2.47s/query` on this slice. It is a quality layer, not the fastest path.
+- Local Qwen3.5 4B is viable as a no-API ranker, but not as the default: it is slower than Gemini Lite and worse on top-ordering.
+- The final contract is still ranked files. File summaries/manifests are internal retrieval evidence; returned results are files for downstream analysis.
+
+## Discarded Hash Harness Metrics
+
+These rows used deterministic hash embeddings. They are useful only as proof that real embeddings are necessary and as a no-key pipeline smoke test. They should not be used as quality claims.
 
 | Setup | Cases | Valid | Hit@1 | Hit@3 | Hit@5 | Hit@10 | Recall@10 | Precision@10 | nDCG@10 | MAP@10 | Mean ms | P95 ms | Cost/usage |
 | --- | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
@@ -63,18 +84,46 @@ The 10-case rows are smoke tests only. The 100-case rows are still noisy, but th
 
 Not overall.
 
-Agents were better at **top-rank ordering**:
+On the discarded hash harness, agents were better at **top-rank ordering**:
 
 - On 100 public cases, Gemini Lite Agentic improved Hit@1 from `0.31` to `0.58`.
 - MAP improved from `0.478` to `0.609`.
 - nDCG improved from `0.548` to `0.619`.
 
-Agents were worse at **recall/Hit@10**:
+But they were worse at **recall/Hit@10**:
 
 - Hit@10 dropped from `0.76` to `0.65`.
 - Recall@10 dropped from `0.76` to `0.65`.
 
-So the agent is acting like an aggressive reranker: it moves a likely answer to the top when the answer is already in the candidate pool, but it also discards relevant candidates from the tail. That is useful for interactive "give me the best answer" UX, but bad for our stated `Hit@10 0.95` goal.
+So the open-ended agentic loop was acting like an aggressive reranker: it moved a likely answer to the top when the answer was already in the candidate pool, but discarded relevant candidates from the tail. H5 fixes that by making the protocol explicit: H3 generates candidates, then the LLM ranks the final top-10.
+
+## Scenario A vs B
+
+The intended two-stage flow is:
+
+1. Return ranked files from the global index.
+2. Analyze the selected files with one of two post-file strategies.
+
+Scenario A: LLM uses structured file tools (`outline`, `symbols`, `rg`, `grep`, `read`) inside the file pool.
+
+Scenario B: build or reuse a localized deep/ephemeral index over the file pool, search that, then LLM ranks final evidence.
+
+Current state:
+
+- Scenario A exists in the agentic config and tool executor.
+- Scenario B exists as `code_diver_ephemeral_search` and the deterministic postrank H2 runner, but it does not yet have a committed CodeSearchNet quality config.
+- Old saved IntelliJ branch data favored structured grep/read over ephemeral indexing, but that was not run on the Qwen CodeSearchNet quality profile. It remains a required follow-up.
+
+## Main Factors
+
+Most significant quality factors observed so far:
+
+- Embedding model and context length. Hash embeddings made the public profile look weak; Qwen3 embeddings immediately reached `Hit@10 0.95` on 100 cases.
+- File metadata quality. File summaries/manifests are the right compact global index unit; richer metadata should improve file location without indexing every code line globally.
+- Candidate recall before LLM. If H3 does not include the right file in the top candidate pool, the LLM cannot recover it.
+- LLM ranking protocol. Full top-10 LLM ranking is the correct H5 protocol; prefix-only rerank was methodologically wrong for our goal.
+- Prompt size. Local generative rankers are dominated by long top-30 candidate prompts; they need compressed candidate metadata or a specialized reranker to be viable at 1000 cases.
+- Benchmark label shape. CodeSearchNet positive-slice has one expected file per query and many long docstring queries, unlike internal answer-set evals with multiple acceptable files.
 
 ## Why Old Evals Looked Much Better
 
@@ -130,6 +179,7 @@ Conclusion: Gemma 4 12B Q4_K_M is **not rejected as a model**, but the llama.cpp
 Current production recommendation:
 
 ```text
-Pure H3 remains default for recall.
-Agentic H3 should be a gated top-1/rerank layer, not the default retrieval path.
+Pure H3 over a real local embedding index is the fastest quality default.
+H5 with Gemini Flash Lite is the quality-focused default when API ranking is allowed.
+Open-ended agentic search remains a hard-case escalation path, not the default retrieval path.
 ```

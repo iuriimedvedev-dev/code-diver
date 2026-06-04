@@ -50,6 +50,26 @@ class FakeGenerationProvider:
         )
 
 
+class FlakyGenerationProvider:
+    name = "fake"
+    model = "fake-model"
+
+    def __init__(self):
+        self.calls = 0
+
+    def generate_json_result(self, prompt: str) -> GenerationResult:
+        self.calls += 1
+        if self.calls == 1:
+            raise RuntimeError("transient 499 cancelled")
+        return GenerationResult(
+            text='{"results":[{"index":2}]}',
+            model=self.model,
+            input_tokens=100,
+            output_tokens=10,
+            total_tokens=110,
+        )
+
+
 def test_llm_rerank_reorders_candidates_and_preserves_fallbacks(tmp_path: Path) -> None:
     results = [
         _result("a", "src/a.py", 0.9),
@@ -84,6 +104,32 @@ def test_llm_rerank_falls_back_to_base_order_on_bad_json() -> None:
     reranked = strategy.search("query", 2)
 
     assert reranked == results
+
+
+def test_llm_rerank_retries_transient_generation_error(tmp_path: Path) -> None:
+    results = [_result("a", "src/a.py", 0.9), _result("b", "src/b.py", 0.8)]
+    provider = FlakyGenerationProvider()
+    trace_path = tmp_path / "trace.jsonl"
+    strategy = LlmRerankRetrievalStrategy(
+        FakeStrategy(results),
+        provider,
+        LlmRerankConfig(candidate_limit=2, retry_attempts=2, retry_base_delay_seconds=0),
+        trace_logger=TraceLogger(TraceConfig(enabled=True, artifact=trace_path, include_prompts=False)),
+    )
+
+    reranked = strategy.search("query", 2)
+
+    assert [result.item.path for result in reranked] == ["src/b.py", "src/a.py"]
+    assert provider.calls == 2
+    records = [json.loads(line) for line in trace_path.read_text(encoding="utf-8").splitlines()]
+    assert [record["event"] for record in records] == [
+        "llm_rerank_prompt",
+        "llm_rerank_error",
+        "llm_rerank_response",
+    ]
+    assert records[1]["payload"]["attempt"] == 1
+    assert records[1]["payload"]["will_retry"] is True
+    assert records[2]["payload"]["attempt"] == 2
 
 
 def test_llm_rerank_response_parser_ignores_invalid_and_duplicate_indices() -> None:
@@ -123,6 +169,25 @@ def test_llm_rerank_can_preserve_confident_base_top() -> None:
     reranked = strategy.search("query", 2)
 
     assert [result.item.path for result in reranked] == ["src/a.py", "src/b.py"]
+
+
+def test_llm_rerank_limits_llm_prefix_and_preserves_base_tail() -> None:
+    results = [
+        _result("a", "src/a.py", 0.9),
+        _result("b", "src/b.py", 0.8),
+        _result("c", "src/c.py", 0.7),
+        _result("d", "src/d.py", 0.6),
+    ]
+    strategy = LlmRerankRetrievalStrategy(
+        FakeStrategy(results),
+        FakeGenerationProvider('{"results":[{"index":3},{"index":4},{"index":2}]}'),
+        LlmRerankConfig(candidate_limit=4, rerank_limit=1),
+    )
+
+    reranked = strategy.search("query", 3)
+
+    assert [result.item.path for result in reranked] == ["src/c.py", "src/a.py", "src/b.py"]
+    assert '"limit": 1' in strategy.generation_provider.prompts[0]
 
 
 def _result(item_id: str, path: str, score: float) -> SearchResult:

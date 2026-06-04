@@ -15,6 +15,7 @@ class OpenAICompatibleEmbeddingProvider(OpenAIEmbeddingProvider):
         timeout_seconds: float = Defaults.OPENAI_TIMEOUT_SECONDS,
         document_prefix: str | None = Defaults.EMBEDDING_DOCUMENT_PREFIX,
         query_prefix: str | None = Defaults.EMBEDDING_QUERY_PREFIX,
+        max_input_chars: int | None = Defaults.EMBEDDING_MAX_INPUT_CHARS,
     ):
         super().__init__(
             model=model,
@@ -25,6 +26,7 @@ class OpenAICompatibleEmbeddingProvider(OpenAIEmbeddingProvider):
             timeout_seconds=timeout_seconds,
             document_prefix=document_prefix,
             query_prefix=query_prefix,
+            max_input_chars=max_input_chars,
             send_dimensions=bool(dimensions),
         )
         self.name = EmbeddingProviderId.OPENAI_COMPATIBLE.value

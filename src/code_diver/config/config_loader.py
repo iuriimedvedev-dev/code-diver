@@ -383,6 +383,7 @@ class ConfigLoader:
                     base.candidate_limit if base is not None else Defaults.LLM_RERANK_CANDIDATE_LIMIT,
                 )
             ),
+            rerank_limit=int(mapping.get("rerank_limit", base.rerank_limit if base is not None else 0)),
             max_preview_chars=int(
                 mapping.get(
                     "max_preview_chars",
@@ -408,6 +409,28 @@ class ConfigLoader:
                     base.preserve_top_score_margin
                     if base is not None
                     else Defaults.LLM_RERANK_PRESERVE_TOP_SCORE_MARGIN,
+                )
+            ),
+            retry_attempts=int(
+                mapping.get(
+                    "retry_attempts",
+                    base.retry_attempts if base is not None else Defaults.LLM_RERANK_RETRY_ATTEMPTS,
+                )
+            ),
+            retry_base_delay_seconds=float(
+                mapping.get(
+                    "retry_base_delay_seconds",
+                    base.retry_base_delay_seconds
+                    if base is not None
+                    else Defaults.LLM_RERANK_RETRY_BASE_DELAY_SECONDS,
+                )
+            ),
+            retry_max_delay_seconds=float(
+                mapping.get(
+                    "retry_max_delay_seconds",
+                    base.retry_max_delay_seconds
+                    if base is not None
+                    else Defaults.LLM_RERANK_RETRY_MAX_DELAY_SECONDS,
                 )
             ),
         )

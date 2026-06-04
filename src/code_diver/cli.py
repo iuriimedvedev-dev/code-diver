@@ -948,6 +948,7 @@ def make_embedding_provider(config: AppConfig, payload: dict[str, Any] | None = 
         retry_delay_seconds=embedding.retry_delay_seconds,
         document_prefix=embedding.document_prefix,
         query_prefix=embedding.query_prefix,
+        max_input_chars=embedding.max_input_chars,
     )
 
 

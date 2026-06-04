@@ -56,13 +56,15 @@ This proves the `Hit@10 >= 0.95` goal is reachable. The cost means Gemini 3.5 Fl
 
 ## Public Benchmark
 
-The public benchmark path is now **MTEB CodeSearchNetRetrieval Python 1000**.
+The public benchmark path is now a local positive-slice of **MTEB CodeSearchNetRetrieval Python**.
+
+Important scope note: this is not an official full-corpus MTEB score. The current adapter materializes a reproducible local slice of positive qrels as synthetic files so we can compare our pipeline quickly and repeatably.
 
 Command:
 
 ```bash
 uv run code-diver \
-  --config configs/codesearchnet-mteb-python-hash.yml \
+  --config configs/codesearchnet-mteb-python-h5-qwen-quality.yml \
   evaluate \
   --benchmark codesearchnet-mteb-python-1000 \
   --limit 10 \
@@ -73,39 +75,36 @@ uv run code-diver \
 
 Without `--yes`, the CLI asks before downloading missing assets.
 
-Fresh local run:
+Current quality slice, 1000 cases:
 
-| Metric | Value |
-| --- | ---: |
-| Cases | 1000 |
-| Corpus files | 1000 |
-| Local prepared assets | 13 MB |
-| Indexed items | 1001 |
-| Hit@1 | 0.164 |
-| Hit@3 | 0.300 |
-| Hit@5 | 0.364 |
-| Hit@10 | 0.476 |
-| Recall@10 | 0.476 |
-| Precision@10 | 0.0476 |
-| nDCG@10 | 0.304 |
-| MAP@10 | 0.251 |
-| Mean ms/query | 95.3 |
-| p95 ms/query | 127.2 |
-| Degraded cases | 0 |
+| Setup | Index | Ranker | Hit@1 | Hit@3 | Hit@5 | Hit@10 | Recall@10 | Precision@10 | MRR@10 | nDCG@10 | Mean ms/query | Status |
+| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| Pure H3 quality | Qwen3-Embedding-0.6B file metadata | none | 0.823 | 0.919 | 0.944 | 0.961 | 0.961 | 0.177 | 0.875 | 0.900 | 555 | valid |
+| H5 quality | Qwen3-Embedding-0.6B file metadata | Gemini 3.1 Flash Lite top-10 | 0.904 | 0.965 | 0.977 | 0.982 | 0.982 | 0.182 | 0.933 | 0.948 | 3020 | valid |
+| H5 local | Qwen3-Embedding-0.6B file metadata | Qwen3.5 4B compact top-10 | 0.842 | 0.936 | 0.953 | 0.967 | 0.967 | 0.176 | 0.890 | 0.913 | 7708 | valid |
 
-This is a **pipeline baseline**, not the quality target. It uses deterministic hash embeddings so reviewers can download and run the benchmark without API keys or local model servers. The next quality benchmark profile should swap in the real Pure H3 embedding/rerank stack.
+This is the first public-slice result that should be treated as a quality signal. It uses local Qwen embeddings and file-level metadata indexing; H5 adds an LLM ranker after deterministic H3 candidate generation. All three valid 1000-case quality runs exceed the `Hit@10 >= 0.95` target.
+
+Current winners:
+
+- Best quality: H5 Qwen index + Gemini 3.1 Flash Lite (`Hit@1 0.904`, `Hit@10 0.982`, `nDCG@10 0.948`).
+- Fastest and cheapest wall-clock/API path: Pure H3 Qwen index (`555ms/query`, no LLM API call).
+- No-API LLM ranker: H5 Qwen index + compact local Qwen3.5 4B (`Hit@10 0.967`, but `7708ms/query`).
+- Quality-focused default: H5 Qwen index + Gemini Flash Lite. It costs latency and API tokens, but gives the best top-ordering.
 
 Additional public CodeSearchNet comparison is in `docs/codesearchnet-market-comparison-2026-06-03.md`.
 
-Current no-key matrix snapshot:
+Discarded hash harness:
 
 | Setup | Hit@1 | Hit@3 | Hit@5 | Hit@10 | nDCG@10 | Mean ms/query | Status |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| Vector chunks | 0.164 | 0.300 | 0.364 | 0.476 | 0.304 | 86 | Stable baseline. |
-| H2 line+symbol hybrid | 0.295 | 0.510 | 0.595 | 0.708 | 0.493 | 195 | Best matching pair, but later drifted. |
-| Pure H3 | 0.320 | 0.607 | 0.681 | 0.775 | 0.552 | 316 | Best completed no-key quality run. |
+| Vector chunks | 0.164 | 0.300 | 0.364 | 0.476 | 0.304 | 86 | Reproducibility harness only. |
+| H2 line+symbol hybrid | 0.295 | 0.510 | 0.595 | 0.708 | 0.493 | 195 | Reproducibility harness only; unstable across repeated runs. |
+| Pure H3 hash | 0.320 | 0.607 | 0.681 | 0.775 | 0.552 | 316 | Reproducibility harness only. |
 
-Market comparison: public MTEB `CodeSearchNetRetrieval` Python rows for strong embedding models are around `0.94-0.967` official score, with `voyage-code-3`, `Qwen3-Embedding-8B`, `gemini-embedding-001`, `embeddinggemma-300m`, and `Qwen3-Embedding-4B` all far above our hash-only public profiles. We are not SOTA on this benchmark yet; the next valid quality run must use a real code-aware embedder.
+The hash rows are useful only as a controlled proof that real semantic embeddings are necessary. They are removed from quality conclusions.
+
+Market comparison: public MTEB `CodeSearchNetRetrieval` Python rows for strong embedding models are around `0.94-0.967` official score, with `voyage-code-3`, `Qwen3-Embedding-8B`, `gemini-embedding-001`, `embeddinggemma-300m`, and `Qwen3-Embedding-4B` all strong candidates. Our local positive-slice H5 quality run is now in the right range for Hit@10, but it is not directly comparable to official full-corpus MTEB.
 
 Evaluation caveat: `h2_line_symbol_hybrid` produced different results across deterministic no-key runs (`Hit@10` ranged from `0.622` to `0.708`, verify single-run `0.675`). Treat that as an eval/retrieval determinism bug, likely unstable candidate ordering or tie-breaking in hybrid ranking. Fix it before using repeated-run variance as a quality claim.
 
@@ -133,7 +132,7 @@ The no-config Pure H3 defaults:
 ## Remaining Hard Problems
 
 - Add fail-fast gates for auth/model failures and high degraded-case rates.
-- Add a quality benchmark profile using the real local embedding model, not hash embeddings.
-- Add a cheap LLM rerank profile with Gemini 3.1 Flash Lite after fail-fast gating.
+- Run the Qwen quality profile on all 1000 public-slice cases.
+- Compare the top local and API rankers over the same Qwen quality index.
 - Add full run manifests: git SHA, dataset hash, config hash, model/provider versions, index hash, and command.
 - Keep agentic search as a hard-case escalation path, not the default path.

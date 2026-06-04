@@ -4,11 +4,23 @@ This note compares our public CodeSearchNet/MTEB runner against public results f
 
 ## Scope
 
-Benchmark: `mteb/CodeSearchNetRetrieval`, Python subset, `test`, 1000 queries / 1000 corpus items materialized by our `codesearchnet-mteb-python-1000` benchmark profile.
+Benchmark source: `mteb/CodeSearchNetRetrieval`, Python subset, `test`.
+
+Our current runner materializes a local positive-slice: selected qrel positives become synthetic files, then Code Diver searches those files. This is useful for reproducible product benchmarking, but it is not the official full-corpus MTEB retrieval protocol.
 
 Important caveat: our local runner reports `Hit@k`, `Recall@k`, `Precision@k`, `MAP@10`, and `nDCG@10` from Code Diver. The public MTEB `mteb/results` table stores a single official `score` per model/subset. Use the public table as the market/SOTA reference, not as a byte-for-byte reproduction of our runner.
 
-## Our Current Public Runner
+## Our Current Quality Runner
+
+These rows use local Qwen3-Embedding-0.6B file-metadata embeddings. H3 is the deterministic file candidate generator; H5 adds an LLM final ranker over H3 candidates.
+
+| Setup | Cases | Hit@1 | Hit@3 | Hit@5 | Hit@10 | Recall@10 | Precision@10 | MAP@10 | nDCG@10 | Mean ms/query | Status |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| `pure_h3_qwen_index` | 1000 | 0.823 | 0.919 | 0.944 | 0.961 | 0.961 | 0.177 | 0.880 | 0.900 | 555 | Fast/free local quality baseline. |
+| `h5_qwen_index_gemini_flash_lite_top10` | 1000 | 0.904 | 0.965 | 0.977 | 0.982 | 0.982 | 0.182 | 0.936 | 0.948 | 3,020 | Best measured quality/cost tradeoff. |
+| `h5_qwen_index_qwen35_4b_compact_top10` | 1000 | 0.842 | 0.936 | 0.953 | 0.967 | 0.967 | 0.176 | 0.895 | 0.913 | 7,708 | Local no-API ranker; too slow for default use. |
+
+## Discarded Hash Harness
 
 These are reproducible no-key profiles using `hash-token-v1`, so reviewers can run them without API keys or local model servers.
 
@@ -18,7 +30,7 @@ These are reproducible no-key profiles using `hash-token-v1`, so reviewers can r
 | `h2_line_symbol_hybrid` | 2 matching | 0.295 | 0.510 | 0.595 | 0.708 | 0.708 | 0.0998 | 0.425 | 0.493 | 195 | Best stable pair before drift. |
 | `h2_line_symbol_hybrid` | drift run | 0.213 | 0.365 | 0.463 | 0.622 | 0.622 | 0.1042 | 0.320 | 0.391 | 205 | Reproducibility warning. |
 | `h2_line_symbol_hybrid` | verify single-run | 0.275 | 0.458 | 0.553 | 0.675 | 0.675 | 0.1072 | 0.394 | 0.461 | 201 | Confirms nondeterministic ranking/ordering risk. |
-| `pure_h3` | 1 | 0.320 | 0.607 | 0.681 | 0.775 | 0.775 | 0.1030 | 0.481 | 0.552 | 316 | Best completed no-key quality run. |
+| `pure_h3_hash` | 1 | 0.320 | 0.607 | 0.681 | 0.775 | 0.775 | 0.1030 | 0.481 | 0.552 | 316 | Reproducibility harness only. |
 | `h2_summary_manifest_hybrid` | incomplete | - | - | - | - | - | - | - | - | >240s before termination | Too slow in this hash-only sweep. |
 
 Observed artifacts:
@@ -26,7 +38,7 @@ Observed artifacts:
 - `vector_chunks` is deterministic across three runs.
 - `h2_line_symbol_hybrid` is not deterministic enough: a deterministic no-key setup produced materially different rankings across processes.
 - The likely fault class is unstable candidate tie-breaking or set/dict ordering inside hybrid ranking, not model nondeterminism.
-- `pure_h3` is currently the strongest completed no-key architecture run on this public benchmark, but it still needs repeated clean runs after the determinism bug is fixed.
+- The hash harness is no longer used for quality conclusions. It remains useful as evidence that real semantic embeddings are required.
 
 ## Public MTEB Results Extract
 
@@ -60,27 +72,27 @@ Selected model takeaway:
 
 ## Did We Reach SOTA?
 
-No, not on public CodeSearchNet/MTEB.
+Not proven on official public CodeSearchNet/MTEB.
 
-The best completed no-key Code Diver profile so far is `pure_h3` with `nDCG@10 = 0.552` and `Hit@10 = 0.775`. Public embedding models on the same MTEB task are around `0.94-0.967` official score on the Python subset.
+The best measured Code Diver local positive-slice profile so far is `h5_qwen_index_gemini_flash_lite_top10` with `Hit@10 = 0.982` and `nDCG@10 = 0.948` on 1000 local-slice cases. Public embedding models on the official full MTEB task are around `0.94-0.967` official score on the Python subset.
 
 That does not invalidate the architecture. It clarifies the gap:
 
-1. Our public no-key benchmark uses hash embeddings, so it validates the pipeline and ranking architecture, not the quality ceiling.
-2. Hybrid structural/sparse signals matter: Pure H3 improved `Hit@10` from `0.476` to `0.775` over the vector hash baseline.
-3. To approach market quality, the quality profile must use a real code-aware embedding model: Qwen3-Embedding-4B, Qwen3-Embedding-8B, EmbeddingGemma, Gemini embedding, or Voyage Code.
-4. Before claiming any final number, fix deterministic ordering in hybrid search and rerun Pure H3 several times.
+1. Real embeddings were the biggest lever: Qwen3-Embedding-0.6B changed H3 from hash-harness `Hit@10 = 0.775` to quality-slice `Hit@10 = 0.950`.
+2. LLM ranking is a real ordering lever: Gemini Flash Lite improved `Hit@1` from `0.740` to `0.870` over the same Qwen index.
+3. To make an official SOTA claim, run the official full-corpus MTEB protocol or a larger negative-pool profile, not only the local positive slice.
+4. To improve quality further, test Qwen3-Embedding-4B, EmbeddingGemma-300m, Gemini embedding, and Voyage Code against the same H3/H5 stack.
 
 ## Recommended Next Benchmark Matrix
 
 Priority order for quality runs:
 
-1. Fix hybrid ranking determinism and add a regression test that identical index/config/query produces identical top-k across processes.
-2. `pure_h3 + Qwen3-Embedding-4B`.
-3. `pure_h3 + google/embeddinggemma-300m`.
-4. `pure_h3 + Qwen3-Embedding-0.6B` as the cheap local baseline.
-5. `pure_h3 + Gemini embedding` as an API ceiling.
-6. `pure_h3 + Voyage Code 3` as a code-specialized API ceiling.
-7. Add Qwen3-Reranker after the strong embedder baseline is established.
+1. Finish 1000-case runs for `pure_h3_qwen_index`, `h5_qwen_index_gemini_flash_lite_top10`, and the local no-API ranker.
+2. Add a larger negative-pool profile: 1000 queries plus 20k/50k corpus items and BM25 hard negatives.
+3. `pure_h3/H5 + Qwen3-Embedding-4B`.
+4. `pure_h3/H5 + google/embeddinggemma-300m`.
+5. `pure_h3/H5 + Gemini embedding` as an API ceiling.
+6. `pure_h3/H5 + Voyage Code 3` as a code-specialized API ceiling.
+7. Add a specialized cross-encoder reranker after the strong embedder baseline is established.
 
-The honest current status: we built the benchmark and a reproducible no-key baseline path, but we have not proven SOTA-quality public CodeSearchNet performance until the real embedding profiles are run and the hybrid determinism issue is fixed.
+The honest current status: the local positive-slice result is now strong, but it is not an official SOTA claim until we run a full-corpus or large-negative public profile.
