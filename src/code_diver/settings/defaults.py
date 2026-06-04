@@ -17,7 +17,7 @@ class Defaults:
     QDRANT_URL = "http://localhost:6333"
     QDRANT_COLLECTION = "code_diver"
     QDRANT_API_KEY_ENV = "QDRANT_API_KEY"
-    QDRANT_BATCH_SIZE = 64
+    QDRANT_BATCH_SIZE = 256
 
     EMBEDDING_PROVIDER = "gemini"
     EMBEDDING_MODEL = "gemini-embedding-2"

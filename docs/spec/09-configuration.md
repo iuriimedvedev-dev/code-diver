@@ -55,7 +55,9 @@ Every config field default reads `Defaults.X`; `ConfigLoader` then does
 **Default index profile:** `code-diver.yml` now uses the H5-style file locator setup:
 `line_chunks: false`, `structural_chunks: false`, `symbol_chunks: false`,
 `file_summary_chunks: true`, and `file_manifest_chunks: true`. The persistent index
-embeds file metadata, not full source bodies.
+embeds file metadata, not full source bodies. File enumeration is gitignore-aware via
+`rg --files --no-require-git`; if `rg` is unavailable, the scanner falls back to the older
+`os.walk` enumerator with built-in excludes.
 
 **Built-in embedding extractor profiles:** `init --embedding qwen3-0.6b`,
 `init --embedding qwen3-4b`, `init --embedding qwen3-0.6b-vllm`,
@@ -75,6 +77,11 @@ the `runtime-vllm` dependency group under `.code-diver/runtime/vllm`. `--runtime
 records that the endpoint is managed outside Code Diver, for example by Docker or a remote
 server; later commands only check readiness and fail with an actionable message if it is
 down.
+
+**Default vector store:** `code-diver.yml` points Qdrant at `http://localhost:6333` and uses
+larger upsert batches for normal development runs. Embedded Qdrant `location:` mode remains
+available in custom YAML for tiny smoke tests, but it is intentionally not the default for
+large codebases.
 
 **New `ScannerConfig` knob:** `structural_chunks` (`False`) — see
 [02](./02-indexing.md) structural chunking.

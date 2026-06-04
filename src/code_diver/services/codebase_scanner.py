@@ -3,6 +3,8 @@ from __future__ import annotations
 import fnmatch
 import hashlib
 import os
+import shutil
+import subprocess
 from collections.abc import Callable
 from pathlib import Path
 
@@ -106,30 +108,48 @@ class CodebaseScanner:
         root = root.resolve()
         items: list[CodeItem] = []
         processed_files = 0
-        for current_root, dir_names, file_names in os.walk(root):
-            current_path = Path(current_root)
-            dir_names[:] = [
-                name
-                for name in sorted(dir_names)
-                if not self._matches_excluded_directory((current_path / name).relative_to(root).as_posix())
-            ]
-            for file_name in sorted(file_names):
-                path = current_path / file_name
-                rel_path = path.relative_to(root).as_posix()
-                if self._should_skip_file(path, rel_path):
-                    continue
-                text = self._read_text(path)
-                if text is None or not text.strip():
-                    continue
-                processed_files += 1
-                items.extend(self._items_for_file(rel_path, text))
-                if self.progress_callback:
-                    self.progress_callback(processed_files, len(items))
+        for path, rel_path in self._candidate_files(root):
+            text = self._read_text(path)
+            if text is None or not text.strip():
+                continue
+            processed_files += 1
+            items.extend(self._items_for_file(rel_path, text))
+            if self.progress_callback:
+                self.progress_callback(processed_files, len(items))
         return items
 
     def count_candidate_files(self, root: Path) -> int:
         root = root.resolve()
-        count = 0
+        return sum(1 for _ in self._candidate_files(root))
+
+    def _candidate_files(self, root: Path):
+        yield from self._rg_candidate_files(root) or self._walk_candidate_files(root)
+
+    def _rg_candidate_files(self, root: Path) -> list[tuple[Path, str]]:
+        if shutil.which("rg") is None:
+            return []
+        try:
+            result = subprocess.run(
+                ["rg", "--files", "--color", "never", "--no-require-git"],
+                cwd=root,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                text=True,
+                check=False,
+            )
+        except OSError:
+            return []
+        if result.returncode not in {0, 1}:
+            return []
+        candidates: list[tuple[Path, str]] = []
+        for rel_path in sorted(line.strip() for line in result.stdout.splitlines() if line.strip()):
+            path = root / rel_path
+            if not self._should_skip_file(path, rel_path):
+                candidates.append((path, rel_path))
+        return candidates
+
+    def _walk_candidate_files(self, root: Path) -> list[tuple[Path, str]]:
+        candidates: list[tuple[Path, str]] = []
         for current_root, dir_names, file_names in os.walk(root):
             current_path = Path(current_root)
             dir_names[:] = [
@@ -141,8 +161,8 @@ class CodebaseScanner:
                 path = current_path / file_name
                 rel_path = path.relative_to(root).as_posix()
                 if not self._should_skip_file(path, rel_path):
-                    count += 1
-        return count
+                    candidates.append((path, rel_path))
+        return candidates
 
     def _items_for_file(self, rel_path: str, text: str) -> list[CodeItem]:
         symbols = (

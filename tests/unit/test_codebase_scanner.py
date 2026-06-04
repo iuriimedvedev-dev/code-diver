@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shutil
 import warnings
 from pathlib import Path
 
@@ -48,6 +49,23 @@ def test_scanner_skips_binary_and_excluded_paths(tmp_path: Path) -> None:
 
     items = CodebaseScanner(include=["*.py"], exclude=["skip.py", "generated/**"]).scan(tmp_path)
 
+    assert [item.path for item in items] == ["keep.py"]
+
+
+def test_scanner_respects_gitignore_when_ripgrep_is_available(tmp_path: Path) -> None:
+    if shutil.which("rg") is None:
+        pytest.skip("ripgrep is required for gitignore-aware scanner enumeration")
+    (tmp_path / ".gitignore").write_text("ignored.py\ngenerated/\n", encoding="utf-8")
+    (tmp_path / "keep.py").write_text("print('ok')\n", encoding="utf-8")
+    (tmp_path / "ignored.py").write_text("print('ignored')\n", encoding="utf-8")
+    generated = tmp_path / "generated" / "nested.py"
+    generated.parent.mkdir()
+    generated.write_text("print('generated')\n", encoding="utf-8")
+
+    scanner = CodebaseScanner(include=["*.py"])
+    items = scanner.scan(tmp_path)
+
+    assert scanner.count_candidate_files(tmp_path) == 1
     assert [item.path for item in items] == ["keep.py"]
 
 

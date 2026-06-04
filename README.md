@@ -67,6 +67,11 @@ uv run code-diver index . --no-progress
 uv run code-diver index . --quiet
 ```
 
+The scanner enumerates files through `rg --files --no-require-git`, so it honors
+`.gitignore` for both Git repositories and unpacked source trees. For large repositories use
+the Docker Qdrant service from `docker compose up -d qdrant`; embedded local Qdrant storage
+is only suitable for small smoke indexes and gets slow above tens of thousands of points.
+
 `search` is the code-exploration entrypoint: it launches the configured read-only Search agent, which searches, verifies with bounded reads/grep/symbol tools, and explains the code with file/line citations. It prints a preflight summary first: root, config, index store, model, tools, and missing-index guidance when needed.
 
 For interactive exploration:

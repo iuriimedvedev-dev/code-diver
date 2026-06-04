@@ -4,9 +4,10 @@ artifact: .code-diver/index.json
 storage:
   provider: qdrant
   qdrant:
-    location: .code-diver/qdrant
+    url: http://localhost:6333
     collection: code_diver
     api_key_env: QDRANT_API_KEY
+    batch_size: 256
 
 embedding:
   provider: gemini

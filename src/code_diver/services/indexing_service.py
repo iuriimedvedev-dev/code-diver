@@ -310,7 +310,7 @@ class IndexingService:
     def _start_save_progress(self) -> None:
         if self._progress is None:
             return
-        self._save_task = self._progress.add_task("saving vector index", total=None)
+        self._save_task = self._progress.add_task("streaming vectors to store", total=None)
 
     def _finish_save_progress(self) -> None:
         if self._progress is None or self._save_task is None:
