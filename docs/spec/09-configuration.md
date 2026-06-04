@@ -41,18 +41,27 @@ Every config field default reads `Defaults.X`; `ConfigLoader` then does
 
 | Field | Default |
 |-------|---------|
-| `candidate_limit` | `40` |
+| `candidate_limit` | `30` |
+| `rerank_limit` | `10` |
 | `max_preview_chars` | `700` |
-| `mode` | `file_first` (∈ `file_first` / `base_rank_prior` / `precision` / `compact`) |
-| `include_reasons` | `True` |
+| `mode` | `precision` (in `file_first` / `base_rank_prior` / `precision` / `compact`) |
+| `include_reasons` | `False` |
 | `preserve_top_candidate` | `False` |
 | `preserve_top_score_margin` | `0.0` |
+| `retry_attempts` | `3` |
 
 **New `HybridSearchConfig` knobs** (see [04](./04-hybrid-search.md)):
 `vector_kind_limits` (`{}`), `vector_kind_multipliers` (`{}`), `file_vote_weight`
 (`0.0`), `preserve_vector_top` (`False`), `vector_top_score_margin` (`0.0`).
 
-**Default index profile:** `code-diver.yml` now uses the H5-style file locator setup:
+**Default search/index profile:** no-config commands now use the H5-style file locator
+setup:
+
+- `search.strategy: hybrid_rerank`;
+- local Qwen3-Embedding-0.6B through an OpenAI-compatible endpoint for embeddings;
+- Gemini 3.1 Flash Lite for bounded top-10 LLM reranking/Search agent responses;
+- H3 hybrid candidates underneath the LLM rerank layer;
+- file-level persistent index only:
 `line_chunks: false`, `structural_chunks: false`, `symbol_chunks: false`,
 `file_summary_chunks: true`, and `file_manifest_chunks: true`. The persistent index
 embeds file metadata, not full source bodies. File enumeration is gitignore-aware via
@@ -138,15 +147,20 @@ untested).
 
 ## CLI — `cli.py`
 
-13 subcommands dispatched from `main(argv)` / `build_parser()`:
+The public assignment surface shown by default is:
 
-`index` · `index-selected` · `search` · `tree` · `grep` · `rg` · `read` · `symbols` ·
-`open` · `chat` · `ask` · `evaluate` · `evaluate-indexing` · `evaluate-search-tools` ·
-`experiment`.
+`init` · `index` · `search` · `evaluate`
+
+`search` is the code-exploration entrypoint; `chat` is kept as a hidden alias for the
+same Search agent flow. Advanced inspection/research commands are available behind
+`--help-all`:
+
+`index-selected` · `tree` · `grep` · `rg` · `read` · `symbols` · `open` · `chat` · `ask`
+· `evaluate-indexing` · `evaluate-search-tools` · `experiment`.
 
 **Contract (intended)**: `cli.py` is the argument-parsing + dispatch boundary; business
 logic lives in services.
-⚠️ **(5.1, High)** Reality: `cli.py` is 1,041 lines and contains evaluation metrics,
+⚠️ **(5.1, High)** Reality: `cli.py` is 2,169 lines and contains evaluation metrics,
 result serialization, graph-indexer construction, search-tool wiring, and experiment
 config mutation. It is the de-facto orchestration layer. Top-level error handling is
 `print(f"error: {exc}")` (⚠️ 4.4) — tracebacks discarded, no stdlib `logging` anywhere

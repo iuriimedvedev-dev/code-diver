@@ -3,7 +3,8 @@
 Build a searchable index from a repository: **scan → extract items → embed → store**
 (+ optional graph build).
 
-Entry: `cli.py` `cmd_index` / `cmd_index_selected` → `services/indexing_service.py`.
+Entry: `cli.py` `cmd_index` / hidden `cmd_index_selected` →
+`services/indexing_service.py`.
 
 ## Pipeline contract
 
@@ -33,16 +34,20 @@ root ──▶ Scanner ──▶ Iterable[CodeItem] ──▶ EmbeddingTextPrepa
 
 - Walks repo honoring `.gitignore` (`inspection/ignore_matcher.py`) + configured
   include/exclude globs.
-- Emits three item kinds: chunks, symbols, file summaries.
-- Chunking: fixed window of `scanner.chunk_lines` (default 120).
+- Emits configured item kinds: line chunks, structural chunks, symbols, file summaries,
+  and file manifests.
+- The built-in H5 default disables durable line/symbol body chunks and emits compact
+  `file_summary` + `file_manifest` items.
+- Fixed-window chunking remains available for research configs through
+  `scanner.line_chunks: true` and `scanner.chunk_lines`.
 
-**Contract**: deterministic — same repo + config ⇒ identical items.
+**Contract**: deterministic — same repo + config => identical items.
 ⚠️ Divergence (I-7): chunk **stride == chunk size, no overlap**. A symbol spanning a
 chunk boundary is split (signature in chunk N, body in chunk N+1), degrading retrieval
 for boundary-spanning definitions. The spec for high-quality chunking calls for a
 sliding window with overlap. **Structural chunking** (below) is the partial attempt at
-boundary-aware chunking, but it is additive and off by default — the token-count line
-chunks remain the production behaviour.
+boundary-aware chunking. In H5, durable source chunks are not the production default;
+the chunking caveat applies to explicit deep-index/research profiles.
 
 ### Structural chunking (additive, off by default)
 
@@ -114,27 +119,29 @@ sanitizer entirely, so an injected response could suppress indexing of whole lan
 overwrite) — there is **no incremental indexing** of changed/new/deleted files. The
 `append` path exists but is used only by selected indexing.
 
-## Streaming / append indexing — `services/indexing_service.py:62-133`
+## Streaming / replace indexing — `services/indexing_service.py`
 
-`IndexingService._embed_and_save` now detects a vector store exposing `append()` and
-indexes in **blocks** (`block_size = batch_size × workers × 8`) to bound memory for
-large repos (IntelliJ scale): `save()` for the first block, `append()` for the rest.
-This partially addresses prior I-3 by streaming rather than materializing all vectors at
-once.
+`IndexingService._embed_and_save` detects a vector store exposing `replace_batches()`
+and embeds/saves in **blocks** (`block_size = batch_size * workers * 8`) to bound memory
+for large repos. Qdrant implements `replace_batches()` through a staging collection:
+embed/upsert all batches into staging, publish the staging collection as the live alias
+only after success, then delete the old target collection.
 
-⚠️ **CRITICAL finding I-1W (AUDIT-2026-06-02)**: a mid-stream failure leaves Qdrant
-**partially written with no rollback** — a regression of the previously fail-safe
-single-pass path (where a failed index left no partial state). Combined with I-1 (no
-retry around `future.result()`), one transient error can leave the collection in a
-corrupt, half-indexed state.
+This fixes the former I-1W failure mode where a mid-stream failure could leave the live
+Qdrant collection half-written. Transient embedding/provider failures can still abort the
+indexing run, but the previous live alias remains intact when Qdrant staging has not been
+published.
 
 ## Deterministic-indexing toggles (commit `eb63c2a`)
 
-New `ScannerConfig` toggles enforce the policy "**no AI during indexing, only after
-retrieval**" (`docs/deterministic-indexing.md`):
+`ScannerConfig` toggles enforce the H5 default policy "**compact deterministic indexing,
+LLM after retrieval**" (`docs/deterministic-indexing.md`):
 
-- `line_chunks` (default `True`) — emit fixed-line chunks.
-- `max_symbols_per_file` (default `None`) — cap symbols emitted per file.
+- `line_chunks` (library default `True`, H5 default `False`) — emit fixed-line chunks.
+- `file_summary_chunks` (H5 default `True`) — emit one compact summary item per file.
+- `file_manifest_chunks` (H5 default `True`) — emit one path/import/symbol manifest item
+  per file.
+- `max_symbols_per_file` (H5 default `96`) — cap symbols used in file metadata.
 
 ⚠️ Divergence (D-1): `line_chunks=false` **silently disables `structural_chunks`** too —
 the two flags are coupled, so turning off line chunks unexpectedly removes structural
@@ -144,17 +151,15 @@ chunks even when `structural_chunks=True`.
 
 | `workers` | Behaviour |
 |-----------|-----------|
-| `1` (default) | Single `embed_documents(all_texts)` call — **batching skipped** |
+| `1` (default) | Sequentially sends configured `batch_size` batches |
 | `>1` | Splits into `batch_size` (default 32) batches, runs in a thread pool |
 
 **Contract**: respect provider per-call limits regardless of worker count; retry
 transient failures (`EMBEDDING_RETRY_ATTEMPTS = 3` exists in defaults).
 ⚠️ Divergences:
-- (I-10) With the default `workers=1`, `batch_size` is **dead** — a provider with a
-  per-call document cap fails on large repos at `workers=1` but works at `workers=2`.
-- (I-1) `future.result()` re-raises immediately and `IndexingService.build` has no
-  surrounding retry/partial-save — **one transient network error aborts the entire
-  index** with no partial state. The retry constant is not honored here.
+- (I-1) A provider error still aborts the indexing run. With Qdrant staging this should
+  not corrupt the previous live collection, but local/API embedding retries remain an
+  important reliability gap.
 - (2.1) `VertexEmbeddingProvider` loops one text per API call, defeating batching
   outright (see [07](./07-providers-and-storage.md)).
 

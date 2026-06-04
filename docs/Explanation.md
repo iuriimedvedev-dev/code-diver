@@ -11,11 +11,24 @@ We have two separate phases:
 
 The key rule: indexing quality defines the ceiling. If the right file is not present in the candidate set, no reranker can recover it.
 
-## Current Direction: Small Hot Locator, Deep Search On Demand
+## Current Direction: H5 By Default, Small Hot Locator Underneath
 
 For a large repository like IntelliJ, indexing every chunk of source code is the wrong default. It creates a second copy of the repository inside the vector DB, increases RAM/storage, and gives the reranker too many near-duplicate candidates.
 
-The better shape is a two-layer system:
+The current default shape is H5:
+
+```text
+local Qwen file-metadata embeddings
+-> H3 deterministic hybrid file candidates
+-> Gemini 3.1 Flash Lite top-10 LLM rerank
+-> targeted read/grep/symbol inspection for the final answer
+```
+
+H3 is still the engine underneath H5. It builds the candidate set quickly and cheaply.
+H5 adds one bounded LLM ranking step because our best measurements show that ranking,
+not more permanent indexing depth, is the main user-visible quality lever.
+
+The better physical index shape is still a two-layer system:
 
 1. **Persistent locator index.** Keep a compact index hot in memory. Its job is to find likely files and entry-point symbols.
 2. **On-demand deep search.** Once we have 20-50 candidate files, either grep/read them directly or build a temporary fine-grained index only for those files.
@@ -281,15 +294,16 @@ So the next quality lever is not more raw tool freedom. It is better policy:
 
 Qwen3.5 4B local is a useful counterpoint: it beat bounded Gemini Lite on the 100-case slice, but at roughly 3x the Gemini bounded latency and 3.5x the Pure H3 latency. That suggests the local model may be useful for offline sweeps or hard-case reranking, but not as the default interactive orchestrator unless we reduce model turns sharply.
 
-## Final 2026-06-03 Research Slice
+## Final 2026-06-04 Research Slice
 
 The current research slice is closed for architecture direction. The saved metrics say:
 
 ```text
-Pure H3 is the strong baseline.
+H5 is the product default.
+Pure H3 is the fast deterministic candidate generator and no-API fallback.
 Agentic H3 is currently worse, more expensive, and slower.
 Gemini 3.5 Flash is the quality ceiling but not a routine model because of cost.
-Gemini 3.1 Flash Lite is the cheap API reranker/entrypoint to keep testing.
+Gemini 3.1 Flash Lite is the default quality/cost reranker.
 Qwen3.5 4B local is viable as a local candidate, but too slow in the current agentic loop.
 ```
 
@@ -300,6 +314,19 @@ The strongest valid full result is the non-agentic H3 manifest answer-set run:
 | H3 manifest + Gemini 3.5 Flash | 1000 | 0.871 | 0.903 | 0.943 | 0.976 | 0.964 | 0.419 | 0.898 | 0.908 | 6542 | $34.94 | 0 |
 
 This proves the `Hit@10 >= 0.95` target is reachable, but it is too expensive for routine iteration.
+
+The public reviewer-runnable default is now the CodeSearchNet/MTEB Python 1000-case
+local positive slice with Qwen-backed H5:
+
+| Setup | Cases | Hit@1 | Hit@3 | Hit@5 | Hit@10 | Recall@10 | Precision@10 | MRR@10 | nDCG@10 | Mean ms | Status |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| Pure H3 quality | 1000 | 0.823 | 0.919 | 0.944 | 0.961 | 0.961 | 0.177 | 0.875 | 0.900 | 555 | fast/no-API fallback |
+| H5 quality | 1000 | 0.904 | 0.965 | 0.977 | 0.982 | 0.982 | 0.182 | 0.933 | 0.948 | 3020 | default quality path |
+| H5 local | 1000 | 0.842 | 0.936 | 0.953 | 0.967 | 0.967 | 0.176 | 0.890 | 0.913 | 7708 | no-API ranker fallback |
+
+These public-slice numbers are not official full-corpus MTEB scores. They are useful for
+checking the Code Diver architecture with a downloadable benchmark and consistent
+settings.
 
 The current agentic evidence does not beat Pure H3:
 
@@ -319,6 +346,12 @@ The attempted 1000-case agentic slice is not valid for search-quality selection:
 | Agentic H3 bounded + Qwen3.5 4B 1000 | zero-byte artifact | No usable metrics. |
 
 Operationally, the next fix is not another model sweep. The runner must fail fast on ADC/auth failures, expose `valid/degraded/invalid` status in reports, and reject quality comparisons when degraded cases or rerank errors exceed a configured threshold.
+
+The CLI now reflects this default: `evaluate --benchmark codesearchnet-mteb-python-1000`
+uses `configs/codesearchnet-mteb-python-h5-qwen-quality.yml`. The old hash benchmark is
+available only as `codesearchnet-mteb-python-hash-smoke` for no-key plumbing checks.
+Human eval output prints selected settings, a progress bar over known case count, and a
+metrics table. Use `--json` only when a script needs machine-readable output.
 
 ## TUI Goal
 
@@ -424,6 +457,7 @@ Mitigation: use syntax-aware chunks for deep indexes. The persistent index can s
 | Strategy | What happens | What it tests |
 | --- | --- | --- |
 | `hybrid_candidates_symbol_first` | Deterministic vector + lexical + path/symbol fusion. No LLM rerank. | Cheap candidate quality and raw embedding quality. |
+| `hybrid_rerank` / H5 | H3 hybrid candidates, then one bounded LLM top-10 rerank. | Current default quality path. |
 | `hybrid_rerank_flash_lite_top20_compact` | Generate candidates, send compact top-20 table to the LLM, ask for JSON ordering. | Whether the LLM can improve rank without reading files. |
 | `hybrid_rerank_flash_lite_file_first` | Group candidates by file, ask the LLM to choose owning files before detailed items. | Whether file-level reasoning improves Hit@1/Hit@3. |
 | `hybrid_rerank_precision` | Prompt optimized for rank-one correctness. | Whether stricter instructions beat compact rerank. |
@@ -438,8 +472,8 @@ So far, the bounded rerank path is more stable than open-ended agentic search. T
 The intended high-quality flow is:
 
 1. Receive the user query.
-2. Classify it roughly: semantic, path/symbol, exact text, workflow, or mixed.
-3. Run several cheap candidate generators in parallel: vector, lexical, path/symbol, graph expansion.
+2. Let the Search agent form the code-navigation intent and decide whether simple search is enough.
+3. Run H5 retrieval by default: H3 vector/lexical/path/symbol candidates, then bounded LLM rerank.
 4. Merge and deduplicate candidates by file and item id.
 5. Keep a candidate pool around top 20-40 for recall.
 6. Ask a reranker to select a short list.

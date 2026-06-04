@@ -10,8 +10,8 @@ class RetrievalStrategy(ABC):
 Selected at runtime by `strategies/retrieval_strategy_factory.py` from
 `search.strategy` (ids in `settings/retrieval_strategy_id.py`).
 
-⚠️ Divergence: `search.strategy` is parsed as a **raw string** with no enum validation
-(⚠️ 1.2) — a typo silently falls back to `vector`.
+`RetrievalStrategyFactory` validates `search.strategy` against `RetrievalStrategyId`.
+Invalid strategy ids now fail fast instead of silently falling back to vector search.
 
 ## Strategy catalogue
 
@@ -22,7 +22,8 @@ Selected at runtime by `strategies/retrieval_strategy_factory.py` from
 | `graph` | `graph_retrieval_strategy.py` | Vector seed → expand graph neighbors |
 | `hybrid` | `hybrid_retrieval_strategy.py` | Fuse vector + lexical + path + symbol + graph |
 | `multi_index_vector` | `multi_index_vector_retrieval_strategy.py` | Split-vector: partition vector search per index kind, dedup + re-rank |
-| `llm_rerank` | `llm_rerank_retrieval_strategy.py` | Hybrid candidates → one LLM rerank call |
+| `hybrid_rerank` | `llm_rerank_retrieval_strategy.py` | H3 hybrid candidates -> one bounded LLM rerank call; H5 default |
+| `cross_encoder_rerank` | `cross_encoder_rerank_retrieval_strategy.py` | Hybrid candidates -> dedicated rerank endpoint |
 | `orchestrated` | `orchestration/orchestrated_retrieval_strategy.py` | LLM plans which strategy/tool to use |
 
 ## vector
@@ -82,17 +83,18 @@ Combines five signals via either weighted sum or Reciprocal Rank Fusion (RRF).
   `_neighbor_index`) are lazily built with **no locking** — racey under concurrent
   `search`.
 
-## llm_rerank
+## hybrid_rerank / H5
 
-Wraps `hybrid`: take deterministic hybrid candidates, ask the LLM to reorder, return the
-new order with non-selected items appended in original order.
+Wraps `hybrid`: take deterministic H3 candidates, ask the LLM to select/order the final
+top results, then append non-selected candidates in original order. This is the product
+default quality path (H5): local Qwen file-metadata index, H3 candidate generation, and
+Gemini 3.1 Flash Lite top-10 ranking unless config overrides it.
 
 **Contract (intended fail-fast)**: a rerank failure should be *observable* — the caller
 must be able to tell "reranked" from "fell back".
-⚠️ Divergence (R-8): a blanket `except Exception` returns `candidates[:limit]`
-unchanged on **any** failure (network, JSON, rate limit). The return value is identical
-to success; only a trace line distinguishes them. The rerank step can be fully broken
-in production with no API-level signal.
+Current implementation traces `llm_rerank_error` and falls back to deterministic
+candidates. Evaluation reports must treat excessive rerank failures/degraded cases as an
+invalid quality run, because fallback metrics are not equivalent to a healthy H5 run.
 
 Index handling (R-9): 1-based LLM indices are correctly converted to 0-based; no live
 off-by-one, but bounds checks against `len(candidates)` are absent (defensive gap).

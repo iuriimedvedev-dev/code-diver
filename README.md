@@ -152,10 +152,14 @@ derived from file paths and symbols.
 
 ```yaml
 storage:
-  provider: json # or qdrant
+  provider: qdrant
 
 search:
-  strategy: vector # vector, recursive, graph
+  strategy: hybrid_rerank # H5 default: H3 candidates + LLM top-10 rerank
+
+embedding:
+  provider: openai_compatible
+  model: mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ
 ```
 
 See [docs/assignment-plan-progress.md](docs/assignment-plan-progress.md) for the assignment plan, estimates, progress log, and deliverable map. See [docs/current-research-state-2026-06-04.md](docs/current-research-state-2026-06-04.md) for the current research conclusion, [docs/final-report-2026-06-03.md](docs/final-report-2026-06-03.md) for the compact final report, [docs/metrics.md](docs/metrics.md) for metric definitions, and [docs/Explanation.md](docs/Explanation.md) for a plain-language explanation of the retrieval strategies.
@@ -175,7 +179,16 @@ The `protogen` marker targets the optional sibling repository at `../protogen`. 
 
 ## Protogen Evaluation
 
-`configs/protogen.yml` indexes the sibling `../protogen` repo into local Code Diver artifacts while keeping the source repo read-only:
+`configs/protogen.yml` is a historical small-repo config for the optional sibling
+`../protogen` repo. For normal no-config usage, run the default H5 profile directly:
+
+```bash
+uv run code-diver --root ../protogen index
+uv run code-diver --root ../protogen search -i "where is the arena runner implemented?"
+uv run code-diver --root ../protogen evaluate --generate-dataset --cases 50 --reindex
+```
+
+The legacy config path still works for controlled experiments:
 
 ```bash
 uv run code-diver --config configs/protogen.yml index
@@ -184,7 +197,9 @@ uv run code-diver --config configs/protogen.yml evaluate --json
 uv run code-diver --config configs/protogen.yml experiment
 ```
 
-The config uses deterministic hash embeddings for repeatable local testing. Switch `embedding.provider` to `gemini` and `storage.provider` to `qdrant` when running live Gemini/Qdrant experiments.
+Some legacy experiment configs intentionally use deterministic hash embeddings for
+repeatable plumbing tests. They are not quality configs. The product default is H5 with
+local Qwen embeddings, Qdrant, and Gemini 3.1 Flash Lite reranking.
 
 The default indexing profile is file-first. It stores compact `file_summary` and `file_manifest` items for each source file, then returns ranked files for targeted code exploration. It does not permanently embed full source chunks by default; the agent can inspect candidate files later with grep, symbol, read, and optional localized deep-index tools.
 

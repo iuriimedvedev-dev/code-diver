@@ -13,7 +13,7 @@ Files: `services/evaluation_service.py`, `services/dataset_loader.py`,
 ⚠️ **Boundary violation (5.1, High)**: a large amount of evaluation *business logic*
 (`direct_search_ndcg`, `direct_search_average_precision`, `mean`, `percentile`,
 `eval_result_to_json`, `experiment_run_to_json`, `make_graph_indexer`,
-`config_for_indexing_hypothesis`) lives in **`cli.py`** (1,041 lines), not in dedicated
+`config_for_indexing_hypothesis`) lives in **`cli.py`** (2,169 lines), not in dedicated
 services. The eval harness is effectively implemented in the argument-parser module.
 
 ## Datasets — `services/dataset_loader.py`
@@ -21,10 +21,42 @@ services. The eval harness is effectively implemented in the argument-parser mod
 JSONL eval cases (`datasets/sample_eval.jsonl`, `protogen_eval*.jsonl`). Each case:
 query + expected targets + (derived) bucket.
 
-New datasets: `datasets/protogen_eval_30.jsonl` (quick local tuning) and
-`datasets/intellij_eval_1000.jsonl` (large-scale / IntelliJ).
+Notable datasets:
 
-## Current results — `protogen_eval_100` (2026-06-01)
+- `datasets/protogen_eval_30.jsonl` and `datasets/protogen_eval_100.jsonl` for quick
+  local tuning when the optional sibling repo exists.
+- `datasets/intellij_eval_1000.answer_sets.jsonl` for the internal large-repo answer-set
+  gate.
+- `codesearchnet-mteb-python-1000`, a public benchmark profile that downloads and
+  materializes a 1,000-case Python slice from `mteb/CodeSearchNetRetrieval`.
+
+The benchmark default is H5/Qwen quality:
+
+```bash
+uv run code-diver evaluate --benchmark codesearchnet-mteb-python-1000 --yes --reindex
+```
+
+For a no-key smoke check only, use `codesearchnet-mteb-python-hash-smoke`.
+
+Human-mode `evaluate` prints selected settings, a Rich progress bar over known case
+count, and a metrics table. `--json` emits machine-readable output and suppresses the
+interactive progress UI.
+
+## Current public benchmark slice — CodeSearchNet/MTEB Python 1000 (2026-06-04)
+
+These rows are local positive-slice metrics, not official full-corpus MTEB leaderboard
+scores.
+
+| Setup | Hit@1 | Hit@3 | Hit@5 | Hit@10 | Recall@10 | Precision@10 | MRR@10 | NDCG@10 | Latency |
+|------------|-------|-------|-------|--------|-----------|--------------|--------|---------|---------|
+| H3 Qwen quality, no ranker | 0.823 | 0.919 | 0.944 | 0.961 | 0.961 | 0.177 | 0.875 | 0.900 | 555 ms |
+| H5 Qwen + Gemini 3.1 Flash Lite | 0.904 | 0.965 | 0.977 | 0.982 | 0.982 | 0.182 | 0.933 | 0.948 | 3.0 s |
+| H5 Qwen + local Qwen3.5 4B | 0.842 | 0.936 | 0.953 | 0.967 | 0.967 | 0.176 | 0.890 | 0.913 | 7.7 s |
+
+The H5 + Gemini Lite row is the current default quality profile. H3 remains the fast
+no-API fallback and candidate generator.
+
+## Historical results — `protogen_eval_100` (2026-06-01)
 
 | Hypothesis | Hit@1 | Hit@10 | MRR@10 | NDCG@10 | Latency | Cost / 100 |
 |------------|-------|--------|--------|---------|---------|-----------|
@@ -70,9 +102,9 @@ addition to `#` and path prefixes.
 
 **Contract**: metrics are deterministic given a fixed index + strategy + dataset.
 ⚠️ Threatened by per-query score normalization (R-1, R-4) and any LLM-in-the-loop
-strategy (`llm_rerank`, `orchestrated`, AI/orchestrated indexing) — these are not
-bit-reproducible. The `hash` embedding + JSON store path **is** reproducible and is the
-intended deterministic baseline.
+strategy (`hybrid_rerank`, `orchestrated`, AI/orchestrated indexing) — these are not
+bit-reproducible. The `hash` embedding + JSON store path **is** reproducible and remains
+useful for smoke tests, but it is not a quality baseline.
 
 ## Experiment runner — `experiments/`
 

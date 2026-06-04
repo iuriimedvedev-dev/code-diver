@@ -168,7 +168,7 @@ Status meanings:
 | Metrics | CodeSearchNet Pure H3 quality Hit@1 `0.823`, Hit@10 `0.961`, nDCG `0.900`, mean `555 ms`; IntelliJ H3 + Gemini 3.5 oracle Hit@10 `0.976` after rerank. |
 | Cost/latency/index-size | Pure H3 has no ranking API call; CodeSearchNet mean query latency `555 ms`. Exact public quality index size not documented in the source reports. |
 | Result summary | H3 is the fastest accepted quality baseline and exceeds the project Hit@10 target on the local positive slice. |
-| Decision | Accepted as the production baseline candidate generator. |
+| Decision | Accepted as the production baseline candidate generator and no-API fallback. H5 is the default quality path when an LLM ranker is available. |
 | Failure modes | Public positive slice is not official full-corpus MTEB; file-level metadata may dilute function-level CodeSearchNet targets; candidate recall still caps reranking. |
 | Follow-ups | Add large-negative/full-corpus public profile; compare Qwen3 4B, EmbeddingGemma, Gemini, and Voyage Code with the same H3 stack. |
 | Links | [current research state](../current-research-state-2026-06-04.md), [CodeSearchNet agentic/model eval](../codesearchnet-agentic-model-eval-2026-06-04.md), [market comparison](../codesearchnet-market-comparison-2026-06-03.md), `configs/codesearchnet-mteb-python-h5-qwen-quality.yml`, `configs/codesearchnet-mteb-python-pure-h3.yml` |
@@ -248,7 +248,7 @@ Status meanings:
 | Metrics | Gemini Lite H5 Hit@1 `0.904`, Hit@10 `0.982`, nDCG `0.948`, MAP `0.936`, mean `3020 ms`; local Qwen H5 Hit@10 `0.967`, mean `7708 ms`. |
 | Cost/latency/index-size | Gemini Lite adds about `+2.47s/query` over Pure H3 on the public slice; token cost exists but exact 1,000-case H5 public cost is not stated in the source doc. |
 | Result summary | H5 with Gemini Lite is the best measured quality/cost tradeoff on the current public local positive slice. |
-| Decision | Accepted when API ranking is allowed. Pure H3 remains fastest/no-API default. |
+| Decision | Accepted as the default quality path. Pure H3 remains the fastest/no-API fallback and the candidate generator under H5. |
 | Failure modes | Candidate recall ceiling, prompt size for local rankers, API cost/quotas, public-slice not official full-corpus MTEB. |
 | Follow-ups | Run stronger embedding models with the same H5 protocol; add a true cross-encoder reranker baseline. |
 | Links | [current research state](../current-research-state-2026-06-04.md), [final report](../final-report-2026-06-03.md), [CodeSearchNet agentic/model eval](../codesearchnet-agentic-model-eval-2026-06-04.md), `configs/codesearchnet-mteb-python-h5-qwen-quality.yml` |
