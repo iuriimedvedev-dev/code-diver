@@ -118,10 +118,14 @@ def build_parser(include_advanced: bool = False) -> argparse.ArgumentParser:
     index.add_argument("index_root", nargs="?", type=Path, default=None)
     index.set_defaults(func=cmd_index)
 
-    search = subparsers.add_parser(CommandName.SEARCH.value, help="Search indexed code.")
+    search = subparsers.add_parser(CommandName.SEARCH.value, help="Ask the code exploration agent.")
     search.add_argument("query", nargs="+")
     search.add_argument(OptionName.LIMIT.value, type=int, default=None)
-    search.add_argument(OptionName.JSON.value, action="store_true")
+    search.add_argument(
+        OptionName.JSON.value,
+        action="store_true",
+        help="Return raw deterministic retrieval results instead of invoking the agent.",
+    )
     search.set_defaults(func=cmd_search)
 
     evaluate = subparsers.add_parser(CommandName.EVALUATE.value, help="Evaluate retrieval on the configured dataset.")
@@ -413,12 +417,42 @@ def cmd_index_selected(args: argparse.Namespace, config: AppConfig) -> int:
 
 def cmd_search(args: argparse.Namespace, config: AppConfig) -> int:
     query = normalize_query(args.query)
+    if not args.json:
+        return PiRunner().run_print(
+            config,
+            args.config,
+            build_code_exploration_prompt(query),
+            toolset=None,
+            hypothesis=None,
+        )
     results = run_search(config, query, args.limit or config.search.limit)
-    if args.json:
-        print(json.dumps([result_to_json(result) for result in results], indent=2))
-    else:
-        SearchRenderer(config.root, config.ui, config.search.preview_lines).render(query, results)
+    print(json.dumps([result_to_json(result) for result in results], indent=2))
     return 0
+
+
+def build_code_exploration_prompt(query: str) -> str:
+    return f"""You are Code Diver's code exploration agent.
+
+Answer the user's repository question by using the registered read-only code_diver tools.
+
+User question:
+{query}
+
+Required workflow:
+1. Start with code_diver_search or code_diver_inspect. Run multiple independent search probes in parallel when useful.
+2. Convert the user's wording into several search intents: exact identifiers, likely file/path names, domain concepts, and implementation responsibilities.
+3. Verify the top candidates with symbols, grep/rg, and bounded reads before making claims.
+4. Explain the code, not only where it is. Cover the owner file/function/class, how control or data flows through it, and why the cited locations answer the question.
+5. Cite every important claim with relative file paths and line numbers from tool output.
+6. If evidence is weak, say what was checked and what remains uncertain.
+
+Output format:
+- Short answer first.
+- Evidence table with file/function/lines/relevance.
+- Explanation of the mechanism.
+- Optional follow-up probes only if they are genuinely useful.
+
+Do not edit files. Do not invent APIs, symbols, or line numbers."""
 
 
 def cmd_tree(args: argparse.Namespace, config: AppConfig) -> int:

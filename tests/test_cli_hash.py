@@ -186,8 +186,54 @@ plugins: []
         encoding="utf-8",
     )
 
-    assert main(["search", "authenticate", "user", "--config", str(config)]) == 1
+    assert main(["search", "authenticate", "user", "--json", "--config", str(config)]) == 1
     assert "Run `code-diver index` first" in capsys.readouterr().err
+
+
+def test_search_without_json_invokes_pi_code_explorer(tmp_path: Path, monkeypatch) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    config = tmp_path / "code-diver.yml"
+    config.write_text(
+        f"""
+root: {repo}
+embedding:
+  provider: hash
+  dimensions: 64
+pi:
+  binary: pi
+  tools:
+    - code_diver_search
+    - code_diver_inspect
+plugins: []
+""".strip(),
+        encoding="utf-8",
+    )
+    calls: list[tuple[Path | None, str, str | None, str | None]] = []
+
+    class FakePiRunner:
+        def run_print(
+            self,
+            config,
+            config_path: Path | None,
+            prompt: str,
+            toolset: str | None = None,
+            hypothesis: str | None = None,
+        ) -> int:
+            calls.append((config_path, prompt, toolset, hypothesis))
+            return 0
+
+    monkeypatch.setattr("code_diver.cli.PiRunner", FakePiRunner)
+
+    assert main(["--config", str(config), "search", "where", "is", "auth", "handled"]) == 0
+
+    assert calls
+    assert calls[0][0] == config
+    assert "where is auth handled" in calls[0][1]
+    assert "code_diver_search" in calls[0][1]
+    assert "Explain the code" in calls[0][1]
+    assert calls[0][2] is None
+    assert calls[0][3] is None
 
 
 class _StringInput:
