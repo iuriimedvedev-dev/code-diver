@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 import tempfile
 import time
 import urllib.request
@@ -130,7 +131,7 @@ class EmbeddingRuntimeManager:
         log = log_path.open("ab")
         env = dict(os.environ)
         env.setdefault("VLLM_HOST_IP", self.config.host)
-        env.setdefault("GLOO_SOCKET_IFNAME", "lo0")
+        env.setdefault("GLOO_SOCKET_IFNAME", self._loopback_interface())
         env.setdefault("VLLM_METAL_MEMORY_FRACTION", str(self.config.metal_memory_fraction))
         command = [
             str(self.config.vllm_binary),
@@ -147,14 +148,22 @@ class EmbeddingRuntimeManager:
         ]
         log.write(("\n--- code-diver embedding server start ---\n" + " ".join(command) + "\n").encode("utf-8"))
         log.flush()
-        return subprocess.Popen(
-            command,
-            stdout=log,
-            stderr=subprocess.STDOUT,
-            stdin=subprocess.DEVNULL,
-            env=env,
-            start_new_session=True,
-        )
+        try:
+            return subprocess.Popen(
+                command,
+                stdout=log,
+                stderr=subprocess.STDOUT,
+                stdin=subprocess.DEVNULL,
+                env=env,
+                start_new_session=True,
+            )
+        finally:
+            log.close()
+
+    def _loopback_interface(self) -> str:
+        if sys.platform == "darwin":
+            return "lo0"
+        return "lo"
 
     def wait_until_ready(self, timeout_seconds: float, process: subprocess.Popen | None = None) -> None:
         deadline = time.monotonic() + timeout_seconds

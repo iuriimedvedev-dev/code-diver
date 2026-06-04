@@ -4,6 +4,7 @@ import argparse
 import contextlib
 import fnmatch
 import json
+import shutil
 import sys
 import uuid
 from dataclasses import replace
@@ -64,7 +65,7 @@ from .services.evaluation_statistics import EvaluationStatistics
 from .strategies import RetrievalStrategyFactory
 from .store import create_vector_store
 from .tracing import TraceLogger
-from .ui import EditorOpener, EvaluationRenderer, MarkdownRenderer, TraceMonitor
+from .ui import EditorOpener, EvaluationRenderer, MarkdownRenderer, SearchRenderer, TraceMonitor
 
 
 ADVANCED_COMMANDS = {
@@ -377,7 +378,7 @@ def apply_runtime_config(args: argparse.Namespace, config: AppConfig) -> AppConf
     embedding_profile = getattr(args, "embedding", None)
     if embedding_profile:
         config = apply_embedding_profile(config, embedding_profile, announce=False)
-    elif getattr(args, "config", None) is None and getattr(args, "command", None) != CommandName.INIT.value:
+    elif should_apply_configured_runtime_profile(args):
         config = apply_configured_runtime_profile(config)
     if getattr(args, "command", None) != CommandName.INIT.value:
         config = IndexCollectionResolver().resolve(config)
@@ -399,6 +400,19 @@ def apply_configured_runtime_profile(config: AppConfig) -> AppConfig:
         return config
     runtime = store.load()
     return apply_embedding_profile(config, runtime.embedding_profile, announce=False)
+
+
+def should_apply_configured_runtime_profile(args: argparse.Namespace) -> bool:
+    if getattr(args, "command", None) == CommandName.INIT.value:
+        return False
+    config_path = getattr(args, "config", None)
+    if config_path is None:
+        return True
+    return is_default_config_path(config_path)
+
+
+def is_default_config_path(path: Path) -> bool:
+    return path.resolve() == Defaults.CONFIG_PATH.resolve()
 
 
 def runtime_root(args: argparse.Namespace) -> Path | None:
@@ -754,6 +768,19 @@ def cmd_search(args: argparse.Namespace, config: AppConfig) -> int:
     if not args.json:
         if not code_explorer_preflight(config, args.config):
             return 1
+    if not search_agent_binary_available(config):
+        if args.interactive:
+            render_status_panel(
+                "Search Agent Unavailable",
+                [
+                    ("binary", config.pi.binary),
+                    ("fix", "install/configure the Search agent runtime, or use non-interactive search"),
+                    ("deterministic", f'uv run code-diver --root {config.root} search "{query}" --json'),
+                ],
+                border_style="red",
+            )
+            return 1
+        return run_deterministic_search_fallback(config, query, args.limit or config.search.limit, config.pi.binary)
     if args.interactive:
         prompt = build_code_exploration_prompt(query) if query else None
         return PiRunner().run_interactive(config, args.config, prompt=prompt)
@@ -772,6 +799,27 @@ def cmd_search(args: argparse.Namespace, config: AppConfig) -> int:
     if output.strip():
         MarkdownRenderer(config.ui).render(output)
     return exit_code
+
+
+def search_agent_binary_available(config: AppConfig) -> bool:
+    binary = config.pi.binary
+    return bool(shutil.which(binary) or Path(binary).exists())
+
+
+def run_deterministic_search_fallback(config: AppConfig, query: str, limit: int, missing_binary: str) -> int:
+    render_status_panel(
+        "Deterministic Search Fallback",
+        [
+            ("reason", f"Search agent binary is not available: {missing_binary}"),
+            ("mode", "retrieval only; no LLM explanation"),
+            ("json", f'uv run code-diver --root {config.root} search "{query}" --json'),
+        ],
+        border_style="yellow",
+    )
+    with render_activity("running deterministic retrieval over the existing index", enabled=True, style="yellow"):
+        results = run_search(config, query, limit)
+    SearchRenderer(config.root, config.ui, config.search.preview_lines).render(query, results)
+    return 0
 
 
 def code_explorer_preflight(config: AppConfig, config_path: Path | None) -> bool:
@@ -1673,7 +1721,12 @@ def direct_search_matches(path: str, expected: str) -> bool:
     normalized = expected.strip()
     if normalized.startswith("glob:"):
         return fnmatch.fnmatchcase(direct_search_file_path(path), normalized.removeprefix("glob:"))
-    return path == normalized or path.startswith(normalized + "#") or path.startswith(normalized.rstrip("/") + "/")
+    return (
+        path == normalized
+        or path.startswith(normalized + "#")
+        or path.startswith(normalized + "::")
+        or path.startswith(normalized.rstrip("/") + "/")
+    )
 
 
 def direct_search_file_metrics(expected: list[str], retrieved: list[str], limit: int) -> dict[str, Any]:

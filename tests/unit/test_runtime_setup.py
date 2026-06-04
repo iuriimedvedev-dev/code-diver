@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from code_diver.runtime import EmbeddingRuntimeManager, RuntimeConfig, RuntimeConfigStore, RuntimeSetupWizard
+from code_diver.runtime import embedding_runtime_manager
 
 
 pytestmark = pytest.mark.unit
@@ -171,3 +172,25 @@ def test_runtime_wait_reports_process_exit_with_log(tmp_path: Path, monkeypatch)
         manager.wait_until_ready(1, DeadProcess())
 
     assert "last failure" in str(exc.value)
+
+
+def test_runtime_manager_closes_parent_log_fd_and_uses_platform_loopback(tmp_path: Path, monkeypatch) -> None:
+    captured: dict[str, object] = {}
+    manager = EmbeddingRuntimeManager(RuntimeConfig("qwen3-0.6b-vllm", tmp_path / "runtime"), log_dir=tmp_path / "logs")
+    monkeypatch.setattr(embedding_runtime_manager.sys, "platform", "linux")
+
+    class FakeProcess:
+        pass
+
+    def fake_popen(command, **kwargs):
+        captured["command"] = command
+        captured["env"] = kwargs["env"]
+        captured["stdout"] = kwargs["stdout"]
+        return FakeProcess()
+
+    monkeypatch.setattr("subprocess.Popen", fake_popen)
+
+    manager.start()
+
+    assert captured["env"]["GLOO_SOCKET_IFNAME"] == "lo"  # type: ignore[index]
+    assert captured["stdout"].closed is True  # type: ignore[union-attr]

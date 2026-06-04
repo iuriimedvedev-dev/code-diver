@@ -7,6 +7,7 @@ import pytest
 
 from code_diver.cli import (
     cmd_monitor,
+    cmd_search,
     config_for_indexing_hypothesis,
     current_repo_collection_prefix,
     direct_search_eval_result,
@@ -15,10 +16,12 @@ from code_diver.cli import (
     make_ephemeral_search_tool_handler,
     make_search_tool_handler,
     prepare_index_collection,
+    search_agent_binary_available,
 )
 from code_diver.config import AppConfig
 from code_diver.config.embedding_config import EmbeddingConfig
 from code_diver.config.graph_config import GraphConfig
+from code_diver.config.pi_config import PiConfig
 from code_diver.config.scanner_config import ScannerConfig
 from code_diver.config.qdrant_config import QdrantConfig
 from code_diver.config.storage_config import StorageConfig
@@ -219,6 +222,17 @@ def test_direct_search_eval_result_matches_glob_expected_file_patterns() -> None
     assert result.file_hit is True
 
 
+def test_direct_search_eval_result_matches_symbol_id_prefixes() -> None:
+    result = direct_search_eval_result(
+        EvalCase(id="case", query="where is user editing", expected=["src/users.py"]),
+        ["src/users.py::UserController#update_user"],
+        10,
+    )
+
+    assert result.hit is True
+    assert result.file_hit is True
+
+
 def test_direct_search_metrics_report_file_hit_at_k_after_file_deduplication() -> None:
     result = direct_search_eval_result(
         EvalCase(id="case", query="find target", expected=["src/target.py"]),
@@ -258,3 +272,46 @@ def test_cmd_monitor_requires_explicit_trace_when_tracing_is_disabled(capsys) ->
 
     assert exit_code == 1
     assert "Tracing is disabled" in capsys.readouterr().out
+
+
+def test_search_agent_binary_available_reports_missing_binary(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("code_diver.cli.shutil.which", lambda _binary: None)
+
+    assert search_agent_binary_available(AppConfig(pi=PiConfig(binary="missing-code-diver-agent"))) is False
+
+
+def test_cmd_search_falls_back_to_deterministic_results_when_agent_binary_is_missing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    rendered: list[tuple[str, list[SearchResult]]] = []
+    config = AppConfig(root=tmp_path, pi=PiConfig(binary="missing-code-diver-agent"))
+
+    class FakeSearchRenderer:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        def render(self, query: str, results: list[SearchResult]) -> None:
+            rendered.append((query, results))
+
+    monkeypatch.setattr("code_diver.cli.shutil.which", lambda _binary: None)
+    monkeypatch.setattr("code_diver.cli.code_explorer_preflight", lambda _config, _config_path: True)
+    monkeypatch.setattr("code_diver.cli.SearchRenderer", FakeSearchRenderer)
+    monkeypatch.setattr(
+        "code_diver.cli.run_search",
+        lambda _config, _query, _limit: [
+            SearchResult(
+                item=CodeItem(id="src/auth.py#1", path="src/auth.py", title="auth", content="def auth(): pass"),
+                score=0.8,
+            )
+        ],
+    )
+
+    exit_code = cmd_search(
+        Namespace(query=["where", "auth"], interactive=False, json=False, limit=1, config=None),
+        config,
+    )
+
+    assert exit_code == 0
+    assert rendered[0][0] == "where auth"
+    assert rendered[0][1][0].item.path == "src/auth.py"

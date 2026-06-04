@@ -165,3 +165,28 @@ def test_openai_compatible_embedding_provider_allows_local_api_key(monkeypatch) 
 
     assert provider.embed_query("query") == [0.1, 0.2]
     assert provider.name == "openai_compatible"
+
+
+def test_openai_compatible_embedding_provider_retries_transient_failures(monkeypatch) -> None:
+    provider = OpenAICompatibleEmbeddingProvider(
+        model="embed",
+        dimensions=None,
+        api_key=None,
+        retry_attempts=2,
+        retry_delay_seconds=0,
+    )
+    provider.retry.sleep = lambda _seconds: None
+    provider.retry.jitter = lambda: 0.0
+    calls = 0
+
+    def fake_post(payload):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise RuntimeError("HTTP 503: model is loading")
+        return {"data": [{"index": 0, "embedding": [0.1, 0.2]}]}
+
+    monkeypatch.setattr(provider, "_post", fake_post)
+
+    assert provider.embed_query("query") == [0.1, 0.2]
+    assert calls == 2

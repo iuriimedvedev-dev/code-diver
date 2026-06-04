@@ -20,7 +20,8 @@ class MtebCodeSearchNetPreparer:
         corpus_rows = list(datasets.load_dataset(dataset_name, f"{language}-corpus", split="test"))
         query_rows = list(datasets.load_dataset(dataset_name, f"{language}-queries", split="test"))
         qrel_rows = list(datasets.load_dataset(dataset_name, f"{language}-qrels", split="test"))
-        selected_qrels = qrel_rows[: self.preparation.limit]
+        positive_qrels = [qrel for qrel in qrel_rows if self._qrel_score(qrel) > 0]
+        selected_qrels = positive_qrels[: self.preparation.limit]
         corpus_by_id = {str(row["id"]): row for row in corpus_rows}
         queries_by_id = {str(row["id"]): row for row in query_rows}
 
@@ -50,7 +51,7 @@ class MtebCodeSearchNetPreparer:
                         "language": language,
                         "query_id": query_id,
                         "corpus_id": corpus_id,
-                        "score": qrel.get("score", 1),
+                        "score": self._qrel_score(qrel),
                     },
                 }
             )
@@ -67,6 +68,10 @@ class MtebCodeSearchNetPreparer:
             "dataset": str(self.preparation.dataset_path),
             "cases": len(cases),
             "corpus_files": corpus_files,
+            "qrels_total": len(qrel_rows),
+            "positive_qrels": len(positive_qrels),
+            "selected_qrels": len(selected_qrels),
+            "qrel_selection": "score>0_then_first_limit",
         }
         self.preparation.manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
         return manifest
@@ -86,6 +91,12 @@ class MtebCodeSearchNetPreparer:
         stem = self._slug(title) or f"snippet_{index:04d}"
         digest = hashlib.sha1(corpus_id.encode("utf-8")).hexdigest()[:10]
         return f"{self.preparation.language}/{index:04d}_{stem}_{digest}.py"
+
+    def _qrel_score(self, qrel: dict[str, Any]) -> float:
+        try:
+            return float(qrel.get("score", 1))
+        except (TypeError, ValueError):
+            return 0.0
 
     def _slug(self, text: str) -> str:
         slug = re.sub(r"[^A-Za-z0-9_.-]+", "_", text).strip("._-").lower()

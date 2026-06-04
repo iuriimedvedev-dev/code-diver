@@ -225,6 +225,7 @@ plugins: []
 
     monkeypatch.setattr("code_diver.cli.PiRunner", FakePiRunner)
     monkeypatch.setattr("code_diver.cli.code_explorer_preflight", lambda config, config_path: True)
+    monkeypatch.setattr("code_diver.cli.search_agent_binary_available", lambda config: True)
 
     assert main(["--config", str(config), "search", "where", "is", "auth", "handled"]) == 0
 
@@ -264,6 +265,7 @@ plugins: []
 
     monkeypatch.setattr("code_diver.cli.PiRunner", FakePiRunner)
     monkeypatch.setattr("code_diver.cli.code_explorer_preflight", lambda config, config_path: True)
+    monkeypatch.setattr("code_diver.cli.search_agent_binary_available", lambda config: True)
 
     assert main(["--config", str(config), "search", "-i", "explain", "indexing"]) == 0
 

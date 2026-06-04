@@ -57,6 +57,8 @@ def create_embedding_provider(
             document_prefix=document_prefix,
             query_prefix=query_prefix,
             max_input_chars=max_input_chars,
+            retry_attempts=retry_attempts,
+            retry_delay_seconds=retry_delay_seconds,
         )
     if provider_id is EmbeddingProviderId.OPENAI_COMPATIBLE:
         return OpenAICompatibleEmbeddingProvider(
@@ -68,5 +70,7 @@ def create_embedding_provider(
             document_prefix=document_prefix,
             query_prefix=query_prefix,
             max_input_chars=max_input_chars,
+            retry_attempts=retry_attempts,
+            retry_delay_seconds=retry_delay_seconds,
         )
     raise ValueError(f"Unknown embedding provider: {provider}")

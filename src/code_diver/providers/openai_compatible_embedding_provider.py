@@ -16,6 +16,8 @@ class OpenAICompatibleEmbeddingProvider(OpenAIEmbeddingProvider):
         document_prefix: str | None = Defaults.EMBEDDING_DOCUMENT_PREFIX,
         query_prefix: str | None = Defaults.EMBEDDING_QUERY_PREFIX,
         max_input_chars: int | None = Defaults.EMBEDDING_MAX_INPUT_CHARS,
+        retry_attempts: int = Defaults.EMBEDDING_RETRY_ATTEMPTS,
+        retry_delay_seconds: float = Defaults.EMBEDDING_RETRY_DELAY_SECONDS,
     ):
         super().__init__(
             model=model,
@@ -28,6 +30,8 @@ class OpenAICompatibleEmbeddingProvider(OpenAIEmbeddingProvider):
             query_prefix=query_prefix,
             max_input_chars=max_input_chars,
             send_dimensions=bool(dimensions),
+            retry_attempts=retry_attempts,
+            retry_delay_seconds=retry_delay_seconds,
         )
         self.name = EmbeddingProviderId.OPENAI_COMPATIBLE.value
 

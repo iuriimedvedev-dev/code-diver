@@ -6,6 +6,7 @@ from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
+from ..generation.transient_generation_retry import TransientGenerationRetry
 from ..settings import Defaults, EmbeddingProviderId, EnvironmentVariable
 from .embedding_provider import EmbeddingProvider
 
@@ -23,6 +24,8 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
         query_prefix: str | None = Defaults.EMBEDDING_QUERY_PREFIX,
         max_input_chars: int | None = Defaults.EMBEDDING_MAX_INPUT_CHARS,
         send_dimensions: bool = True,
+        retry_attempts: int = Defaults.EMBEDDING_RETRY_ATTEMPTS,
+        retry_delay_seconds: float = Defaults.EMBEDDING_RETRY_DELAY_SECONDS,
     ):
         self.name = EmbeddingProviderId.OPENAI.value
         self.model = model
@@ -34,6 +37,11 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
         self.query_prefix = query_prefix
         self.max_input_chars = max_input_chars
         self.send_dimensions = send_dimensions
+        self.retry = TransientGenerationRetry(
+            attempts=retry_attempts,
+            base_delay_seconds=retry_delay_seconds,
+            max_delay_seconds=max(retry_delay_seconds, 0.0),
+        )
         self.api_key = api_key or os.environ.get(EnvironmentVariable.OPENAI_API_KEY.value)
         if not self.api_key:
             raise RuntimeError("OPENAI_API_KEY is required for OpenAI embeddings.")
@@ -67,7 +75,7 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
         }
         if self.send_dimensions and self.dimensions:
             payload["dimensions"] = self.dimensions
-        response = self._post(payload)
+        response = self.retry.run(lambda: self._post(payload))
         rows = sorted(response.get("data", []), key=lambda row: int(row.get("index", 0)))
         return [[float(value) for value in row["embedding"]] for row in rows]
 

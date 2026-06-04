@@ -9,11 +9,14 @@ from code_diver.benchmarks import BenchmarkAssetService, BenchmarkPreparation, B
 from code_diver.cli import (
     apply_builtin_pure_h3,
     apply_embedding_profile,
+    apply_runtime_config,
     build_parser,
     normalize_argv,
     resolve_benchmark_profile,
 )
 from code_diver.config import AppConfig
+from code_diver.config.storage_config import StorageConfig
+from code_diver.runtime import RuntimeConfig
 
 
 pytestmark = pytest.mark.unit
@@ -126,6 +129,42 @@ def test_embeddinggemma_profile_uses_code_retrieval_prompts() -> None:
     assert config.embedding.document_prefix == "title: none | text: "
     assert config.embedding.query_prefix == "task: code retrieval | query: "
     assert config.embedding.max_input_chars == 1200
+
+
+def test_default_config_path_applies_runtime_embedding_profile(monkeypatch: pytest.MonkeyPatch) -> None:
+    class FakeRuntimeConfigStore:
+        def exists(self) -> bool:
+            return True
+
+        def load(self) -> RuntimeConfig:
+            return RuntimeConfig("qwen3-0.6b", Path(".runtime"), platform="apple-metal")
+
+    monkeypatch.setattr("code_diver.cli.RuntimeConfigStore", FakeRuntimeConfigStore)
+    args = Namespace(config=Path("code-diver.yml"), command="search", root=None, index_root=None, embedding=None)
+
+    config = apply_runtime_config(args, AppConfig(storage=StorageConfig(provider="qdrant")))
+
+    assert config.embedding.provider == "openai_compatible"
+    assert config.embedding.model == "mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ"
+    assert "qwen3_embedding_0_6b" in config.storage.qdrant.collection
+
+
+def test_non_default_config_path_keeps_experiment_embedding(monkeypatch: pytest.MonkeyPatch) -> None:
+    class FakeRuntimeConfigStore:
+        def exists(self) -> bool:
+            return True
+
+        def load(self) -> RuntimeConfig:
+            return RuntimeConfig("qwen3-0.6b", Path(".runtime"), platform="apple-metal")
+
+    monkeypatch.setattr("code_diver.cli.RuntimeConfigStore", FakeRuntimeConfigStore)
+    args = Namespace(config=Path("configs/experiment.yml"), command="search", root=None, index_root=None, embedding=None)
+
+    config = apply_runtime_config(args, AppConfig(storage=StorageConfig(provider="qdrant")))
+
+    assert config.embedding.provider == "gemini"
+    assert config.embedding.model == "gemini-embedding-2"
+    assert "gemini_gemini_embedding_2" in config.storage.qdrant.collection
 
 
 def test_global_root_can_be_parsed_before_subcommand() -> None:
