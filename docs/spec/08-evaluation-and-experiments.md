@@ -3,6 +3,8 @@
 The reason the project exists: measure retrieval quality reproducibly and compare
 hypotheses.
 
+Reusable hypothesis documentation lives in [`../hypotheses/`](../hypotheses/README.md).
+
 Files: `services/evaluation_service.py`, `services/dataset_loader.py`,
 `services/eval_case_bucket_classifier.py`, `math_utils.py`, `experiments/*`,
 `metrics/*`. Entry: `cli.py` `cmd_evaluate`, `cmd_evaluate_indexing`,

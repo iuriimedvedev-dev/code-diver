@@ -2,6 +2,8 @@
 
 Goal: reduce tokens, keep answer quality, and make repository retrieval fast and precise.
 
+For the current structured hypothesis registry and accepted/rejected scenario history, see [docs/hypotheses/README.md](./hypotheses/README.md).
+
 ## Current State After Baseline Runs
 
 The current implementation is intentionally inspectable, but it is still a baseline:
