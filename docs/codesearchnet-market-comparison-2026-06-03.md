@@ -78,8 +78,8 @@ The best measured Code Diver local positive-slice profile so far is `h5_qwen_ind
 
 That does not invalidate the architecture. It clarifies the gap:
 
-1. Real embeddings were the biggest lever: Qwen3-Embedding-0.6B changed H3 from hash-harness `Hit@10 = 0.775` to quality-slice `Hit@10 = 0.950`.
-2. LLM ranking is a real ordering lever: Gemini Flash Lite improved `Hit@1` from `0.740` to `0.870` over the same Qwen index.
+1. Real embeddings were the biggest lever: Qwen3-Embedding-0.6B changed H3 from hash-harness `Hit@10 = 0.775` to quality-slice `Hit@10 = 0.961`.
+2. LLM ranking is a real ordering lever: Gemini Flash Lite improved `Hit@1` from `0.823` to `0.904` over the same Qwen H3 index.
 3. To make an official SOTA claim, run the official full-corpus MTEB protocol or a larger negative-pool profile, not only the local positive slice.
 4. To improve quality further, test Qwen3-Embedding-4B, EmbeddingGemma-300m, Gemini embedding, and Voyage Code against the same H3/H5 stack.
 

@@ -6,6 +6,8 @@ The matrix compares two post-locator scenarios over the same local Qwen file-loc
 
 - Branch A: locator -> outline/symbol/rg probes -> listwise ranker.
 - Branch B: locator -> ephemeral syntax-aware vector index over candidate files -> listwise ranker.
+- Branch C: union of multiple locator profiles -> outline/symbol/rg probes -> listwise ranker.
+- Branch D: LLM query planner -> multi-query locator profiles -> outline/symbol/rg probes -> listwise ranker.
 
 Gemini rows use Vertex model IDs when the artifacts exist. Local rows use the MLX OpenAI-compatible server.
 
@@ -13,17 +15,37 @@ Gemini rows use Vertex model IDs when the artifacts exist. Local rows use the ML
 
 | Ranker | Scenario | Status | Cases | Hit@1 | Hit@3 | Hit@5 | Hit@10 | Precision@10 | Recall@10 | MRR@10 | nDCG@10 | Mean ms | P95 ms | Degraded | Hit@1 95% CI | Artifact |
 | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- |
-| Gemini 3.1 Flash-Lite | branch_a | partial | 25 | 0.640 | 0.680 | 0.680 | 0.680 | 0.068 | 0.680 | 0.660 | 0.665 | 3003 | 5367 | 0 | 0.445..0.798 | `.code-diver/reports/partials-gemini-flash-lite-1000/h2a_grep_read_rerank_gemini_flash_lite.partial.json` |
-| Gemini 3.5 Flash | branch_a | partial | 1 | 0.000 | 0.000 | 0.000 | 0.000 | 0.000 | 0.000 | 0.000 | 0.000 | 9112 | 9112 | 0 | 0.000..0.793 | `.code-diver/reports/partials-gemini-flash-35-1000/h2a_grep_read_rerank_gemini_flash_35.partial.json` |
-| Qwen3.5 4B OptiQ 4bit | branch_a | partial | 1 | 0.000 | 0.000 | 0.000 | 0.000 | 0.000 | 0.000 | 0.000 | 0.000 | 10410 | 10410 | 0 | 0.000..0.793 | `.code-diver/reports/partials-qwen-1000/h2a_grep_read_rerank_qwen35_4b.partial.json` |
+| Gemini 3.1 Flash-Lite | branch_a | complete | 1000 | 0.700 | 0.815 | 0.828 | 0.850 | 0.085 | 0.850 | 0.760 | 0.783 | 2319 | 4419 | 0 | 0.671..0.728 | `.code-diver/reports/intellij-postrank-h2-deterministic-gemini-flash-lite-1000.json` |
+| Gemini 3.1 Flash-Lite | branch_b | complete | 1000 | 0.530 | 0.595 | 0.608 | 0.630 | 0.202 | 0.630 | 0.563 | 0.588 | 7301 | 12677 | 0 | 0.499..0.561 | `.code-diver/reports/intellij-postrank-h2-deterministic-gemini-flash-lite-1000.json` |
+| Gemini 3.1 Flash-Lite | branch_c | complete | 1000 | 0.690 | 0.793 | 0.826 | 0.861 | 0.183 | 0.861 | 0.747 | 0.784 | 7698 | 18962 | 7 | 0.661..0.718 | `.code-diver/reports/intellij-h3-union-gemini-flash-lite-1000.json` |
+| Gemini 3.1 Flash-Lite | branch_d | partial | 175 | 0.657 | 0.800 | 0.834 | 0.869 | 0.173 | 0.869 | 0.730 | 0.776 | 12745 | 19049 | 6 | 0.584..0.723 | `.code-diver/reports/partials-h4-gemini-flash-lite-1000/h4_multiquery_rerank_gemini_flash_lite.partial.json` |
+| Gemini 3.5 Flash | branch_a | complete | 1000 | 0.735 | 0.827 | 0.840 | 0.856 | 0.086 | 0.856 | 0.785 | 0.802 | 3070 | 5118 | 0 | 0.707..0.761 | `.code-diver/reports/intellij-postrank-h2-deterministic-gemini-flash-35-1000.json` |
+| Gemini 3.5 Flash | branch_b | complete | 1000 | 0.562 | 0.601 | 0.621 | 0.635 | 0.218 | 0.635 | 0.585 | 0.606 | 8436 | 13935 | 0 | 0.531..0.592 | `.code-diver/reports/intellij-postrank-h2-deterministic-gemini-flash-35-1000.json` |
+| Gemini 3.5 Flash | branch_c | complete | 1000 | 0.758 | 0.799 | 0.842 | 0.863 | 0.226 | 0.863 | 0.788 | 0.817 | 5557 | 11368 | 0 | 0.730..0.784 | `.code-diver/reports/intellij-h3-union-gemini-flash-35-1000.json` |
+| Gemini 3.5 Flash | branch_d | partial | 175 | 0.714 | 0.800 | 0.857 | 0.863 | 0.227 | 0.863 | 0.764 | 0.801 | 12744 | 20747 | 0 | 0.643..0.776 | `.code-diver/reports/partials-h4-gemini-flash-35-1000/h4_multiquery_rerank_gemini_flash_35.partial.json` |
+| Gemini 3.5 Flash (multi-expected) | branch_c | complete | 1000 | 0.775 | 0.817 | 0.859 | 0.881 | 0.236 | 0.871 | 0.806 | 0.827 | 6651 | 20578 | 0 | 0.748..0.800 | `.code-diver/reports/intellij-h3-union-gemini-flash-35-1000-multi.json` |
+| Qwen3.5 4B OptiQ 4bit | branch_a | partial | 1000 | 0.598 | 0.762 | 0.802 | 0.825 | 0.083 | 0.825 | 0.688 | 0.722 | 11517 | 14776 | 0 | 0.567..0.628 | `.code-diver/reports/partials-qwen-1000/h2a_grep_read_rerank_qwen35_4b.partial.json` |
+| Qwen3.5 4B OptiQ 4bit | branch_b | partial | 50 | 0.420 | 0.580 | 0.600 | 0.640 | 0.186 | 0.640 | 0.503 | 0.546 | 11462 | 13394 | 0 | 0.294..0.558 | `.code-diver/reports/partials-qwen-1000/h2b_ephemeral_rerank_qwen35_4b.partial.json` |
+| Qwen3.5 4B OptiQ 4bit | unknown | missing | 0 |  |  |  |  |  |  |  |  |  |  |  |  | `.code-diver/reports/partials-h3-qwen-1000` |
+| Qwen3.5 4B OptiQ 4bit | unknown | missing | 0 |  |  |  |  |  |  |  |  |  |  |  |  | `.code-diver/reports/partials-h4-qwen-1000` |
 
 ## Tool And Cost Signals
 
 | Ranker | Scenario | Model Calls | Input Tokens | Output Tokens | Total Tokens | Estimated Cost | Tool Metrics |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | --- |
-| Gemini 3.1 Flash-Lite | branch_a | 25 | 202243 | 2651 | 212510 | 0.0545 | `{"ephemeral_calls": 0, "locator_calls": 25, "outline_calls": 125, "rerank_calls": 25, "rerank_errors": 0, "rg_calls": 125, "symbol_calls": 125, "temporary_vectors_total": 0}` |
-| Gemini 3.5 Flash | branch_a | 1 | 8123 | 184 | 8851 | 0.0138 | `{"ephemeral_calls": 0, "locator_calls": 1, "outline_calls": 5, "rerank_calls": 1, "rerank_errors": 0, "rg_calls": 5, "symbol_calls": 5, "temporary_vectors_total": 0}` |
-| Qwen3.5 4B OptiQ 4bit | branch_a | 1 | 7361 | 190 | 7551 | 0.0128 | `{"ephemeral_calls": 0, "locator_calls": 1, "outline_calls": 5, "rerank_calls": 1, "rerank_errors": 0, "rg_calls": 5, "symbol_calls": 5, "temporary_vectors_total": 0}` |
+| Gemini 3.1 Flash-Lite | branch_a | 1000 | 8059029 | 97570 | 8387179 | 2.1611 | `{"candidate_count_mean": 30.0, "ephemeral_calls": 0, "locator_calls": 1000, "outline_calls": 4976, "rerank_calls": 1000, "rerank_errors": 0, "rg_calls": 5000, "symbol_calls": 5000, "temporary_vectors_total": 0}` |
+| Gemini 3.1 Flash-Lite | branch_b | 1000 | 8340586 | 126996 | 8782505 | 2.2756 | `{"candidate_count_mean": 30.0, "ephemeral_calls": 1000, "locator_calls": 1000, "outline_calls": 0, "rerank_calls": 1000, "rerank_errors": 0, "rg_calls": 0, "symbol_calls": 0, "temporary_vectors_total": 187659}` |
+| Gemini 3.1 Flash-Lite | branch_c | 1000 | 20642275 | 114706 | 21342536 | 5.3326 | `{"candidate_count_mean": 80.0, "ephemeral_calls": 0, "locator_calls": 1000, "outline_calls": 4978, "planner_calls": 0, "planner_errors": 0, "query_variant_total": 0, "rerank_calls": 1007, "rerank_errors": 7, "rg_calls": 5000, "symbol_calls": 5000, "temporary_vectors_total": 0, "union_candidate_count_total": 120883, "union_profile_calls": 4000}` |
+| Gemini 3.1 Flash-Lite | branch_d | 349 | 3613082 | 29953 | 3776382 | 0.9482 | `{"candidate_count_mean": 80.0, "ephemeral_calls": 0, "locator_calls": 175, "outline_calls": 870, "planner_calls": 175, "planner_errors": 1, "query_variant_total": 1225, "rerank_calls": 181, "rerank_errors": 6, "rg_calls": 875, "symbol_calls": 875, "temporary_vectors_total": 0, "union_candidate_count_total": 81513, "union_profile_calls": 5600}` |
+| Gemini 3.5 Flash | branch_a | 1000 | 8059480 | 160842 | 8444416 | 13.5144 | `{"candidate_count_mean": 30.0, "ephemeral_calls": 0, "locator_calls": 1000, "outline_calls": 4977, "rerank_calls": 1000, "rerank_errors": 0, "rg_calls": 5000, "symbol_calls": 5000, "temporary_vectors_total": 0}` |
+| Gemini 3.5 Flash | branch_b | 1000 | 8339024 | 175774 | 8804244 | 14.0323 | `{"candidate_count_mean": 30.0, "ephemeral_calls": 1000, "locator_calls": 1000, "outline_calls": 0, "rerank_calls": 1000, "rerank_errors": 0, "rg_calls": 0, "symbol_calls": 0, "temporary_vectors_total": 187743}` |
+| Gemini 3.5 Flash | branch_c | 1000 | 20641467 | 201068 | 20999229 | 32.7194 | `{"candidate_count_mean": 80.0, "ephemeral_calls": 0, "locator_calls": 1000, "outline_calls": 4977, "planner_calls": 0, "planner_errors": 0, "query_variant_total": 0, "rerank_calls": 1000, "rerank_errors": 0, "rg_calls": 5000, "symbol_calls": 5000, "temporary_vectors_total": 0, "union_candidate_count_total": 120786, "union_profile_calls": 4000}` |
+| Gemini 3.5 Flash | branch_d | 350 | 3613667 | 44073 | 3746204 | 5.8165 | `{"candidate_count_mean": 80.0, "ephemeral_calls": 0, "locator_calls": 175, "outline_calls": 870, "planner_calls": 175, "planner_errors": 0, "query_variant_total": 1225, "rerank_calls": 175, "rerank_errors": 0, "rg_calls": 875, "symbol_calls": 875, "temporary_vectors_total": 0, "union_candidate_count_total": 81538, "union_profile_calls": 5600}` |
+| Gemini 3.5 Flash (multi-expected) | branch_c | 1000 | 20642310 | 199972 | 20999365 | 32.7111 | `{"candidate_count_mean": 80.0, "ephemeral_calls": 0, "locator_calls": 1000, "outline_calls": 4976, "planner_calls": 0, "planner_errors": 0, "query_variant_total": 0, "rerank_calls": 1000, "rerank_errors": 0, "rg_calls": 5000, "symbol_calls": 5000, "temporary_vectors_total": 0, "union_candidate_count_total": 120773, "union_profile_calls": 4000}` |
+| Qwen3.5 4B OptiQ 4bit | branch_a | 1000 | 7245286 | 169039 | 7414325 | 12.3893 | `{"candidate_count_mean": 30.0, "ephemeral_calls": 0, "locator_calls": 1000, "outline_calls": 4976, "rerank_calls": 1000, "rerank_errors": 0, "rg_calls": 5000, "symbol_calls": 5000, "temporary_vectors_total": 0}` |
+| Qwen3.5 4B OptiQ 4bit | branch_b | 50 | 380309 | 9827 | 390136 | 0.6589 | `{"candidate_count_mean": 30.0, "ephemeral_calls": 50, "locator_calls": 50, "outline_calls": 0, "rerank_calls": 50, "rerank_errors": 0, "rg_calls": 0, "symbol_calls": 0, "temporary_vectors_total": 9785}` |
+| Qwen3.5 4B OptiQ 4bit | unknown |  |  |  |  |  | `{}` |
+| Qwen3.5 4B OptiQ 4bit | unknown |  |  |  |  |  | `{}` |
 
 ## Interpretation Notes
 

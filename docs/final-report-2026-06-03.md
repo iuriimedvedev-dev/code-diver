@@ -2,6 +2,8 @@
 
 This is the compact final report for the current Code Diver research slice.
 
+Current state snapshot: see `docs/current-research-state-2026-06-04.md`.
+
 ## What Problems We Solved
 
 We started with a broad code RAG sandbox and narrowed it into a reproducible code-search system:
@@ -46,13 +48,13 @@ Why it is the current best:
 - It is much faster and cheaper than open-ended agent loops.
 - It already reached the target quality with the saved oracle reranker run.
 
-Best valid saved result:
+Best historical oracle result:
 
 | Setup | Dataset | Cases | Hit@1 | Hit@3 | Hit@5 | Hit@10 | Recall@10 | Precision@10 | MRR@10 | nDCG@10 | Mean ms | Cost | Degraded |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | H3 manifest + Gemini 3.5 Flash | `datasets/intellij_eval_1000.answer_sets.jsonl` | 1000 | 0.871 | 0.903 | 0.943 | 0.976 | 0.964 | 0.419 | 0.898 | 0.908 | 6542 | $34.94 | 0 |
 
-This proves the `Hit@10 >= 0.95` goal is reachable. The cost means Gemini 3.5 Flash remains an oracle, not the default loop.
+This proved the `Hit@10 >= 0.95` goal was reachable on the IntelliJ internal eval. The cost means Gemini 3.5 Flash remains an oracle, not the default loop. The current public-slice winner is now H5 with Gemini 3.1 Flash Lite over the Qwen H3 index.
 
 ## Public Benchmark
 
@@ -84,6 +86,8 @@ Current quality slice, 1000 cases:
 | H5 local | Qwen3-Embedding-0.6B file metadata | Qwen3.5 4B compact top-10 | 0.842 | 0.936 | 0.953 | 0.967 | 0.967 | 0.176 | 0.890 | 0.913 | 7708 | valid |
 
 This is the first public-slice result that should be treated as a quality signal. It uses local Qwen embeddings and file-level metadata indexing; H5 adds an LLM ranker after deterministic H3 candidate generation. All three valid 1000-case quality runs exceed the `Hit@10 >= 0.95` target.
+
+SOTA status: this is not an official SOTA claim. The runner uses a local positive-slice of CodeSearchNet/MTEB, not the full official corpus and official scorer. Treat these numbers as our internal architecture comparison until a full-corpus or large-negative public profile is run.
 
 Current winners:
 
