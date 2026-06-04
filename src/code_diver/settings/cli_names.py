@@ -24,6 +24,7 @@ class CommandName(StrEnum):
 
 
 class OptionName(StrEnum):
+    APPEND_SYSTEM_PROMPT = "--append-system-prompt"
     BENCHMARK = "--benchmark"
     CONFIG = "--config"
     DATASET = "--dataset"

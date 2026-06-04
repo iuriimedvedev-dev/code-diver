@@ -1022,8 +1022,6 @@ def chat_prompt_and_session(args: argparse.Namespace, config: AppConfig) -> tupl
             session = words.pop(0)
 
     prompt = normalize_query(words) if words else None
-    if prompt is None and not any((resume, continue_session, session, session_id)):
-        prompt = build_chat_welcome_prompt()
     session_dir = getattr(args, "session_dir", None) or config.pi.session_dir
     return prompt, PiSessionOptions(
         session_dir=session_dir,
@@ -1033,14 +1031,6 @@ def chat_prompt_and_session(args: argparse.Namespace, config: AppConfig) -> tupl
         session_id=session_id,
         name=getattr(args, "name", None),
     )
-
-
-def build_chat_welcome_prompt() -> str:
-    return """Introduce yourself as Code Diver's Search agent.
-
-Do not call tools for this greeting. Briefly explain that you can search the local repository index, inspect symbols, grep/rg exact text, read bounded excerpts, open results in the editor, explain code flows with file/line citations, refresh indexes, and run retrieval evaluations when enabled.
-
-Make clear that this session is read-only for source code, then ask what code question the user wants to investigate."""
 
 
 def cmd_evaluate(args: argparse.Namespace, config: AppConfig) -> int:

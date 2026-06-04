@@ -42,6 +42,8 @@ def test_pi_command_builder_uses_configured_extension_prompt_and_tools() -> None
         ".pi/extensions/code-diver-rag.ts",
         "--prompt-template",
         ".pi/prompts/code-diver-rag.md",
+        "--append-system-prompt",
+        ".pi/prompts/code-diver-rag.md",
         "--provider",
         "google",
         "--model",
