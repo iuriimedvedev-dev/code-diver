@@ -51,13 +51,13 @@ Decision: keep H6.1 as an active calibration candidate. Keep H6.2 as research on
 Report:
 
 ```text
-.code-diver/reports/h6-2-mlp-weights-pure-h3-codesearchnet-1000.json
+.code-diver/reports/h6-2-mlp-weights-pure-h3-qwen-fresh-codesearchnet-1000.json
 ```
 
 Feature cache:
 
 ```text
-.code-diver/tmp/h6-pure-h3-codesearchnet-1000-features.json
+.code-diver/tmp/h6-pure-h3-qwen-fresh-codesearchnet-1000-features.json
 ```
 
 Fixed variables:
@@ -74,30 +74,30 @@ Validation results:
 
 | Profile | file Hit@1 | file Hit@3 | file Hit@5 | file Hit@10 | file MRR@10 |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Manual routed H3 weights | 0.000 | 0.283 | 0.377 | 0.443 | 0.159 |
-| H6.2 dynamic-weight MLP | 0.357 | 0.467 | 0.533 | 0.643 | 0.436 |
-| H6.1 best static/grid profile | 0.533 | 0.707 | 0.750 | 0.807 | 0.628 |
+| Manual routed H3 weights | 0.757 | 0.907 | 0.930 | 0.950 | 0.833 |
+| H6.2 dynamic-weight MLP | 0.757 | 0.910 | 0.930 | 0.950 | 0.835 |
+| H6.1 best static/grid profile | 0.770 | 0.917 | 0.937 | 0.957 | 0.845 |
 
 Best static/grid profile:
 
 ```yaml
-vector_weight: 0.30
-lexical_weight: 0.42
-path_weight: 0.20
-symbol_weight: 0.04
-symbol_match_weight: 0.04
+vector_weight: 0.46551724137931033
+lexical_weight: 0.3620689655172413
+path_weight: 0.06896551724137931
+symbol_weight: 0.034482758620689655
+symbol_match_weight: 0.034482758620689655
 graph_weight: 0.0
-file_vote_weight: 0.0
+file_vote_weight: 0.034482758620689655
 ```
 
 Interpretation:
 
-- H6.2 passes the requested `+0.05` threshold against the manual H3 baseline: `+0.200 file Hit@10`, `+0.277 file MRR@10`.
-- H6.2 is not the best current scorer. H6.1 static/grid calibration is much stronger on the same split.
-- The MLP is learning useful signal, but the current binary candidate objective is still weaker than direct ranking calibration.
+- The earlier Qwen H6.2 table was invalid because stale JSON artifacts were found. This fresh run used a rebuilt Qwen3-Embedding-0.6B index.
+- H6.2 does not pass the requested `+0.05` threshold: file Hit@10 is unchanged at `0.950`, and file MRR@10 improves only `+0.0016`.
+- H6.1 static/grid calibration is still stronger, but the gain is small: `+0.0067` file Hit@10 and `+0.0116` file MRR@10 over manual routed H3.
 - Next H6.2 step should be a listwise or pairwise ranking loss over the cached per-query candidates, not another candidate-level binary classifier.
 
-Decision: use H6.1 static calibrated weights as the immediate search-quality baseline. Keep H6.2 active because it clears the improvement threshold over manual H3, but do not put it ahead of H6.1 until a ranking-loss MLP beats the static grid profile.
+Decision: reject the current H6.2 binary-loss dynamic-weight MLP as a default. It does not clear the `+0.05` threshold under a valid same-index comparison. Use H6.1 static/grid only as a small calibrated improvement; the bigger lever remains embedding model quality.
 
 ## Embedding Axis Under H6
 
@@ -119,9 +119,9 @@ Validation comparison:
 
 | Embedding | Scorer | file Hit@1 | file Hit@3 | file Hit@5 | file Hit@10 | file MRR@10 |
 | --- | --- | ---: | ---: | ---: | ---: | ---: |
-| Qwen3-Embedding-0.6B 4-bit | Manual routed H3 | 0.000 | 0.283 | 0.377 | 0.443 | 0.159 |
-| Qwen3-Embedding-0.6B 4-bit | H6.2 dynamic-weight MLP | 0.357 | 0.467 | 0.533 | 0.643 | 0.436 |
-| Qwen3-Embedding-0.6B 4-bit | H6.1 static/grid | 0.533 | 0.707 | 0.750 | 0.807 | 0.628 |
+| Qwen3-Embedding-0.6B 4-bit | Manual routed H3 | 0.757 | 0.907 | 0.930 | 0.950 | 0.833 |
+| Qwen3-Embedding-0.6B 4-bit | H6.2 dynamic-weight MLP | 0.757 | 0.910 | 0.930 | 0.950 | 0.835 |
+| Qwen3-Embedding-0.6B 4-bit | H6.1 static/grid | 0.770 | 0.917 | 0.937 | 0.957 | 0.845 |
 | EmbeddingGemma-300M | Manual routed H3 | 0.853 | 0.947 | 0.963 | 0.983 | 0.902 |
 | EmbeddingGemma-300M | H6.2 dynamic-weight MLP | 0.843 | 0.937 | 0.957 | 0.980 | 0.894 |
 | EmbeddingGemma-300M | H6.1 static/grid | 0.863 | 0.953 | 0.973 | 0.983 | 0.911 |
@@ -140,9 +140,9 @@ file_vote_weight: 0.0
 
 Interpretation:
 
-- Embedding model is a bigger factor than H6.2 on this benchmark.
-- EmbeddingGemma-300M with manual routed H3 already beats Qwen0.6B with H6.1 static/grid.
-- H6.2 clears the improvement threshold only for the weak Qwen0.6B setup. It does not improve EmbeddingGemma.
+- Embedding model is still a bigger factor than H6.2 on this benchmark.
+- EmbeddingGemma-300M with manual routed H3 still beats Qwen0.6B with H6.1 static/grid.
+- H6.2 does not clear the improvement threshold for either Qwen0.6B or EmbeddingGemma under valid same-index runs.
 - The current best candidate generator is EmbeddingGemma-300M + H6.1 static/grid weights.
 - H6.2 should be tested next with a pairwise/listwise ranking loss, but the current binary-loss MLP is not the default.
 
@@ -199,7 +199,7 @@ Reranker axis:
 | Candidate | Status |
 | --- | --- |
 | Gemini 3.1 Flash Lite | API quality/cost baseline |
-| Qwen3-Reranker-0.6B cross-encoder | local endpoint exists, needs same H3 candidate suite |
+| Qwen3-Reranker-0.6B cross-encoder | valid 100-case gate complete; improves top-10 recall but hurts head precision/latency |
 | Qwen3-Reranker-4B cross-encoder | pending model/runtime |
 | Qwen3.5 4B listwise | local fallback, slower in prior runs |
 | Gemma E2B/E4B listwise | configs exist, needs same 100-case reranker-axis run |
@@ -252,6 +252,45 @@ Observed smoke result on MacBook M3 Max:
 | Note | Response includes `reasoning_content`; parsers must use visible `message.content` for final JSON. |
 
 Decision: Gemma 4 12B Q4_K_M is technically ready for agent-axis smoke. It should be compared against Qwen3.5 4B and Gemma E4B with the same fixed candidate generator and the same tool budget.
+
+## Reranker Axis: Qwen3-Reranker 0.6B Cross-Encoder Gate
+
+Report:
+
+```text
+.code-diver/reports/codesearchnet-h6-embeddinggemma-reranker-100.json
+```
+
+Trace:
+
+```text
+.code-diver/traces/codesearchnet-h6-embeddinggemma-reranker-100.jsonl
+```
+
+Fixed variables:
+
+| Axis | Value |
+| --- | --- |
+| Embedding model | `google/embeddinggemma-300m` |
+| Candidate generator | H6.1 calibrated EmbeddingGemma file-summary/file-manifest hybrid |
+| Dataset | `.code-diver/tmp/codesearchnet_python_100.jsonl` |
+| Candidate limit | 30 |
+| Reranker runtime | llama.cpp `/v1/rerank`, `Qwen3-Reranker-0.6B-Q4_K_M.gguf` |
+| Validity gate | `cross_encoder_rerank_response=100`, `cross_encoder_rerank_error=0` |
+
+Results:
+
+| Strategy | file Hit@1 | Hit@3 | Hit@5 | Hit@10 | file MRR@10 | nDCG@10 | precision@R | mean ms | p95 ms |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| H6.1 static EmbeddingGemma hybrid | 0.810 | 0.920 | 0.960 | 0.970 | 0.876 | 0.899 | 0.810 | 867 | 860 |
+| + Qwen3-Reranker 0.6B | 0.780 | 0.950 | 0.990 | 0.990 | 0.864 | 0.896 | 0.780 | 2881 | 5063 |
+
+Interpretation:
+
+- The dedicated local reranker is not a blanket default for this file-level task: it improves candidate recall in the top 3/5/10, but demotes too many already-correct first results.
+- Latency is about 3.3x worse on the 100-case gate.
+- This model is still useful as a cascade candidate when the goal is top-5/top-10 coverage and the deterministic top result has low confidence.
+- Next reranker tests should include Qwen3-Reranker 4B and a confidence gate that preserves high-margin deterministic top-1 hits.
 
 ## Reranker Axis: Gemma E4B 100-Case Smoke
 

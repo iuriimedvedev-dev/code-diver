@@ -285,13 +285,13 @@ Status meanings:
 | Search/ranking flow | H3 candidate generation -> feature cache -> candidate-level binary labels from expected files -> NumPy MLP scorer. `scalar` mode predicts one candidate score; `weights` mode predicts a vector over hybrid signals and scores by weighted sum. |
 | Model/provider matrix | No embedding/model changes; local NumPy MLP only. This is not a generative LLM and adds no API cost. |
 | Dataset | Valid run uses CodeSearchNet/MTEB Python local positive slice, 1,000 cases, split 700 train / 300 validation, seed `17`. |
-| Metrics | Qwen0.6B H3 validation: manual routed H3 file Hit@10 `0.443`, H6.2 dynamic-weight MLP `0.643`, H6.1 static/grid `0.807`. EmbeddingGemma validation: manual routed H3 file Hit@10 `0.983`, H6.2 dynamic-weight MLP `0.980`, H6.1 static/grid `0.983`; EmbeddingGemma H6.1 file Hit@1 `0.863`, MRR `0.911`. |
+| Metrics | Qwen0.6B fresh validation: manual routed H3 file Hit@1/10 `0.757`/`0.950`, H6.2 dynamic-weight MLP `0.757`/`0.950`, H6.1 static/grid `0.770`/`0.957`. EmbeddingGemma validation: manual routed H3 file Hit@10 `0.983`, H6.2 dynamic-weight MLP `0.980`, H6.1 static/grid `0.983`; EmbeddingGemma H6.1 file Hit@1 `0.863`, MRR `0.911`. |
 | Cost/latency/index-size | Training is local CPU over cached candidate features. Feature collection cost is shared with H6.1; subsequent MLP runs can use `--reuse-feature-cache`. |
-| Result summary | H6.2 clears the requested `+0.05` threshold versus weak manual Qwen0.6B H3, but it does not beat H6.1 static/grid. With stronger EmbeddingGemma embeddings, H6.2 adds no value. |
+| Result summary | H6.2 does not clear the requested `+0.05` threshold on either valid Qwen0.6B or EmbeddingGemma runs. H6.1 static/grid is better than H6.2, but its Qwen gain is small compared with changing the embedding model. |
 | Decision | Keep H6.2 active and use its feature cache for ranking-loss experiments. Current default candidate generator should be EmbeddingGemma + H6.1 static/grid weights, not binary-loss H6.2. |
 | Failure modes | Candidate-level labels are imbalanced; MLP can overfit train candidates; binary candidate labels may not optimize listwise ranking; no feature cache means collection dominates runtime. |
 | Follow-ups | Compare depth 0, 1, 2, 3; add route-specific training; add pairwise/listwise loss; test whether dynamic weights are useful only on low-confidence H3 cases. |
-| Links | [local model axis experiments](../local-model-axis-experiments-2026-06-04.md), [H5 hybrid weight calibration](../h5-hybrid-weight-calibration-2026-06-04.md), `.code-diver/reports/h6-2-mlp-weights-pure-h3-codesearchnet-1000.json`, `.code-diver/reports/h6-2-mlp-weights-embeddinggemma-codesearchnet-1000.json`, `scripts/calibrate_hybrid_weights.py` |
+| Links | [local model axis experiments](../local-model-axis-experiments-2026-06-04.md), [H5 hybrid weight calibration](../h5-hybrid-weight-calibration-2026-06-04.md), `.code-diver/reports/h6-2-mlp-weights-pure-h3-qwen-fresh-codesearchnet-1000.json`, `.code-diver/reports/h6-2-mlp-weights-embeddinggemma-codesearchnet-1000.json`, `scripts/calibrate_hybrid_weights.py` |
 
 ## LOCAL-MODEL-AXIS - Three-Axis Local Model Search
 
@@ -325,7 +325,7 @@ Status meanings:
 | Search/ranking flow | Swap embedding provider/model; keep H3/H5 flow fixed. |
 | Model/provider matrix | Current practical default Qwen3-Embedding-0.6B; candidates include Qwen3-Embedding-4B, EmbeddingGemma-300m, Gemini Embedding, Voyage Code 3, Jina code embeddings, Codestral Embed. |
 | Dataset | Next matrix should use CodeSearchNet local positive slice and larger-negative/full-corpus public profile when available. |
-| Metrics | H6 validation: Qwen0.6B best static/grid file Hit@1/10 `0.533`/`0.807`; EmbeddingGemma-300M best static/grid file Hit@1/10 `0.863`/`0.983`. 100-case same-stack smoke: Qwen0.6B file Hit@1/10 `0.750`/`0.950`, EmbeddingGemma-300M file Hit@1/10 `0.810`/`0.950`. Public MTEB extract lists Qwen3-Embedding-0.6B official score `0.94325`, Qwen3-Embedding-4B `0.96004`, EmbeddingGemma-300m `0.96180`, Gemini embedding `0.96495`, Voyage Code 3 `0.96688`. |
+| Metrics | H6 validation: Qwen0.6B best static/grid file Hit@1/10 `0.770`/`0.957`; EmbeddingGemma-300M best static/grid file Hit@1/10 `0.863`/`0.983`. 100-case same-stack smoke: Qwen0.6B file Hit@1/10 `0.750`/`0.950`, EmbeddingGemma-300M file Hit@1/10 `0.810`/`0.950`. Public MTEB extract lists Qwen3-Embedding-0.6B official score `0.94325`, Qwen3-Embedding-4B `0.96004`, EmbeddingGemma-300m `0.96180`, Gemini embedding `0.96495`, Voyage Code 3 `0.96688`. |
 | Cost/latency/index-size | Qwen 0.6B is already integrated and fast enough; larger/API models have unmeasured Code Diver cost in the same stack. |
 | Result summary | EmbeddingGemma-300M is the best measured local embedding model so far in the same H3/H6 stack. Qwen 0.6B remains useful as a fast runtime baseline. |
 | Decision | Promote EmbeddingGemma-300M to the next reranker/agent experiments; keep Qwen 0.6B as the control. Qwen3-Embedding-4B is still pending. |
