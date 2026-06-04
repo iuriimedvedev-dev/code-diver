@@ -16,7 +16,7 @@ Core CLI:
 | Command | Status | Notes |
 | --- | --- | --- |
 | `index` | Done | Builds deterministic code items, embeddings, Qdrant/JSON artifacts, and optional graph artifacts. |
-| `search` | Done | Launches the Pi-backed code exploration agent for natural-language answers with tool-backed file/line citations; `--json` returns raw retrieval candidates for tools and automation. |
+| `search` | Done | Launches the read-only Search agent for natural-language answers with tool-backed file/line citations; `--json` returns raw retrieval candidates for tools and automation. |
 | `evaluate` | Done | Runs JSONL datasets and reports retrieval quality, file-level metrics, latency, and bucket diagnostics. |
 
 The public CLI exposes exactly the assignment commands: `index`, `search`, and `evaluate`. Research commands are hidden behind `--help-all`.

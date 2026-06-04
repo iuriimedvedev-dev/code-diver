@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -48,6 +49,29 @@ class PiRunner:
         hypothesis: str | None = None,
     ) -> int:
         return self._run_with_fallbacks(
+            config,
+            config_path,
+            lambda model: self.command_builder.build(
+                config,
+                prompt=prompt,
+                print_mode=True,
+                toolset=toolset,
+                hypothesis=hypothesis,
+                model=model,
+            ),
+            toolset,
+            hypothesis,
+        )
+
+    def run_print_capture(
+        self,
+        config: AppConfig,
+        config_path: Path | None,
+        prompt: str,
+        toolset: str | None = None,
+        hypothesis: str | None = None,
+    ) -> tuple[int, str]:
+        return self._run_with_fallbacks_capture(
             config,
             config_path,
             lambda model: self.command_builder.build(
@@ -109,11 +133,84 @@ class PiRunner:
         last_code = 1
         for index, model in enumerate(self._models(config)):
             if index:
-                print(f"Pi model fallback: {model}", file=sys.stderr)
-            last_code = subprocess.call(command_factory(model), env=env)
+                print(f"Search agent model fallback: {model}", file=sys.stderr, flush=True)
+            command = command_factory(model)
+            self._print_launch_status(command, model, toolset, hypothesis)
+            last_code = subprocess.call(command, env=env)
             if last_code == 0:
                 return 0
         return last_code
+
+    def _run_with_fallbacks_capture(
+        self,
+        config: AppConfig,
+        config_path: Path | None,
+        command_factory: Callable[[str | None], list[str]],
+        toolset: str | None,
+        hypothesis: str | None,
+    ) -> tuple[int, str]:
+        env = self._env(config, config_path, toolset, hypothesis)
+        last_code = 1
+        last_output = ""
+        for index, model in enumerate(self._models(config)):
+            if index:
+                print(f"Search agent model fallback: {model}", file=sys.stderr, flush=True)
+            command = command_factory(model)
+            self._print_launch_status(command, model, toolset, hypothesis)
+            try:
+                completed = subprocess.run(
+                    command,
+                    env=env,
+                    capture_output=True,
+                    text=True,
+                    timeout=config.pi.timeout_seconds,
+                )
+            except subprocess.TimeoutExpired as exc:
+                self._write_captured_stderr(self._text(exc.stderr))
+                last_output = self._text(exc.stdout)
+                print(
+                    f"[code-diver] error: search agent timed out after {config.pi.timeout_seconds}s",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                last_code = 124
+                continue
+            self._write_captured_stderr(completed.stderr)
+            last_code = completed.returncode
+            last_output = completed.stdout
+            if last_code == 0:
+                return 0, last_output
+        return last_code, last_output
+
+    def _print_launch_status(
+        self,
+        command: list[str],
+        model: str | None,
+        toolset: str | None,
+        hypothesis: str | None,
+    ) -> None:
+        display_command = list(command)
+        if display_command and len(display_command[-1]) > 200:
+            display_command[-1] = "<prompt>"
+        print(
+            "[code-diver] launching Search agent "
+            f"model={model or 'default'} "
+            f"toolset={toolset or 'default'} "
+            f"hypothesis={hypothesis or 'none'}",
+            file=sys.stderr,
+            flush=True,
+        )
+        print(f"[code-diver] command: {shlex.join(display_command)}", file=sys.stderr, flush=True)
+        if command and command[0] == "npx":
+            print("[code-diver] note: npx may spend a moment resolving the agent package.", file=sys.stderr, flush=True)
+
+    def _write_captured_stderr(self, text: str) -> None:
+        if not text:
+            return
+        sys.stderr.write(text)
+        if not text.endswith("\n"):
+            sys.stderr.write("\n")
+        sys.stderr.flush()
 
     def _run_with_fallbacks_logged(
         self,

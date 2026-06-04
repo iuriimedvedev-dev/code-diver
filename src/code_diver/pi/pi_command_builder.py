@@ -81,5 +81,5 @@ class PiCommandBuilder:
 
     def _toolset(self, toolsets: dict[str, list[str]], toolset: str) -> list[str]:
         if toolset not in toolsets:
-            raise ValueError(f"Unknown Pi toolset: {toolset}")
+            raise ValueError(f"Unknown Search agent toolset: {toolset}")
         return toolsets[toolset]

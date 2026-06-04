@@ -56,7 +56,7 @@ from .services.evaluation_statistics import EvaluationStatistics
 from .strategies import RetrievalStrategyFactory
 from .store import create_vector_store
 from .tracing import TraceLogger
-from .ui import EditorOpener, EvaluationRenderer, SearchRenderer, TraceMonitor
+from .ui import EditorOpener, EvaluationRenderer, MarkdownRenderer, SearchRenderer, TraceMonitor
 
 
 ADVANCED_COMMANDS = {
@@ -119,13 +119,15 @@ def build_parser(include_advanced: bool = False) -> argparse.ArgumentParser:
     index.set_defaults(func=cmd_index)
 
     search = subparsers.add_parser(CommandName.SEARCH.value, help="Ask the code exploration agent.")
-    search.add_argument("query", nargs="+")
+    search.add_argument("query", nargs="*")
     search.add_argument(OptionName.LIMIT.value, type=int, default=None)
     search.add_argument(
+        "-j",
         OptionName.JSON.value,
         action="store_true",
         help="Return raw deterministic retrieval results instead of invoking the agent.",
     )
+    search.add_argument("-i", "--interactive", action="store_true", help="Open an interactive Search agent.")
     search.set_defaults(func=cmd_search)
 
     evaluate = subparsers.add_parser(CommandName.EVALUATE.value, help="Evaluate retrieval on the configured dataset.")
@@ -194,13 +196,13 @@ def add_advanced_parsers(subparsers: argparse._SubParsersAction[argparse.Argumen
     open_result.add_argument(OptionName.RANK.value, type=int, default=1)
     open_result.set_defaults(func=cmd_open)
 
-    chat = subparsers.add_parser(CommandName.CHAT.value, help="Start Pi with Code Diver RAG tools loaded.")
+    chat = subparsers.add_parser(CommandName.CHAT.value, help="Start the interactive Search agent.")
     chat.add_argument("prompt", nargs="?", default=None)
     chat.add_argument(OptionName.TOOLSET.value, default=None)
     chat.add_argument(OptionName.HYPOTHESIS.value, default=None)
     chat.set_defaults(func=cmd_chat)
 
-    ask = subparsers.add_parser(CommandName.ASK.value, help="Ask Pi once with Code Diver RAG tools loaded.")
+    ask = subparsers.add_parser(CommandName.ASK.value, help="Ask the Search agent once.")
     ask.add_argument("query", nargs="+")
     ask.add_argument(OptionName.TOOLSET.value, default=None)
     ask.add_argument(OptionName.HYPOTHESIS.value, default=None)
@@ -417,17 +419,80 @@ def cmd_index_selected(args: argparse.Namespace, config: AppConfig) -> int:
 
 def cmd_search(args: argparse.Namespace, config: AppConfig) -> int:
     query = normalize_query(args.query)
+    if not query and not args.interactive:
+        print("error: search query is required unless -i/--interactive is used.", file=sys.stderr)
+        return 1
+    if args.json:
+        results = run_search(config, query, args.limit or config.search.limit)
+        print(json.dumps([result_to_json(result) for result in results], indent=2))
+        return 0
     if not args.json:
-        return PiRunner().run_print(
-            config,
-            args.config,
-            build_code_exploration_prompt(query),
-            toolset=None,
-            hypothesis=None,
+        if not code_explorer_preflight(config, args.config):
+            return 1
+    if args.interactive:
+        prompt = build_code_exploration_prompt(query) if query else None
+        return PiRunner().run_interactive(config, args.config, prompt=prompt)
+    exit_code, output = PiRunner().run_print_capture(
+        config,
+        args.config,
+        build_code_exploration_prompt(query),
+        toolset=None,
+        hypothesis=None,
+    )
+    if output.strip():
+        MarkdownRenderer(config.ui).render(output)
+    return exit_code
+
+
+def code_explorer_preflight(config: AppConfig, config_path: Path | None) -> bool:
+    print("[code-diver] code explorer preflight", file=sys.stderr, flush=True)
+    print(f"[code-diver] root: {config.root.resolve()}", file=sys.stderr, flush=True)
+    print(
+        f"[code-diver] config: {(config_path or Defaults.CONFIG_PATH).resolve()}",
+        file=sys.stderr,
+        flush=True,
+    )
+    print(f"[code-diver] store: {store_label(config)}", file=sys.stderr, flush=True)
+    print(f"[code-diver] model: {config.pi.model or 'default'}", file=sys.stderr, flush=True)
+    print(f"[code-diver] tools: {', '.join(config.pi.tools) if config.pi.tools else '(none configured)'}", file=sys.stderr, flush=True)
+
+    vector_store = create_vector_store(config)
+    try:
+        if not vector_store.exists():
+            print(f"[code-diver] error: index not found in {store_label(config)}", file=sys.stderr, flush=True)
+            print(
+                f"[code-diver] fix: uv run code-diver --root {config.root} index",
+                file=sys.stderr,
+                flush=True,
+            )
+            print(
+                "[code-diver] raw check: uv run code-diver "
+                f"--root {config.root} search \"your query\" --json",
+                file=sys.stderr,
+                flush=True,
+            )
+            return False
+        metadata = vector_store.metadata()
+        count_items = getattr(vector_store, "count_items", None)
+        item_count = count_items() if callable(count_items) else None
+        model = metadata.get(SchemaKey.MODEL.value) or "unknown"
+        provider = metadata.get(SchemaKey.PROVIDER.value) or "unknown"
+        dimensions = metadata.get(SchemaKey.DIMENSIONS.value) or "unknown"
+        suffix = f", items={item_count}" if item_count is not None else ""
+        print(
+            f"[code-diver] index: ok provider={provider} model={model} dimensions={dimensions}{suffix}",
+            file=sys.stderr,
+            flush=True,
         )
-    results = run_search(config, query, args.limit or config.search.limit)
-    print(json.dumps([result_to_json(result) for result in results], indent=2))
-    return 0
+        print("[code-diver] next: starting agent; it will search, verify, read bounded excerpts, and explain.", file=sys.stderr, flush=True)
+        return True
+    except Exception as exc:
+        print(f"[code-diver] error: cannot inspect index in {store_label(config)}", file=sys.stderr, flush=True)
+        print(f"[code-diver] cause: {exc}", file=sys.stderr, flush=True)
+        print("[code-diver] if Qdrant is configured, start it with: docker compose up -d qdrant", file=sys.stderr, flush=True)
+        return False
+    finally:
+        close_vector_store(vector_store)
 
 
 def build_code_exploration_prompt(query: str) -> str:

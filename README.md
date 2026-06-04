@@ -44,10 +44,18 @@ uv run code-diver search "how does indexing work?"
 uv run code-diver evaluate --benchmark sample --json
 ```
 
-`search` is the code-exploration entrypoint: it launches the configured Pi-backed read-only agent, which searches, verifies with bounded reads/grep/symbol tools, and explains the code with file/line citations. For raw retrieval candidates, use:
+`search` is the code-exploration entrypoint: it launches the configured read-only Search agent, which searches, verifies with bounded reads/grep/symbol tools, and explains the code with file/line citations. It prints a preflight summary first: root, config, index store, model, tools, and missing-index guidance when needed.
+
+For interactive exploration:
 
 ```bash
-uv run code-diver search "how does indexing work?" --json
+uv run code-diver search -i "how does indexing work?"
+```
+
+For raw retrieval candidates:
+
+```bash
+uv run code-diver search "how does indexing work?" -j
 ```
 
 For the public benchmark slice:

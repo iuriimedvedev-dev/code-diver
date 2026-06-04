@@ -79,7 +79,7 @@ plugins: []
     assert trace_records[1]["payload"]["model"] == "hash-token-v1"
     capsys.readouterr()
 
-    assert main(["search", "authenticate", "user", "password", "--json", "--config", str(config)]) == 0
+    assert main(["search", "authenticate", "user", "password", "-j", "--config", str(config)]) == 0
     search_payload = json.loads(capsys.readouterr().out)
     assert search_payload[0]["item"]["path"] == "auth.py"
 
@@ -212,18 +212,19 @@ plugins: []
     calls: list[tuple[Path | None, str, str | None, str | None]] = []
 
     class FakePiRunner:
-        def run_print(
+        def run_print_capture(
             self,
             config,
             config_path: Path | None,
             prompt: str,
             toolset: str | None = None,
             hypothesis: str | None = None,
-        ) -> int:
+        ) -> tuple[int, str]:
             calls.append((config_path, prompt, toolset, hypothesis))
-            return 0
+            return 0, "## Answer\n\nIt is handled in `auth.py:1`."
 
     monkeypatch.setattr("code_diver.cli.PiRunner", FakePiRunner)
+    monkeypatch.setattr("code_diver.cli.code_explorer_preflight", lambda config, config_path: True)
 
     assert main(["--config", str(config), "search", "where", "is", "auth", "handled"]) == 0
 
@@ -234,6 +235,41 @@ plugins: []
     assert "Explain the code" in calls[0][1]
     assert calls[0][2] is None
     assert calls[0][3] is None
+
+
+def test_search_interactive_invokes_search_agent_chat(tmp_path: Path, monkeypatch) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    config = tmp_path / "code-diver.yml"
+    config.write_text(
+        f"""
+root: {repo}
+embedding:
+  provider: hash
+  dimensions: 64
+pi:
+  binary: pi
+  tools:
+    - code_diver_search
+plugins: []
+""".strip(),
+        encoding="utf-8",
+    )
+    calls: list[str | None] = []
+
+    class FakePiRunner:
+        def run_interactive(self, config, config_path: Path | None, prompt: str | None = None) -> int:
+            calls.append(prompt)
+            return 0
+
+    monkeypatch.setattr("code_diver.cli.PiRunner", FakePiRunner)
+    monkeypatch.setattr("code_diver.cli.code_explorer_preflight", lambda config, config_path: True)
+
+    assert main(["--config", str(config), "search", "-i", "explain", "indexing"]) == 0
+
+    assert calls
+    assert calls[0] is not None
+    assert "explain indexing" in calls[0]
 
 
 class _StringInput:
