@@ -10,22 +10,25 @@ storage:
     batch_size: 256
 
 embedding:
-  provider: gemini
-  model: gemini-embedding-2
-  dimensions: 768
-  batch_size: 32
+  provider: openai_compatible
+  model: mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ
+  dimensions:
+  url: http://127.0.0.1:8001/v1/embeddings
+  api_key: local
+  batch_size: 128
   workers: 1
-  max_input_chars:
+  max_input_chars: 900
+  query_prefix: "Represent this code search query for retrieving relevant files: "
+  document_prefix: "Represent this code file metadata for retrieval: "
 
 generation:
   provider: gemini
   model: gemini-3.1-flash-lite
-  fallback_models:
-    - gemini-2.5-flash
-  temperature: 0.1
+  fallback_models: []
+  temperature: 0
   thinking_budget: 256
   api_version: v1
-  timeout_ms: 20000
+  timeout_ms: 30000
 
 indexing:
   mode: scanner
@@ -89,7 +92,7 @@ scanner:
   exclude: []
   max_file_bytes: 1000000
   line_chunks: false
-  chunk_lines: 120
+  chunk_lines: 220
   structural_chunks: false
   symbol_chunks: false
   symbol_body: false
@@ -149,9 +152,11 @@ recursive_search:
 graph:
   enabled: true
   artifact: .code-diver/graph.json
-  ast_enabled: true
-  expansion_depth: 1
-  neighbor_limit: 20
+  ast_enabled: false
+  reference_edges_enabled: false
+  call_edges_enabled: false
+  expansion_depth: 0
+  neighbor_limit: 0
 
 trace:
   enabled: true
@@ -175,22 +180,12 @@ evaluation:
 experiments:
   suite: code-diver-local
   strategies:
-    - vector
-    - recursive
-    - graph
+    - hybrid_rerank
   hypotheses:
-    - name: vector_qdrant
-      strategy: vector
+    - name: h5_default
+      strategy: hybrid_rerank
       toolset: vector_search
-      description: Qdrant vector retrieval with read-only verification tools.
-    - name: recursive_qdrant
-      strategy: recursive
-      toolset: vector_search
-      description: Multi-round vector retrieval over Qdrant.
-    - name: graph_ast_qdrant
-      strategy: graph
-      toolset: vector_search
-      description: Vector retrieval expanded with AST GraphRAG.
+      description: "H5 default: Qwen file-metadata index, hybrid candidates, Gemini Lite top-10 rerank."
     - name: ai_grep_only
       toolset: grep_search
       description: Pi agent searches with tree, symbols, grep, rg, read, and no vector search.

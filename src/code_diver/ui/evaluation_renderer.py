@@ -20,21 +20,32 @@ class EvaluationRenderer:
         results: list[EvalResult],
         *,
         benchmark: dict[str, str | None] | None = None,
+        settings: dict[str, Any] | None = None,
         details: bool = False,
     ) -> None:
-        renderables = [self._summary_panel(metrics, benchmark)]
+        renderables = [self._settings_panel(benchmark, settings), self._metrics_panel(metrics)]
         if details:
             renderables.append(self._details_table(results))
         self.console.print(Group(*renderables))
 
-    def _summary_panel(self, metrics: dict[str, Any], benchmark: dict[str, str | None] | None) -> Panel:
-        title = self._gradient_title("code-diver evaluate")
+    def _settings_panel(self, benchmark: dict[str, str | None] | None, settings: dict[str, Any] | None) -> Panel:
+        table = Table(show_header=False, box=None, expand=True)
+        table.add_column("setting", style="bold cyan", no_wrap=True)
+        table.add_column("value", overflow="fold")
+        if benchmark is not None:
+            table.add_row("benchmark", str(benchmark["name"]))
+            table.add_row("benchmark dataset", str(benchmark["dataset"]))
+        for key, value in (settings or {}).items():
+            if value is None or value == "":
+                continue
+            table.add_row(str(key), str(value))
+        return Panel(table, title=self._gradient_title("settings"), border_style="cyan", padding=(0, 1))
+
+    def _metrics_panel(self, metrics: dict[str, Any]) -> Panel:
+        title = self._gradient_title("metrics")
         table = Table.grid(expand=True)
         table.add_column(ratio=1)
         table.add_column(ratio=1)
-        if benchmark is not None:
-            table.add_row("[bold]benchmark[/bold]", str(benchmark["name"]))
-            table.add_row("[bold]dataset[/bold]", str(benchmark["dataset"]))
         for key in self._summary_keys(metrics):
             table.add_row(f"[bold]{key}[/bold]", self._format_value(metrics[key]))
         return Panel(table, title=title, border_style="cyan", padding=(0, 1))

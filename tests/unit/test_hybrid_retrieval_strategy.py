@@ -52,6 +52,7 @@ def test_hybrid_strategy_promotes_lexically_relevant_item(tmp_path: Path) -> Non
             path_weight=0.3,
             symbol_weight=0.0,
             graph_weight=0.0,
+            preserve_vector_top=False,
         ),
     )
 
@@ -197,6 +198,7 @@ def test_hybrid_strategy_can_use_bm25_rrf(tmp_path: Path) -> None:
             lexical_scoring="bm25",
             fusion="rrf",
             rrf_k=1,
+            preserve_vector_top=False,
         ),
     )
 
@@ -321,6 +323,7 @@ def test_hybrid_strategy_applies_symbol_match_prior(tmp_path: Path) -> None:
             symbol_weight=0.0,
             symbol_match_weight=0.9,
             graph_weight=0.0,
+            preserve_vector_top=False,
         ),
     )
 
@@ -342,7 +345,7 @@ def test_hybrid_strategy_traces_rank_stage_movement(tmp_path: Path) -> None:
     strategy = HybridRetrievalStrategy(
         FakeRetrievalStrategy([SearchResult(item, 0.99)]),
         graph_store,
-        HybridSearchConfig(candidate_limit=5, symbol_match_weight=0.1),
+        HybridSearchConfig(candidate_limit=5, symbol_match_weight=0.1, graph_depth=1, graph_neighbor_limit=20),
         trace_logger=TraceLogger(TraceConfig(enabled=True, artifact=trace_path, include_prompts=False)),
     )
 

@@ -33,7 +33,7 @@ The project goal `Hit@10 >= 0.95` is met on the local positive-slice by all thre
 | Best quality | H5 + Gemini 3.1 Flash Lite | Best Hit@1, Hit@3, Hit@5, Hit@10, nDCG, MAP, and MRR. |
 | Fastest | Pure H3 + Qwen embeddings | 555ms/query, no LLM call, still Hit@10 0.961. |
 | Cheapest external spend | Pure H3 + Qwen embeddings | Local embeddings after index is built; no ranking API. |
-| Best quality/cost tradeoff | H5 + Gemini 3.1 Flash Lite | Adds about 2.47s/query and API tokens, but improves Hit@1 from 0.823 to 0.904. |
+| Default quality profile | H5 + Gemini 3.1 Flash Lite | Adds about 2.47s/query and API tokens, but improves Hit@1 from 0.823 to 0.904. |
 | No-API LLM mode | H5 compact + local Qwen3.5 4B | Valid and above target, but too slow for default interactive use. |
 
 ## What We Learned

@@ -10,10 +10,10 @@ class EmbeddingConfig:
     provider: str = Defaults.EMBEDDING_PROVIDER
     model: str | None = Defaults.EMBEDDING_MODEL
     dimensions: int | None = Defaults.EMBEDDING_DIMENSIONS
-    api_key: str | None = None
+    api_key: str | None = Defaults.EMBEDDING_API_KEY
     project: str | None = None
     location: str | None = None
-    url: str | None = None
+    url: str | None = Defaults.EMBEDDING_URL
     batch_size: int = Defaults.EMBEDDING_BATCH_SIZE
     workers: int = Defaults.EMBEDDING_WORKERS
     max_input_chars: int | None = Defaults.EMBEDDING_MAX_INPUT_CHARS

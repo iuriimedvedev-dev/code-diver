@@ -13,7 +13,7 @@ We started with a broad code RAG sandbox and narrowed it into a reproducible cod
 - Search output already has readable Rich rendering; `evaluate` now also has a readable Rich summary and stable JSON.
 - `evaluate --benchmark ...` now supports first-class benchmark profiles.
 - Public benchmark assets can be prepared automatically, but the CLI asks before downloading unless `--yes` is passed.
-- The default no-config repository path now applies a built-in Pure H3 profile instead of requiring a hand-written YAML.
+- The default no-config repository path now applies a built-in H5 profile instead of requiring a hand-written YAML.
 
 ## Hypotheses We Tested And Rejected
 
@@ -25,9 +25,9 @@ We started with a broad code RAG sandbox and narrowed it into a reproducible cod
 | Local Qwen3.5 4B as agent/reranker | Usable but too slow in the current loop: 100-case bounded run mean was 44.57s/query. | Not interactive default. |
 | `protogen` as public benchmark | Not acceptable because reviewers will only have this repository. | Removed from public benchmark path. |
 
-## Why Pure H3 Wins
+## Why H5 Wins As The Default
 
-Pure H3 is not "just vector search." It is a compact file-first hybrid retrieval setup:
+H5 is Pure H3 candidate generation plus an explicit LLM top-10 ranking layer. The persistent index stays compact and file-first:
 
 1. **Index file-level artifacts**, not every tiny code chunk by default:
    - file manifest;
@@ -116,7 +116,7 @@ Claude audit status: attempted with Claude Code Opus 4.8, but the CLI returned `
 
 ## Current Product Defaults
 
-Without a config file, Code Diver now applies built-in Pure H3 indexing/search defaults:
+Without a config file, Code Diver now applies built-in H5 indexing/search defaults:
 
 ```bash
 uv run code-diver index /path/to/repo
@@ -124,17 +124,17 @@ uv run code-diver search "where is authentication handled"
 uv run code-diver evaluate --benchmark codesearchnet-mteb-python-1000 --yes --reindex
 ```
 
-The no-config Pure H3 defaults:
+The no-config H5 defaults:
 
 - index file manifests and summaries;
 - disable broad line chunking;
-- use hybrid search;
+- use hybrid candidate generation;
 - use BM25, vector, path, symbol, and file-vote signals;
 - route weights by query shape;
-- avoid default LLM reranking so a normal search does not silently spend API money.
+- run Gemini 3.1 Flash Lite top-10 LLM reranking for best measured quality.
 
 As of 2026-06-04, `codesearchnet-mteb-python-1000` points at the Qwen-backed
-Pure H3 quality profile. The old hash profile is exposed only as
+H5 quality profile. The old hash profile is exposed only as
 `codesearchnet-mteb-python-hash-smoke` and is not used for quality conclusions.
 
 ## Remaining Hard Problems

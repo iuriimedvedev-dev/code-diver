@@ -49,6 +49,11 @@ embedding:
 scanner:
   include:
     - "*.py"
+  line_chunks: true
+  file_summary_chunks: false
+  file_manifest_chunks: false
+search:
+  strategy: vector
 graph:
   artifact: {tmp_path}/graph.json
 trace:
@@ -122,6 +127,11 @@ embedding:
 scanner:
   include:
     - "*.py"
+  line_chunks: true
+  file_summary_chunks: false
+  file_manifest_chunks: false
+search:
+  strategy: vector
 graph:
   enabled: false
 trace:
@@ -169,6 +179,8 @@ scanner:
   include:
     - "*.py"
   chunk_lines: 20
+search:
+  strategy: vector
 graph:
   enabled: false
 trace:

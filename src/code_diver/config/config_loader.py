@@ -112,10 +112,10 @@ class ConfigLoader:
             provider=str(mapping.get("provider", Defaults.EMBEDDING_PROVIDER)),
             model=mapping.get("model", Defaults.EMBEDDING_MODEL),
             dimensions=self._optional_int(mapping.get("dimensions", Defaults.EMBEDDING_DIMENSIONS)),
-            api_key=mapping.get("api_key"),
+            api_key=mapping.get("api_key", Defaults.EMBEDDING_API_KEY),
             project=mapping.get("project"),
             location=mapping.get("location"),
-            url=mapping.get("url"),
+            url=mapping.get("url", Defaults.EMBEDDING_URL),
             batch_size=int(mapping.get("batch_size", Defaults.EMBEDDING_BATCH_SIZE)),
             workers=int(mapping.get("workers", Defaults.EMBEDDING_WORKERS)),
             max_input_chars=self._optional_int(mapping.get("max_input_chars", Defaults.EMBEDDING_MAX_INPUT_CHARS)),
@@ -248,7 +248,7 @@ class ConfigLoader:
         return SearchConfig(
             limit=int(mapping.get("limit", Defaults.SEARCH_LIMIT)),
             preview_lines=int(mapping.get("preview_lines", Defaults.PREVIEW_LINES)),
-            strategy=str(mapping.get("strategy", "vector")),
+            strategy=str(mapping.get("strategy", Defaults.SEARCH_STRATEGY)),
         )
 
     def _recursive_search(self, data: Any) -> RecursiveSearchConfig:
@@ -384,7 +384,12 @@ class ConfigLoader:
                     base.candidate_limit if base is not None else Defaults.LLM_RERANK_CANDIDATE_LIMIT,
                 )
             ),
-            rerank_limit=int(mapping.get("rerank_limit", base.rerank_limit if base is not None else 0)),
+            rerank_limit=int(
+                mapping.get(
+                    "rerank_limit",
+                    base.rerank_limit if base is not None else Defaults.LLM_RERANK_RERANK_LIMIT,
+                )
+            ),
             max_preview_chars=int(
                 mapping.get(
                     "max_preview_chars",

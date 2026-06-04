@@ -7,7 +7,7 @@ import pytest
 
 from code_diver.benchmarks import BenchmarkAssetService, BenchmarkPreparation, BenchmarkProfile, BenchmarkProfileRegistry
 from code_diver.cli import (
-    apply_builtin_pure_h3,
+    apply_builtin_h5,
     apply_embedding_profile,
     apply_runtime_config,
     build_parser,
@@ -34,7 +34,7 @@ def test_benchmark_registry_exposes_reproducible_profiles() -> None:
     codesearch = registry.get("codesearchnet-mteb-python-1000")
     assert codesearch.preparation is not None
     assert codesearch.preparation.dataset_name == "mteb/CodeSearchNetRetrieval"
-    assert codesearch.config_path == Path("configs/codesearchnet-mteb-python-pure-h3.yml")
+    assert codesearch.config_path == Path("configs/codesearchnet-mteb-python-h5-qwen-quality.yml")
     assert registry.get("codesearchnet-mteb-python-hash-smoke").config_path == Path(
         "configs/codesearchnet-mteb-python-hash.yml"
     )
@@ -133,7 +133,9 @@ def test_embedding_profile_overrides_embedding_config() -> None:
     assert config.embedding.provider == "openai_compatible"
     assert config.embedding.model == "mlx-community/Qwen3-Embedding-4B-4bit-DWQ"
     assert config.embedding.url == "http://127.0.0.1:8001/v1/embeddings"
-    assert config.embedding.max_input_chars == 400
+    assert config.embedding.batch_size == 128
+    assert config.embedding.workers == 1
+    assert config.embedding.max_input_chars == 900
 
 
 def test_embeddinggemma_profile_uses_code_retrieval_prompts() -> None:
@@ -162,6 +164,9 @@ def test_default_config_path_applies_runtime_embedding_profile(monkeypatch: pyte
 
     assert config.embedding.provider == "openai_compatible"
     assert config.embedding.model == "mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ"
+    assert config.embedding.batch_size == 128
+    assert config.embedding.workers == 1
+    assert config.embedding.max_input_chars == 900
     assert "qwen3_embedding_0_6b" in config.storage.qdrant.collection
 
 
@@ -178,9 +183,9 @@ def test_non_default_config_path_keeps_experiment_embedding(monkeypatch: pytest.
 
     config = apply_runtime_config(args, AppConfig(storage=StorageConfig(provider="qdrant")))
 
-    assert config.embedding.provider == "gemini"
-    assert config.embedding.model == "gemini-embedding-2"
-    assert "gemini_gemini_embedding_2" in config.storage.qdrant.collection
+    assert config.embedding.provider == "openai_compatible"
+    assert config.embedding.model == "mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ"
+    assert "qwen3_embedding_0_6b" in config.storage.qdrant.collection
 
 
 def test_global_root_can_be_parsed_before_subcommand() -> None:
@@ -193,15 +198,21 @@ def test_normalize_argv_moves_root_before_subcommand() -> None:
     assert normalize_argv(["index", "--root", "/tmp/repo"]) == ["--root", "/tmp/repo", "index"]
 
 
-def test_builtin_pure_h3_profile_sets_manifest_hybrid_defaults() -> None:
-    config = apply_builtin_pure_h3(AppConfig())
+def test_builtin_h5_profile_sets_manifest_hybrid_rerank_defaults() -> None:
+    config = apply_builtin_h5(AppConfig())
 
-    assert config.search.strategy == "hybrid"
+    assert config.search.strategy == "hybrid_rerank"
     assert config.scanner.line_chunks is False
     assert config.scanner.file_summary_chunks is True
     assert config.scanner.file_manifest_chunks is True
     assert config.hybrid_search.routing_enabled is True
     assert config.hybrid_search.vector_kind_limits == {"file_summary": 170, "file_manifest": 170}
+    assert config.hybrid_search.vector_weight == 0.42
+    assert config.hybrid_search.lexical_weight == 0.26
+    assert config.llm_rerank.rerank_limit == 10
+    assert config.llm_rerank.mode == "precision"
+    assert config.generation.provider == "gemini"
+    assert config.generation.model == "gemini-3.1-flash-lite"
 
 
 def test_benchmark_asset_service_skips_existing_assets(tmp_path: Path) -> None:

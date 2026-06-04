@@ -104,8 +104,8 @@ class HybridQueryRouter:
                 fusion="weighted",
                 lexical_candidate_limit=max(config.lexical_candidate_limit, 160),
                 vector_weight=0.45,
-                lexical_weight=0.25,
-                path_weight=0.2,
+                lexical_weight=max(config.lexical_weight + 0.08, 0.25),
+                path_weight=max(config.path_weight + 0.08, 0.2),
                 symbol_weight=0.08,
                 graph_weight=0.02,
             )

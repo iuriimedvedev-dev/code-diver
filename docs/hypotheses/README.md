@@ -8,8 +8,8 @@ The active architecture is:
 
 ```text
 local semantic file-metadata embeddings
--> Pure H3 deterministic hybrid file candidates
--> optional H5 top-10 LLM ranking
+-> H3 deterministic hybrid file candidates
+-> H5 top-10 LLM ranking by default
 -> answer-set-aware or public-slice evaluation
 ```
 
@@ -18,8 +18,8 @@ Current accepted direction:
 | Layer | Default | Why |
 | --- | --- | --- |
 | Persistent index | File-first metadata/manifests, not global line chunks | Compact enough to keep hot and reduces duplicate chunk pressure. |
-| Candidate generator | Pure H3 hybrid file candidates | Fast, deterministic, and above the `Hit@10 >= 0.95` target on the local CodeSearchNet positive slice. |
-| Quality layer | H5 with Gemini 3.1 Flash Lite when API ranking is allowed | Best measured local positive-slice quality/cost tradeoff. |
+| Candidate generator | H3 hybrid file candidates | Fast, deterministic, and above the `Hit@10 >= 0.95` target on the local CodeSearchNet positive slice. |
+| Quality layer | H5 with Gemini 3.1 Flash Lite | Default quality path and best measured local positive-slice quality/cost tradeoff. |
 | Hard-case path | Agentic search only behind a gate | Current open-ended agent loops are slower, costlier, and weaker than Pure H3 on saved comparisons. |
 | Public claim | No official SOTA claim | Current CodeSearchNet results are local positive-slice numbers, not full-corpus MTEB scores. |
 

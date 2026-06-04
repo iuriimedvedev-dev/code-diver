@@ -128,13 +128,13 @@ uv run code-diver evaluate \
   --json \
   --yes \
   --reindex \
-  | tee .code-diver/reports/codesearchnet/codesearchnet-mteb-python-pure-h3-qwen.json
+  | tee .code-diver/reports/codesearchnet/codesearchnet-mteb-python-h5-qwen-gemini-lite.json
 ```
 
 Why this profile:
 
 - It uses the public `mteb/CodeSearchNetRetrieval` benchmark from Hugging Face.
-- `configs/codesearchnet-mteb-python-pure-h3.yml` uses the Qwen-backed Pure H3 quality profile.
+- `configs/codesearchnet-mteb-python-h5-qwen-quality.yml` uses the Qwen-backed H5 quality profile.
 - It requires the local embedding runtime configured by `code-diver init`.
 - The profile prepares the Python 1000-case test split locally under `.code-diver/benchmarks/`.
 - Hash embeddings are available only through `codesearchnet-mteb-python-hash-smoke`; that profile is not a quality claim.

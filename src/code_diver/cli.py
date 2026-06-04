@@ -389,8 +389,8 @@ def normalize_argv(argv: list[str] | None) -> list[str] | None:
 
 def apply_runtime_config(args: argparse.Namespace, config: AppConfig) -> AppConfig:
     root = runtime_root(args)
-    if should_apply_builtin_pure_h3(args):
-        config = apply_builtin_pure_h3(config)
+    if should_apply_builtin_h5(args):
+        config = apply_builtin_h5(config)
     if root is not None:
         config = replace(config, root=root)
     embedding_profile = getattr(args, "embedding", None)
@@ -447,7 +447,7 @@ def is_index_maintenance_command(value: object) -> bool:
     return value is not None and str(value) in INDEX_MAINTENANCE_COMMANDS
 
 
-def should_apply_builtin_pure_h3(args: argparse.Namespace) -> bool:
+def should_apply_builtin_h5(args: argparse.Namespace) -> bool:
     if getattr(args, "benchmark", None):
         return False
     if getattr(args, "config", None) is not None:
@@ -455,7 +455,7 @@ def should_apply_builtin_pure_h3(args: argparse.Namespace) -> bool:
     return not Defaults.CONFIG_PATH.exists()
 
 
-def apply_builtin_pure_h3(config: AppConfig) -> AppConfig:
+def apply_builtin_h5(config: AppConfig) -> AppConfig:
     scanner = replace(
         config.scanner,
         line_chunks=False,
@@ -467,14 +467,14 @@ def apply_builtin_pure_h3(config: AppConfig) -> AppConfig:
         file_manifest_chunks=True,
         max_symbols_per_file=96,
     )
-    search = replace(config.search, strategy="hybrid", limit=10, preview_lines=10)
+    search = replace(config.search, strategy="hybrid_rerank", limit=10, preview_lines=10)
     hybrid = replace(
         config.hybrid_search,
         candidate_limit=280,
         lexical_candidate_limit=900,
-        vector_weight=0.34,
-        lexical_weight=0.34,
-        path_weight=0.18,
+        vector_weight=0.42,
+        lexical_weight=0.26,
+        path_weight=0.12,
         symbol_weight=0.10,
         symbol_match_weight=0.10,
         graph_weight=0.0,
@@ -491,6 +491,29 @@ def apply_builtin_pure_h3(config: AppConfig) -> AppConfig:
         item_kind_weights={"file_summary": 1.0, "file_manifest": 1.08},
         min_token_length=3,
     )
+    llm_rerank = replace(
+        config.llm_rerank,
+        candidate_limit=30,
+        rerank_limit=10,
+        max_preview_chars=700,
+        mode="precision",
+        include_reasons=False,
+        preserve_top_candidate=False,
+        retry_attempts=3,
+        retry_base_delay_seconds=1.0,
+        retry_max_delay_seconds=8.0,
+    )
+    generation = replace(
+        config.generation,
+        provider=Defaults.GENERATION_PROVIDER,
+        model="gemini-3.1-flash-lite",
+        fallback_models=[],
+        location="global",
+        temperature=0.0,
+        thinking_budget=256,
+        api_version="v1",
+        timeout_ms=30_000,
+    )
     graph = replace(
         config.graph,
         ast_enabled=False,
@@ -499,7 +522,21 @@ def apply_builtin_pure_h3(config: AppConfig) -> AppConfig:
         expansion_depth=0,
         neighbor_limit=0,
     )
-    return replace(config, scanner=scanner, search=search, hybrid_search=hybrid, graph=graph)
+    trace = replace(config.trace, include_prompts=True)
+    return replace(
+        config,
+        scanner=scanner,
+        search=search,
+        hybrid_search=hybrid,
+        llm_rerank=llm_rerank,
+        generation=generation,
+        graph=graph,
+        trace=trace,
+    )
+
+
+def apply_builtin_pure_h3(config: AppConfig) -> AppConfig:
+    return apply_builtin_h5(config)
 
 
 def cmd_index(args: argparse.Namespace, config: AppConfig) -> int:
@@ -1092,6 +1129,7 @@ def cmd_evaluate(args: argparse.Namespace, config: AppConfig) -> int:
         limit,
         workers=config.evaluation.workers,
     )
+    settings = evaluation_settings(config, dataset, limit, args.config or (benchmark.config_path if benchmark else None))
     if args.json:
         print(
             json.dumps(
@@ -1099,6 +1137,7 @@ def cmd_evaluate(args: argparse.Namespace, config: AppConfig) -> int:
                     "benchmark": benchmark.to_json() if benchmark is not None else None,
                     "config": str(args.config or (benchmark.config_path if benchmark is not None else Defaults.CONFIG_PATH)),
                     "dataset": str(dataset),
+                    "settings": settings,
                     "generated_dataset": {
                         "path": str(dataset),
                         "cases": len(generated_cases),
@@ -1118,9 +1157,40 @@ def cmd_evaluate(args: argparse.Namespace, config: AppConfig) -> int:
         metrics,
         results,
         benchmark=benchmark.to_json() if benchmark is not None else None,
+        settings=settings,
         details=args.details,
     )
     return 0
+
+
+def evaluation_settings(config: AppConfig, dataset: Path, limit: int, config_path: Path | None) -> dict[str, Any]:
+    return {
+        "config": str(config_path or Defaults.CONFIG_PATH),
+        "root": str(config.root),
+        "dataset": str(dataset),
+        "limit": limit,
+        "workers": config.evaluation.workers,
+        "store": store_label(config),
+        "search strategy": config.search.strategy,
+        "index profile": index_profile_label(config),
+        "indexed content": index_content_label(config),
+        "embedding provider": config.embedding.provider,
+        "embedding model": config.embedding.model or "provider default",
+        "embedding endpoint": config.embedding.url or config.embedding.location or "provider default",
+        "embedding batch/workers": f"{config.embedding.batch_size}/{config.embedding.workers}",
+        "embedding max chars": config.embedding.max_input_chars or "provider default",
+        "ranker provider": config.generation.provider if config.search.strategy == "hybrid_rerank" else "none",
+        "ranker model": config.generation.model if config.search.strategy == "hybrid_rerank" else "none",
+        "rerank candidates/top": f"{config.llm_rerank.candidate_limit}/{config.llm_rerank.rerank_limit}",
+        "rerank mode": config.llm_rerank.mode,
+        "hybrid candidates": config.hybrid_search.candidate_limit,
+        "hybrid weights": (
+            f"vector={config.hybrid_search.vector_weight}, lexical={config.hybrid_search.lexical_weight}, "
+            f"path={config.hybrid_search.path_weight}, symbol={config.hybrid_search.symbol_weight}, "
+            f"symbol_match={config.hybrid_search.symbol_match_weight}, file_vote={config.hybrid_search.file_vote_weight}"
+        ),
+        "graph": graph_label(config),
+    }
 
 
 def resolve_benchmark_profile(args: argparse.Namespace) -> BenchmarkProfile | None:

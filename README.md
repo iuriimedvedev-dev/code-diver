@@ -7,10 +7,11 @@
 ```bash
 uv sync
 export GEMINI_API_KEY="..."
-uv run code-diver init --platform api --embedding gemini --yes
+uv run code-diver init --platform apple-metal --embedding qwen3-0.6b --yes --start
 ```
 
-The default `code-diver.yml` uses Gemini for embeddings and the Search agent model, so you need one of:
+The default H5 profile uses local Qwen embeddings and Gemini 3.1 Flash Lite for
+LLM reranking/Search agent responses. For the Gemini side, provide one of:
 
 ```bash
 export GEMINI_API_KEY="..."
@@ -26,9 +27,9 @@ Secrets can live in `.env`; the CLI loads it before creating providers. `.env` i
 
 The no-config path is intentionally local-first:
 
-- indexing/search default: Pure H3 file-first hybrid retrieval;
+- indexing/search default: H5 file-first hybrid retrieval plus Gemini 3.1 Flash Lite top-10 rerank;
 - local embedding default for quality runs: Qwen3-Embedding-0.6B through an OpenAI-compatible local server;
-- optional quality rerank: Gemini 3.1 Flash Lite or a local reranker, configured in YAML.
+- no-key smoke checks are explicit and use the separate hash benchmark profile.
 
 Configuration lives in `code-diver.yml`. For no-key smoke tests only, set:
 
@@ -55,7 +56,8 @@ The public CLI intentionally exposes the assignment surface: `index`, `search`, 
 
 ```bash
 uv sync
-uv run code-diver init --platform api --embedding gemini --yes
+export GEMINI_API_KEY="..."
+uv run code-diver init --platform apple-metal --embedding qwen3-0.6b --yes --start
 uv run code-diver index .
 uv run code-diver search "how does indexing work?"
 uv run code-diver evaluate --benchmark sample --json
@@ -124,7 +126,7 @@ uv run code-diver evaluate \
   --reindex
 ```
 
-This benchmark profile uses the Qwen-backed Pure H3 quality config. Run
+This benchmark profile uses the Qwen-backed H5 quality config. Run
 `uv run code-diver init --platform apple-metal --embedding qwen3-0.6b --yes --start`
 first for the default local model setup. For a no-key smoke check only, use
 `--benchmark codesearchnet-mteb-python-hash-smoke`.
@@ -202,14 +204,15 @@ Provider selection is config-driven:
 generation:
   provider: gemini # or openai
   model: gemini-3.1-flash-lite
-  timeout_ms: 20000
+  timeout_ms: 30000
 
 embedding:
-  provider: gemini # openai or hash also supported
-  model: gemini-embedding-2
-  batch_size: 32
+  provider: openai_compatible # gemini, openai, or hash also supported
+  model: mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ
+  url: http://127.0.0.1:8001/v1/embeddings
+  batch_size: 128
   workers: 1
-  max_input_chars:
+  max_input_chars: 900
 ```
 
 For OpenAI, set `OPENAI_API_KEY` and use `generation.provider: openai` plus `embedding.provider: openai`. Defaults are `gpt-5.1` and `text-embedding-3-large`.
