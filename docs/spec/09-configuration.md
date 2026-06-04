@@ -87,6 +87,16 @@ larger upsert batches for normal development runs. `init`, `index`, `search`, an
 Compose service when it is not already reachable. Embedded Qdrant `location:` mode and
 remote Qdrant URLs are left unmanaged by design.
 
+**Default collection lifecycle:** when the configured Qdrant collection is the default
+`code_diver` base, CLI runtime resolution expands it to a deterministic
+repo/model-specific collection alias:
+`code_diver__repo_<repo>_<hash>__emb_<provider>_<model>_<settings>_<hash>`. Plain `index`
+creates that collection only when it is missing. Existing collections require
+`index --update-index` to replace the current repo/model collection or `index --override-repo`
+to delete all collections for the current repository namespace before rebuilding. `index
+clear` removes the current repository namespace; `index clear --all` removes all default
+Code Diver index collections. Explicit non-default collection names in YAML are preserved.
+
 **New `ScannerConfig` knob:** `structural_chunks` (`False`) — see
 [02](./02-indexing.md) structural chunking.
 

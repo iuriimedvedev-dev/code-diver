@@ -8,11 +8,13 @@ import pytest
 from code_diver.cli import (
     cmd_monitor,
     config_for_indexing_hypothesis,
+    current_repo_collection_prefix,
     direct_search_eval_result,
     direct_search_metrics,
     make_embedding_provider,
     make_ephemeral_search_tool_handler,
     make_search_tool_handler,
+    prepare_index_collection,
 )
 from code_diver.config import AppConfig
 from code_diver.config.embedding_config import EmbeddingConfig
@@ -69,6 +71,23 @@ class FakeEmbeddingProvider:
         ]
 
 
+class FakeClosableVectorStore:
+    def __init__(self, exists: bool) -> None:
+        self._exists = exists
+        self.deleted_prefixes: list[str] = []
+        self.closed = False
+
+    def exists(self) -> bool:
+        return self._exists
+
+    def delete_collections_with_prefix(self, prefix: str) -> list[str]:
+        self.deleted_prefixes.append(prefix)
+        return [prefix]
+
+    def close(self) -> None:
+        self.closed = True
+
+
 def test_config_for_indexing_hypothesis_isolates_qdrant_json_and_graph_artifacts(tmp_path: Path) -> None:
     config = AppConfig(
         artifact=tmp_path / "index.json",
@@ -83,6 +102,60 @@ def test_config_for_indexing_hypothesis_isolates_qdrant_json_and_graph_artifacts
     assert isolated.graph.artifact == tmp_path / "graph_ai_index_rg_only_run123.json"
     assert config.artifact == tmp_path / "index.json"
     assert config.graph.artifact == tmp_path / "graph.json"
+
+
+def test_prepare_index_collection_rejects_existing_collection_without_flag(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = FakeClosableVectorStore(exists=True)
+    config = AppConfig(
+        root=tmp_path,
+        storage=StorageConfig(provider="qdrant", qdrant=QdrantConfig(collection="code_diver__repo_demo__emb_qwen")),
+    )
+    monkeypatch.setattr("code_diver.cli.make_vector_store", lambda config: store)
+
+    with pytest.raises(RuntimeError, match="--update-index"):
+        prepare_index_collection(Namespace(update_index=False, override_repo=False, reindex=False), config, progress=False)
+
+    assert store.closed is True
+
+
+def test_prepare_index_collection_allows_update_index(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = FakeClosableVectorStore(exists=True)
+    config = AppConfig(root=tmp_path, storage=StorageConfig(provider="qdrant"))
+    monkeypatch.setattr("code_diver.cli.make_vector_store", lambda config: store)
+
+    prepare_index_collection(Namespace(update_index=True, override_repo=False, reindex=False), config, progress=False)
+
+    assert store.deleted_prefixes == []
+    assert store.closed is True
+
+
+def test_prepare_index_collection_override_deletes_repo_prefix(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = FakeClosableVectorStore(exists=True)
+    config = AppConfig(
+        root=tmp_path,
+        storage=StorageConfig(provider="qdrant", qdrant=QdrantConfig(collection="code_diver__repo_demo__emb_qwen")),
+    )
+    monkeypatch.setattr("code_diver.cli.make_vector_store", lambda config: store)
+
+    prepare_index_collection(Namespace(update_index=False, override_repo=True, reindex=False), config, progress=False)
+
+    assert store.deleted_prefixes == ["code_diver__repo_demo"]
+    assert store.closed is True
+
+
+def test_current_repo_collection_prefix_falls_back_to_collection_name() -> None:
+    config = AppConfig(storage=StorageConfig(qdrant=QdrantConfig(collection="manual_collection")))
+
+    assert current_repo_collection_prefix(config) == "manual_collection"
 
 
 def test_make_search_tool_handler_reuses_injected_strategy() -> None:

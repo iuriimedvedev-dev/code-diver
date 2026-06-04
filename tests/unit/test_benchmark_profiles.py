@@ -51,6 +51,18 @@ def test_index_parser_accepts_repository_root() -> None:
     assert str(args.index_root) == "/tmp/repo"
 
 
+def test_index_parser_accepts_clear_all() -> None:
+    args = build_parser().parse_args(["index", "clear", "--all"])
+
+    assert str(args.index_root) == "clear"
+    assert args.all is True
+
+
+def test_index_parser_rejects_conflicting_index_modes() -> None:
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["index", "--update-index", "--override-repo"])
+
+
 def test_index_parser_rejects_embedding_profile() -> None:
     with pytest.raises(SystemExit):
         build_parser().parse_args(["index", "--embedding", "qwen3-0.6b", "/tmp/repo"])

@@ -67,6 +67,23 @@ uv run code-diver index . --no-progress
 uv run code-diver index . --quiet
 ```
 
+Qdrant indexes are namespaced by repository and embedding extractor when the default
+collection base is used. A plain `index` creates a new missing repo/model collection and
+refuses to overwrite an existing one. Use explicit lifecycle flags when replacing data:
+
+```bash
+uv run code-diver index ../my-repo --update-index
+uv run code-diver index ../my-repo --override-repo
+uv run code-diver index clear
+uv run code-diver index clear --all
+```
+
+`--update-index` replaces only the current repo/model collection through the staged Qdrant
+write path. `--override-repo` removes all collections for the current repository namespace
+before indexing. `index clear` removes the current repository namespace without rebuilding;
+`index clear --all` removes every Code Diver index collection using the default
+`code_diver` prefix.
+
 The scanner enumerates files through `rg --files --no-require-git`, so it honors
 `.gitignore` for both Git repositories and unpacked source trees. The default config uses
 local Qdrant at `http://localhost:6333`; `init`, `index`, `search`, and `evaluate` check

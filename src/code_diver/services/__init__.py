@@ -11,6 +11,7 @@ from .evaluation_statistics import EvaluationStatistics
 from .file_manifest_item_builder import FileManifestItemBuilder
 from .graph_indexing_service import GraphIndexingService
 from .identifier_alias_locator import IdentifierAliasLocator
+from .index_collection_resolver import IndexCollectionResolver
 from .index_composition_analyzer import IndexCompositionAnalyzer
 from .indexing_options import IndexingOptions
 from .indexing_service import IndexingService
@@ -33,6 +34,7 @@ __all__ = [
     "FileManifestItemBuilder",
     "GraphIndexingService",
     "IdentifierAliasLocator",
+    "IndexCollectionResolver",
     "IndexCompositionAnalyzer",
     "IndexingOptions",
     "IndexingService",

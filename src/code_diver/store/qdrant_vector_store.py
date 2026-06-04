@@ -207,6 +207,22 @@ class QdrantVectorStore(VectorStore):
             return 0
         return int(self.client.count(collection_name=self.collection, exact=True).count)
 
+    def delete_collections_with_prefix(self, prefix: str) -> list[str]:
+        deleted: list[str] = []
+        alias_targets: list[str] = []
+        for alias in self.client.get_aliases().aliases:
+            if alias.alias_name.startswith(prefix):
+                alias_targets.append(alias.collection_name)
+                self._delete_alias(alias.alias_name)
+                deleted.append(alias.alias_name)
+
+        collection_names = {collection.name for collection in self.client.get_collections().collections}
+        for collection in sorted(collection_names):
+            if collection.startswith(prefix) or collection in alias_targets:
+                self.client.delete_collection(collection)
+                deleted.append(collection)
+        return deleted
+
     def _point_id(self, item_id: str) -> str:
         return uuid.uuid5(uuid.NAMESPACE_URL, item_id).hex
 
@@ -258,6 +274,13 @@ class QdrantVectorStore(VectorStore):
     def _delete_collection_if_exists(self, collection: str) -> None:
         if self.client.collection_exists(collection):
             self.client.delete_collection(collection)
+
+    def _delete_alias(self, alias_name: str) -> None:
+        from qdrant_client import models
+
+        self.client.update_collection_aliases(
+            [models.DeleteAliasOperation(delete_alias=models.DeleteAlias(alias_name=alias_name))]
+        )
 
     def _upsert_points(
         self,

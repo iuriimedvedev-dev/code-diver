@@ -49,6 +49,7 @@ from .services import (
     DatasetLoader,
     EphemeralDeepIndexService,
     GraphIndexingService,
+    IndexCollectionResolver,
     IndexCompositionAnalyzer,
     IndexingOptions,
     IndexingService,
@@ -81,6 +82,8 @@ ADVANCED_COMMANDS = {
     CommandName.SYMBOLS.value,
     CommandName.TREE.value,
 }
+
+INDEX_MAINTENANCE_COMMANDS = {"clear", "prune", "reset"}
 
 
 def status_console() -> Console:
@@ -199,6 +202,18 @@ def build_parser(include_advanced: bool = False) -> argparse.ArgumentParser:
 
     index = subparsers.add_parser(CommandName.INDEX.value, help="Index repository code into the configured artifact.")
     index.add_argument("index_root", nargs="?", type=Path, default=None)
+    index_mode = index.add_mutually_exclusive_group()
+    index_mode.add_argument(
+        "--update-index",
+        action="store_true",
+        help="Replace only the current repo/model collection if it already exists.",
+    )
+    index_mode.add_argument(
+        "--override-repo",
+        action="store_true",
+        help="Delete other Qdrant collections for this repository before indexing.",
+    )
+    index.add_argument("--all", action="store_true", help="With `index clear`, delete all Code Diver index collections.")
     index.add_argument("--no-progress", action="store_true", help="Disable indexing progress bars.")
     index.add_argument("-q", "--quiet", action="store_true", help="Only print the final indexing summary.")
     index.set_defaults(func=cmd_index)
@@ -364,6 +379,8 @@ def apply_runtime_config(args: argparse.Namespace, config: AppConfig) -> AppConf
         config = apply_embedding_profile(config, embedding_profile, announce=False)
     elif getattr(args, "config", None) is None and getattr(args, "command", None) != CommandName.INIT.value:
         config = apply_configured_runtime_profile(config)
+    if getattr(args, "command", None) != CommandName.INIT.value:
+        config = IndexCollectionResolver().resolve(config)
     return config
 
 
@@ -386,10 +403,16 @@ def apply_configured_runtime_profile(config: AppConfig) -> AppConfig:
 
 def runtime_root(args: argparse.Namespace) -> Path | None:
     command_root = getattr(args, "index_root", None)
+    if is_index_maintenance_command(command_root):
+        return getattr(args, "root", None)
     if command_root is not None:
         return command_root
     global_root = getattr(args, "root", None)
     return global_root if global_root is not None else None
+
+
+def is_index_maintenance_command(value: object) -> bool:
+    return value is not None and str(value) in INDEX_MAINTENANCE_COMMANDS
 
 
 def should_apply_builtin_pure_h3(args: argparse.Namespace) -> bool:
@@ -448,14 +471,20 @@ def apply_builtin_pure_h3(config: AppConfig) -> AppConfig:
 
 
 def cmd_index(args: argparse.Namespace, config: AppConfig) -> int:
+    if is_index_maintenance_command(getattr(args, "index_root", None)):
+        return cmd_index_clear(args, config)
+    if bool(getattr(args, "all", False)):
+        raise ValueError("`--all` is only supported with `code-diver index clear`.")
     progress = not bool(getattr(args, "no_progress", False) or getattr(args, "quiet", False))
     ensure_storage_runtime(config, progress=progress)
+    prepare_index_collection(args, config, progress=progress)
     if progress:
         render_status_panel(
             "Index",
             [
                 ("root", config.root.resolve()),
                 ("store", store_label(config)),
+                ("mode", index_write_mode_label(args)),
                 ("scanner", config.indexing.mode),
                 ("profile", index_profile_label(config)),
                 ("embeds", index_content_label(config)),
@@ -513,6 +542,81 @@ def cmd_index(args: argparse.Namespace, config: AppConfig) -> int:
     finally:
         close_vector_store(indexing_service.vector_store)
     return 0
+
+
+def cmd_index_clear(args: argparse.Namespace, config: AppConfig) -> int:
+    if bool(getattr(args, "update_index", False) or getattr(args, "override_repo", False)):
+        raise ValueError("`index clear` cannot be combined with `--update-index` or `--override-repo`.")
+    if config.storage.provider != VectorStoreProviderId.QDRANT.value:
+        raise ValueError("`index clear` is only supported for Qdrant storage.")
+    progress = not bool(getattr(args, "no_progress", False) or getattr(args, "quiet", False))
+    ensure_storage_runtime(config, progress=progress)
+    prefix = Defaults.QDRANT_COLLECTION if bool(getattr(args, "all", False)) else current_repo_collection_prefix(config)
+    scope = "all Code Diver index collections" if bool(getattr(args, "all", False)) else "current repository collections"
+    if progress:
+        render_status_panel(
+            "Index Clear",
+            [
+                ("scope", scope),
+                ("prefix", prefix),
+                (
+                    "store",
+                    config.storage.qdrant.url if config.storage.qdrant.location is None else config.storage.qdrant.location,
+                ),
+            ],
+            border_style="yellow",
+        )
+    vector_store = make_vector_store(config)
+    try:
+        with render_activity(f"deleting Qdrant index collections: {prefix}", enabled=progress, style="yellow"):
+            deleted = vector_store.delete_collections_with_prefix(prefix)
+    finally:
+        close_vector_store(vector_store)
+    print(f"Deleted {len(deleted)} Qdrant collection entries for prefix `{prefix}`.")
+    if deleted and not bool(getattr(args, "quiet", False)):
+        for name in deleted:
+            print(f"  {name}")
+    return 0
+
+
+def prepare_index_collection(args: argparse.Namespace, config: AppConfig, progress: bool = True) -> None:
+    if config.storage.provider != VectorStoreProviderId.QDRANT.value:
+        return
+    vector_store = make_vector_store(config)
+    try:
+        if bool(getattr(args, "override_repo", False)):
+            prefix = current_repo_collection_prefix(config)
+            with render_activity(f"removing existing Qdrant collections for repo prefix: {prefix}", enabled=progress):
+                deleted = vector_store.delete_collections_with_prefix(prefix)
+            if progress:
+                render_status_line(f"removed {len(deleted)} repo collection entries", "yellow")
+            return
+        if bool(getattr(args, "update_index", False) or getattr(args, "reindex", False)):
+            return
+        if vector_store.exists():
+            raise RuntimeError(
+                f"Index collection already exists: {config.storage.qdrant.collection}. "
+                "Use `--update-index` to replace only this collection, or `--override-repo` "
+                "to delete all collections for this repository before indexing."
+            )
+    finally:
+        close_vector_store(vector_store)
+
+
+def current_repo_collection_prefix(config: AppConfig) -> str:
+    collection = config.storage.qdrant.collection
+    marker = "__emb_"
+    if marker in collection:
+        return collection.split(marker, 1)[0]
+    return collection
+
+
+def index_write_mode_label(args: argparse.Namespace) -> str:
+    if bool(getattr(args, "override_repo", False)):
+        return "override repo collections"
+    if bool(getattr(args, "update_index", False) or getattr(args, "reindex", False)):
+        return "update current collection"
+    return "create new collection"
 
 
 def embedding_activity_message(config: AppConfig) -> str:

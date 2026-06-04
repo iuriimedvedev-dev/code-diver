@@ -82,3 +82,20 @@ def test_qdrant_vector_store_keeps_previous_index_when_staging_replace_fails(tmp
 
     assert store.metadata()["model"] == "old"
     assert store.search([1.0, 0.0], limit=1)[0].item.path == "old.py"
+
+
+def test_qdrant_vector_store_deletes_collections_by_prefix(tmp_path) -> None:
+    store = QdrantVectorStore(location=":memory:", collection="code_diver__repo_a__emb_qwen")
+    item = CodeItem(id="a.py#1", path="a.py", title="a", content="auth")
+    store.save(root=tmp_path, provider="hash", model="a", dimensions=2, items=[item], vectors=[[1.0, 0.0]])
+    store.collection = "code_diver__repo_b__emb_qwen"
+    other = CodeItem(id="b.py#1", path="b.py", title="b", content="billing")
+    store.save(root=tmp_path, provider="hash", model="b", dimensions=2, items=[other], vectors=[[0.0, 1.0]])
+
+    deleted = store.delete_collections_with_prefix("code_diver__repo_a")
+
+    assert "code_diver__repo_a__emb_qwen" in deleted
+    store.collection = "code_diver__repo_a__emb_qwen"
+    assert store.exists() is False
+    store.collection = "code_diver__repo_b__emb_qwen"
+    assert store.exists() is True

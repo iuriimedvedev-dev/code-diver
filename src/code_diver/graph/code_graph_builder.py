@@ -92,7 +92,7 @@ class CodeGraphBuilder:
     def _imports_for_file(self, root: Path, rel_path: str) -> set[str]:
         path = root / rel_path
         try:
-            text = path.read_text(encoding="utf-8")
+            text = path.read_text(encoding="utf-8", errors="replace")
         except OSError:
             return set()
         suffix = path.suffix.lower()

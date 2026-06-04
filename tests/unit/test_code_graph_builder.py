@@ -29,6 +29,19 @@ def test_code_graph_builder_creates_python_import_edges(tmp_path: Path) -> None:
     )
 
 
+def test_code_graph_builder_tolerates_non_utf8_source_for_import_edges(tmp_path: Path) -> None:
+    (tmp_path / "service.py").write_bytes(b"import repository\nbad = '\x92'\n")
+    (tmp_path / "repository.py").write_text("def save(): pass\n", encoding="utf-8")
+    items = [
+        CodeItem("service", "service.py", "service", "import repository"),
+        CodeItem("repository", "repository.py", "repository", "def save(): pass"),
+    ]
+
+    graph = CodeGraphBuilder().build(tmp_path, items)
+
+    assert any(edge.source == "service" and edge.target == "repository" for edge in graph.edges)
+
+
 def test_code_graph_builder_creates_symbol_reference_edges(tmp_path: Path) -> None:
     (tmp_path / "service.py").write_text("def register():\n    save_user()\n", encoding="utf-8")
     (tmp_path / "repository.py").write_text("def save_user(): pass\n", encoding="utf-8")
