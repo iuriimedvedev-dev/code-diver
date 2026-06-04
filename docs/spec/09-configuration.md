@@ -58,10 +58,19 @@ Every config field default reads `Defaults.X`; `ConfigLoader` then does
 embeds file metadata, not full source bodies.
 
 **Built-in embedding extractor profiles:** `index --embedding qwen3-0.6b`,
-`index --embedding qwen3-4b`, and `index --embedding gemini` override only the embedding
-block for that run. In an interactive terminal, `index` can ask for the extractor unless
-`--no-embedding-prompt` is passed. Qwen profiles expect a local OpenAI-compatible
-vLLM/MLX embedding server on `127.0.0.1:8001`; Gemini is API/Vertex only.
+`index --embedding qwen3-4b`, `index --embedding qwen3-0.6b-vllm`,
+`index --embedding qwen3-4b-vllm`, and `index --embedding gemini` override only the
+embedding block for that run. Apple profiles use MLX-converted Qwen checkpoints; CUDA,
+ROCm, and CPU profiles use regular Hugging Face Qwen checkpoints through vLLM. Gemini is
+API/Vertex only.
+
+**Runtime setup:** `code-diver init` writes `.code-diver/runtime.yml`. `--runtime host-uv`
+installs vLLM/MLX into `.code-diver/runtime/vllm` with `uv` and lets later commands
+autostart the embedding server subprocess. `--platform apple-metal` installs `vllm` plus
+`mlx-lm`; `--platform nvidia-cuda`, `amd-rocm`, and `cpu` install `vllm`. `--runtime
+external` records that the endpoint is managed outside Code Diver, for example by Docker or
+a remote server; later commands only check readiness and fail with an actionable message if
+it is down.
 
 **New `ScannerConfig` knob:** `structural_chunks` (`False`) — see
 [02](./02-indexing.md) structural chunking.

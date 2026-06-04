@@ -58,6 +58,28 @@ def test_index_parser_accepts_embedding_profile() -> None:
     assert str(args.index_root) == "/tmp/repo"
 
 
+def test_init_parser_accepts_runtime_backend() -> None:
+    args = build_parser().parse_args(
+        [
+            "init",
+            "--platform",
+            "nvidia-cuda",
+            "--embedding",
+            "qwen3-0.6b-vllm",
+            "--runtime",
+            "external",
+            "--skip-install",
+            "--yes",
+        ]
+    )
+
+    assert args.platform == "nvidia-cuda"
+    assert args.embedding == "qwen3-0.6b-vllm"
+    assert args.runtime == "external"
+    assert args.skip_install is True
+    assert args.yes is True
+
+
 def test_embedding_profile_overrides_embedding_config() -> None:
     config = apply_embedding_profile(AppConfig(), "qwen3-4b", announce=False)
 

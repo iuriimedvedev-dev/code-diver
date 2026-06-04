@@ -163,7 +163,32 @@ For local embeddings on Apple Silicon, use an OpenAI-compatible embedding server
 
 Gemini embeddings are not available as a local downloadable model in this project. The local embedding profiles are Qwen/MLX/vLLM-compatible models; Gemini Embedding 2 is API/Vertex only and requires `GEMINI_API_KEY` or gcloud ADC.
 
-The `index` command can select a built-in embedding extractor interactively in a terminal, or explicitly with `--embedding`:
+Run setup once before local embedding indexing. The wizard asks for platform and model.
+In `host-uv` mode Code Diver creates `.code-diver/runtime/vllm` with `uv`, downloads the
+selected model on first serve, starts the embedding server as a subprocess, and writes logs
+to `.code-diver/runtime/logs/embedding-server.log`.
+
+```bash
+uv run code-diver init --platform apple-metal --embedding qwen3-0.6b --runtime host-uv --yes --start
+uv run code-diver index ../my-repo
+```
+
+For Nvidia CUDA or AMD ROCm hosts, use regular Hugging Face Qwen checkpoints through vLLM:
+
+```bash
+uv run code-diver init --platform nvidia-cuda --embedding qwen3-0.6b-vllm --runtime host-uv --yes --start
+uv run code-diver init --platform amd-rocm --embedding qwen3-0.6b-vllm --runtime host-uv --yes --start
+```
+
+If you already run a compatible `/v1/embeddings` endpoint in Docker or on another host, use
+`external` mode. Code Diver will not install or start a model process; later commands will
+only check that the endpoint is reachable.
+
+```bash
+uv run code-diver init --embedding qwen3-0.6b --runtime external --skip-install --yes
+```
+
+The `index` command can still override the configured extractor explicitly:
 
 ```bash
 uv run code-diver index ../my-repo --embedding qwen3-0.6b
@@ -176,8 +201,10 @@ Available built-in extractor profiles:
 
 | Profile | Backend | Notes |
 | --- | --- | --- |
-| `qwen3-0.6b` | `mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ` via local vLLM/MLX | Current practical local default. |
-| `qwen3-4b` | `mlx-community/Qwen3-Embedding-4B-4bit-DWQ` via local vLLM/MLX | Stronger raw candidate generator, much slower; downloads on first serve if missing. |
+| `qwen3-0.6b` | `mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ` via Apple Metal vLLM/MLX | Current practical local default on Apple Silicon. |
+| `qwen3-4b` | `mlx-community/Qwen3-Embedding-4B-4bit-DWQ` via Apple Metal vLLM/MLX | Stronger raw candidate generator, much slower; downloads on first serve if missing. |
+| `qwen3-0.6b-vllm` | `Qwen/Qwen3-Embedding-0.6B` via vLLM | Nvidia CUDA, AMD ROCm, or CPU profile. |
+| `qwen3-4b-vllm` | `Qwen/Qwen3-Embedding-4B` via vLLM | Stronger CUDA/ROCm/CPU profile. |
 | `gemini` | `gemini-embedding-2` API | Remote API/Vertex path; no local Gemini embedding model. |
 
 Local embedding configs can set `embedding.workers` for parallel embedding requests and `embedding.max_input_chars` to fit smaller local model context windows. For small local embedding contexts, use `batch_size: 1` and increase `workers` instead of sending large multi-input batches.
@@ -185,18 +212,6 @@ Local embedding configs can set `embedding.workers` for parallel embedding reque
 ```bash
 uv run code-diver --config configs/protogen-local.yml index
 uv run code-diver --config configs/protogen-local.yml experiment
-
-VLLM_HOST_IP=127.0.0.1 \
-GLOO_SOCKET_IFNAME=lo0 \
-VLLM_METAL_MEMORY_FRACTION=0.55 \
-.venv-vllm-metal-official/bin/vllm serve mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ \
-  --runner pooling \
-  --host 127.0.0.1 \
-  --port 8001 \
-  --max-model-len 512
-
-uv run code-diver --config configs/intellij-community-vllm-qdrant.yml index
-uv run code-diver --config configs/intellij-community-vllm-qdrant.yml experiment
 ```
 
 For local reranking, use llama.cpp with a dedicated reranker model:

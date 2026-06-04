@@ -34,6 +34,7 @@ from .orchestration import OrchestratedCodebaseScanner
 from .pi import PiRunner
 from .plugins import PluginManager
 from .providers import create_embedding_provider
+from .runtime import EmbeddingRuntimeManager, RuntimeConfigStore, RuntimeSetupWizard
 from .settings import (
     CommandName,
     Defaults,
@@ -134,8 +135,32 @@ def build_parser(include_advanced: bool = False) -> argparse.ArgumentParser:
         action="store_true",
         help="Show advanced inspection, agent, and research commands.",
     )
-    command_metavar = None if include_advanced else "{index,search,evaluate}"
+    command_metavar = None if include_advanced else "{init,index,search,evaluate}"
     subparsers = parser.add_subparsers(dest="command", required=True, metavar=command_metavar)
+
+    init = subparsers.add_parser(CommandName.INIT.value, help="Interactively configure local model runtimes.")
+    init.add_argument(
+        "--embedding",
+        choices=EmbeddingProfileRegistry().keys(),
+        default=None,
+        help="Embedding extractor profile to configure.",
+    )
+    init.add_argument("--yes", action="store_true", help="Accept defaults and install without prompting.")
+    init.add_argument(
+        "--platform",
+        choices=["apple-metal", "nvidia-cuda", "amd-rocm", "cpu", "api", "external"],
+        default=None,
+        help="Hardware/runtime platform used to filter model choices.",
+    )
+    init.add_argument(
+        "--runtime",
+        choices=["host-uv", "external"],
+        default=None,
+        help="Model runtime backend: managed host uv subprocess or external/container endpoint.",
+    )
+    init.add_argument("--skip-install", action="store_true", help="Write config without installing vLLM/MLX.")
+    init.add_argument("--start", action="store_true", help="Start the configured local embedding server after setup.")
+    init.set_defaults(func=cmd_init)
 
     index = subparsers.add_parser(CommandName.INDEX.value, help="Index repository code into the configured artifact.")
     index.add_argument("index_root", nargs="?", type=Path, default=None)
@@ -313,6 +338,8 @@ def apply_runtime_config(args: argparse.Namespace, config: AppConfig) -> AppConf
     embedding_profile = getattr(args, "embedding", None)
     if embedding_profile:
         config = apply_embedding_profile(config, embedding_profile, announce=False)
+    elif getattr(args, "config", None) is None and getattr(args, "command", None) != CommandName.INIT.value:
+        config = apply_configured_runtime_profile(config)
     return config
 
 
@@ -323,6 +350,14 @@ def apply_embedding_profile(config: AppConfig, profile_key: str, announce: bool 
         if profile.startup_hint:
             render_status_line(f"local server expected: {profile.startup_hint}", "yellow")
     return replace(config, embedding=profile.config)
+
+
+def apply_configured_runtime_profile(config: AppConfig) -> AppConfig:
+    store = RuntimeConfigStore()
+    if not store.exists():
+        return config
+    runtime = store.load()
+    return apply_embedding_profile(config, runtime.embedding_profile, announce=False)
 
 
 def runtime_root(args: argparse.Namespace) -> Path | None:
@@ -449,6 +484,18 @@ def cmd_index(args: argparse.Namespace, config: AppConfig) -> int:
         raise
     finally:
         close_vector_store(indexing_service.vector_store)
+    return 0
+
+
+def cmd_init(args: argparse.Namespace, config: AppConfig) -> int:
+    RuntimeSetupWizard().run(
+        profile_key=args.embedding,
+        platform=args.platform,
+        backend=args.runtime,
+        install=False if args.skip_install else None,
+        start=bool(args.start),
+        yes=bool(args.yes),
+    )
     return 0
 
 
@@ -1144,6 +1191,7 @@ def make_trace_logger(config: AppConfig) -> TraceLogger:
 
 
 def make_embedding_provider(config: AppConfig, payload: dict[str, Any] | None = None):
+    ensure_configured_embedding_runtime(config)
     embedding = config.embedding
     provider_name = embedding.provider or str((payload or {}).get(SchemaKey.PROVIDER.value, Defaults.EMBEDDING_PROVIDER))
     model = embedding.model or (payload or {}).get(SchemaKey.MODEL.value)
@@ -1165,6 +1213,42 @@ def make_embedding_provider(config: AppConfig, payload: dict[str, Any] | None = 
         query_prefix=embedding.query_prefix,
         max_input_chars=embedding.max_input_chars,
     )
+
+
+def ensure_configured_embedding_runtime(config: AppConfig) -> None:
+    profile_key = local_embedding_profile_key(config)
+    if profile_key is None:
+        return
+    store = RuntimeConfigStore()
+    if not store.exists():
+        profile = EmbeddingProfileRegistry().get(profile_key)
+        platform = next((item for item in profile.platforms if item not in {"external", "api"}), "external")
+        raise RuntimeError(
+            "Local embedding runtime is not configured. Run "
+            f"`uv run code-diver init --platform {platform} --embedding {profile_key} --yes --start` first."
+        )
+    runtime = store.load()
+    if runtime.embedding_profile != profile_key:
+        raise RuntimeError(
+            "Configured local embedding runtime does not match this embedding model. "
+            f"runtime={runtime.embedding_profile}, requested={profile_key}. "
+            f"Run `uv run code-diver init --embedding {profile_key}`."
+        )
+    EmbeddingRuntimeManager(runtime).ensure_running()
+
+
+def local_embedding_profile_key(config: AppConfig) -> str | None:
+    embedding = config.embedding
+    if embedding.provider != EmbeddingProviderId.OPENAI_COMPATIBLE.value:
+        return None
+    registry = EmbeddingProfileRegistry()
+    for profile in registry.profiles():
+        candidate = profile.config
+        if candidate.provider != EmbeddingProviderId.OPENAI_COMPATIBLE.value:
+            continue
+        if candidate.model == embedding.model and candidate.url == embedding.url:
+            return profile.key
+    return None
 
 
 def make_retrieval_strategy(config: AppConfig, provider: Any, vector_store: Any):

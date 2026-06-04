@@ -10,7 +10,7 @@ class EmbeddingProfileRegistry:
             EmbeddingProfile(
                 key="qwen3-0.6b",
                 label="Qwen3 Embedding 0.6B 4-bit",
-                description="local vLLM/MLX server, best practical local default",
+                description="Apple Metal local vLLM/MLX server, best practical local default",
                 config=EmbeddingConfig(
                     provider="openai_compatible",
                     model="mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ",
@@ -23,8 +23,10 @@ class EmbeddingProfileRegistry:
                     document_prefix="Represent this code file metadata for retrieval: ",
                     query_prefix="Represent this code search query for retrieving relevant files: ",
                 ),
+                platforms=("apple-metal", "external"),
+                runtime="vllm",
                 startup_hint=(
-                    ".venv-vllm-metal-official/bin/vllm serve "
+                    ".code-diver/runtime/vllm/bin/vllm serve "
                     "mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ --runner pooling "
                     "--host 127.0.0.1 --port 8001 --max-model-len 512"
                 ),
@@ -32,7 +34,7 @@ class EmbeddingProfileRegistry:
             EmbeddingProfile(
                 key="qwen3-4b",
                 label="Qwen3 Embedding 4B 4-bit",
-                description="local vLLM/MLX server, stronger but slower; downloads model on first serve",
+                description="Apple Metal local vLLM/MLX server, stronger but slower; downloads model on first serve",
                 config=EmbeddingConfig(
                     provider="openai_compatible",
                     model="mlx-community/Qwen3-Embedding-4B-4bit-DWQ",
@@ -45,10 +47,58 @@ class EmbeddingProfileRegistry:
                     document_prefix="Represent this code file metadata for retrieval: ",
                     query_prefix="Represent this code search query for retrieving relevant files: ",
                 ),
+                platforms=("apple-metal", "external"),
+                runtime="vllm",
                 startup_hint=(
-                    ".venv-vllm-metal-official/bin/vllm serve "
+                    ".code-diver/runtime/vllm/bin/vllm serve "
                     "mlx-community/Qwen3-Embedding-4B-4bit-DWQ --runner pooling "
                     "--host 127.0.0.1 --port 8001 --max-model-len 512"
+                ),
+            ),
+            EmbeddingProfile(
+                key="qwen3-0.6b-vllm",
+                label="Qwen3 Embedding 0.6B",
+                description="vLLM server for Nvidia CUDA, AMD ROCm, or CPU; downloads HF model on first serve",
+                config=EmbeddingConfig(
+                    provider="openai_compatible",
+                    model="Qwen/Qwen3-Embedding-0.6B",
+                    dimensions=None,
+                    api_key="local",
+                    url="http://127.0.0.1:8001/v1/embeddings",
+                    batch_size=64,
+                    workers=1,
+                    max_input_chars=400,
+                    document_prefix="Represent this code file metadata for retrieval: ",
+                    query_prefix="Represent this code search query for retrieving relevant files: ",
+                ),
+                platforms=("nvidia-cuda", "amd-rocm", "cpu", "external"),
+                runtime="vllm",
+                startup_hint=(
+                    ".code-diver/runtime/vllm/bin/vllm serve Qwen/Qwen3-Embedding-0.6B "
+                    "--runner pooling --host 127.0.0.1 --port 8001 --max-model-len 512"
+                ),
+            ),
+            EmbeddingProfile(
+                key="qwen3-4b-vllm",
+                label="Qwen3 Embedding 4B",
+                description="vLLM server for Nvidia CUDA, AMD ROCm, or CPU; stronger but slower",
+                config=EmbeddingConfig(
+                    provider="openai_compatible",
+                    model="Qwen/Qwen3-Embedding-4B",
+                    dimensions=None,
+                    api_key="local",
+                    url="http://127.0.0.1:8001/v1/embeddings",
+                    batch_size=64,
+                    workers=1,
+                    max_input_chars=400,
+                    document_prefix="Represent this code file metadata for retrieval: ",
+                    query_prefix="Represent this code search query for retrieving relevant files: ",
+                ),
+                platforms=("nvidia-cuda", "amd-rocm", "cpu", "external"),
+                runtime="vllm",
+                startup_hint=(
+                    ".code-diver/runtime/vllm/bin/vllm serve Qwen/Qwen3-Embedding-4B "
+                    "--runner pooling --host 127.0.0.1 --port 8001 --max-model-len 512"
                 ),
             ),
             EmbeddingProfile(
@@ -62,11 +112,16 @@ class EmbeddingProfileRegistry:
                     batch_size=32,
                     workers=1,
                 ),
+                platforms=("api", "external"),
+                runtime="api",
             ),
         ]
 
     def profiles(self) -> list[EmbeddingProfile]:
         return list(self._profiles)
+
+    def profiles_for_platform(self, platform: str) -> list[EmbeddingProfile]:
+        return [profile for profile in self._profiles if platform in profile.platforms]
 
     def keys(self) -> list[str]:
         return [profile.key for profile in self._profiles]
@@ -76,4 +131,3 @@ class EmbeddingProfileRegistry:
             if profile.key == key:
                 return profile
         raise ValueError(f"Unknown embedding profile: {key}")
-

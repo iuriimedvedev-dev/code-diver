@@ -11,6 +11,7 @@ class CommandName(StrEnum):
     EVALUATE_SEARCH_TOOLS = "evaluate-search-tools"
     EXPERIMENT = "experiment"
     GREP = "grep"
+    INIT = "init"
     INDEX = "index"
     INDEX_SELECTED = "index-selected"
     MONITOR = "monitor"

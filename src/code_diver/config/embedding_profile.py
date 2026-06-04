@@ -11,5 +11,6 @@ class EmbeddingProfile:
     label: str
     description: str
     config: EmbeddingConfig
+    platforms: tuple[str, ...] = ("apple-metal", "external")
+    runtime: str = "vllm"
     startup_hint: str | None = None
-
