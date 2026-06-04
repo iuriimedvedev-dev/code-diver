@@ -14,7 +14,15 @@ from typing import Any
 
 from rich.console import Console
 from rich.panel import Panel
-from rich.progress import Progress, SpinnerColumn, TextColumn
+from rich.progress import (
+    BarColumn,
+    MofNCompleteColumn,
+    Progress,
+    SpinnerColumn,
+    TextColumn,
+    TimeElapsedColumn,
+    TimeRemainingColumn,
+)
 from rich.table import Table
 
 from .config import AppConfig, ConfigLoader
@@ -1124,12 +1132,49 @@ def cmd_evaluate(args: argparse.Namespace, config: AppConfig) -> int:
         case.query = plugin_manager.prepare_query(case.query)
 
     strategy = make_retrieval_strategy(config, provider, vector_store)
-    metrics, results = EvaluationService(strategy, trace_logger=make_trace_logger(config)).evaluate(
-        cases,
-        limit,
-        workers=config.evaluation.workers,
-    )
     settings = evaluation_settings(config, dataset, limit, args.config or (benchmark.config_path if benchmark else None))
+    if not bool(args.json):
+        render_status_panel(
+            "Evaluate",
+            [
+                ("cases", len(cases)),
+                ("limit", limit),
+                ("workers", config.evaluation.workers),
+                ("strategy", config.search.strategy),
+                ("ranker", f"{settings['ranker provider']}:{settings['ranker model']}"),
+                ("dataset", dataset),
+            ],
+            border_style="green",
+        )
+    progress_callback = None
+    if not bool(args.json):
+        progress = Progress(
+            SpinnerColumn("dots"),
+            TextColumn("[cyan]\\[code-diver][/cyan] evaluating cases"),
+            BarColumn(),
+            MofNCompleteColumn(),
+            TimeElapsedColumn(),
+            TimeRemainingColumn(),
+            console=status_console(),
+        )
+        with progress:
+            task_id = progress.add_task("cases", total=len(cases))
+
+            def progress_callback(completed: int, total: int) -> None:
+                progress.update(task_id, total=total, completed=completed)
+
+            metrics, results = EvaluationService(strategy, trace_logger=make_trace_logger(config)).evaluate(
+                cases,
+                limit,
+                workers=config.evaluation.workers,
+                progress_callback=progress_callback,
+            )
+    else:
+        metrics, results = EvaluationService(strategy, trace_logger=make_trace_logger(config)).evaluate(
+            cases,
+            limit,
+            workers=config.evaluation.workers,
+        )
     if args.json:
         print(
             json.dumps(

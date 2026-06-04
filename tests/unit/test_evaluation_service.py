@@ -256,6 +256,24 @@ def test_evaluation_service_traces_progress_with_parallel_workers(tmp_path) -> N
     assert events[-2]["payload"]["completed"] == 3
 
 
+def test_evaluation_service_reports_progress_callback_with_parallel_workers() -> None:
+    calls: list[tuple[int, int]] = []
+    cases = [
+        EvalCase(id="case-a", query="alpha", expected=["alpha.py"]),
+        EvalCase(id="case-b", query="beta", expected=["beta.py"]),
+        EvalCase(id="case-c", query="gamma", expected=["gamma.py"]),
+    ]
+
+    EvaluationService(RecordingStrategy()).evaluate(
+        cases,
+        limit=1,
+        workers=3,
+        progress_callback=lambda completed, total: calls.append((completed, total)),
+    )
+
+    assert calls == [(1, 3), (2, 3), (3, 3)]
+
+
 class FailingStrategy(RetrievalStrategy):
     def search(self, query: str, limit: int) -> list[SearchResult]:
         if query == "boom":

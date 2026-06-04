@@ -6,7 +6,7 @@ from collections import Counter
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from time import perf_counter
-from typing import Any
+from typing import Any, Callable
 
 from ..domain import CodeItemIndexKindResolver, EvalCase, EvalResult
 from ..strategies import RetrievalStrategy
@@ -34,6 +34,7 @@ class EvaluationService:
         cases: list[EvalCase],
         limit: int,
         workers: int = 1,
+        progress_callback: Callable[[int, int], None] | None = None,
     ) -> tuple[dict[str, Any], list[EvalResult]]:
         worker_count = max(int(workers or 1), 1)
         started = perf_counter()
@@ -55,6 +56,8 @@ class EvaluationService:
                 if failure is not None:
                     failures.append(failure)
                 self._trace_progress(index, len(cases), started)
+                if progress_callback is not None:
+                    progress_callback(index, len(cases))
         else:
             with ThreadPoolExecutor(max_workers=worker_count) as executor:
                 futures = {
@@ -77,6 +80,8 @@ class EvaluationService:
                         failures.append(failure)
                     completed += 1
                     self._trace_progress(completed, len(cases), started)
+                    if progress_callback is not None:
+                        progress_callback(completed, len(cases))
                 rows = [row for row in rows_by_index if row is not None]
         results = [result for result, _ in rows]
         durations_ms = [duration_ms for _, duration_ms in rows]
