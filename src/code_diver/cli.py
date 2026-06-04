@@ -351,6 +351,12 @@ def add_advanced_parsers(subparsers: argparse._SubParsersAction[argparse.Argumen
     )
     evaluate_search_tools.add_argument(OptionName.DATASET.value, type=Path, default=None)
     evaluate_search_tools.add_argument(OptionName.LIMIT.value, type=int, default=None)
+    evaluate_search_tools.add_argument(
+        "--cases",
+        type=int,
+        default=None,
+        help="Evaluate only the first N dataset cases. --limit remains the retrieval top-k.",
+    )
     evaluate_search_tools.add_argument(OptionName.HYPOTHESIS.value, action="append", default=[])
     evaluate_search_tools.add_argument(OptionName.DETAILS.value, action="store_true")
     evaluate_search_tools.add_argument(OptionName.JSON.value, action="store_true")
@@ -1348,6 +1354,8 @@ def cmd_evaluate_indexing(args: argparse.Namespace, config: AppConfig) -> int:
 
 def cmd_evaluate_search_tools(args: argparse.Namespace, config: AppConfig) -> int:
     cases = DatasetLoader().load(args.dataset or config.evaluation.dataset)
+    if getattr(args, "cases", None) is not None:
+        cases = cases[: max(0, int(args.cases))]
     limit = args.limit or config.evaluation.limit
     run_id = uuid.uuid4().hex[:12]
     rows: list[dict[str, Any]] = []
