@@ -345,13 +345,13 @@ Status meanings:
 | Search/ranking flow | H3 candidates -> reranker/cross-encoder/LLM -> final ordered files. |
 | Model/provider matrix | Gemini 3.5 Flash oracle; Gemini 3.1 Flash Lite active; Qwen3.5 4B local fallback; Qwen3-Reranker 0.6B/4B proposed; Gemma variants historical/local experiments. |
 | Dataset | Protogen top-5 matrix, IntelliJ answer-set, CodeSearchNet local positive slice. |
-| Metrics | Protogen top-5: H1c Gemini embedding + Flash-Lite file-first Hit@10 `0.94`; H5 Qwen4B embed + Qwen4B rerank Hit@10 `0.87`, mean `7020 ms`. CodeSearchNet H5 Gemini Lite Hit@10 `0.982`; H5 local Qwen Hit@10 `0.967`. |
+| Metrics | Protogen top-5: H1c Gemini embedding + Flash-Lite file-first Hit@10 `0.94`; H5 Qwen4B embed + Qwen4B rerank Hit@10 `0.87`, mean `7020 ms`. CodeSearchNet H5 Gemini Lite Hit@10 `0.982`; H5 local Qwen Hit@10 `0.967`; 100-case Gemma 4 E4B OptiQ listwise rerank file Hit@10 `0.590`, mean `8049 ms`, worse than Pure H3 `0.950` / `558 ms` on the same split. |
 | Cost/latency/index-size | Gemini 3.5 IntelliJ oracle cost `$34.94` per 1,000-case run; local Qwen avoids API spend but was slower in current loops. |
-| Result summary | API LLM ranking is currently the quality winner; local generative rankers are viable but slow; cross-encoder rerankers remain the next important baseline. |
+| Result summary | API LLM ranking is currently the quality winner; local generative rankers are not reliable defaults. Gemma E4B OptiQ specifically degraded H5 candidate ordering in the 100-case smoke. Cross-encoder rerankers remain the next important baseline. |
 | Decision | Use Gemini Lite for quality/cost tradeoff; reserve Gemini 3.5 for oracle runs; keep local/cross-encoder work active. |
 | Failure modes | Reranker can only reorder candidates it sees; prompt size dominates local latency; fail-soft rerank errors can contaminate metrics if not gated. |
 | Follow-ups | Test Qwen3-Reranker via a real rerank endpoint over fixed H3 candidates; add validity status to all rerank reports. |
-| Links | [top-5 hypotheses eval](../top5-hypotheses-eval-2026-06-02.md), [final quality conclusions](../final-search-quality-conclusions-2026-06-03.md), [eval validity review](../eval-validity-review-2026-06-03.md), `configs/intellij-postrank-h3-manifest.yml` |
+| Links | [local model axis experiments](../local-model-axis-experiments-2026-06-04.md), [top-5 hypotheses eval](../top5-hypotheses-eval-2026-06-02.md), [final quality conclusions](../final-search-quality-conclusions-2026-06-03.md), [eval validity review](../eval-validity-review-2026-06-03.md), `configs/intellij-postrank-h3-manifest.yml` |
 
 ## PUBLIC-BENCH - CodeSearchNet / MTEB Public Slice
 

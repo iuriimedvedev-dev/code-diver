@@ -97,3 +97,43 @@ Agent axis:
 | Gemma E2B/E4B | local agent candidate |
 
 The next valid experiments should hold the embedding axis fixed and compare rerankers, then hold embedding+reranker fixed and compare agent models.
+
+## Reranker Axis: Gemma E4B 100-Case Smoke
+
+Suite:
+
+```bash
+uv run python scripts/benchmark_generation_models.py \
+  --suite configs/codesearchnet-local-gemma-ranker-slice.yml \
+  --only gemma4_e4b_it_optiq_4bit
+```
+
+Report:
+
+```text
+.code-diver/reports/codesearchnet-local-gemma-ranker-slice.json
+```
+
+Fixed variables:
+
+| Axis | Value |
+| --- | --- |
+| Embedding model | `mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ` |
+| Candidate generator | H5/H3 Qwen file-metadata index |
+| Dataset | `.code-diver/tmp/codesearchnet_python_100.jsonl` |
+| Rerank input | top-30 candidates, top-10 output, compact previews |
+
+Changed variable: reranker model.
+
+| Reranker | Runtime | file Hit@1 | file Hit@3 | file Hit@5 | file Hit@10 | file MRR@10 | mean search ms | p95 ms | calls | tokens | est. cost |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Pure H3, no rerank | Qwen embedding server only | 0.750 | 0.930 | 0.940 | 0.950 | 0.843 | 557.9 | 583.5 | 0 | 0 | 0 |
+| Gemma 4 E4B OptiQ 4-bit listwise | `mlx_lm` | 0.560 | 0.590 | 0.590 | 0.590 | 0.573 | 8049.1 | 9332.2 | 100 | 1,050,072 | 1.616 |
+
+Interpretation:
+
+- This local generative Gemma E4B reranker is a clear rejection in the current H5 protocol.
+- It degraded candidate coverage and ordering instead of improving them.
+- It is about `14.4x` slower than Pure H3 on the same 100-case split.
+- The most likely failure mode is not model startup: the server ran and returned 100 successful calls. The problem is ranking behavior/protocol fit.
+- Next reranker work should prioritize dedicated cross-encoders such as Qwen3-Reranker over local generative listwise ranking.
