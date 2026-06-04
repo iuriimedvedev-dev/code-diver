@@ -15,6 +15,7 @@ from .index_collection_resolver import IndexCollectionResolver
 from .index_composition_analyzer import IndexCompositionAnalyzer
 from .indexing_options import IndexingOptions
 from .indexing_service import IndexingService
+from .local_eval_dataset_generator import LocalEvalDatasetGenerator
 from .selected_code_item_builder import SelectedCodeItemBuilder
 from .selected_indexing_service import SelectedIndexingService
 from .selected_index_payload_parser import SelectedIndexPayloadParser
@@ -38,6 +39,7 @@ __all__ = [
     "IndexCompositionAnalyzer",
     "IndexingOptions",
     "IndexingService",
+    "LocalEvalDatasetGenerator",
     "SelectedCodeItemBuilder",
     "SelectedIndexingService",
     "SelectedIndexPayloadParser",

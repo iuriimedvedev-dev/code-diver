@@ -54,6 +54,7 @@ from .services import (
     IndexCompositionAnalyzer,
     IndexingOptions,
     IndexingService,
+    LocalEvalDatasetGenerator,
     SelectedCodeItemBuilder,
     SelectedIndexPayloadParser,
     SelectedIndexingService,
@@ -243,6 +244,17 @@ def build_parser(include_advanced: bool = False) -> argparse.ArgumentParser:
     evaluate.add_argument(OptionName.DETAILS.value, action="store_true")
     evaluate.add_argument(OptionName.JSON.value, action="store_true")
     evaluate.add_argument(OptionName.REINDEX.value, action="store_true")
+    evaluate.add_argument(
+        "--generate-dataset",
+        action="store_true",
+        help="Generate a small repository-local evaluation dataset before running evaluation.",
+    )
+    evaluate.add_argument(
+        "--cases",
+        type=int,
+        default=50,
+        help="Number of local evaluation cases to generate with --generate-dataset.",
+    )
     evaluate.add_argument(OptionName.YES.value, action="store_true", help="Allow benchmark asset downloads without asking.")
     evaluate.set_defaults(func=cmd_evaluate)
 
@@ -1041,6 +1053,14 @@ def cmd_evaluate(args: argparse.Namespace, config: AppConfig) -> int:
     if benchmark is not None:
         BenchmarkAssetService().ensure(benchmark, assume_yes=bool(getattr(args, "yes", False)))
 
+    dataset = args.dataset or (benchmark.dataset if benchmark is not None else config.evaluation.dataset)
+    generated_cases: list[dict[str, Any]] | None = None
+    if bool(getattr(args, "generate_dataset", False)):
+        dataset = args.dataset or config.root / ".code-diver" / "eval" / "local_eval.jsonl"
+        generated_cases = generate_local_eval_dataset(config, dataset, int(getattr(args, "cases", 50)))
+        if not bool(args.json):
+            render_status_line(f"generated local eval dataset: {dataset} ({len(generated_cases)} cases)", "green")
+
     vector_store = make_vector_store(config, progress=not bool(args.json))
     if args.reindex or not vector_store.exists():
         if args.json:
@@ -1050,7 +1070,6 @@ def cmd_evaluate(args: argparse.Namespace, config: AppConfig) -> int:
             cmd_index(args, config)
         vector_store = make_vector_store(config, progress=not bool(args.json))
 
-    dataset = args.dataset or (benchmark.dataset if benchmark is not None else config.evaluation.dataset)
     limit = args.limit or config.evaluation.limit
     provider = make_embedding_provider(config, vector_store.metadata())
     plugin_manager = make_plugin_manager(config)
@@ -1071,6 +1090,12 @@ def cmd_evaluate(args: argparse.Namespace, config: AppConfig) -> int:
                     "benchmark": benchmark.to_json() if benchmark is not None else None,
                     "config": str(args.config or (benchmark.config_path if benchmark is not None else Defaults.CONFIG_PATH)),
                     "dataset": str(dataset),
+                    "generated_dataset": {
+                        "path": str(dataset),
+                        "cases": len(generated_cases),
+                    }
+                    if generated_cases is not None
+                    else None,
                     "limit": limit,
                     "metrics": metrics,
                     "results": [eval_result_to_json(result) for result in results],
@@ -1415,6 +1440,19 @@ def make_indexing_service(config: AppConfig, progress: bool = True) -> IndexingS
         ),
         make_trace_logger(config),
     )
+
+
+def generate_local_eval_dataset(config: AppConfig, output: Path, case_count: int) -> list[dict[str, Any]]:
+    scanner = CodebaseScanner(
+        include=config.scanner.include,
+        exclude=config.scanner.exclude,
+        max_file_bytes=config.scanner.max_file_bytes,
+        line_chunks=False,
+        file_summary_chunks=True,
+        file_manifest_chunks=True,
+        max_symbols_per_file=config.scanner.max_symbols_per_file,
+    )
+    return LocalEvalDatasetGenerator(scanner).generate(config.root, output, case_count)
 
 
 def make_codebase_scanner(config: AppConfig):

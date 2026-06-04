@@ -116,6 +116,19 @@ uv run code-diver evaluate \
 
 Without `--yes`, the CLI asks before downloading missing benchmark assets.
 
+For a quick repository-local sanity benchmark, generate a small dataset from the
+selected codebase and immediately evaluate against it:
+
+```bash
+uv run code-diver --root ../my-repo evaluate --generate-dataset --cases 50 --reindex
+```
+
+By default this writes `.code-diver/eval/local_eval.jsonl` inside the target repo.
+Pass `--dataset path/to/eval.jsonl` with `--generate-dataset` to choose the output
+path. Generated local cases are deterministic and useful for regression checks, but
+they are not a replacement for a curated semantic benchmark because queries are
+derived from file paths and symbols.
+
 ## Retrieval Experiments
 
 `code-diver.yml` controls storage and retrieval strategy:
@@ -380,6 +393,8 @@ docker compose -f ops/runtime/docker-compose.yml run --rm code-diver index
 - `code_diver_rg`
 - `code_diver_read`
 - `code_diver_symbols`
+- `code_diver_record_failure`
+- `code_diver_record_success`
 
 Pi arguments and the active tool allowlist are configured in `code-diver.yml`:
 
@@ -403,6 +418,11 @@ pi:
 ```
 
 The tool allowlist should stay read-only. Do not add `bash` or editing tools for this assistant; use the `code_diver_*` tools for repository inspection. Pi sessions, compaction, cache accounting, and interactive rendering are handled by Pi; Code Diver supplies the read-only tools, the code-search prompt, and a project-local session directory.
+
+When the user explicitly corrects or confirms a Search agent answer, the agent can
+record feedback under `.code-diver/feedback/fail-cases.jsonl` or
+`.code-diver/feedback/success-cases.jsonl`. Tool results are rendered compactly in
+the Pi UI; the model still receives the structured tool payload.
 
 Useful chat session commands:
 

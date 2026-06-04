@@ -54,6 +54,8 @@ pi:
     - code_diver_read
     - code_diver_symbols
     - code_diver_rerank
+    - code_diver_record_failure
+    - code_diver_record_success
   toolsets:
     vector_search:
       - code_diver_search
@@ -66,6 +68,8 @@ pi:
       - code_diver_read
       - code_diver_evaluate
       - code_diver_rerank
+      - code_diver_record_failure
+      - code_diver_record_success
     grep_search:
       - code_diver_inspect
       - code_diver_tree
@@ -73,6 +77,8 @@ pi:
       - code_diver_grep
       - code_diver_rg
       - code_diver_read
+      - code_diver_record_failure
+      - code_diver_record_success
   env:
     PI_CACHE_RETENTION: long
   extra_args: []

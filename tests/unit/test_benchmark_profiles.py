@@ -44,6 +44,13 @@ def test_evaluate_parser_accepts_benchmark_profile() -> None:
     assert resolve_benchmark_profile(args).name == "sample"
 
 
+def test_evaluate_parser_accepts_local_dataset_generation() -> None:
+    args = build_parser().parse_args(["evaluate", "--generate-dataset", "--cases", "25", "--json"])
+
+    assert args.generate_dataset is True
+    assert args.cases == 25
+
+
 def test_resolve_benchmark_profile_returns_none_when_not_requested() -> None:
     assert resolve_benchmark_profile(Namespace(benchmark=None)) is None
 

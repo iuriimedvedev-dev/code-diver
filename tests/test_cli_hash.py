@@ -102,6 +102,45 @@ plugins: []
     assert all(result["metrics"]["cases"] == 1 for result in experiment_payload["strategies"])
 
 
+def test_evaluate_can_generate_local_dataset(tmp_path: Path, capsys) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "team_builder.py").write_text(
+        "class TeamBuilder:\n"
+        "    def create_team(self, user_id):\n"
+        "        return user_id\n",
+        encoding="utf-8",
+    )
+    config = tmp_path / "code-diver.yml"
+    config.write_text(
+        f"""
+root: {repo}
+artifact: {tmp_path}/index.json
+embedding:
+  provider: hash
+  dimensions: 128
+scanner:
+  include:
+    - "*.py"
+graph:
+  enabled: false
+trace:
+  enabled: false
+plugins: []
+""".strip(),
+        encoding="utf-8",
+    )
+
+    assert main(["--config", str(config), "evaluate", "--generate-dataset", "--cases", "3", "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    dataset = repo / ".code-diver" / "eval" / "local_eval.jsonl"
+
+    assert dataset.exists()
+    assert payload["dataset"] == str(dataset)
+    assert payload["generated_dataset"]["cases"] == 3
+    assert payload["metrics"]["cases"] == 3
+
+
 def test_index_selected_writes_qdrant_from_paths_only(tmp_path: Path, capsys, monkeypatch) -> None:
     repo = tmp_path / "repo"
     repo.mkdir()

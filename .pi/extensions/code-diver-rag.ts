@@ -1,4 +1,6 @@
 import { spawn } from "node:child_process";
+import { appendFile, mkdir } from "node:fs/promises";
+import { join } from "node:path";
 import { Type } from "typebox";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Box, Text } from "@earendil-works/pi-tui";
@@ -51,6 +53,23 @@ type SelectedIndexItem = {
   kind?: string;
 };
 
+type FailureFeedback = {
+  query: string;
+  correction: string;
+  actual?: string;
+  expected?: string;
+  files?: string[];
+  notes?: string;
+};
+
+type SuccessFeedback = {
+  query: string;
+  answer: string;
+  files?: string[];
+  symbols?: string[];
+  notes?: string;
+};
+
 export default function (pi: ExtensionAPI) {
   registerCodeDiverWelcome(pi);
 
@@ -59,6 +78,7 @@ export default function (pi: ExtensionAPI) {
     label: "Code Diver Index",
     description: "Build or refresh the Code Diver retrieval artifact for this repository.",
     parameters: Type.Object({}),
+    ...compactToolUi("index"),
     execute: async (_toolCallId, _params, signal, _onUpdate, ctx: ToolContext) => {
       const result = await runCodeDiver(ctx.cwd, ["index"], signal);
       return textResult(result.stdout || result.stderr || "Index completed.");
@@ -70,6 +90,7 @@ export default function (pi: ExtensionAPI) {
     label: "Code Diver Index Selected",
     description:
       "Persist AI-selected repository file ranges into the configured local vector store. Accepts paths and line ranges only; the CLI reads files itself.",
+    ...compactToolUi("index selected"),
     parameters: Type.Object({
       items: Type.Array(
         Type.Object({
@@ -93,6 +114,7 @@ export default function (pi: ExtensionAPI) {
     name: "code_diver_search",
     label: "Code Diver Search",
     description: "Search the Code Diver retrieval index for repository context relevant to a query.",
+    ...compactToolUi("search"),
     parameters: Type.Object({
       query: Type.String({ description: "Natural language search query." }),
       limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 25, description: "Maximum number of results." })),
@@ -112,6 +134,7 @@ export default function (pi: ExtensionAPI) {
     label: "Code Diver Inspect",
     description:
       "Run multiple independent read-only repository probes concurrently: vector searches, regex searches, literal greps, and tree reads.",
+    ...compactToolUi("inspect"),
     parameters: Type.Object({
       searches: Type.Optional(
         Type.Array(
@@ -243,6 +266,7 @@ export default function (pi: ExtensionAPI) {
     name: "code_diver_open",
     label: "Code Diver Open",
     description: "Open the best Code Diver search result in the configured editor.",
+    ...compactToolUi("open"),
     parameters: Type.Object({
       query: Type.String({ description: "Natural language search query." }),
       rank: Type.Optional(Type.Integer({ minimum: 1, maximum: 25, description: "Search result rank to open." })),
@@ -261,6 +285,7 @@ export default function (pi: ExtensionAPI) {
     name: "code_diver_evaluate",
     label: "Code Diver Evaluate",
     description: "Run the configured retrieval evaluation dataset and report metrics.",
+    ...compactToolUi("evaluate"),
     parameters: Type.Object({
       details: Type.Optional(Type.Boolean({ description: "Include per-case retrieval details." })),
       reindex: Type.Optional(Type.Boolean({ description: "Rebuild the index before evaluation." })),
@@ -282,6 +307,7 @@ export default function (pi: ExtensionAPI) {
     name: "code_diver_experiment",
     label: "Code Diver Experiment",
     description: "Run configured retrieval hypotheses and record metrics when metrics storage is enabled.",
+    ...compactToolUi("experiment"),
     parameters: Type.Object({
       reindex: Type.Optional(Type.Boolean({ description: "Rebuild the index before running hypotheses." })),
     }),
@@ -299,6 +325,7 @@ export default function (pi: ExtensionAPI) {
     name: "code_diver_tree",
     label: "Code Diver Tree",
     description: "Read-only, gitignore-aware repository tree. Does not edit files.",
+    ...compactToolUi("tree"),
     parameters: Type.Object({
       path: Type.Optional(Type.String({ description: "Relative path inside the repository." })),
       depth: Type.Optional(Type.Integer({ minimum: 1, maximum: 10, description: "Maximum tree depth." })),
@@ -324,6 +351,7 @@ export default function (pi: ExtensionAPI) {
     name: "code_diver_grep",
     label: "Code Diver Grep",
     description: "Read-only, gitignore-aware literal text search. Does not edit files.",
+    ...compactToolUi("grep"),
     parameters: Type.Object({
       pattern: Type.String({ description: "Literal text to search for." }),
       path: Type.Optional(Type.String({ description: "Relative path inside the repository." })),
@@ -346,6 +374,7 @@ export default function (pi: ExtensionAPI) {
     name: "code_diver_rg",
     label: "Code Diver Rg",
     description: "Read-only, gitignore-aware regex text search using ripgrep when available. Does not edit files.",
+    ...compactToolUi("rg"),
     parameters: Type.Object({
       pattern: Type.String({ description: "Regex pattern to search for." }),
       path: Type.Optional(Type.String({ description: "Relative path inside the repository." })),
@@ -368,6 +397,7 @@ export default function (pi: ExtensionAPI) {
     name: "code_diver_read",
     label: "Code Diver Read",
     description: "Read-only bounded source excerpt with line numbers. Does not edit files.",
+    ...compactToolUi("read"),
     parameters: Type.Object({
       file: Type.String({ description: "Relative file path inside the repository." }),
       startLine: Type.Optional(Type.Integer({ minimum: 1, description: "First line to read." })),
@@ -390,6 +420,7 @@ export default function (pi: ExtensionAPI) {
     name: "code_diver_symbols",
     label: "Code Diver Symbols",
     description: "Read-only symbol listing for source files. Useful before precise grep/read probes.",
+    ...compactToolUi("symbols"),
     parameters: Type.Object({
       path: Type.Optional(Type.String({ description: "Relative path inside the repository." })),
       limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 1000, description: "Maximum number of symbols." })),
@@ -399,6 +430,57 @@ export default function (pi: ExtensionAPI) {
       appendPathAndLimit(args, params.path, params.limit);
       const result = await runCodeDiver(ctx.cwd, args, signal);
       return textResult(result.stdout || result.stderr);
+    },
+  });
+
+  pi.registerTool({
+    name: "code_diver_record_failure",
+    label: "Code Diver Record Failure",
+    description:
+      "Record a retrieval failure case when the user explicitly says the answer/search result was wrong, missing, or not what they meant. Writes only Code Diver feedback artifacts.",
+    ...compactToolUi("record failure"),
+    parameters: Type.Object({
+      query: Type.String({ description: "The user's original or current repository question." }),
+      correction: Type.String({ description: "What the user said was wrong, missing, or should be found instead." }),
+      actual: Type.Optional(Type.String({ description: "Short summary of the wrong result or answer." })),
+      expected: Type.Optional(Type.String({ description: "Expected file, symbol, behavior, or intent if known." })),
+      files: Type.Optional(
+        Type.Array(Type.String({ description: "Relevant file paths mentioned by user or discovered later." }), {
+          maxItems: 20,
+        }),
+      ),
+      notes: Type.Optional(Type.String({ description: "Extra concise debugging notes." })),
+    }),
+    execute: async (_toolCallId, params: FailureFeedback, _signal, _onUpdate, ctx: ToolContext) => {
+      const path = await recordFailure(ctx.cwd, params);
+      return textResult(`Recorded failure feedback: ${path}`);
+    },
+  });
+
+  pi.registerTool({
+    name: "code_diver_record_success",
+    label: "Code Diver Record Success",
+    description:
+      "Record a confirmed successful code search/explanation when the user explicitly says the answer or found location is correct. Writes only Code Diver feedback artifacts.",
+    ...compactToolUi("record success"),
+    parameters: Type.Object({
+      query: Type.String({ description: "The user's repository question that was answered correctly." }),
+      answer: Type.String({ description: "Short summary of the correct answer or found location." }),
+      files: Type.Optional(
+        Type.Array(Type.String({ description: "Confirmed relevant file paths." }), {
+          maxItems: 20,
+        }),
+      ),
+      symbols: Type.Optional(
+        Type.Array(Type.String({ description: "Confirmed relevant classes, functions, methods, or symbols." }), {
+          maxItems: 20,
+        }),
+      ),
+      notes: Type.Optional(Type.String({ description: "Extra concise notes about why this was successful." })),
+    }),
+    execute: async (_toolCallId, params: SuccessFeedback, _signal, _onUpdate, ctx: ToolContext) => {
+      const path = await recordSuccess(ctx.cwd, params);
+      return textResult(`Recorded success feedback: ${path}`);
     },
   });
 }
@@ -437,6 +519,144 @@ function codeDiverWelcomeText(cwd: string): string {
     "",
     "This session is read-only for source code. Ask a code question to start.",
   ].join("\n");
+}
+
+function compactToolUi(label: string) {
+  return {
+    renderCall(args: unknown, theme: any, context: any) {
+      const text = (context.lastComponent as Text | undefined) ?? new Text("", 0, 0);
+      const suffix = summarizeArgs(args);
+      text.setText(theme.fg("toolTitle", `code_diver_${label.replaceAll(" ", "_")}`) + (suffix ? theme.fg("muted", ` ${suffix}`) : ""));
+      return text;
+    },
+    renderResult(result: any, options: any, theme: any) {
+      if (options?.isPartial) {
+        return new Text(theme.fg("warning", "running..."), 0, 0);
+      }
+      if (result?.isError) {
+        return new Text(theme.fg("error", compactResultText(result) || "failed"), 0, 0);
+      }
+      return new Text(theme.fg("success", summarizeResult(compactResultText(result))), 0, 0);
+    },
+  };
+}
+
+function summarizeArgs(args: unknown): string {
+  if (!args || typeof args !== "object") {
+    return "";
+  }
+  const value = args as Record<string, unknown>;
+  for (const key of ["query", "pattern", "file", "path", "rank"]) {
+    const candidate = value[key];
+    if (typeof candidate === "string" && candidate.trim()) {
+      return truncateLine(candidate.trim(), 80);
+    }
+    if (typeof candidate === "number") {
+      return String(candidate);
+    }
+  }
+  const probes = ["searches", "regexes", "literals", "trees", "reads", "symbols"]
+    .map((key) => [key, Array.isArray(value[key]) ? (value[key] as unknown[]).length : 0] as const)
+    .filter((entry) => entry[1] > 0);
+  if (probes.length) {
+    return probes.map(([key, count]) => `${key}:${count}`).join(" ");
+  }
+  return "";
+}
+
+function compactResultText(result: any): string {
+  const content = result?.content;
+  if (!Array.isArray(content)) {
+    return "";
+  }
+  return content
+    .map((part) => (typeof part?.text === "string" ? part.text : ""))
+    .filter(Boolean)
+    .join("\n");
+}
+
+function summarizeResult(text: string): string {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return "done";
+  }
+  const parsed = tryJson(trimmed);
+  const count = resultCount(parsed);
+  if (count !== null) {
+    return `${count} result${count === 1 ? "" : "s"}`;
+  }
+  const sections = (trimmed.match(/^## /gm) ?? []).length;
+  if (sections > 0) {
+    return `${sections} probe${sections === 1 ? "" : "s"} completed`;
+  }
+  const lines = trimmed.split(/\r?\n/).filter((line) => line.trim()).length;
+  if (lines > 1) {
+    return `${lines} lines`;
+  }
+  return truncateLine(trimmed, 96);
+}
+
+function tryJson(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+function resultCount(value: unknown): number | null {
+  if (Array.isArray(value)) {
+    return value.length;
+  }
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  const record = value as Record<string, unknown>;
+  for (const key of ["results", "candidates", "items"]) {
+    if (Array.isArray(record[key])) {
+      return record[key].length;
+    }
+  }
+  return null;
+}
+
+function truncateLine(text: string, limit: number): string {
+  const oneLine = text.replace(/\s+/g, " ").trim();
+  if (oneLine.length <= limit) {
+    return oneLine;
+  }
+  return `${oneLine.slice(0, Math.max(limit - 1, 0))}…`;
+}
+
+async function recordFailure(cwd: string, feedback: FailureFeedback): Promise<string> {
+  return appendFeedback(cwd, "fail-cases.jsonl", {
+    ts: new Date().toISOString(),
+    query: feedback.query,
+    correction: feedback.correction,
+    actual: feedback.actual ?? null,
+    expected: feedback.expected ?? null,
+    files: feedback.files ?? [],
+    notes: feedback.notes ?? null,
+  });
+}
+
+async function recordSuccess(cwd: string, feedback: SuccessFeedback): Promise<string> {
+  return appendFeedback(cwd, "success-cases.jsonl", {
+    ts: new Date().toISOString(),
+    query: feedback.query,
+    answer: feedback.answer,
+    files: feedback.files ?? [],
+    symbols: feedback.symbols ?? [],
+    notes: feedback.notes ?? null,
+  });
+}
+
+async function appendFeedback(cwd: string, filename: string, record: Record<string, unknown>): Promise<string> {
+  const feedbackDir = join(cwd, ".code-diver", "feedback");
+  const feedbackPath = join(feedbackDir, filename);
+  await mkdir(feedbackDir, { recursive: true });
+  await appendFile(feedbackPath, `${JSON.stringify(record)}\n`, "utf8");
+  return `.code-diver/feedback/${filename}`;
 }
 
 function appendPathAndLimit(args: string[], path?: string, limit?: number) {
