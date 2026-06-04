@@ -278,20 +278,20 @@ Status meanings:
 | Field | Value |
 | --- | --- |
 | ID | `H6.2` |
-| Status | active research, rejected as current default |
+| Status | active research, not current default |
 | Motivation | Test whether a tiny learned scorer over hybrid features can learn non-linear interactions or per-candidate dynamic weights that fixed weighted sums miss. |
 | Assumptions | Features such as vector score, lexical score, path score, symbol coverage, graph score, file vote, and item-kind weight may interact non-linearly; a 1-3 layer MLP or dynamic weight-vector predictor might improve head ranking. |
-| Index composition | Same H5 file-metadata index and same candidate feature cache as H6.1. |
+| Index composition | Pure H3 file-metadata index for the current valid 1,000-case run; H5-feature smoke reports are retained only as early checks. |
 | Search/ranking flow | H3 candidate generation -> feature cache -> candidate-level binary labels from expected files -> NumPy MLP scorer. `scalar` mode predicts one candidate score; `weights` mode predicts a vector over hybrid signals and scores by weighted sum. |
 | Model/provider matrix | No embedding/model changes; local NumPy MLP only. This is not a generative LLM and adds no API cost. |
-| Dataset | Smoke uses the 80/20 split and cached H6 features; intended full run is 700/300 and then 10k if available. |
-| Metrics | Smoke manual/grid validation file Hit@1 `0.600`, Hit@5 `0.850`, Hit@10 `0.850`, MRR `0.708`; scalar MLP Hit@1/3/5/10 `0.550`, MRR `0.550`; dynamic-weight MLP Hit@1 `0.600`, Hit@3 `0.750`, Hit@5 `0.800`, Hit@10 `0.850`, MRR `0.684`. |
+| Dataset | Valid run uses CodeSearchNet/MTEB Python local positive slice, 1,000 cases, split 700 train / 300 validation, seed `17`. |
+| Metrics | Pure H3 validation: manual routed H3 file Hit@1 `0.000`, Hit@5 `0.377`, Hit@10 `0.443`, MRR `0.159`; H6.2 dynamic-weight MLP file Hit@1 `0.357`, Hit@5 `0.533`, Hit@10 `0.643`, MRR `0.436`; H6.1 static/grid profile file Hit@1 `0.533`, Hit@5 `0.750`, Hit@10 `0.807`, MRR `0.628`. |
 | Cost/latency/index-size | Training is local CPU over cached candidate features. Feature collection cost is shared with H6.1; subsequent MLP runs can use `--reuse-feature-cache`. |
-| Result summary | Implemented and smoke-tested. Both naive variants fail to beat the fixed/grid weights today. Dynamic weights are closer than scalar scoring, but still worse in top-ordering. |
-| Decision | Keep out of defaults. Continue only with better loss design, route-specific training, or larger validation if H6.1 plateaus. |
+| Result summary | H6.2 clears the requested `+0.05` threshold versus manual H3, but it does not beat the simpler H6.1 static/grid profile on the same split. |
+| Decision | Keep H6.2 active and use its feature cache for ranking-loss experiments. Do not make it the default ahead of H6.1 until a pairwise/listwise MLP beats the static/grid profile. |
 | Failure modes | Candidate-level labels are imbalanced; MLP can overfit train candidates; binary candidate labels may not optimize listwise ranking; no feature cache means collection dominates runtime. |
 | Follow-ups | Compare depth 0, 1, 2, 3; add route-specific training; add pairwise/listwise loss; test whether dynamic weights are useful only on low-confidence H3 cases. |
-| Links | [H5 hybrid weight calibration](../h5-hybrid-weight-calibration-2026-06-04.md), `scripts/calibrate_hybrid_weights.py` |
+| Links | [local model axis experiments](../local-model-axis-experiments-2026-06-04.md), [H5 hybrid weight calibration](../h5-hybrid-weight-calibration-2026-06-04.md), `.code-diver/reports/h6-2-mlp-weights-pure-h3-codesearchnet-1000.json`, `scripts/calibrate_hybrid_weights.py` |
 
 ## LOCAL-MODEL-AXIS - Three-Axis Local Model Search
 

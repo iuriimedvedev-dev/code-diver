@@ -97,6 +97,7 @@ def main() -> int:
             if args.feature_cache:
                 _save_feature_cache(args.feature_cache, feature_rows)
                 print(f"saved feature cache: {args.feature_cache} rows={len(feature_rows)}", flush=True)
+        _attach_effective_weights(feature_rows, strategy)
         context_duration_ms = (perf_counter() - context_started) * 1000
         grid = _candidate_weights(args.grid_step)
         train_features = feature_rows[: len(train)]
@@ -149,8 +150,9 @@ def main() -> int:
             "limit": args.limit,
             "manual_h5": {
                 "weights": manual_weights,
-                "train": _score_profile(train_features, manual_weights, args.limit)["metrics"],
-                "validation": _score_profile(validation_features, manual_weights, args.limit)["metrics"],
+                "effective": "route-specific H3 weights from HybridQueryRouter",
+                "train": _score_effective_profile(train_features, args.limit)["metrics"],
+                "validation": _score_effective_profile(validation_features, args.limit)["metrics"],
             },
             "mlp": mlp_result,
             "top_profiles": validation_rows,
@@ -196,6 +198,7 @@ def _build_feature_rows(
                     "case": case,
                     "fallback_files": _dedupe_files(result.item.path for result in fallback),
                     "candidates": [],
+                    "effective_weights": {},
                     "preserve_vector_top": False,
                     "vector_top_path": None,
                 }
@@ -229,6 +232,7 @@ def _build_feature_rows(
                 "case": case,
                 "fallback_files": [],
                 "candidates": candidates,
+                "effective_weights": {field: getattr(context.config, field) for field in WEIGHT_FIELDS},
                 "preserve_vector_top": context.config.preserve_vector_top
                 and bool(context.vector_results)
                 and vector_margin >= context.config.vector_top_score_margin,
@@ -236,6 +240,16 @@ def _build_feature_rows(
             }
         )
     return features
+
+
+def _attach_effective_weights(rows: list[dict[str, Any]], strategy: HybridRetrievalStrategy) -> None:
+    for row in rows:
+        if row.get("effective_weights"):
+            continue
+        case = row["case"]
+        query_profile = strategy.analyzer.analyze(case.query)
+        active_config = strategy.router.route(case.query, query_profile.terms, strategy.config)
+        row["effective_weights"] = {field: getattr(active_config, field) for field in WEIGHT_FIELDS}
 
 
 def _candidate_weights(step: str) -> list[dict[str, float]]:
@@ -294,6 +308,32 @@ def _score_profile(
         per_case.append(_file_metrics(files, case.expected, limit))
     return {
         "weights": weights,
+        "metrics": {
+            "cases": len(per_case),
+            "file_hit_rate@1": _mean(1.0 if row["hit_at_1"] else 0.0 for row in per_case),
+            "file_hit_rate@3": _mean(1.0 if row["hit_at_3"] else 0.0 for row in per_case),
+            "file_hit_rate@5": _mean(1.0 if row["hit_at_5"] else 0.0 for row in per_case),
+            f"file_hit_rate@{limit}": _mean(1.0 if row["hit_at_limit"] else 0.0 for row in per_case),
+            f"file_mrr@{limit}": _mean(row["mrr"] for row in per_case),
+            f"file_recall@{limit}": _mean(row["recall"] for row in per_case),
+            "file_precision@R": _mean(row["precision_at_r"] for row in per_case),
+        },
+    }
+
+
+def _score_effective_profile(
+    rows: list[dict[str, Any]],
+    limit: int,
+) -> dict[str, Any]:
+    per_case = []
+    for row in rows:
+        case = row["case"]
+        files = row["fallback_files"]
+        if row["candidates"]:
+            files = _rank_feature_row(row, row["effective_weights"], limit)
+        per_case.append(_file_metrics(files, case.expected, limit))
+    return {
+        "weights": "route-specific",
         "metrics": {
             "cases": len(per_case),
             "file_hit_rate@1": _mean(1.0 if row["hit_at_1"] else 0.0 for row in per_case),
@@ -589,6 +629,7 @@ def _save_feature_cache(path: Path, rows: list[dict[str, Any]]) -> None:
                 "case": {"id": case.id, "query": case.query, "expected": case.expected},
                 "fallback_files": row["fallback_files"],
                 "candidates": row["candidates"],
+                "effective_weights": row.get("effective_weights") or {},
                 "preserve_vector_top": row["preserve_vector_top"],
                 "vector_top_path": row["vector_top_path"],
             }
@@ -607,6 +648,7 @@ def _load_feature_cache(path: Path) -> list[dict[str, Any]]:
                 "case": EvalCase(id=str(case["id"]), query=str(case["query"]), expected=list(case["expected"])),
                 "fallback_files": list(row.get("fallback_files") or []),
                 "candidates": list(row.get("candidates") or []),
+                "effective_weights": dict(row.get("effective_weights") or {}),
                 "preserve_vector_top": bool(row.get("preserve_vector_top")),
                 "vector_top_path": row.get("vector_top_path"),
             }

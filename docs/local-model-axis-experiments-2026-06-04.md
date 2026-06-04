@@ -30,6 +30,59 @@ H6.2 now has two MLP modes:
 
 Decision: keep H6.1 as an active calibration candidate. Keep H6.2 as research only until a better listwise/pairwise loss beats H6.1 on held-out data.
 
+## H6.2 On Pure H3
+
+Report:
+
+```text
+.code-diver/reports/h6-2-mlp-weights-pure-h3-codesearchnet-1000.json
+```
+
+Feature cache:
+
+```text
+.code-diver/tmp/h6-pure-h3-codesearchnet-1000-features.json
+```
+
+Fixed variables:
+
+| Axis | Value |
+| --- | --- |
+| Base config | `configs/codesearchnet-mteb-python-pure-h3.yml` |
+| Embedding model | `mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ` |
+| Candidate generator | H3 file-metadata hybrid retrieval |
+| Dataset split | 700 train / 300 validation, seed `17` |
+| MLP output | dynamic vector over hybrid signals |
+
+Validation results:
+
+| Profile | file Hit@1 | file Hit@3 | file Hit@5 | file Hit@10 | file MRR@10 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Manual routed H3 weights | 0.000 | 0.283 | 0.377 | 0.443 | 0.159 |
+| H6.2 dynamic-weight MLP | 0.357 | 0.467 | 0.533 | 0.643 | 0.436 |
+| H6.1 best static/grid profile | 0.533 | 0.707 | 0.750 | 0.807 | 0.628 |
+
+Best static/grid profile:
+
+```yaml
+vector_weight: 0.30
+lexical_weight: 0.42
+path_weight: 0.20
+symbol_weight: 0.04
+symbol_match_weight: 0.04
+graph_weight: 0.0
+file_vote_weight: 0.0
+```
+
+Interpretation:
+
+- H6.2 passes the requested `+0.05` threshold against the manual H3 baseline: `+0.200 file Hit@10`, `+0.277 file MRR@10`.
+- H6.2 is not the best current scorer. H6.1 static/grid calibration is much stronger on the same split.
+- The MLP is learning useful signal, but the current binary candidate objective is still weaker than direct ranking calibration.
+- Next H6.2 step should be a listwise or pairwise ranking loss over the cached per-query candidates, not another candidate-level binary classifier.
+
+Decision: use H6.1 static calibrated weights as the immediate search-quality baseline. Keep H6.2 active because it clears the improvement threshold over manual H3, but do not put it ahead of H6.1 until a ranking-loss MLP beats the static grid profile.
+
 ## Embedding Axis: 100-Case Smoke
 
 Suite:
