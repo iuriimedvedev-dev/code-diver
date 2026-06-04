@@ -25,10 +25,19 @@ pytestmark = pytest.mark.unit
 def test_benchmark_registry_exposes_reproducible_profiles() -> None:
     registry = BenchmarkProfileRegistry()
 
-    assert registry.names() == ["codesearchnet-mteb-python-1000", "intellij-1000-answer-sets", "sample"]
+    assert registry.names() == [
+        "codesearchnet-mteb-python-1000",
+        "codesearchnet-mteb-python-hash-smoke",
+        "intellij-1000-answer-sets",
+        "sample",
+    ]
     codesearch = registry.get("codesearchnet-mteb-python-1000")
     assert codesearch.preparation is not None
     assert codesearch.preparation.dataset_name == "mteb/CodeSearchNetRetrieval"
+    assert codesearch.config_path == Path("configs/codesearchnet-mteb-python-pure-h3.yml")
+    assert registry.get("codesearchnet-mteb-python-hash-smoke").config_path == Path(
+        "configs/codesearchnet-mteb-python-hash.yml"
+    )
     assert registry.get("intellij-1000-answer-sets").dataset.name == "intellij_eval_1000.answer_sets.jsonl"
 
 

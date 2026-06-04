@@ -30,13 +30,16 @@ The no-config path is intentionally local-first:
 - local embedding default for quality runs: Qwen3-Embedding-0.6B through an OpenAI-compatible local server;
 - optional quality rerank: Gemini 3.1 Flash Lite or a local reranker, configured in YAML.
 
-Configuration lives in `code-diver.yml`. For local, reproducible experiments without Gemini credentials, set:
+Configuration lives in `code-diver.yml`. For no-key smoke tests only, set:
 
 ```yaml
 embedding:
   provider: hash
   dimensions: 256
 ```
+
+Do not use `hash` embeddings for quality metrics; they exist only to verify
+CLI/evaluation plumbing without a model server.
 
 ## Commands
 
@@ -120,6 +123,11 @@ uv run code-diver evaluate \
   --yes \
   --reindex
 ```
+
+This benchmark profile uses the Qwen-backed Pure H3 quality config. Run
+`uv run code-diver init --platform apple-metal --embedding qwen3-0.6b --yes --start`
+first for the default local model setup. For a no-key smoke check only, use
+`--benchmark codesearchnet-mteb-python-hash-smoke`.
 
 Without `--yes`, the CLI asks before downloading missing benchmark assets.
 

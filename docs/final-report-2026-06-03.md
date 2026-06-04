@@ -133,6 +133,10 @@ The no-config Pure H3 defaults:
 - route weights by query shape;
 - avoid default LLM reranking so a normal search does not silently spend API money.
 
+As of 2026-06-04, `codesearchnet-mteb-python-1000` points at the Qwen-backed
+Pure H3 quality profile. The old hash profile is exposed only as
+`codesearchnet-mteb-python-hash-smoke` and is not used for quality conclusions.
+
 ## Remaining Hard Problems
 
 - Add fail-fast gates for auth/model failures and high degraded-case rates.

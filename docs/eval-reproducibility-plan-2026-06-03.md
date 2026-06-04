@@ -118,26 +118,26 @@ Purpose:
 - Verify that benchmark download, indexing, retrieval, metric computation, dataset loading, tracing, and report generation are reproducible without cloud APIs or local model servers.
 - Provide a one-command benchmark that a person can run before trusting any expensive IntelliJ/model-rerank result.
 
-Current runnable command:
+Current quality command:
 
 ```bash
 mkdir -p .code-diver/reports/codesearchnet && \
-uv run code-diver --config configs/codesearchnet-mteb-python-hash.yml evaluate \
+uv run code-diver evaluate \
   --benchmark codesearchnet-mteb-python-1000 \
   --limit 10 \
   --json \
   --yes \
   --reindex \
-  | tee .code-diver/reports/codesearchnet/codesearchnet-mteb-python-hash.json
+  | tee .code-diver/reports/codesearchnet/codesearchnet-mteb-python-pure-h3-qwen.json
 ```
 
 Why this profile:
 
 - It uses the public `mteb/CodeSearchNetRetrieval` benchmark from Hugging Face.
-- `configs/codesearchnet-mteb-python-hash.yml` uses `storage.provider: json` and `embedding.provider: hash`.
-- It does not require Qdrant, ClickHouse, Gemini, OpenAI, Vertex, vLLM, llama.cpp, or any API key.
+- `configs/codesearchnet-mteb-python-pure-h3.yml` uses the Qwen-backed Pure H3 quality profile.
+- It requires the local embedding runtime configured by `code-diver init`.
 - The profile prepares the Python 1000-case test split locally under `.code-diver/benchmarks/`.
-- Hash embeddings are not a quality claim, but they are useful as a deterministic harness check.
+- Hash embeddings are available only through `codesearchnet-mteb-python-hash-smoke`; that profile is not a quality claim.
 - Without `--yes`, the CLI asks before downloading missing benchmark assets.
 
 Validation run from this pass:

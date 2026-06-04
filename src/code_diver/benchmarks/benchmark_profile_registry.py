@@ -19,10 +19,29 @@ class BenchmarkProfileRegistry:
                 BenchmarkProfile(
                     name="codesearchnet-mteb-python-1000",
                     dataset=Path(".code-diver/benchmarks/mteb-codesearchnet-python/codesearchnet_python_1000.jsonl"),
-                    config_path=Path("configs/codesearchnet-mteb-python-hash.yml"),
-                    description="Public MTEB CodeSearchNetRetrieval Python semantic code search benchmark.",
+                    config_path=Path("configs/codesearchnet-mteb-python-pure-h3.yml"),
+                    description="Public MTEB CodeSearchNetRetrieval Python benchmark with the default Qwen-backed Pure H3 quality profile.",
                     external_repo="https://huggingface.co/datasets/mteb/CodeSearchNetRetrieval",
-                    setup_hint="Run evaluate with this benchmark profile; Code Diver will ask before downloading missing assets.",
+                    setup_hint=(
+                        "Run `uv run code-diver init --platform apple-metal --embedding qwen3-0.6b --yes --start` first, "
+                        "then evaluate with this benchmark profile. Code Diver asks before downloading missing assets."
+                    ),
+                    preparation=BenchmarkPreparation(
+                        kind="mteb_codesearchnet",
+                        dataset_name="mteb/CodeSearchNetRetrieval",
+                        language="python",
+                        limit=1000,
+                        output_root=Path(".code-diver/benchmarks/mteb-codesearchnet-python"),
+                        estimated_download_mb=25,
+                    ),
+                ),
+                BenchmarkProfile(
+                    name="codesearchnet-mteb-python-hash-smoke",
+                    dataset=Path(".code-diver/benchmarks/mteb-codesearchnet-python/codesearchnet_python_1000.jsonl"),
+                    config_path=Path("configs/codesearchnet-mteb-python-hash.yml"),
+                    description="No-key deterministic smoke profile; not a quality benchmark.",
+                    external_repo="https://huggingface.co/datasets/mteb/CodeSearchNetRetrieval",
+                    setup_hint="Use only to verify benchmark plumbing without local/API embedding models.",
                     preparation=BenchmarkPreparation(
                         kind="mteb_codesearchnet",
                         dataset_name="mteb/CodeSearchNetRetrieval",
