@@ -198,6 +198,45 @@ Agent axis:
 
 The next valid experiments should hold the embedding axis fixed and compare rerankers, then hold embedding+reranker fixed and compare agent models.
 
+## Agent Axis Runtime Preparation
+
+Gemma 4 12B IT was downloaded as a local GGUF candidate:
+
+```text
+.code-diver/models/gemma-4-12b-it-GGUF/gemma-4-12b-it-Q4_K_M.gguf
+```
+
+Source repo:
+
+```text
+unsloth/gemma-4-12b-it-GGUF
+```
+
+Runtime smoke:
+
+```bash
+llama-server \
+  -m .code-diver/models/gemma-4-12b-it-GGUF/gemma-4-12b-it-Q4_K_M.gguf \
+  --host 127.0.0.1 \
+  --port 8014 \
+  -c 8192 \
+  -ngl all \
+  --jinja
+```
+
+Observed smoke result on MacBook M3 Max:
+
+| Check | Result |
+| --- | --- |
+| Server startup | ok |
+| Metal offload | ok, Apple M3 Max visible |
+| OpenAI-compatible `/v1/chat/completions` | ok |
+| Visible JSON response | ok with `max_tokens=160` |
+| Generation speed in smoke | about `40 tok/s` |
+| Note | Response includes `reasoning_content`; parsers must use visible `message.content` for final JSON. |
+
+Decision: Gemma 4 12B Q4_K_M is technically ready for agent-axis smoke. It should be compared against Qwen3.5 4B and Gemma E4B with the same fixed candidate generator and the same tool budget.
+
 ## Reranker Axis: Gemma E4B 100-Case Smoke
 
 Suite:
