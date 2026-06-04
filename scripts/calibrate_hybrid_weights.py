@@ -9,6 +9,8 @@ from pathlib import Path
 from time import perf_counter
 from typing import Any
 
+import numpy as np
+
 from code_diver.cli import close_vector_store, make_embedding_provider
 from code_diver.config import ConfigLoader
 from code_diver.config.trace_config import TraceConfig
@@ -28,6 +30,16 @@ WEIGHT_FIELDS = (
     "graph_weight",
     "file_vote_weight",
 )
+FEATURE_KEYS = (
+    "vector",
+    "lexical",
+    "path_score",
+    "symbol",
+    "symbol_match",
+    "graph",
+    "file_vote",
+    "kind_weight",
+)
 
 
 def main() -> int:
@@ -39,6 +51,13 @@ def main() -> int:
     parser.add_argument("--validation-size", type=int, default=300)
     parser.add_argument("--seed", type=int, default=17)
     parser.add_argument("--top", type=int, default=20)
+    parser.add_argument("--feature-cache", type=Path)
+    parser.add_argument("--reuse-feature-cache", action="store_true")
+    parser.add_argument("--grid-step", choices=["coarse", "medium"], default="coarse")
+    parser.add_argument("--mlp-depth", type=int, choices=[0, 1, 2, 3], default=0)
+    parser.add_argument("--mlp-hidden-size", type=int, default=16)
+    parser.add_argument("--mlp-epochs", type=int, default=160)
+    parser.add_argument("--mlp-learning-rate", type=float, default=0.02)
     args = parser.parse_args()
 
     base_config = ConfigLoader().load(args.config)
@@ -67,10 +86,17 @@ def main() -> int:
             raise RuntimeError("Both train and validation splits must be non-empty.")
 
         context_started = perf_counter()
-        contexts = _collect_contexts(strategy, train + validation, args.limit)
-        feature_rows = _build_feature_rows(contexts)
+        if args.reuse_feature_cache and args.feature_cache and args.feature_cache.exists():
+            feature_rows = _load_feature_cache(args.feature_cache)
+            print(f"loaded feature cache: {args.feature_cache} rows={len(feature_rows)}", flush=True)
+        else:
+            contexts = _collect_contexts(strategy, train + validation, args.limit)
+            feature_rows = _build_feature_rows(contexts)
+            if args.feature_cache:
+                _save_feature_cache(args.feature_cache, feature_rows)
+                print(f"saved feature cache: {args.feature_cache} rows={len(feature_rows)}", flush=True)
         context_duration_ms = (perf_counter() - context_started) * 1000
-        grid = _candidate_weights()
+        grid = _candidate_weights(args.grid_step)
         train_features = feature_rows[: len(train)]
         validation_features = feature_rows[len(train) :]
         train_rows = []
@@ -97,6 +123,16 @@ def main() -> int:
                 }
             )
         manual_weights = {field: getattr(config.hybrid_search, field) for field in WEIGHT_FIELDS}
+        mlp_result = _train_and_score_mlp(
+            train_features,
+            validation_features,
+            limit=args.limit,
+            depth=args.mlp_depth,
+            hidden_size=args.mlp_hidden_size,
+            epochs=args.mlp_epochs,
+            learning_rate=args.mlp_learning_rate,
+            seed=args.seed,
+        )
         result = {
             "output": str(args.output),
             "config": str(args.config),
@@ -113,6 +149,7 @@ def main() -> int:
                 "train": _score_profile(train_features, manual_weights, args.limit)["metrics"],
                 "validation": _score_profile(validation_features, manual_weights, args.limit)["metrics"],
             },
+            "mlp": mlp_result,
             "top_profiles": validation_rows,
             "timing": {
                 "context_collection_ms": context_duration_ms,
@@ -198,15 +235,29 @@ def _build_feature_rows(
     return features
 
 
-def _candidate_weights() -> list[dict[str, float]]:
+def _candidate_weights(step: str) -> list[dict[str, float]]:
+    if step == "medium":
+        vector_values = (0.32, 0.38, 0.44, 0.50, 0.56)
+        lexical_values = (0.16, 0.22, 0.28, 0.34, 0.40)
+        path_values = (0.06, 0.10, 0.14, 0.18, 0.22)
+        symbol_values = (0.03, 0.06, 0.09, 0.12)
+        graph_values = (0.0, 0.03, 0.06, 0.09, 0.12)
+        file_vote_values = (0.0, 0.03, 0.06, 0.09, 0.12)
+    else:
+        vector_values = (0.30, 0.38, 0.46, 0.54)
+        lexical_values = (0.18, 0.26, 0.34, 0.42)
+        path_values = (0.08, 0.14, 0.20)
+        symbol_values = (0.04, 0.08, 0.12)
+        graph_values = (0.0, 0.04, 0.08)
+        file_vote_values = (0.0, 0.04, 0.08)
     profiles: list[dict[str, float]] = []
     for vector, lexical, path, symbol, graph, file_vote in product(
-        (0.30, 0.38, 0.46, 0.54),
-        (0.18, 0.26, 0.34, 0.42),
-        (0.08, 0.14, 0.20),
-        (0.04, 0.08, 0.12),
-        (0.0, 0.04, 0.08),
-        (0.0, 0.04, 0.08),
+        vector_values,
+        lexical_values,
+        path_values,
+        symbol_values,
+        graph_values,
+        file_vote_values,
     ):
         symbol_match = symbol
         total = vector + lexical + path + symbol + symbol_match + graph + file_vote
@@ -251,6 +302,168 @@ def _score_profile(
             "file_precision@R": _mean(row["precision_at_r"] for row in per_case),
         },
     }
+
+
+def _train_and_score_mlp(
+    train_rows: list[dict[str, Any]],
+    validation_rows: list[dict[str, Any]],
+    *,
+    limit: int,
+    depth: int,
+    hidden_size: int,
+    epochs: int,
+    learning_rate: float,
+    seed: int,
+) -> dict[str, Any]:
+    started = perf_counter()
+    train_x, train_y = _candidate_matrix(train_rows)
+    if len(train_x) == 0 or len(set(train_y.reshape(-1).tolist())) < 2:
+        return {
+            "enabled": False,
+            "reason": "not enough positive/negative candidates",
+            "duration_ms": (perf_counter() - started) * 1000,
+        }
+    model = _init_mlp(train_x.shape[1], depth, hidden_size, seed)
+    pos_count = float(train_y.sum())
+    neg_count = float(len(train_y) - pos_count)
+    pos_weight = min(max(neg_count / max(pos_count, 1.0), 1.0), 30.0)
+    for epoch in range(epochs):
+        loss = _mlp_step(model, train_x, train_y, learning_rate, pos_weight)
+        if (epoch + 1) % 50 == 0:
+            print(f"mlp epoch: {epoch + 1}/{epochs} loss={loss:.5f}", flush=True)
+    return {
+        "enabled": True,
+        "depth": depth,
+        "hidden_size": hidden_size,
+        "epochs": epochs,
+        "learning_rate": learning_rate,
+        "positive_candidates": int(pos_count),
+        "negative_candidates": int(neg_count),
+        "positive_weight": pos_weight,
+        "train": _score_mlp_profile(train_rows, model, limit)["metrics"],
+        "validation": _score_mlp_profile(validation_rows, model, limit)["metrics"],
+        "duration_ms": (perf_counter() - started) * 1000,
+    }
+
+
+def _candidate_matrix(rows: list[dict[str, Any]]) -> tuple[np.ndarray, np.ndarray]:
+    x_rows = []
+    y_rows = []
+    for row in rows:
+        case = row["case"]
+        for candidate in row["candidates"]:
+            x_rows.append([float(candidate[key]) for key in FEATURE_KEYS])
+            y_rows.append(1.0 if _matches_any(candidate["path"], case.expected) else 0.0)
+    return np.asarray(x_rows, dtype=np.float64), np.asarray(y_rows, dtype=np.float64).reshape(-1, 1)
+
+
+def _init_mlp(input_size: int, depth: int, hidden_size: int, seed: int) -> list[dict[str, np.ndarray]]:
+    rng = np.random.default_rng(seed)
+    widths = [input_size, *([hidden_size] * depth), 1]
+    model = []
+    for left, right in zip(widths, widths[1:]):
+        scale = np.sqrt(2.0 / max(left, 1))
+        model.append(
+            {
+                "w": rng.normal(0.0, scale, size=(left, right)),
+                "b": np.zeros((1, right), dtype=np.float64),
+            }
+        )
+    return model
+
+
+def _mlp_step(
+    model: list[dict[str, np.ndarray]],
+    x: np.ndarray,
+    y: np.ndarray,
+    learning_rate: float,
+    pos_weight: float,
+) -> float:
+    activations = [x]
+    pre_activations = []
+    current = x
+    for index, layer in enumerate(model):
+        z = current @ layer["w"] + layer["b"]
+        pre_activations.append(z)
+        if index == len(model) - 1:
+            current = _sigmoid(z)
+        else:
+            current = np.maximum(z, 0.0)
+        activations.append(current)
+
+    predictions = np.clip(activations[-1], 1e-7, 1 - 1e-7)
+    weights = np.where(y > 0.5, pos_weight, 1.0)
+    loss = -float(np.mean(weights * (y * np.log(predictions) + (1.0 - y) * np.log(1.0 - predictions))))
+    grad = weights * (predictions - y) / max(len(y), 1)
+
+    for index in reversed(range(len(model))):
+        if index < len(model) - 1:
+            grad = grad * (pre_activations[index] > 0)
+        prev = activations[index]
+        grad_w = prev.T @ grad
+        grad_b = grad.sum(axis=0, keepdims=True)
+        if index > 0:
+            next_grad = grad @ model[index]["w"].T
+        else:
+            next_grad = grad
+        model[index]["w"] -= learning_rate * grad_w
+        model[index]["b"] -= learning_rate * grad_b
+        grad = next_grad
+    return loss
+
+
+def _sigmoid(values: np.ndarray) -> np.ndarray:
+    return 1.0 / (1.0 + np.exp(-np.clip(values, -40.0, 40.0)))
+
+
+def _score_mlp_profile(
+    rows: list[dict[str, Any]],
+    model: list[dict[str, np.ndarray]],
+    limit: int,
+) -> dict[str, Any]:
+    per_case = []
+    for row in rows:
+        files = row["fallback_files"]
+        if row["candidates"]:
+            files = _rank_mlp_feature_row(row, model, limit)
+        per_case.append(_file_metrics(files, row["case"].expected, limit))
+    return {
+        "metrics": {
+            "cases": len(per_case),
+            "file_hit_rate@1": _mean(1.0 if row["hit_at_1"] else 0.0 for row in per_case),
+            "file_hit_rate@3": _mean(1.0 if row["hit_at_3"] else 0.0 for row in per_case),
+            "file_hit_rate@5": _mean(1.0 if row["hit_at_5"] else 0.0 for row in per_case),
+            f"file_hit_rate@{limit}": _mean(1.0 if row["hit_at_limit"] else 0.0 for row in per_case),
+            f"file_mrr@{limit}": _mean(row["mrr"] for row in per_case),
+            f"file_recall@{limit}": _mean(row["recall"] for row in per_case),
+            "file_precision@R": _mean(row["precision_at_r"] for row in per_case),
+        }
+    }
+
+
+def _rank_mlp_feature_row(row: dict[str, Any], model: list[dict[str, np.ndarray]], limit: int) -> list[str]:
+    matrix = np.asarray([[float(candidate[key]) for key in FEATURE_KEYS] for candidate in row["candidates"]])
+    scores = _mlp_predict(model, matrix).reshape(-1).tolist()
+    ranked = sorted(
+        zip(row["candidates"], scores),
+        key=lambda pair: (pair[1], pair[0]["vector"], pair[0]["lexical"], pair[0]["path"]),
+        reverse=True,
+    )
+    paths = _dedupe_files(candidate["path"] for candidate, _ in ranked)
+    if row["preserve_vector_top"] and row["vector_top_path"] and paths[:1] != [row["vector_top_path"]]:
+        paths = [row["vector_top_path"], *(path for path in paths if path != row["vector_top_path"])]
+    return paths[:limit]
+
+
+def _mlp_predict(model: list[dict[str, np.ndarray]], x: np.ndarray) -> np.ndarray:
+    current = x
+    for index, layer in enumerate(model):
+        current = current @ layer["w"] + layer["b"]
+        if index == len(model) - 1:
+            current = _sigmoid(current)
+        else:
+            current = np.maximum(current, 0.0)
+    return current
 
 
 def _rank_feature_row(row: dict[str, Any], weights: dict[str, float], limit: int) -> list[str]:
@@ -327,6 +540,40 @@ def _mean(values: Any) -> float:
     return sum(materialized) / len(materialized)
 
 
+def _save_feature_cache(path: Path, rows: list[dict[str, Any]]) -> None:
+    payload = []
+    for row in rows:
+        case = row["case"]
+        payload.append(
+            {
+                "case": {"id": case.id, "query": case.query, "expected": case.expected},
+                "fallback_files": row["fallback_files"],
+                "candidates": row["candidates"],
+                "preserve_vector_top": row["preserve_vector_top"],
+                "vector_top_path": row["vector_top_path"],
+            }
+        )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+
+def _load_feature_cache(path: Path) -> list[dict[str, Any]]:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    rows = []
+    for row in payload:
+        case = row["case"]
+        rows.append(
+            {
+                "case": EvalCase(id=str(case["id"]), query=str(case["query"]), expected=list(case["expected"])),
+                "fallback_files": list(row.get("fallback_files") or []),
+                "candidates": list(row.get("candidates") or []),
+                "preserve_vector_top": bool(row.get("preserve_vector_top")),
+                "vector_top_path": row.get("vector_top_path"),
+            }
+        )
+    return rows
+
+
 def _summary(result: dict[str, Any]) -> dict[str, Any]:
     top = result["top_profiles"][0] if result["top_profiles"] else {}
     return {
@@ -336,6 +583,7 @@ def _summary(result: dict[str, Any]) -> dict[str, Any]:
         "manual_h5_validation": result["manual_h5"]["validation"],
         "best_validation": top.get("validation"),
         "best_weights": top.get("weights"),
+        "mlp_validation": result.get("mlp", {}).get("validation"),
         "profiles_tested": result["timing"]["profiles_tested"],
         "total_ms": result["timing"]["total_ms"],
     }

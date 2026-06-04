@@ -253,6 +253,46 @@ Status meanings:
 | Follow-ups | Run stronger embedding models with the same H5 protocol; add a true cross-encoder reranker baseline. |
 | Links | [current research state](../current-research-state-2026-06-04.md), [final report](../final-report-2026-06-03.md), [CodeSearchNet agentic/model eval](../codesearchnet-agentic-model-eval-2026-06-04.md), `configs/codesearchnet-mteb-python-h5-qwen-quality.yml` |
 
+## H6.1 - Calibrated Hybrid Candidate Weights
+
+| Field | Value |
+| --- | --- |
+| ID | `H6.1` |
+| Status | active calibration candidate |
+| Motivation | Replace manual H3/H5 hybrid weights with weights chosen on a train split and validated on held-out cases. |
+| Assumptions | The existing hybrid signals are useful, but their relative weights should be calibrated against file-level metrics rather than hand-picked. |
+| Index composition | Same H5 file-metadata index as `configs/codesearchnet-mteb-python-h5-qwen-quality.yml`: local Qwen3-Embedding-0.6B, `file_summary` + `file_manifest`, no code-body chunks. |
+| Search/ranking flow | H3 candidate generation -> collect score components -> grid/linear weight sweep on train -> validate frozen weights -> optionally run H5 LLM rerank over calibrated candidates. |
+| Model/provider matrix | Current calibration uses Qwen3-Embedding-0.6B candidates only; no LLM calls during calibration. |
+| Dataset | CodeSearchNet/MTEB Python local positive slice, 1,000 cases, split 700 train / 300 validation, seed `17`. |
+| Metrics | Manual H5 validation file Hit@1 `0.837`, Hit@5 `0.947`, Hit@10 `0.960`, MRR@10 `0.888`; best calibrated candidate file Hit@1 `0.843`, Hit@5 `0.953`, Hit@10 `0.960`, MRR@10 `0.893`. |
+| Cost/latency/index-size | Calibration tested 1,296 profiles in `862.6s`, including `576.5s` context collection; no API or LLM cost. |
+| Result summary | Calibration gives a small head-ranking gain but no coverage gain. It is a candidate for a locked final eval, not yet a replacement for product defaults. |
+| Decision | Keep manual H5 as product default until calibrated weights win a locked final run and then H5 LLM rerank is re-evaluated over calibrated candidates. |
+| Failure modes | Flat validation plateau, possible split overfit, route-specific weight rewrites not separately learned, graph signal may be weak because default H5 graph has limited edge types. |
+| Follow-ups | Run larger 10k calibration if dataset is available; test finer/medium grid; learn route-specific profiles for `semantic`, `path_symbol`, and `workflow`. |
+| Links | [H5 hybrid weight calibration](../h5-hybrid-weight-calibration-2026-06-04.md), `.code-diver/reports/h5-hybrid-weight-calibration-codesearchnet-1000.json`, `scripts/calibrate_hybrid_weights.py` |
+
+## H6.2 - Learned MLP Candidate Scorer
+
+| Field | Value |
+| --- | --- |
+| ID | `H6.2` |
+| Status | proposed / smoke in progress |
+| Motivation | Test whether a tiny learned scorer over hybrid features can learn non-linear interactions that fixed weighted sums miss. |
+| Assumptions | Features such as vector score, lexical score, path score, symbol coverage, graph score, file vote, and item-kind weight may interact non-linearly; a 1-3 layer MLP might improve head ranking. |
+| Index composition | Same H5 file-metadata index and same candidate feature cache as H6.1. |
+| Search/ranking flow | H3 candidate generation -> feature cache -> candidate-level binary labels from expected files -> NumPy MLP scorer -> file-deduped ranking -> validation metrics. |
+| Model/provider matrix | No embedding/model changes; local NumPy MLP only. This is not a generative LLM and adds no API cost. |
+| Dataset | Smoke uses the 80/20 split and cached H6 features; intended full run is 700/300 and then 10k if available. |
+| Metrics | Pending. Initial implementation exists in `scripts/calibrate_hybrid_weights.py` with `--mlp-depth 0..3`, `--mlp-hidden-size`, `--mlp-epochs`, and `--feature-cache`. |
+| Cost/latency/index-size | Training is local CPU over cached candidate features. Feature collection cost is shared with H6.1; subsequent MLP runs can use `--reuse-feature-cache`. |
+| Result summary | Not yet accepted. This is deliberately speculative and should be rejected unless it beats H6.1 on held-out file Hit@1/MRR without hurting Hit@10. |
+| Decision | Proposed. Keep out of defaults until measured on held-out validation and a locked final split. |
+| Failure modes | Candidate-level labels are imbalanced; MLP can overfit train candidates; binary candidate labels may not optimize listwise ranking; no feature cache means collection dominates runtime. |
+| Follow-ups | Compare depth 0, 1, 2, 3; add route-specific training; add pairwise/listwise loss if binary classifier does not improve ranking. |
+| Links | [H5 hybrid weight calibration](../h5-hybrid-weight-calibration-2026-06-04.md), `scripts/calibrate_hybrid_weights.py` |
+
 ## EMBED-MATRIX - Local And API Embedding Candidates
 
 | Field | Value |

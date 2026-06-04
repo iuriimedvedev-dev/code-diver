@@ -115,3 +115,31 @@ Interpretation:
 - Treat route-specific rewrites in `HybridQueryRouter` as part of the effective profile. Calibration should eventually learn route-specific weights, not one global profile only.
 - Keep graph weight at zero unless validation shows it helps. The current default H5 graph artifact mostly contains summary/import edges and search expansion is disabled.
 - Do not optimize against the final test split. If a profile is chosen from validation, run one final locked evaluation separately.
+
+## H6.2 MLP Smoke
+
+The calibration script also has an experimental NumPy MLP scorer:
+
+```bash
+uv run python scripts/calibrate_hybrid_weights.py \
+  --config configs/codesearchnet-mteb-python-h5-qwen-quality.yml \
+  --train-size 80 \
+  --validation-size 20 \
+  --feature-cache .code-diver/tmp/h5-calibration-smoke-features.json \
+  --reuse-feature-cache \
+  --output .code-diver/reports/h5-hybrid-mlp-calibration-smoke.json \
+  --mlp-depth 1 \
+  --mlp-hidden-size 8 \
+  --mlp-epochs 30 \
+  --mlp-learning-rate 0.03
+```
+
+Smoke result:
+
+| Profile | Validation file hit@1 | hit@3 | hit@5 | hit@10 | file MRR@10 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Manual H5 | 0.600 | 0.850 | 0.850 | 0.850 | 0.708 |
+| Best linear/grid profile | 0.600 | 0.850 | 0.850 | 0.850 | 0.708 |
+| MLP depth 1, hidden 8 | 0.550 | 0.550 | 0.550 | 0.550 | 0.550 |
+
+Interpretation: the first naive candidate-level MLP is worse than the manual/grid scorers on the smoke split. The failure is likely objective mismatch and imbalance: only `158` positive candidate rows versus `69,678` negative rows in the 80-case train split. Do not promote H6.2 unless a full split with better loss/design beats H6.1 on held-out file Hit@1/MRR without hurting Hit@10.
