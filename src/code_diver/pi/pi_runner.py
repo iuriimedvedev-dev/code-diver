@@ -9,6 +9,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
+from rich.console import Console
+from rich.panel import Panel
+from rich.table import Table
+
 from ..config import AppConfig
 from .pi_command_builder import PiCommandBuilder
 
@@ -192,17 +196,19 @@ class PiRunner:
         display_command = list(command)
         if display_command and len(display_command[-1]) > 200:
             display_command[-1] = "<prompt>"
-        print(
-            "[code-diver] launching Search agent "
-            f"model={model or 'default'} "
-            f"toolset={toolset or 'default'} "
-            f"hypothesis={hypothesis or 'none'}",
-            file=sys.stderr,
-            flush=True,
+        console = Console(stderr=True, color_system="auto")
+        table = Table.grid(padding=(0, 2))
+        table.add_column(style="bold cyan", no_wrap=True)
+        table.add_column()
+        table.add_row("model", model or "default")
+        table.add_row("toolset", toolset or "default")
+        table.add_row("hypothesis", hypothesis or "none")
+        table.add_row("command", shlex.join(display_command))
+        console.print(
+            Panel(table, title="[bold]Launching Search Agent[/bold]", border_style="cyan", padding=(0, 1))
         )
-        print(f"[code-diver] command: {shlex.join(display_command)}", file=sys.stderr, flush=True)
         if command and command[0] == "npx":
-            print("[code-diver] note: npx may spend a moment resolving the agent package.", file=sys.stderr, flush=True)
+            console.print("[dim][code-diver] npx may spend a moment resolving the agent package.[/dim]")
 
     def _write_captured_stderr(self, text: str) -> None:
         if not text:

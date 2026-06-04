@@ -44,6 +44,13 @@ uv run code-diver search "how does indexing work?"
 uv run code-diver evaluate --benchmark sample --json
 ```
 
+`index` shows a compact progress UI by default: preflight, file discovery, scan, embedding batches, save, and graph build. Disable it when scripting:
+
+```bash
+uv run code-diver index . --no-progress
+uv run code-diver index . --quiet
+```
+
 `search` is the code-exploration entrypoint: it launches the configured read-only Search agent, which searches, verifies with bounded reads/grep/symbol tools, and explains the code with file/line citations. It prints a preflight summary first: root, config, index store, model, tools, and missing-index guidance when needed.
 
 For interactive exploration:

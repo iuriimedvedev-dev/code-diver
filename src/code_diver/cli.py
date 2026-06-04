@@ -11,6 +11,10 @@ from pathlib import Path
 from time import perf_counter
 from typing import Any
 
+from rich.console import Console
+from rich.panel import Panel
+from rich.table import Table
+
 from .config import AppConfig, ConfigLoader
 from .agent import DirectIndexingOrchestrator, DirectSearchOrchestrator
 from .agent.h3_search_tool_handler import H3SearchToolHandler
@@ -76,6 +80,23 @@ ADVANCED_COMMANDS = {
 }
 
 
+def status_console() -> Console:
+    return Console(stderr=True, color_system="auto")
+
+
+def render_status_panel(title: str, rows: list[tuple[str, object]], border_style: str = "cyan") -> None:
+    table = Table.grid(padding=(0, 2))
+    table.add_column(style="bold cyan", no_wrap=True)
+    table.add_column()
+    for key, value in rows:
+        table.add_row(key, str(value))
+    status_console().print(Panel(table, title=f"[bold]{title}[/bold]", border_style=border_style, padding=(0, 1)))
+
+
+def render_status_line(message: str, style: str = "cyan") -> None:
+    status_console().print(f"[{style}][code-diver][/{style}] {message}")
+
+
 def main(argv: list[str] | None = None) -> int:
     normalized = normalize_argv(argv)
     include_advanced = bool(
@@ -116,6 +137,8 @@ def build_parser(include_advanced: bool = False) -> argparse.ArgumentParser:
 
     index = subparsers.add_parser(CommandName.INDEX.value, help="Index repository code into the configured artifact.")
     index.add_argument("index_root", nargs="?", type=Path, default=None)
+    index.add_argument("--no-progress", action="store_true", help="Disable indexing progress bars.")
+    index.add_argument("-q", "--quiet", action="store_true", help="Only print the final indexing summary.")
     index.set_defaults(func=cmd_index)
 
     search = subparsers.add_parser(CommandName.SEARCH.value, help="Ask the code exploration agent.")
@@ -340,15 +363,42 @@ def apply_builtin_pure_h3(config: AppConfig) -> AppConfig:
     return replace(config, scanner=scanner, search=search, hybrid_search=hybrid, graph=graph)
 
 
-def cmd_index(_: argparse.Namespace, config: AppConfig) -> int:
+def cmd_index(args: argparse.Namespace, config: AppConfig) -> int:
+    progress = not bool(getattr(args, "no_progress", False) or getattr(args, "quiet", False))
+    if progress:
+        render_status_panel(
+            "Index",
+            [
+                ("root", config.root.resolve()),
+                ("store", store_label(config)),
+                ("scanner", config.indexing.mode),
+                ("include", config.scanner.include or ["default-code-files"]),
+                ("exclude", f"{len(config.scanner.exclude)} configured patterns"),
+            ],
+        )
+        render_status_line("initializing embedding provider", "cyan")
     provider = make_embedding_provider(config)
-    indexing_service = make_indexing_service(config)
+    if progress:
+        render_status_panel(
+            "Embedding",
+            [
+                ("provider", provider.name),
+                ("model", provider.model),
+                ("dimensions", provider.dimensions or "auto"),
+                ("batch size", config.embedding.batch_size),
+                ("workers", config.embedding.workers),
+            ],
+            border_style="magenta",
+        )
+    indexing_service = make_indexing_service(config, progress=progress)
     items = indexing_service.build(
         root=config.root,
         provider=provider,
         plugin_config={"config": config},
     )
     if config.graph.enabled:
+        if progress:
+            render_status_line("building graph artifact", "cyan")
         GraphIndexingService(
             CodeGraphBuilder(
                 ast_enabled=config.graph.ast_enabled,
@@ -360,6 +410,8 @@ def cmd_index(_: argparse.Namespace, config: AppConfig) -> int:
             config.root,
             items,
         )
+        if progress:
+            render_status_line(f"saved graph artifact: {config.graph.artifact}", "green")
     print(
         f"Indexed {len(items)} items -> {store_label(config)} "
         f"({provider.name}, model={provider.model}, dimensions={provider.dimensions})"
@@ -445,31 +497,27 @@ def cmd_search(args: argparse.Namespace, config: AppConfig) -> int:
 
 
 def code_explorer_preflight(config: AppConfig, config_path: Path | None) -> bool:
-    print("[code-diver] code explorer preflight", file=sys.stderr, flush=True)
-    print(f"[code-diver] root: {config.root.resolve()}", file=sys.stderr, flush=True)
-    print(
-        f"[code-diver] config: {(config_path or Defaults.CONFIG_PATH).resolve()}",
-        file=sys.stderr,
-        flush=True,
+    render_status_panel(
+        "Search Agent",
+        [
+            ("root", config.root.resolve()),
+            ("config", (config_path or Defaults.CONFIG_PATH).resolve()),
+            ("store", store_label(config)),
+            ("model", config.pi.model or "default"),
+            ("tools", ", ".join(config.pi.tools) if config.pi.tools else "(none configured)"),
+        ],
     )
-    print(f"[code-diver] store: {store_label(config)}", file=sys.stderr, flush=True)
-    print(f"[code-diver] model: {config.pi.model or 'default'}", file=sys.stderr, flush=True)
-    print(f"[code-diver] tools: {', '.join(config.pi.tools) if config.pi.tools else '(none configured)'}", file=sys.stderr, flush=True)
-
     vector_store = create_vector_store(config)
     try:
         if not vector_store.exists():
-            print(f"[code-diver] error: index not found in {store_label(config)}", file=sys.stderr, flush=True)
-            print(
-                f"[code-diver] fix: uv run code-diver --root {config.root} index",
-                file=sys.stderr,
-                flush=True,
-            )
-            print(
-                "[code-diver] raw check: uv run code-diver "
-                f"--root {config.root} search \"your query\" --json",
-                file=sys.stderr,
-                flush=True,
+            render_status_panel(
+                "Index Missing",
+                [
+                    ("store", store_label(config)),
+                    ("fix", f"uv run code-diver --root {config.root} index"),
+                    ("raw check", f'uv run code-diver --root {config.root} search "your query" --json'),
+                ],
+                border_style="red",
             )
             return False
         metadata = vector_store.metadata()
@@ -478,18 +526,29 @@ def code_explorer_preflight(config: AppConfig, config_path: Path | None) -> bool
         model = metadata.get(SchemaKey.MODEL.value) or "unknown"
         provider = metadata.get(SchemaKey.PROVIDER.value) or "unknown"
         dimensions = metadata.get(SchemaKey.DIMENSIONS.value) or "unknown"
-        suffix = f", items={item_count}" if item_count is not None else ""
-        print(
-            f"[code-diver] index: ok provider={provider} model={model} dimensions={dimensions}{suffix}",
-            file=sys.stderr,
-            flush=True,
+        rows: list[tuple[str, object]] = [
+            ("provider", provider),
+            ("model", model),
+            ("dimensions", dimensions),
+        ]
+        if item_count is not None:
+            rows.append(("items", item_count))
+        render_status_panel("Index Ready", rows, border_style="green")
+        render_status_line(
+            "starting agent: search, verify, read bounded excerpts, explain",
+            "green",
         )
-        print("[code-diver] next: starting agent; it will search, verify, read bounded excerpts, and explain.", file=sys.stderr, flush=True)
         return True
     except Exception as exc:
-        print(f"[code-diver] error: cannot inspect index in {store_label(config)}", file=sys.stderr, flush=True)
-        print(f"[code-diver] cause: {exc}", file=sys.stderr, flush=True)
-        print("[code-diver] if Qdrant is configured, start it with: docker compose up -d qdrant", file=sys.stderr, flush=True)
+        render_status_panel(
+            "Index Error",
+            [
+                ("store", store_label(config)),
+                ("cause", exc),
+                ("qdrant", "docker compose up -d qdrant"),
+            ],
+            border_style="red",
+        )
         return False
     finally:
         close_vector_store(vector_store)
@@ -977,7 +1036,7 @@ def run_search(config: AppConfig, query: str, limit: int) -> list[SearchResult]:
         close_vector_store(vector_store)
 
 
-def make_indexing_service(config: AppConfig) -> IndexingService:
+def make_indexing_service(config: AppConfig, progress: bool = True) -> IndexingService:
     return IndexingService(
         make_codebase_scanner(config),
         make_plugin_manager(config),
@@ -986,7 +1045,7 @@ def make_indexing_service(config: AppConfig) -> IndexingService:
             embedding_batch_size=config.embedding.batch_size,
             embedding_workers=config.embedding.workers,
             embedding_max_input_chars=config.embedding.max_input_chars,
-            progress=True,
+            progress=progress,
         ),
         make_trace_logger(config),
     )

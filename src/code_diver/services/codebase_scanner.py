@@ -3,6 +3,7 @@ from __future__ import annotations
 import fnmatch
 import hashlib
 import os
+from collections.abc import Callable
 from pathlib import Path
 
 from ..domain import CodeItem, CodeItemIndexKind, CodeItemMetadata, CodeSymbol
@@ -82,6 +83,7 @@ class CodebaseScanner:
         file_summary_builder: FileSummaryItemBuilder | None = None,
         file_manifest_builder: FileManifestItemBuilder | None = None,
         structural_chunker: StructuralCodeChunker | None = None,
+        progress_callback: Callable[[int, int], None] | None = None,
     ):
         self.include = include or []
         self.exclude = [*DEFAULT_EXCLUDES, *(exclude or [])]
@@ -98,10 +100,12 @@ class CodebaseScanner:
         self.file_summary_builder = file_summary_builder or FileSummaryItemBuilder()
         self.file_manifest_builder = file_manifest_builder or FileManifestItemBuilder()
         self.structural_chunker = structural_chunker or StructuralCodeChunker(chunk_lines, self.symbol_extractor)
+        self.progress_callback = progress_callback
 
     def scan(self, root: Path) -> list[CodeItem]:
         root = root.resolve()
         items: list[CodeItem] = []
+        processed_files = 0
         for current_root, dir_names, file_names in os.walk(root):
             current_path = Path(current_root)
             dir_names[:] = [
@@ -117,8 +121,28 @@ class CodebaseScanner:
                 text = self._read_text(path)
                 if text is None or not text.strip():
                     continue
+                processed_files += 1
                 items.extend(self._items_for_file(rel_path, text))
+                if self.progress_callback:
+                    self.progress_callback(processed_files, len(items))
         return items
+
+    def count_candidate_files(self, root: Path) -> int:
+        root = root.resolve()
+        count = 0
+        for current_root, dir_names, file_names in os.walk(root):
+            current_path = Path(current_root)
+            dir_names[:] = [
+                name
+                for name in sorted(dir_names)
+                if not self._matches_excluded_directory((current_path / name).relative_to(root).as_posix())
+            ]
+            for file_name in sorted(file_names):
+                path = current_path / file_name
+                rel_path = path.relative_to(root).as_posix()
+                if not self._should_skip_file(path, rel_path):
+                    count += 1
+        return count
 
     def _items_for_file(self, rel_path: str, text: str) -> list[CodeItem]:
         symbols = (
