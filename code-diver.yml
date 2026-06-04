@@ -18,13 +18,12 @@ embedding:
 
 generation:
   provider: gemini
-  model: gemini-3.5-flash
+  model: gemini-3.1-flash-lite
   fallback_models:
-    - gemini-3-flash-preview
     - gemini-2.5-flash
   temperature: 0.1
-  thinking_budget: 1024
-  api_version: v1alpha
+  thinking_budget: 256
+  api_version: v1
   timeout_ms: 20000
 
 indexing:
@@ -38,9 +37,8 @@ pi:
   extension: .pi/extensions/code-diver-rag.ts
   prompt_template: .pi/prompts/code-diver-rag.md
   provider: google
-  model: google/gemini-3.5-flash
+  model: google/gemini-3.1-flash-lite
   fallback_models:
-    - google/gemini-3-flash-preview
     - google/gemini-2.5-flash
   timeout_seconds: 180
   tools:
@@ -73,21 +71,66 @@ pi:
       - code_diver_grep
       - code_diver_rg
       - code_diver_read
+  env:
+    PI_CACHE_RETENTION: long
   extra_args: []
 
 scanner:
   include: []
   exclude: []
   max_file_bytes: 1000000
+  line_chunks: false
   chunk_lines: 120
-  structural_chunks: true
-  symbol_chunks: true
+  structural_chunks: false
+  symbol_chunks: false
+  symbol_body: false
   file_summary_chunks: true
+  file_manifest_chunks: true
+  max_symbols_per_file: 96
 
 search:
   limit: 10
   preview_lines: 8
-  strategy: vector
+  strategy: hybrid_rerank
+
+hybrid_search:
+  candidate_limit: 280
+  lexical_candidate_limit: 900
+  vector_weight: 0.42
+  lexical_weight: 0.26
+  path_weight: 0.12
+  symbol_weight: 0.10
+  symbol_match_weight: 0.10
+  graph_weight: 0.0
+  file_vote_weight: 0.06
+  graph_depth: 0
+  graph_neighbor_limit: 0
+  vector_kind_limits:
+    file_summary: 170
+    file_manifest: 170
+  vector_kind_multipliers:
+    file_summary: 1.0
+    file_manifest: 1.08
+  routing_enabled: true
+  lexical_scoring: bm25
+  fusion: weighted
+  preserve_vector_top: true
+  vector_top_score_margin: 0.03
+  item_kind_weights:
+    file_summary: 1.0
+    file_manifest: 1.08
+  min_token_length: 3
+
+llm_rerank:
+  candidate_limit: 30
+  rerank_limit: 10
+  max_preview_chars: 700
+  mode: precision
+  include_reasons: false
+  preserve_top_candidate: false
+  retry_attempts: 3
+  retry_base_delay_seconds: 1.0
+  retry_max_delay_seconds: 8.0
 
 recursive_search:
   rounds: 2

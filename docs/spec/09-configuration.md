@@ -52,6 +52,11 @@ Every config field default reads `Defaults.X`; `ConfigLoader` then does
 `vector_kind_limits` (`{}`), `vector_kind_multipliers` (`{}`), `file_vote_weight`
 (`0.0`), `preserve_vector_top` (`False`), `vector_top_score_margin` (`0.0`).
 
+**Default index profile:** `code-diver.yml` now uses the H5-style file locator setup:
+`line_chunks: false`, `structural_chunks: false`, `symbol_chunks: false`,
+`file_summary_chunks: true`, and `file_manifest_chunks: true`. The persistent index
+embeds file metadata, not full source bodies.
+
 **New `ScannerConfig` knob:** `structural_chunks` (`False`) — see
 [02](./02-indexing.md) structural chunking.
 

@@ -57,7 +57,12 @@ class/function spans instead of fixed line windows.
 - **Additive**: structural chunks coexist with the line chunks; they do **not** replace
   them.
 
-**Eval result (not a default):** structural chunking **hurt Hit@1** (0.64 → 0.53 with
+**Current default profile:** file-first indexing. The durable index emits compact
+`file_summary` and `file_manifest` items and keeps source-code chunks/symbol bodies out
+of the persistent vector store. Search returns ranked files first; detailed code evidence
+is gathered later through read-only tools or a localized temporary index.
+
+**Eval result:** structural chunking **hurt Hit@1** (0.64 → 0.53 with
 unsplit vector search; 0.59 with split-vector retrieval) and raised latency and index
 size (~9,230 → 12,698 items). It remains opt-in.
 

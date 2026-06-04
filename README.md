@@ -127,7 +127,9 @@ uv run code-diver --config configs/protogen.yml experiment
 
 The config uses deterministic hash embeddings for repeatable local testing. Switch `embedding.provider` to `gemini` and `storage.provider` to `qdrant` when running live Gemini/Qdrant experiments.
 
-For model-orchestrated indexing, use `indexing.mode: orchestrated`. The generation model sees repository structure, file names, aggregate stats, config constraints, and index metadata. It does not receive source code contents. Local scanners build chunks, and embedding providers create retrieval vectors from those chunks.
+The default indexing profile is file-first. It stores compact `file_summary` and `file_manifest` items for each source file, then returns ranked files for targeted code exploration. It does not permanently embed full source chunks by default; the agent can inspect candidate files later with grep, symbol, read, and optional localized deep-index tools.
+
+For model-orchestrated indexing, use `indexing.mode: orchestrated`. The generation model sees repository structure, file names, aggregate stats, config constraints, and index metadata. It does not receive source code contents. Local scanners still build the final trusted index items.
 
 ```bash
 export GEMINI_API_KEY="..."
@@ -142,7 +144,7 @@ Provider selection is config-driven:
 ```yaml
 generation:
   provider: gemini # or openai
-  model: gemini-3.5-flash
+  model: gemini-3.1-flash-lite
   timeout_ms: 20000
 
 embedding:
@@ -292,15 +294,16 @@ pi:
   extension: .pi/extensions/code-diver-rag.ts
   prompt_template: .pi/prompts/code-diver-rag.md
   provider: google
-  model: google/gemini-3.5-flash
+  model: google/gemini-3.1-flash-lite
   fallback_models:
-    - google/gemini-3-flash-preview
     - google/gemini-2.5-flash
+  env:
+    PI_CACHE_RETENTION: long
   tools:
     - code_diver_search
 ```
 
-The tool allowlist should stay read-only. Do not add `bash` or editing tools for this assistant; use the `code_diver_*` tools for repository inspection.
+The tool allowlist should stay read-only. Do not add `bash` or editing tools for this assistant; use the `code_diver_*` tools for repository inspection. Pi sessions, compaction, cache accounting, and interactive rendering are handled by Pi; Code Diver supplies the read-only tools and the code-search prompt.
 
 `search` renders colored, syntax-highlighted snippets and uses a pager for larger result sets. Editor opening is configured in `code-diver.yml`:
 
