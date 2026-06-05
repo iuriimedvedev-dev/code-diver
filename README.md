@@ -7,11 +7,13 @@
 ```bash
 uv sync
 export GEMINI_API_KEY="..."
-uv run code-diver init --platform apple-metal --embedding qwen3-0.6b --yes --start
+uv run code-diver init --platform apple-metal --embedding embeddinggemma-300m --yes --start
 ```
 
-The default H5 profile uses local Qwen embeddings and Gemini 3.1 Flash Lite for
-LLM reranking/Search agent responses. For the Gemini side, provide one of:
+The default quality profile is H6.1: local EmbeddingGemma-300M file-metadata
+embeddings plus calibrated hybrid retrieval. Gemini is used for the optional
+Search agent / LLM-rerank experiments, not for the deterministic default path.
+For the Gemini side, provide one of:
 
 ```bash
 export GEMINI_API_KEY="..."
@@ -27,8 +29,8 @@ Secrets can live in `.env`; the CLI loads it before creating providers. `.env` i
 
 The no-config path is intentionally local-first:
 
-- indexing/search default: H5 file-first hybrid retrieval plus Gemini 3.1 Flash Lite top-10 rerank;
-- local embedding default for quality runs: Qwen3-Embedding-0.6B through an OpenAI-compatible local server;
+- indexing/search default: H6.1 file-first hybrid retrieval over file summaries/manifests;
+- local embedding default for quality runs: EmbeddingGemma-300M through an OpenAI-compatible local server;
 - no-key smoke checks are explicit and use the separate hash benchmark profile.
 
 Configuration lives in `code-diver.yml`. For no-key smoke tests only, set:
@@ -57,7 +59,7 @@ The public CLI intentionally exposes the assignment surface: `index`, `search`, 
 ```bash
 uv sync
 export GEMINI_API_KEY="..."
-uv run code-diver init --platform apple-metal --embedding qwen3-0.6b --yes --start
+uv run code-diver init --platform apple-metal --embedding embeddinggemma-300m --yes --start
 uv run code-diver index .
 uv run code-diver search "how does indexing work?"
 uv run code-diver evaluate --benchmark sample --json
@@ -66,7 +68,8 @@ uv run code-diver evaluate --benchmark sample --json
 `code-diver init` installs Search agent npm dependencies and configures the
 embedding runtime. Use `--skip-install` only when dependencies are already present
 or when you are running a docs/config dry run. For local embeddings, pick a local
-profile instead, for example `uv run code-diver init --platform apple-metal --embedding qwen3-0.6b --yes --start`.
+profile instead, for example `uv run code-diver init --platform apple-metal --embedding embeddinggemma-300m --yes --start`.
+`qwen3-0.6b` remains a fast control profile.
 
 `index` shows a compact progress UI by default: index profile, what is embedded, file
 discovery, scan, embedding batches, save, and graph build. Long operations without their own
@@ -126,8 +129,8 @@ uv run code-diver evaluate \
   --reindex
 ```
 
-This benchmark profile uses the Qwen-backed H5 quality config. Run
-`uv run code-diver init --platform apple-metal --embedding qwen3-0.6b --yes --start`
+This benchmark profile uses the EmbeddingGemma-backed H6.1 quality config. Run
+`uv run code-diver init --platform apple-metal --embedding embeddinggemma-300m --yes --start`
 first for the default local model setup. For a no-key smoke check only, use
 `--benchmark codesearchnet-mteb-python-hash-smoke`.
 
@@ -174,11 +177,11 @@ storage:
   provider: qdrant
 
 search:
-  strategy: hybrid_rerank # H5 default: H3 candidates + LLM top-10 rerank
+  strategy: hybrid # H6.1 default: calibrated H3 candidates
 
 embedding:
   provider: openai_compatible
-  model: mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ
+  model: google/embeddinggemma-300m
 ```
 
 See [docs/assignment-plan-progress.md](docs/assignment-plan-progress.md) for the assignment plan, estimates, progress log, and deliverable map. See [docs/current-research-state-2026-06-04.md](docs/current-research-state-2026-06-04.md) for the current research conclusion, [docs/final-report-2026-06-03.md](docs/final-report-2026-06-03.md) for the compact final report, [docs/metrics.md](docs/metrics.md) for metric definitions, and [docs/Explanation.md](docs/Explanation.md) for a plain-language explanation of the retrieval strategies.
@@ -199,7 +202,7 @@ The `protogen` marker targets the optional sibling repository at `../protogen`. 
 ## Protogen Evaluation
 
 `configs/protogen.yml` is a historical small-repo config for the optional sibling
-`../protogen` repo. For normal no-config usage, run the default H5 profile directly:
+`../protogen` repo. For normal no-config usage, run the default H6.1 profile directly:
 
 ```bash
 uv run code-diver --root ../protogen index
@@ -217,8 +220,8 @@ uv run code-diver --config configs/protogen.yml experiment
 ```
 
 Some legacy experiment configs intentionally use deterministic hash embeddings for
-repeatable plumbing tests. They are not quality configs. The product default is H5 with
-local Qwen embeddings, Qdrant, and Gemini 3.1 Flash Lite reranking.
+repeatable plumbing tests. They are not quality configs. The product default is H6.1 with
+local EmbeddingGemma embeddings, Qdrant, and calibrated hybrid retrieval.
 
 The default indexing profile is file-first. It stores compact `file_summary` and `file_manifest` items for each source file, then returns ranked files for targeted code exploration. It does not permanently embed full source chunks by default; the agent can inspect candidate files later with grep, symbol, read, and optional localized deep-index tools.
 
@@ -284,15 +287,15 @@ Runtime dependency groups:
 For CI, containers, or scripted setup, pass explicit flags:
 
 ```bash
-uv run code-diver init --platform apple-metal --embedding qwen3-0.6b --runtime host-uv --yes --start
+uv run code-diver init --platform apple-metal --embedding embeddinggemma-300m --runtime host-uv --yes --start
 uv run code-diver index ../my-repo
 ```
 
-For Nvidia CUDA or AMD ROCm hosts, use regular Hugging Face Qwen checkpoints through vLLM:
+For Nvidia CUDA or AMD ROCm hosts, use regular Hugging Face checkpoints through vLLM:
 
 ```bash
-uv run code-diver init --platform nvidia-cuda --embedding qwen3-0.6b-vllm --runtime host-uv --yes --start
-uv run code-diver init --platform amd-rocm --embedding qwen3-0.6b-vllm --runtime host-uv --yes --start
+uv run code-diver init --platform nvidia-cuda --embedding embeddinggemma-300m-vllm --runtime host-uv --yes --start
+uv run code-diver init --platform amd-rocm --embedding embeddinggemma-300m-vllm --runtime host-uv --yes --start
 ```
 
 For the latest small Gemma-family embedding model, use EmbeddingGemma. It is a gated
@@ -322,12 +325,12 @@ Available built-in extractor profiles:
 
 | Profile | Backend | Notes |
 | --- | --- | --- |
-| `qwen3-0.6b` | `mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ` via vLLM-Metal | Current practical local default on Apple Silicon. |
+| `embeddinggemma-300m` | `google/embeddinggemma-300m` via vLLM-Metal | Current quality default on Apple Silicon; gated HF license; uses code-retrieval prompts. |
+| `embeddinggemma-300m-vllm` | `google/embeddinggemma-300m` via vLLM | Nvidia CUDA, AMD ROCm, or CPU profile for the quality default. |
+| `qwen3-0.6b` | `mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ` via vLLM-Metal | Fast local control profile on Apple Silicon. |
 | `qwen3-4b` | `mlx-community/Qwen3-Embedding-4B-4bit-DWQ` via vLLM-Metal | Stronger raw candidate generator, much slower; downloads on first serve if missing. |
 | `qwen3-0.6b-vllm` | `Qwen/Qwen3-Embedding-0.6B` via vLLM | Nvidia CUDA, AMD ROCm, or CPU profile. |
 | `qwen3-4b-vllm` | `Qwen/Qwen3-Embedding-4B` via vLLM | Stronger CUDA/ROCm/CPU profile. |
-| `embeddinggemma-300m` | `google/embeddinggemma-300m` via vLLM-Metal | Small latest Gemma-family embedding model; gated HF license; uses code-retrieval prompts. |
-| `embeddinggemma-300m-vllm` | `google/embeddinggemma-300m` via vLLM | Nvidia CUDA, AMD ROCm, or CPU profile for EmbeddingGemma. |
 | `gemini` | `gemini-embedding-2` API | Remote API/Vertex path; no local Gemini embedding model. |
 
 Local embedding configs can still set `embedding.workers` for parallel embedding requests

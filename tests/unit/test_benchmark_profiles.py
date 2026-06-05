@@ -34,7 +34,7 @@ def test_benchmark_registry_exposes_reproducible_profiles() -> None:
     codesearch = registry.get("codesearchnet-mteb-python-1000")
     assert codesearch.preparation is not None
     assert codesearch.preparation.dataset_name == "mteb/CodeSearchNetRetrieval"
-    assert codesearch.config_path == Path("configs/codesearchnet-mteb-python-h5-qwen-quality.yml")
+    assert codesearch.config_path == Path("configs/codesearchnet-mteb-python-h5-embeddinggemma-quality.yml")
     assert registry.get("codesearchnet-mteb-python-hash-smoke").config_path == Path(
         "configs/codesearchnet-mteb-python-hash.yml"
     )
@@ -221,8 +221,8 @@ def test_non_default_config_path_keeps_experiment_embedding(monkeypatch: pytest.
     config = apply_runtime_config(args, AppConfig(storage=StorageConfig(provider="qdrant")))
 
     assert config.embedding.provider == "openai_compatible"
-    assert config.embedding.model == "mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ"
-    assert "qwen3_embedding_0_6b" in config.storage.qdrant.collection
+    assert config.embedding.model == "google/embeddinggemma-300m"
+    assert "embeddinggemma_300m" in config.storage.qdrant.collection
 
 
 def test_global_root_can_be_parsed_before_subcommand() -> None:
@@ -238,14 +238,15 @@ def test_normalize_argv_moves_root_before_subcommand() -> None:
 def test_builtin_h5_profile_sets_manifest_hybrid_rerank_defaults() -> None:
     config = apply_builtin_h5(AppConfig())
 
-    assert config.search.strategy == "hybrid_rerank"
+    assert config.search.strategy == "hybrid"
     assert config.scanner.line_chunks is False
     assert config.scanner.file_summary_chunks is True
     assert config.scanner.file_manifest_chunks is True
     assert config.hybrid_search.routing_enabled is True
     assert config.hybrid_search.vector_kind_limits == {"file_summary": 170, "file_manifest": 170}
-    assert config.hybrid_search.vector_weight == 0.42
-    assert config.hybrid_search.lexical_weight == 0.26
+    assert config.hybrid_search.vector_weight == 0.5625
+    assert config.hybrid_search.lexical_weight == 0.1875
+    assert config.hybrid_search.graph_weight == 0.08333333333333334
     assert config.llm_rerank.rerank_limit == 10
     assert config.llm_rerank.mode == "precision"
     assert config.generation.provider == "gemini"

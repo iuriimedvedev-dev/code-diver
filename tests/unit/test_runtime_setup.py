@@ -103,7 +103,7 @@ def test_runtime_setup_wizard_yes_uses_default_profile(tmp_path: Path) -> None:
         yes=True,
     )
 
-    assert config.embedding_profile == "qwen3-0.6b"
+    assert config.embedding_profile == "embeddinggemma-300m"
 
 
 def test_runtime_config_selects_dependency_groups() -> None:

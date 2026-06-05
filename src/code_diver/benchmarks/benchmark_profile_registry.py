@@ -19,11 +19,14 @@ class BenchmarkProfileRegistry:
                 BenchmarkProfile(
                     name="codesearchnet-mteb-python-1000",
                     dataset=Path(".code-diver/benchmarks/mteb-codesearchnet-python/codesearchnet_python_1000.jsonl"),
-                    config_path=Path("configs/codesearchnet-mteb-python-h5-qwen-quality.yml"),
-                    description="Public MTEB CodeSearchNetRetrieval Python benchmark with the default H5 quality profile.",
+                    config_path=Path("configs/codesearchnet-mteb-python-h5-embeddinggemma-quality.yml"),
+                    description=(
+                        "Public MTEB CodeSearchNetRetrieval Python benchmark with the default "
+                        "H6.1 EmbeddingGemma quality profile."
+                    ),
                     external_repo="https://huggingface.co/datasets/mteb/CodeSearchNetRetrieval",
                     setup_hint=(
-                        "Run `uv run code-diver init --platform apple-metal --embedding qwen3-0.6b --yes --start` first, "
+                        "Run `uv run code-diver init --platform apple-metal --embedding embeddinggemma-300m --yes --start` first, "
                         "then evaluate with this benchmark profile. Code Diver asks before downloading missing assets."
                     ),
                     preparation=BenchmarkPreparation(

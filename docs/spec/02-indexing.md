@@ -36,7 +36,7 @@ root ──▶ Scanner ──▶ Iterable[CodeItem] ──▶ EmbeddingTextPrepa
   include/exclude globs.
 - Emits configured item kinds: line chunks, structural chunks, symbols, file summaries,
   and file manifests.
-- The built-in H5 default disables durable line/symbol body chunks and emits compact
+- The built-in H6.1 default disables durable line/symbol body chunks and emits compact
   `file_summary` + `file_manifest` items.
 - Fixed-window chunking remains available for research configs through
   `scanner.line_chunks: true` and `scanner.chunk_lines`.
@@ -46,7 +46,7 @@ root ──▶ Scanner ──▶ Iterable[CodeItem] ──▶ EmbeddingTextPrepa
 chunk boundary is split (signature in chunk N, body in chunk N+1), degrading retrieval
 for boundary-spanning definitions. The spec for high-quality chunking calls for a
 sliding window with overlap. **Structural chunking** (below) is the partial attempt at
-boundary-aware chunking. In H5, durable source chunks are not the production default;
+boundary-aware chunking. In H6.1, durable source chunks are not the production default;
 the chunking caveat applies to explicit deep-index/research profiles.
 
 ### Structural chunking (additive, off by default)
@@ -134,14 +134,14 @@ published.
 
 ## Deterministic-indexing toggles (commit `eb63c2a`)
 
-`ScannerConfig` toggles enforce the H5 default policy "**compact deterministic indexing,
-LLM after retrieval**" (`docs/deterministic-indexing.md`):
+`ScannerConfig` toggles enforce the H6.1 default policy "**compact deterministic indexing,
+optional LLM after retrieval**" (`docs/deterministic-indexing.md`):
 
-- `line_chunks` (library default `True`, H5 default `False`) — emit fixed-line chunks.
-- `file_summary_chunks` (H5 default `True`) — emit one compact summary item per file.
-- `file_manifest_chunks` (H5 default `True`) — emit one path/import/symbol manifest item
+- `line_chunks` (library default `True`, H6.1 default `False`) — emit fixed-line chunks.
+- `file_summary_chunks` (H6.1 default `True`) — emit one compact summary item per file.
+- `file_manifest_chunks` (H6.1 default `True`) — emit one path/import/symbol manifest item
   per file.
-- `max_symbols_per_file` (H5 default `96`) — cap symbols used in file metadata.
+- `max_symbols_per_file` (H6.1 default `96`) — cap symbols used in file metadata.
 
 ⚠️ Divergence (D-1): `line_chunks=false` **silently disables `structural_chunks`** too —
 the two flags are coupled, so turning off line chunks unexpectedly removes structural

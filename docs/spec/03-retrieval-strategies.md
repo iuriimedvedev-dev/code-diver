@@ -22,7 +22,7 @@ Invalid strategy ids now fail fast instead of silently falling back to vector se
 | `graph` | `graph_retrieval_strategy.py` | Vector seed → expand graph neighbors |
 | `hybrid` | `hybrid_retrieval_strategy.py` | Fuse vector + lexical + path + symbol + graph |
 | `multi_index_vector` | `multi_index_vector_retrieval_strategy.py` | Split-vector: partition vector search per index kind, dedup + re-rank |
-| `hybrid_rerank` | `llm_rerank_retrieval_strategy.py` | H3 hybrid candidates -> one bounded LLM rerank call; H5 default |
+| `hybrid_rerank` | `llm_rerank_retrieval_strategy.py` | H3 hybrid candidates -> one bounded LLM rerank call; H5 experiment |
 | `cross_encoder_rerank` | `cross_encoder_rerank_retrieval_strategy.py` | Hybrid candidates -> dedicated rerank endpoint |
 | `orchestrated` | `orchestration/orchestrated_retrieval_strategy.py` | LLM plans which strategy/tool to use |
 
@@ -86,9 +86,10 @@ Combines five signals via either weighted sum or Reciprocal Rank Fusion (RRF).
 ## hybrid_rerank / H5
 
 Wraps `hybrid`: take deterministic H3 candidates, ask the LLM to select/order the final
-top results, then append non-selected candidates in original order. This is the product
-default quality path (H5): local Qwen file-metadata index, H3 candidate generation, and
-Gemini 3.1 Flash Lite top-10 ranking unless config overrides it.
+top results, then append non-selected candidates in original order. This is the H5
+quality experiment path. The current no-config default is H6.1: EmbeddingGemma
+file-metadata index plus calibrated `hybrid` weights, with LLM rerank disabled unless
+the config opts in.
 
 **Contract (intended fail-fast)**: a rerank failure should be *observable* — the caller
 must be able to tell "reranked" from "fell back".

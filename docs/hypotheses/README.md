@@ -8,8 +8,8 @@ The active architecture is:
 
 ```text
 local semantic file-metadata embeddings
--> H3 deterministic hybrid file candidates
--> H5 top-10 LLM ranking by default
+-> H6.1 calibrated deterministic hybrid file candidates by default
+-> optional H5/agent LLM ranking as an experiment
 -> answer-set-aware or public-slice evaluation
 ```
 
@@ -18,8 +18,8 @@ Current accepted direction:
 | Layer | Default | Why |
 | --- | --- | --- |
 | Persistent index | File-first metadata/manifests, not global line chunks | Compact enough to keep hot and reduces duplicate chunk pressure. |
-| Candidate generator | H3 hybrid file candidates | Fast, deterministic, and above the `Hit@10 >= 0.95` target on the local CodeSearchNet positive slice. |
-| Quality layer | H5 with Gemini 3.1 Flash Lite | Default quality path and best measured local positive-slice quality/cost tradeoff. |
+| Candidate generator | H6.1 EmbeddingGemma hybrid file candidates | Fast enough, deterministic, no API spend during retrieval, and strongest validated local candidate generator. |
+| Quality layer | Optional H5/agent rerank | Active experiment; not default until it beats H6.1 on the same index without degraded cases. |
 | Hard-case path | Agentic search only behind a gate | Current open-ended agent loops are slower, costlier, and weaker than Pure H3 on saved comparisons. |
 | Public claim | No official SOTA claim | Current CodeSearchNet results are local positive-slice numbers, not full-corpus MTEB scores. |
 
@@ -39,9 +39,9 @@ Evidence: [current research state](../current-research-state-2026-06-04.md), [fi
 | H3 | Hybrid profile union / manifest file candidates | accepted | Current deterministic candidate-generation baseline. |
 | H4 | LLM query planner / multi-query variants | research only | Fixed some misses, but full evidence is partial and costlier. |
 | Agentic H3 | Open-ended tool loop over H3 tools | rejected as default | Worse quality and higher cost than Pure H3 in valid 100-case IntelliJ comparison. |
-| H5 | H3 candidates + final LLM ranker | accepted quality layer | Best measured quality on the public local positive slice. |
+| H5 | H3 candidates + final LLM ranker | active quality layer | Best historical API-rerank quality on the public local positive slice; must be rerun on H6.1 before promotion. |
 | Reranker variants | Gemini 3.5, Gemini Lite, Qwen3.5 4B, cross-encoder candidates | mixed | Gemini 3.5 is oracle/costly; Gemini Lite is active tradeoff; Qwen local is viable but slow; CE rerankers remain follow-up. |
-| Embedding variants | Qwen3 0.6B, Qwen3 4B, EmbeddingGemma, Gemini, Voyage | active matrix | Qwen3 0.6B is current practical default; stronger local/API embedders need same-stack reruns. |
+| Embedding variants | Qwen3 0.6B, Qwen3 4B, EmbeddingGemma, Gemini, Voyage | active matrix | EmbeddingGemma-300M is current practical default; Qwen3 0.6B is the control. |
 | Public benchmark | CodeSearchNet/MTEB Python positive slice | active internal benchmark | Strong internal comparison, not official SOTA. |
 
 ## Quick Comparison Table

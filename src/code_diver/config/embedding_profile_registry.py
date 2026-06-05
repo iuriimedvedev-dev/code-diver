@@ -10,7 +10,7 @@ class EmbeddingProfileRegistry:
             EmbeddingProfile(
                 key="qwen3-0.6b",
                 label="Qwen3 Embedding 0.6B 4-bit",
-                description="Apple Silicon vLLM-Metal server, best practical local default",
+                description="Apple Silicon vLLM-Metal server, fast local control profile",
                 config=EmbeddingConfig(
                     provider="openai_compatible",
                     model="mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ",
@@ -104,7 +104,7 @@ class EmbeddingProfileRegistry:
             EmbeddingProfile(
                 key="embeddinggemma-300m",
                 label="EmbeddingGemma 300M",
-                description="Apple Silicon vLLM-Metal server; tiny Gemma-family embedding model, gated HF license",
+                description="Apple Silicon vLLM-Metal server; current quality default, gated HF license",
                 config=EmbeddingConfig(
                     provider="openai_compatible",
                     model="google/embeddinggemma-300m",
@@ -128,7 +128,7 @@ class EmbeddingProfileRegistry:
             EmbeddingProfile(
                 key="embeddinggemma-300m-vllm",
                 label="EmbeddingGemma 300M",
-                description="vLLM server for Nvidia CUDA, AMD ROCm, or CPU; gated HF license",
+                description="vLLM server for Nvidia CUDA, AMD ROCm, or CPU; current quality default, gated HF license",
                 config=EmbeddingConfig(
                     provider="openai_compatible",
                     model="google/embeddinggemma-300m",

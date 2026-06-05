@@ -34,22 +34,22 @@ completeness, and clarity. Each answer includes a 0-4 score and short evidence.
 Code Diver computes the final 0-5 `judge_overall` score from fixed weights, so
 the final metric is reproducible for a given judge model and prompt.
 
-## Current Direction: H5 By Default, Small Hot Locator Underneath
+## Current Direction: H6.1 By Default, Small Hot Locator Underneath
 
 For a large repository like IntelliJ, indexing every chunk of source code is the wrong default. It creates a second copy of the repository inside the vector DB, increases RAM/storage, and gives the reranker too many near-duplicate candidates.
 
-The current default shape is H5:
+The current default shape is H6.1:
 
 ```text
-local Qwen file-metadata embeddings
--> H3 deterministic hybrid file candidates
--> Gemini 3.1 Flash Lite top-10 LLM rerank
+local EmbeddingGemma-300M file-metadata embeddings
+-> calibrated H3 deterministic hybrid file candidates
 -> targeted read/grep/symbol inspection for the final answer
 ```
 
-H3 is still the engine underneath H5. It builds the candidate set quickly and cheaply.
-H5 adds one bounded LLM ranking step because our best measurements show that ranking,
-not more permanent indexing depth, is the main user-visible quality lever.
+H3 is still the engine underneath H6.1. It builds the candidate set quickly and cheaply.
+H6.1 freezes the best calibrated static hybrid weights found on the CodeSearchNet local
+positive slice. LLM ranking/agentic rerank remains an experiment on top of this generator
+until it beats the same-case baseline with a valid, non-degraded run.
 
 The better physical index shape is still a two-layer system:
 
@@ -322,11 +322,11 @@ Qwen3.5 4B local is a useful counterpoint: it beat bounded Gemini Lite on the 10
 The current research slice is closed for architecture direction. The saved metrics say:
 
 ```text
-H5 is the product default.
-Pure H3 is the fast deterministic candidate generator and no-API fallback.
+H6.1 EmbeddingGemma static hybrid is the product default.
+Pure H3/Qwen is a historical fast deterministic candidate generator and no-API fallback.
 Agentic H3 is currently worse, more expensive, and slower.
 Gemini 3.5 Flash is the quality ceiling but not a routine model because of cost.
-Gemini 3.1 Flash Lite is the default quality/cost reranker.
+Gemini 3.1 Flash Lite is the best historical API quality/cost reranker, but not the default path.
 Qwen3.5 4B local is viable as a local candidate, but too slow in the current agentic loop.
 ```
 
@@ -339,13 +339,15 @@ The strongest valid full result is the non-agentic H3 manifest answer-set run:
 This proves the `Hit@10 >= 0.95` target is reachable, but it is too expensive for routine iteration.
 
 The public reviewer-runnable default is now the CodeSearchNet/MTEB Python 1000-case
-local positive slice with Qwen-backed H5:
+local positive slice with EmbeddingGemma-backed H6.1:
 
 | Setup | Cases | Hit@1 | Hit@3 | Hit@5 | Hit@10 | Recall@10 | Precision@10 | MRR@10 | nDCG@10 | Mean ms | Status |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
 | Pure H3 quality | 1000 | 0.823 | 0.919 | 0.944 | 0.961 | 0.961 | 0.177 | 0.875 | 0.900 | 555 | fast/no-API fallback |
-| H5 quality | 1000 | 0.904 | 0.965 | 0.977 | 0.982 | 0.982 | 0.182 | 0.933 | 0.948 | 3020 | default quality path |
+| H5 quality | 1000 | 0.904 | 0.965 | 0.977 | 0.982 | 0.982 | 0.182 | 0.933 | 0.948 | 3020 | historical API-rerank best |
 | H5 local | 1000 | 0.842 | 0.936 | 0.953 | 0.967 | 0.967 | 0.176 | 0.890 | 0.913 | 7708 | no-API ranker fallback |
+| H6.1 EmbeddingGemma static | 1000 | 0.848 | 0.947 | 0.964 | 0.975 | 0.975 | 0.173 | n/a | 0.918 | 787 | current default/no-API path |
+| H6.1 EmbeddingGemma calibrated validation | 300 | 0.863 | 0.953 | 0.973 | 0.983 | 0.983 | n/a | 0.911 | n/a | n/a | best held-out candidate generator |
 
 These public-slice numbers are not official full-corpus MTEB scores. They are useful for
 checking the Code Diver architecture with a downloadable benchmark and consistent
@@ -390,7 +392,7 @@ The attempted 1000-case agentic slice is not valid for search-quality selection:
 Operationally, the next fix is not another model sweep. The runner must fail fast on ADC/auth failures, expose `valid/degraded/invalid` status in reports, and reject quality comparisons when degraded cases or rerank errors exceed a configured threshold.
 
 The CLI now reflects this default: `evaluate --benchmark codesearchnet-mteb-python-1000`
-uses `configs/codesearchnet-mteb-python-h5-qwen-quality.yml`. The old hash benchmark is
+uses `configs/codesearchnet-mteb-python-h5-embeddinggemma-quality.yml`. The old hash benchmark is
 available only as `codesearchnet-mteb-python-hash-smoke` for no-key plumbing checks.
 Human eval output prints selected settings, a progress bar over known case count, and a
 metrics table. Use `--json` only when a script needs machine-readable output.
@@ -499,7 +501,8 @@ Mitigation: use syntax-aware chunks for deep indexes. The persistent index can s
 | Strategy | What happens | What it tests |
 | --- | --- | --- |
 | `hybrid_candidates_symbol_first` | Deterministic vector + lexical + path/symbol fusion. No LLM rerank. | Cheap candidate quality and raw embedding quality. |
-| `hybrid_rerank` / H5 | H3 hybrid candidates, then one bounded LLM top-10 rerank. | Current default quality path. |
+| `hybrid` / H6.1 | H3 hybrid candidates with calibrated static weights over EmbeddingGemma file metadata. | Current default no-API quality path. |
+| `hybrid_rerank` / H5 | H3 hybrid candidates, then one bounded LLM top-10 rerank. | Active quality experiment and possible promotion candidate. |
 | `hybrid_rerank_flash_lite_top20_compact` | Generate candidates, send compact top-20 table to the LLM, ask for JSON ordering. | Whether the LLM can improve rank without reading files. |
 | `hybrid_rerank_flash_lite_file_first` | Group candidates by file, ask the LLM to choose owning files before detailed items. | Whether file-level reasoning improves Hit@1/Hit@3. |
 | `hybrid_rerank_precision` | Prompt optimized for rank-one correctness. | Whether stricter instructions beat compact rerank. |
@@ -515,7 +518,7 @@ The intended high-quality flow is:
 
 1. Receive the user query.
 2. Let the Search agent form the code-navigation intent and decide whether simple search is enough.
-3. Run H5 retrieval by default: H3 vector/lexical/path/symbol candidates, then bounded LLM rerank.
+3. Run H6.1 retrieval by default: H3 vector/lexical/path/symbol/graph candidates with calibrated static weights.
 4. Merge and deduplicate candidates by file and item id.
 5. Keep a candidate pool around top 20-40 for recall.
 6. Ask a reranker to select a short list.
@@ -572,7 +575,7 @@ These are the comparable full-100 Protogen runs we already have. Older rows do n
 
 | Embedding model | Reranker / strategy | Hit@1 | Hit@3 | Hit@5 | Hit@10 | MRR@10 | Notes |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | --- |
-| Qwen3 Embedding 0.6B 4-bit | Deterministic hybrid | 0.52 | 0.72 | pending rerun | 0.86 | 0.634 | Best practical local default so far. |
+| Qwen3 Embedding 0.6B 4-bit | Deterministic hybrid | 0.52 | 0.72 | pending rerun | 0.86 | 0.634 | Historical practical local default before EmbeddingGemma. |
 | Qwen3 Embedding 0.6B 4-bit | Gemini Flash Lite compact rerank | 0.73 | 0.86 | pending rerun | 0.90 | 0.792 | Strong quality/latency balance. |
 | Qwen3 Embedding 0.6B 4-bit | Gemini Flash Lite file-first rerank | 0.76 | 0.90 | pending rerun | 0.94 | 0.832 | Best completed embedding+rerank profile so far. |
 | Qwen3 Embedding 4B 4-bit | Deterministic hybrid | 0.56 | 0.76 | pending rerun | 0.90 | 0.673 | Most accurate raw local candidate generator so far. |

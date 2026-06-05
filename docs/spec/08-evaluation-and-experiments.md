@@ -30,7 +30,7 @@ Notable datasets:
 - `codesearchnet-mteb-python-1000`, a public benchmark profile that downloads and
   materializes a 1,000-case Python slice from `mteb/CodeSearchNetRetrieval`.
 
-The benchmark default is H5/Qwen quality:
+The benchmark default is H6.1/EmbeddingGemma quality:
 
 ```bash
 uv run code-diver evaluate --benchmark codesearchnet-mteb-python-1000 --yes --reindex
@@ -42,7 +42,7 @@ Human-mode `evaluate` prints selected settings, a Rich progress bar over known c
 count, and a metrics table. `--json` emits machine-readable output and suppresses the
 interactive progress UI.
 
-## Current public benchmark slice — CodeSearchNet/MTEB Python 1000 (2026-06-04)
+## Current public benchmark slice — CodeSearchNet/MTEB Python 1000 (2026-06-05)
 
 These rows are local positive-slice metrics, not official full-corpus MTEB leaderboard
 scores.
@@ -52,9 +52,10 @@ scores.
 | H3 Qwen quality, no ranker | 0.823 | 0.919 | 0.944 | 0.961 | 0.961 | 0.177 | 0.875 | 0.900 | 555 ms |
 | H5 Qwen + Gemini 3.1 Flash Lite | 0.904 | 0.965 | 0.977 | 0.982 | 0.982 | 0.182 | 0.933 | 0.948 | 3.0 s |
 | H5 Qwen + local Qwen3.5 4B | 0.842 | 0.936 | 0.953 | 0.967 | 0.967 | 0.176 | 0.890 | 0.913 | 7.7 s |
+| H6.1 EmbeddingGemma static | 0.848 | 0.947 | 0.964 | 0.975 | 0.975 | 0.173 | n/a | 0.918 | 787 ms |
 
-The H5 + Gemini Lite row is the current default quality profile. H3 remains the fast
-no-API fallback and candidate generator.
+The H6.1 EmbeddingGemma row is the current default local quality profile. H5/agent
+reranking remains an active experiment on top of the same candidate generator.
 
 ## Historical results — `protogen_eval_100` (2026-06-01)
 

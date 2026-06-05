@@ -54,13 +54,13 @@ Every config field default reads `Defaults.X`; `ConfigLoader` then does
 `vector_kind_limits` (`{}`), `vector_kind_multipliers` (`{}`), `file_vote_weight`
 (`0.0`), `preserve_vector_top` (`False`), `vector_top_score_margin` (`0.0`).
 
-**Default search/index profile:** no-config commands now use the H5-style file locator
+**Default search/index profile:** no-config commands now use the H6.1 file locator
 setup:
 
-- `search.strategy: hybrid_rerank`;
-- local Qwen3-Embedding-0.6B through an OpenAI-compatible endpoint for embeddings;
-- Gemini 3.1 Flash Lite for bounded top-10 LLM reranking/Search agent responses;
-- H3 hybrid candidates underneath the LLM rerank layer;
+- `search.strategy: hybrid`;
+- local EmbeddingGemma-300M through an OpenAI-compatible endpoint for embeddings;
+- calibrated H3 hybrid candidates with vector/lexical/path/symbol/graph weights;
+- LLM reranking/Search agent responses are optional experiments on top of this default;
 - file-level persistent index only:
 `line_chunks: false`, `structural_chunks: false`, `symbol_chunks: false`,
 `file_summary_chunks: true`, and `file_manifest_chunks: true`. The persistent index

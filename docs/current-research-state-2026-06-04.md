@@ -36,7 +36,8 @@ The project goal `Hit@10 >= 0.95` is met on the local positive-slice by all thre
 | Best quality | H5 + Gemini 3.1 Flash Lite | Best Hit@1, Hit@3, Hit@5, Hit@10, nDCG, MAP, and MRR. |
 | Fastest | Pure H3 + Qwen embeddings | 555ms/query, no LLM call, still Hit@10 0.961 in the old Qwen baseline. |
 | Cheapest external spend | Pure H3 + Qwen embeddings | Local embeddings after index is built; no ranking API. |
-| Default quality profile | H5 + Gemini 3.1 Flash Lite | Adds about 2.47s/query and API tokens, but improves Hit@1 from 0.823 to 0.904. |
+| Default local quality profile | H6.1 + EmbeddingGemma-300M | No API dependency during retrieval, Hit@10 0.975 on the 1000 slice, and best held-out candidate validation so far. |
+| Best historical API-rerank quality | H5 + Gemini 3.1 Flash Lite | Adds about 2.47s/query and API tokens, but improved old Qwen Hit@1 from 0.823 to 0.904. |
 | No-API LLM mode | H5 compact + local Qwen3.5 4B | Valid and above target, but too slow for default interactive use. |
 | Best no-rerank candidate generator | H5 file metadata + EmbeddingGemma-300M | Fresh sequential 1000-case run: Hit@3 0.947, Hit@5 0.964, Recall@10 0.975, but mean latency 787ms. |
 
@@ -73,5 +74,5 @@ We are **not official SOTA** yet.
 We do have a strong, reproducible local positive-slice result and a clear current direction:
 
 ```text
-EmbeddingGemma/Qwen file-metadata embeddings -> calibrated H3/H5 hybrid file candidates -> optional Gemini Flash Lite top-10 LLM ranking.
+EmbeddingGemma file-metadata embeddings -> calibrated H6.1 hybrid file candidates -> optional agent/LLM rerank experiments.
 ```

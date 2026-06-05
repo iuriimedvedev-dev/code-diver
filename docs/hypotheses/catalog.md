@@ -161,14 +161,14 @@ Status meanings:
 | Status | accepted |
 | Motivation | Improve H1 candidate generation with hybrid signal fusion, profile union, file manifests/summaries, and deterministic ranking before any LLM spend. |
 | Assumptions | High candidate recall and good enough ordering can be achieved deterministically when file-level metadata is strong. |
-| Index composition | File-first metadata/manifests/summaries with local Qwen3-Embedding-0.6B in the current public quality profile; IntelliJ manifest configs use file/manifest union candidates. |
+| Index composition | File-first metadata/manifests/summaries. Historical H3 rows used local Qwen3-Embedding-0.6B; the current public default uses EmbeddingGemma-300M via H6.1. IntelliJ manifest configs use file/manifest union candidates. |
 | Search/ranking flow | Query -> routed hybrid retrieval over file metadata -> profile/manifest union where configured -> ranked files. |
-| Model/provider matrix | Local Qwen3-Embedding-0.6B is current practical embedding default; API embeddings and stronger local embeddings are comparison candidates. |
+| Model/provider matrix | Local EmbeddingGemma-300M is current practical default; Qwen3-Embedding-0.6B remains the control. API embeddings and stronger local embeddings are comparison candidates. |
 | Dataset | CodeSearchNet/MTEB Python local positive slice, 1,000 cases; IntelliJ answer-set eval for oracle reranked H3. |
 | Metrics | CodeSearchNet Pure H3 quality Hit@1 `0.823`, Hit@10 `0.961`, nDCG `0.900`, mean `555 ms`; IntelliJ H3 + Gemini 3.5 oracle Hit@10 `0.976` after rerank. |
 | Cost/latency/index-size | Pure H3 has no ranking API call; CodeSearchNet mean query latency `555 ms`. Exact public quality index size not documented in the source reports. |
 | Result summary | H3 is the fastest accepted quality baseline and exceeds the project Hit@10 target on the local positive slice. |
-| Decision | Accepted as the production baseline candidate generator and no-API fallback. H5 is the default quality path when an LLM ranker is available. |
+| Decision | Accepted as the production candidate-generator design. The concrete default is now H6.1 EmbeddingGemma calibrated hybrid. |
 | Failure modes | Public positive slice is not official full-corpus MTEB; file-level metadata may dilute function-level CodeSearchNet targets; candidate recall still caps reranking. |
 | Follow-ups | Add large-negative/full-corpus public profile; compare Qwen3 4B, EmbeddingGemma, Gemini, and Voyage Code with the same H3 stack. |
 | Links | [current research state](../current-research-state-2026-06-04.md), [CodeSearchNet agentic/model eval](../codesearchnet-agentic-model-eval-2026-06-04.md), [market comparison](../codesearchnet-market-comparison-2026-06-03.md), `configs/benchmarks/codesearchnet-mteb-python-h5-qwen-quality.yml`, `configs/benchmarks/codesearchnet-mteb-python-pure-h3.yml` |
@@ -248,7 +248,7 @@ Status meanings:
 | Metrics | Gemini Lite H5 Hit@1 `0.904`, Hit@10 `0.982`, nDCG `0.948`, MAP `0.936`, mean `3020 ms`; local Qwen H5 Hit@10 `0.967`, mean `7708 ms`. |
 | Cost/latency/index-size | Gemini Lite adds about `+2.47s/query` over Pure H3 on the public slice; token cost exists but exact 1,000-case H5 public cost is not stated in the source doc. |
 | Result summary | H5 with Gemini Lite is the best measured quality/cost tradeoff on the current public local positive slice. |
-| Decision | Accepted as the default quality path. Pure H3 remains the fastest/no-API fallback and the candidate generator under H5. |
+| Decision | Superseded as the default by H6.1 EmbeddingGemma static hybrid until a same-index LLM/agent rerank run beats it cleanly. Keep H5 as the active ranking experiment. |
 | Failure modes | Candidate recall ceiling, prompt size for local rankers, API cost/quotas, public-slice not official full-corpus MTEB. |
 | Follow-ups | Run stronger embedding models with the same H5 protocol; add a true cross-encoder reranker baseline. |
 | Links | [current research state](../current-research-state-2026-06-04.md), [final report](../final-report-2026-06-03.md), [CodeSearchNet agentic/model eval](../codesearchnet-agentic-model-eval-2026-06-04.md), `configs/benchmarks/codesearchnet-mteb-python-h5-qwen-quality.yml` |
@@ -258,20 +258,20 @@ Status meanings:
 | Field | Value |
 | --- | --- |
 | ID | `H6.1` |
-| Status | active calibration candidate |
+| Status | accepted default |
 | Motivation | Replace manual H3/H5 hybrid weights with weights chosen on a train split and validated on held-out cases. |
 | Assumptions | The existing hybrid signals are useful, but their relative weights should be calibrated against file-level metrics rather than hand-picked. |
-| Index composition | Same H5 file-metadata index as `configs/benchmarks/codesearchnet-mteb-python-h5-qwen-quality.yml`: local Qwen3-Embedding-0.6B, `file_summary` + `file_manifest`, no code-body chunks. |
-| Search/ranking flow | H3 candidate generation -> collect score components -> grid/linear weight sweep on train -> validate frozen weights -> optionally run H5 LLM rerank over calibrated candidates. |
-| Model/provider matrix | Current calibration uses Qwen3-Embedding-0.6B candidates only; no LLM calls during calibration. |
+| Index composition | Same file-metadata shape as `configs/benchmarks/codesearchnet-mteb-python-h5-embeddinggemma-quality.yml`: EmbeddingGemma-300M, `file_summary` + `file_manifest`, no code-body chunks. |
+| Search/ranking flow | H3 candidate generation -> collect score components -> grid/linear weight sweep on train -> validate frozen weights -> use frozen H6.1 hybrid weights by default. |
+| Model/provider matrix | Accepted default uses EmbeddingGemma-300M. Qwen3-Embedding-0.6B remains the control. No LLM calls during default retrieval. |
 | Dataset | CodeSearchNet/MTEB Python local positive slice, 1,000 cases, split 700 train / 300 validation, seed `17`. |
 | Metrics | Manual H5 validation file Hit@1 `0.837`, Hit@5 `0.947`, Hit@10 `0.960`, MRR@10 `0.888`; best calibrated candidate file Hit@1 `0.843`, Hit@5 `0.953`, Hit@10 `0.960`, MRR@10 `0.893`. |
 | Cost/latency/index-size | Calibration tested 1,296 profiles in `862.6s`, including `576.5s` context collection; no API or LLM cost. |
-| Result summary | Calibration gives a small head-ranking gain but no coverage gain. It is a candidate for a locked final eval, not yet a replacement for product defaults. |
-| Decision | Keep manual H5 as product default until calibrated weights win a locked final run and then H5 LLM rerank is re-evaluated over calibrated candidates. |
+| Result summary | Calibration gives a small head-ranking gain by itself, but the larger win came from pairing calibrated weights with EmbeddingGemma-300M. |
+| Decision | Accepted as the default local candidate generator and default CLI search/evaluate profile. LLM/agent rerank must beat this same-index baseline before promotion. |
 | Failure modes | Flat validation plateau, possible split overfit, route-specific weight rewrites not separately learned, graph signal may be weak because default H5 graph has limited edge types. |
 | Follow-ups | Run larger 10k calibration if dataset is available; test finer/medium grid; learn route-specific profiles for `semantic`, `path_symbol`, and `workflow`. |
-| Links | [H5 hybrid weight calibration](../h5-hybrid-weight-calibration-2026-06-04.md), `.code-diver/reports/h5-hybrid-weight-calibration-codesearchnet-1000.json`, `scripts/calibrate_hybrid_weights.py` |
+| Links | [default search hypothesis](../default-search-hypothesis-2026-06-05.md), [H5 hybrid weight calibration](../h5-hybrid-weight-calibration-2026-06-04.md), `.code-diver/reports/h6-2-mlp-weights-embeddinggemma-codesearchnet-1000.json`, `scripts/calibrate_hybrid_weights.py` |
 
 ## H6.2 - Learned MLP Candidate Scorer
 
@@ -323,7 +323,7 @@ Status meanings:
 | Assumptions | Stronger code-aware or modern semantic embedders can improve H3/H5 without changing the search pipeline. |
 | Index composition | Same H3/H5 file-metadata index shape should be reused for fair comparisons. |
 | Search/ranking flow | Swap embedding provider/model; keep H3/H5 flow fixed. |
-| Model/provider matrix | Current practical default Qwen3-Embedding-0.6B; candidates include Qwen3-Embedding-4B, EmbeddingGemma-300m, Gemini Embedding, Voyage Code 3, Jina code embeddings, Codestral Embed. |
+| Model/provider matrix | Current practical default EmbeddingGemma-300M; candidates include Qwen3-Embedding-4B, Gemini Embedding, Voyage Code 3, Jina code embeddings, Codestral Embed. |
 | Dataset | Next matrix should use CodeSearchNet local positive slice and larger-negative/full-corpus public profile when available. |
 | Metrics | H6 validation: Qwen0.6B best static/grid file Hit@1/10 `0.770`/`0.957`; EmbeddingGemma-300M best static/grid file Hit@1/10 `0.863`/`0.983`. 100-case same-stack smoke: Qwen0.6B file Hit@1/10 `0.750`/`0.950`, EmbeddingGemma-300M file Hit@1/10 `0.810`/`0.950`. Public MTEB extract lists Qwen3-Embedding-0.6B official score `0.94325`, Qwen3-Embedding-4B `0.96004`, EmbeddingGemma-300m `0.96180`, Gemini embedding `0.96495`, Voyage Code 3 `0.96688`. |
 | Cost/latency/index-size | Qwen 0.6B is already integrated and fast enough; larger/API models have unmeasured Code Diver cost in the same stack. |

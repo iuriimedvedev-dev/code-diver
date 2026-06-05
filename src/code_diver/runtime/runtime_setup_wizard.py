@@ -109,6 +109,15 @@ class RuntimeSetupWizard:
 
     def _default_profile(self, platform: str) -> str:
         profiles = self.registry.profiles_for_platform(platform) or self.registry.profiles()
+        preferred = {
+            "apple-metal": "embeddinggemma-300m",
+            "nvidia-cuda": "embeddinggemma-300m-vllm",
+            "amd-rocm": "embeddinggemma-300m-vllm",
+            "cpu": "embeddinggemma-300m-vllm",
+            "api": "gemini",
+        }.get(platform)
+        if preferred and any(profile.key == preferred for profile in profiles):
+            return preferred
         return profiles[0].key
 
     def _ask_profile(self, platform: str) -> str:

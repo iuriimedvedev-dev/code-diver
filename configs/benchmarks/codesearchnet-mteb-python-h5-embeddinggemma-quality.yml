@@ -5,11 +5,13 @@ storage:
   provider: json
 
 embedding:
-  provider: sentence_transformers
+  provider: openai_compatible
   model: google/embeddinggemma-300m
   dimensions: 768
+  api_key: local
+  url: http://127.0.0.1:8001/v1/embeddings
   batch_size: 96
-  workers: 1
+  workers: 4
   max_input_chars: 1200
   query_prefix: "task: code retrieval | query: "
   document_prefix: "title: none | text: "
@@ -38,13 +40,13 @@ search:
 hybrid_search:
   candidate_limit: 280
   lexical_candidate_limit: 900
-  vector_weight: 0.42
-  lexical_weight: 0.26
-  path_weight: 0.12
-  symbol_weight: 0.10
-  symbol_match_weight: 0.10
-  graph_weight: 0.0
-  file_vote_weight: 0.06
+  vector_weight: 0.5625
+  lexical_weight: 0.1875
+  path_weight: 0.08333333333333334
+  symbol_weight: 0.04166666666666667
+  symbol_match_weight: 0.04166666666666667
+  graph_weight: 0.08333333333333334
+  file_vote_weight: 0.0
   graph_depth: 0
   graph_neighbor_limit: 0
   vector_kind_limits:

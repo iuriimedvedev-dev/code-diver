@@ -537,18 +537,18 @@ def apply_builtin_h5(config: AppConfig) -> AppConfig:
         file_manifest_chunks=True,
         max_symbols_per_file=96,
     )
-    search = replace(config.search, strategy="hybrid_rerank", limit=10, preview_lines=10)
+    search = replace(config.search, strategy="hybrid", limit=10, preview_lines=10)
     hybrid = replace(
         config.hybrid_search,
         candidate_limit=280,
         lexical_candidate_limit=900,
-        vector_weight=0.42,
-        lexical_weight=0.26,
-        path_weight=0.12,
-        symbol_weight=0.10,
-        symbol_match_weight=0.10,
-        graph_weight=0.0,
-        file_vote_weight=0.06,
+        vector_weight=0.5625,
+        lexical_weight=0.1875,
+        path_weight=0.08333333333333334,
+        symbol_weight=0.04166666666666667,
+        symbol_match_weight=0.04166666666666667,
+        graph_weight=0.08333333333333334,
+        file_vote_weight=0.0,
         graph_depth=0,
         graph_neighbor_limit=0,
         vector_kind_limits={"file_summary": 170, "file_manifest": 170},
@@ -780,7 +780,7 @@ def index_profile_label(config: AppConfig) -> str:
         and not config.scanner.structural_chunks
         and not config.scanner.symbol_chunks
     ):
-        return "H5 file locator"
+        return "H6.1 file locator"
     return "custom"
 
 
@@ -1294,7 +1294,8 @@ def evaluation_settings(config: AppConfig, dataset: Path, limit: int, config_pat
         "hybrid weights": (
             f"vector={config.hybrid_search.vector_weight}, lexical={config.hybrid_search.lexical_weight}, "
             f"path={config.hybrid_search.path_weight}, symbol={config.hybrid_search.symbol_weight}, "
-            f"symbol_match={config.hybrid_search.symbol_match_weight}, file_vote={config.hybrid_search.file_vote_weight}"
+            f"symbol_match={config.hybrid_search.symbol_match_weight}, graph={config.hybrid_search.graph_weight}, "
+            f"file_vote={config.hybrid_search.file_vote_weight}"
         ),
         "graph": graph_label(config),
     }
