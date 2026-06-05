@@ -137,3 +137,33 @@ Current decision: local Gemma 4 E4B base-prior is a valid high-quality local
 rerank option, but it is not strong enough to replace static H6.1 as the default
 interactive path. It belongs behind a gate: use it for hard/ambiguous queries or
 offline quality mode, not for every query.
+
+## Agentic Loop Sanity
+
+After the rerank-only matrix, we ran a separate 10-case local-only agentic sanity
+check:
+
+```text
+query
+-> local Gemma 4 agent generates tool calls
+-> H6.1 search / outline / symbols / rg / grep / read / rerank tools
+-> ranked file list
+```
+
+This measures the search-agent loop, not final explanation quality. It is not
+directly comparable to one-shot rerank because the model can issue multiple
+searches and tool calls.
+
+| Setup | Cases | Hit@1 | Hit@3 | Hit@5 | Hit@10 | Precision@10 | Recall@10 | MRR@10 | nDCG@10 | Mean ms | P95 ms | Model calls | Tool calls | Tokens | Degraded |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Gemma 4 E2B agentic | 10 | 0.400 | 0.800 | 0.800 | 0.800 | 0.080 | 0.800 | 0.600 | 0.652 | 13837.9 | 22186.8 | 42 | 33 | 315620 | 0 |
+| Gemma 4 E4B agentic | 10 | 0.400 | 0.800 | 0.900 | 0.900 | 0.133 | 0.900 | 0.608 | 0.682 | 40129.7 | 64262.5 | 53 | 39 | 322706 | 0 |
+
+The sanity result is negative: free local-agent search is worse than static H6.1
+and worse than bounded rerank-only on the same 10-case slice. E4B is better than
+E2B on top-k recall, but still loses badly on Hit@1 and latency.
+
+We still launched a 100-case E4B agentic run to verify this is not only 10-case
+noise. If that run confirms the drop, the local Gemma agent should not own broad
+candidate discovery. It can still be useful later in the product pipeline for
+bounded file reading and explanation after H6.1 has already found candidates.
