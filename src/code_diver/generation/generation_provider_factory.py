@@ -57,6 +57,7 @@ def create_generation_provider(config: AppConfig) -> GenerationProvider:
             timeout_seconds=generation.timeout_ms / 1000,
             max_tokens=generation.max_tokens,
             response_format=generation.response_format,
+            extra_body=generation.extra_body,
             retry_attempts=generation.retry_attempts,
             retry_base_delay_seconds=generation.retry_base_delay_seconds,
             retry_max_delay_seconds=generation.retry_max_delay_seconds,

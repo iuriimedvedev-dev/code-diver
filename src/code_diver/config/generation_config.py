@@ -20,6 +20,7 @@ class GenerationConfig:
     timeout_ms: int = Defaults.GENERATION_TIMEOUT_MS
     max_tokens: int | None = Defaults.GENERATION_MAX_TOKENS
     response_format: bool = True
+    extra_body: dict[str, object] = field(default_factory=dict)
     retry_attempts: int = Defaults.GENERATION_RETRY_ATTEMPTS
     retry_base_delay_seconds: float = Defaults.GENERATION_RETRY_BASE_DELAY_SECONDS
     retry_max_delay_seconds: float = Defaults.GENERATION_RETRY_MAX_DELAY_SECONDS

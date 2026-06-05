@@ -17,6 +17,7 @@ class OpenAICompatibleGenerationProvider(OpenAIGenerationProvider):
         timeout_seconds: float = Defaults.OPENAI_TIMEOUT_SECONDS,
         max_tokens: int | None = None,
         response_format: bool = True,
+        extra_body: dict[str, Any] | None = None,
         retry_attempts: int = Defaults.GENERATION_RETRY_ATTEMPTS,
         retry_base_delay_seconds: float = Defaults.GENERATION_RETRY_BASE_DELAY_SECONDS,
         retry_max_delay_seconds: float = Defaults.GENERATION_RETRY_MAX_DELAY_SECONDS,
@@ -33,6 +34,7 @@ class OpenAICompatibleGenerationProvider(OpenAIGenerationProvider):
         self.name = "openai_compatible"
         self._response_format_supported = response_format
         self.max_tokens = max_tokens
+        self.extra_body = dict(extra_body or {})
 
     def generate_json(self, prompt: str) -> str:
         return self.generate_json_result(prompt).text
@@ -76,6 +78,7 @@ class OpenAICompatibleGenerationProvider(OpenAIGenerationProvider):
             payload["response_format"] = {"type": "json_object"}
         if self.max_tokens:
             payload["max_tokens"] = self.max_tokens
+        payload.update(self.extra_body)
         return payload
 
     def _is_response_format_error(self, message: str) -> bool:

@@ -7,6 +7,8 @@ generation:
   max_tokens: 2048
   timeout_ms: 240000
   response_format: false
+  extra_body:
+    enable_thinking: false
   retry_attempts: 2
   retry_base_delay_seconds: 2
   retry_max_delay_seconds: 10

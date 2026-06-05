@@ -164,6 +164,7 @@ class ConfigLoader:
                 mapping.get("max_tokens", base.max_tokens if base is not None else Defaults.GENERATION_MAX_TOKENS)
             ),
             response_format=bool(mapping.get("response_format", base.response_format if base is not None else True)),
+            extra_body=dict(mapping.get("extra_body", base.extra_body if base is not None else {})),
             retry_attempts=int(
                 mapping.get(
                     "retry_attempts",

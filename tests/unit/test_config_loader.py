@@ -44,6 +44,8 @@ generation:
   api_version: v1alpha
   timeout_ms: 12345
   response_format: false
+  extra_body:
+    enable_thinking: false
   retry_attempts: 7
   retry_base_delay_seconds: 1.5
   retry_max_delay_seconds: 33
@@ -222,6 +224,7 @@ plugins:
     assert config.generation.api_version == "v1alpha"
     assert config.generation.timeout_ms == 12345
     assert config.generation.response_format is False
+    assert config.generation.extra_body == {"enable_thinking": False}
     assert config.generation.retry_attempts == 7
     assert config.generation.retry_base_delay_seconds == 1.5
     assert config.generation.retry_max_delay_seconds == 33
