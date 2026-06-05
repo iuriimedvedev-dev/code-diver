@@ -272,7 +272,7 @@ embedding:
   url: http://127.0.0.1:8001/v1/embeddings
   batch_size: 128
   workers: 1
-  max_input_chars: 900
+  max_input_chars: 400
 ```
 
 For OpenAI, set `OPENAI_API_KEY` and use `generation.provider: openai` plus `embedding.provider: openai`. Defaults are `gpt-5.1` and `text-embedding-3-large`.

@@ -25,7 +25,7 @@ models:
     api_key: local
     batch_size: 128
     workers: 1
-    max_input_chars: 900
+    max_input_chars: 400
     document_prefix: "Represent this code file metadata for retrieval: "
     query_prefix: "Represent this code search query for retrieving relevant files: "
     cost_per_1m_tokens_usd: 0
@@ -36,7 +36,7 @@ models:
     dimensions: 768
     batch_size: 96
     workers: 1
-    max_input_chars: 900
+    max_input_chars: 400
     document_prefix: "Represent this code file metadata for retrieval: "
     query_prefix: "Represent this code search query for retrieving relevant files: "
     cost_per_1m_tokens_usd: 0

@@ -22,7 +22,7 @@ embedding:
   api_key: local
   batch_size: 128
   workers: 1
-  max_input_chars: 900
+  max_input_chars: 400
   cost_per_1m_tokens_usd: 0
 hypotheses:
   - h5_qwen_index_gemini_flash_lite_top10

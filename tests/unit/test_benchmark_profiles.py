@@ -205,7 +205,7 @@ def test_embedding_profile_overrides_embedding_config() -> None:
     assert config.embedding.url == "http://127.0.0.1:8001/v1/embeddings"
     assert config.embedding.batch_size == 128
     assert config.embedding.workers == 1
-    assert config.embedding.max_input_chars == 900
+    assert config.embedding.max_input_chars == 400
 
 
 def test_embeddinggemma_profile_uses_code_retrieval_prompts() -> None:
@@ -236,7 +236,7 @@ def test_default_config_path_applies_runtime_embedding_profile(monkeypatch: pyte
     assert config.embedding.model == "mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ"
     assert config.embedding.batch_size == 128
     assert config.embedding.workers == 1
-    assert config.embedding.max_input_chars == 900
+    assert config.embedding.max_input_chars == 400
     assert "qwen3_embedding_0_6b" in config.storage.qdrant.collection
 
 

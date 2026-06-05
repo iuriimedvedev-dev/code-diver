@@ -12,7 +12,7 @@ embedding:
   api_key: local
   batch_size: 128
   workers: 1
-  max_input_chars: 900
+  max_input_chars: 400
   query_prefix: "Represent this code search query for retrieving relevant files: "
   document_prefix: "Represent this code file metadata for retrieval: "
 

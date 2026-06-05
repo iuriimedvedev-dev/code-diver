@@ -190,3 +190,107 @@ Interpretation:
 - The next optimization should test a cheaper gate: run fast `hybrid`, include a
   slightly wider deduped context, or rerank only when the top-file confidence is
   weak.
+
+## Public SWE-QA-Pro Mini-Run
+
+Public dataset:
+
+- Dataset: `TIGER-Lab/SWE-QA-Pro-Bench`
+- Repository: `qiboteam/qibo`
+- Commit: `2f98679c4a738d5a59de17eccd4712659d52a461`
+- Local checkout: `/tmp/code-diver-qibo`
+- Cases: first 2 rows for that repo
+
+The first attempt exposed a real runtime bug: the active local Qwen3 embedding
+profile allowed `max_input_chars=900`, but the served model is started with
+`--max-model-len 512`. One file manifest crossed the token limit and vLLM
+returned HTTP 400. Active Qwen profile/config caps were lowered to `400`.
+
+Commands:
+
+```bash
+uv run code-diver --root /tmp/code-diver-qibo --help-all evaluate-answers \
+  --dataset /tmp/code-diver-swe-qibo-3.jsonl \
+  --cases 2 \
+  --limit 10 \
+  --context-files 8 \
+  --context-lines 180 \
+  --reindex \
+  --output /tmp/code-diver-e2e-qibo-2.json
+
+uv run code-diver --root /tmp/code-diver-qibo --help-all evaluate-answers \
+  --dataset /tmp/code-diver-swe-qibo-3.jsonl \
+  --cases 2 \
+  --limit 10 \
+  --context-files 8 \
+  --context-lines 180 \
+  --judge \
+  --judge-prompt prompts/code-answer-judge.md \
+  --judge-model gemini-3.1-flash-lite \
+  --output /tmp/code-diver-e2e-qibo-2-judge.json
+```
+
+Index summary:
+
+| Metric | Value |
+| --- | ---: |
+| files | `281` |
+| H6.1 records | `562` |
+| content MB | `0.57` |
+| embedding batches | `5` |
+| indexing time | `~5s` |
+
+No-judge result:
+
+| Metric | Value |
+| --- | ---: |
+| `cases` | `2` |
+| `file_hit` | `1.000` |
+| `file_recall` | `0.750` |
+| `candidate_file_hit@1` | `1.000` |
+| `candidate_file_hit@5` | `1.000` |
+| `context_file_recall` | `0.750` |
+| `token_f1` | `0.400` |
+| `key_token_f1` | `0.355` |
+| `bigram_f1` | `0.158` |
+| `retrieval_duration_ms` | `1428` |
+| `context_duration_ms` | `5` |
+| `generation_duration_ms` | `1748` |
+| `answer_duration_ms_mean` | `3183` |
+
+Judge result:
+
+| Metric | Value |
+| --- | ---: |
+| `cases` | `2` |
+| `file_recall` | `0.750` |
+| `context_file_recall` | `0.750` |
+| `judge_answer_correctness` | `3.500` |
+| `judge_evidence_grounding` | `4.000` |
+| `judge_coverage` | `2.500` |
+| `judge_citation_quality` | `3.500` |
+| `judge_specificity` | `3.500` |
+| `judge_hallucination_control` | `4.000` |
+| `judge_overall` | `4.375` |
+| `retrieval_duration_ms` | `1644` |
+| `generation_duration_ms` | `1817` |
+| `judge_duration_ms` | `17856` |
+| `answer_duration_ms_mean` | `21325` |
+
+Per-case notes:
+
+| Case | Expected files | Context recall | Judge overall | Observed failure |
+| --- | --- | ---: | ---: | --- |
+| `swe-qa-pro-00001` | `src/qibo/models/variational.py` | `1.000` | `3.938` | Judge flagged inaccurate line-number citations and incomplete specialized-method detail. |
+| `swe-qa-pro-00002` | `src/qibo/states.py`, `src/qibo/backends/numpy.py` | `0.500` | `4.813` | Context missed `src/qibo/backends/numpy.py`; answer remained mostly correct from available evidence. |
+
+This mini-run is too small for a quality claim, but it validates the public
+benchmark path and shows the next concrete targets:
+
+1. Citation line accuracy needs stricter extraction or post-validation.
+2. Multi-file workflow questions need better bundle recall, not just first-file
+   hit.
+3. Judge is benchmark-only overhead; it adds ~18s/case here and should not be
+   part of interactive latency.
+4. Repeated runs can change top-rank order even with temperature 0, so larger
+   E2E comparisons should run with saved reports and confidence intervals.
