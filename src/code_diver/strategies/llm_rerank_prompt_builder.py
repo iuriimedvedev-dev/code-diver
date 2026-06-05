@@ -24,7 +24,9 @@ Goal:
 - Select the candidates that best answer the user's informal code-navigation query.
 - Prefer exact behavioral relevance over vague semantic similarity.
 - Use path, title, symbol kind, line range, retrieval score, and preview together.
-- Keep related implementation and test files when both are directly relevant.
+- Prefer implementation owner files over tests, examples, docs, benchmarks, and generated artifacts unless the query
+  explicitly asks for those supporting files.
+- Keep related tests/examples/docs only after the implementation owner when both are directly relevant.
 - Do not invent files, paths, indices, or evidence.
 {self._mode_instruction()}
 
@@ -56,9 +58,25 @@ Input:
             "start_line": item.start_line,
             "end_line": item.end_line,
             "kind": self.kind_resolver.resolve(item),
+            "path_role": self._path_role(item.path),
             "score": round(float(result.score), 6),
             "preview": self._preview(item.content),
         }
+
+    def _path_role(self, path: str) -> str:
+        normalized = path.lower().replace("\\", "/")
+        parts = [part for part in normalized.split("/") if part]
+        name = parts[-1] if parts else normalized
+        suffix = name.rsplit(".", 1)[-1] if "." in name else ""
+        if suffix in {"md", "mdx", "rst", "txt", "adoc"} or "docs" in parts or name.startswith("readme"):
+            return "doc"
+        if any(part in {"test", "tests", "spec", "specs", "__tests__"} for part in parts):
+            return "test"
+        if any(part in {"example", "examples", "demo", "demos", "benchmark", "benchmarks"} for part in parts):
+            return "example"
+        if any(part in {"generated", "gen", "dist", "build", "target"} for part in parts):
+            return "generated"
+        return "implementation"
 
     def _preview(self, content: str) -> str:
         compact = " ".join(content.split())
@@ -72,7 +90,7 @@ Input:
                 "- Rank repository files first: choose the file that owns the behavior, then choose the best "
                 "candidate within that file.\n"
                 "- Prefer implementation files over broad model, __init__, wrapper, or summary files unless the "
-                "query explicitly asks for models, exports, wrappers, or summaries."
+                "query explicitly asks for models, exports, wrappers, summaries, tests, examples, docs, or benchmarks."
             )
         if self.config.mode == "base_rank_prior":
             return (
@@ -83,7 +101,8 @@ Input:
         if self.config.mode == "precision":
             return (
                 "- Optimize rank 1: the first result should be the single best file/symbol to open.\n"
-                "- Prefer specific implementation files over adjacent models, wrappers, registries, or summaries."
+                "- Prefer specific implementation owner files over adjacent tests, examples, docs, models, wrappers, "
+                "registries, or summaries."
             )
         if self.config.mode == "compact":
             return "- Be terse and return only the ordered indices with confidence."

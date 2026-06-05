@@ -19,7 +19,7 @@ class GenerationConfig:
     api_version: str | None = Defaults.GENERATION_API_VERSION
     timeout_ms: int = Defaults.GENERATION_TIMEOUT_MS
     max_tokens: int | None = Defaults.GENERATION_MAX_TOKENS
-    response_format: bool = True
+    response_format: bool | str | dict[str, object] = True
     extra_body: dict[str, object] = field(default_factory=dict)
     retry_attempts: int = Defaults.GENERATION_RETRY_ATTEMPTS
     retry_base_delay_seconds: float = Defaults.GENERATION_RETRY_BASE_DELAY_SECONDS

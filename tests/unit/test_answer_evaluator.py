@@ -196,6 +196,48 @@ def test_answer_evaluator_searches_reads_answers_and_judges(tmp_path: Path) -> N
     assert report["results"][0]["context_files"] == ["src/auth.py"]
 
 
+def test_answer_evaluator_preserves_retrieval_metrics_when_answer_json_breaks(tmp_path: Path) -> None:
+    source = tmp_path / "src" / "auth.py"
+    source.parent.mkdir()
+    source.write_text("def login(user):\n    return user.token is not None\n", encoding="utf-8")
+    retrieval = FakeRetrievalStrategy(
+        [
+            SearchResult(
+                CodeItem(
+                    id="src/auth.py",
+                    path="src/auth.py",
+                    title="auth",
+                    content="Checks whether a user has a token.",
+                    start_line=1,
+                ),
+                0.91,
+            )
+        ]
+    )
+    answer_provider = FakeGenerationProvider(['{"answer":"unterminated"'])
+    case = AnswerCase(
+        id="auth",
+        question="Where is authentication checked?",
+        reference="src/auth.py checks user tokens.",
+        expected_paths=["src/auth.py"],
+    )
+
+    report = AnswerEvaluator(
+        retrieval,
+        answer_provider,
+        AnswerContextBuilder(tmp_path, max_files=1, lines_per_file=40),
+        limit=5,
+    ).evaluate([case])
+
+    assert report["error_count"] == 1
+    assert report["metrics"]["file_hit"] == 1.0
+    assert report["metrics"]["file_recall"] == 1.0
+    assert report["metrics"]["context_file_recall"] == 1.0
+    assert report["results"][0]["retrieved_files"] == ["src/auth.py"]
+    assert report["results"][0]["context_files"] == ["src/auth.py"]
+    assert "error" in report["results"][0]
+
+
 def test_answer_evaluator_uses_llm_generated_search_queries(tmp_path: Path) -> None:
     src = tmp_path / "src"
     src.mkdir()

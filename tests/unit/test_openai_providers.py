@@ -144,6 +144,25 @@ def test_openai_compatible_generation_provider_can_disable_response_format(monke
     assert "response_format" not in calls[0]
 
 
+def test_openai_compatible_generation_provider_can_use_json_schema_response_format(monkeypatch) -> None:
+    provider = OpenAICompatibleGenerationProvider(
+        model="local-model",
+        api_key="local",
+        response_format="json_schema",
+    )
+    calls: list[dict] = []
+
+    def fake_post(payload):
+        calls.append(payload)
+        return {"choices": [{"message": {"content": '{"results":[]}'}}]}
+
+    monkeypatch.setattr(provider, "_post", fake_post)
+
+    assert provider.generate_json("rank") == '{"results":[]}'
+    assert calls[0]["response_format"]["type"] == "json_schema"
+    assert calls[0]["response_format"]["json_schema"]["schema"]["type"] == "object"
+
+
 def test_openai_compatible_generation_provider_sends_extra_body(monkeypatch) -> None:
     provider = OpenAICompatibleGenerationProvider(
         model="local-model",

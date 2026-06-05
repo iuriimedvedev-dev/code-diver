@@ -6,7 +6,7 @@ generation:
   temperature: 0
   max_tokens: 2048
   timeout_ms: 240000
-  response_format: false
+  response_format: json_schema
   extra_body:
     enable_thinking: false
   retry_attempts: 2

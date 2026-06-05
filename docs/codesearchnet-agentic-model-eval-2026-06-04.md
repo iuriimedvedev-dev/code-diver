@@ -44,7 +44,7 @@ The public agentic config uses the same existing public Pure H3 JSON index and c
 Two changes were made before the public rerun:
 
 - H3 Agentic now has a runtime early-stop after a successful `code_diver_rerank`, instead of allowing more broad grep/read/search rounds.
-- `openai_compatible` generation now supports `response_format: false`, needed for llama.cpp/Gemma experiments where forced `json_object` caused empty `{}` responses.
+- `openai_compatible` generation originally added `response_format: false` as a workaround for llama.cpp/Gemma experiments where forced `json_object` caused empty `{}` responses. That is now superseded for MLX Gemma by `response_format: json_schema`; old `false` runs are directional only.
 
 The prompt still allows the first candidate pass to fan out into 2-4 parallel `code_diver_h3_search` calls with different LLM-chosen queries. The new guard only stops the loop after a plausible rerank.
 

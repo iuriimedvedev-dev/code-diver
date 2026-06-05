@@ -102,6 +102,7 @@ class RerankToolHandler:
                     "start_line": raw.get("startLine", raw.get("start_line")),
                     "end_line": raw.get("endLine", raw.get("end_line")),
                     "kind": str(raw.get("indexKind") or raw.get("kind") or "unknown"),
+                    "path_role": str(raw.get("pathRole") or raw.get("path_role") or self._path_role(path)),
                     "score": self._float(raw.get("score")),
                     "source": str(raw.get("source") or raw.get("tool") or "candidate"),
                     "preview": self._preview(str(raw.get("preview") or raw.get("text") or ""), config.max_preview_chars),
@@ -127,6 +128,8 @@ Goal:
 - Prefer candidates that own the behavior, command, route, handler, model, strategy, or configuration being asked about.
 - If the query asks about configuration, plugin descriptors, module content, messages, resources, package info, YAML, XML, or properties, prefer the exact config/resource file over nearby implementation code.
 - If the query names or implies a class/symbol/file, treat exact path/title/symbol matches as strong evidence even if the file is generated, test data, or metadata.
+- Prefer implementation owner files over tests, examples, docs, benchmarks, and generated artifacts unless the user explicitly asks for those supporting files.
+- Tests/examples/docs can support evidence, but should not outrank the implementation owner for "where/how is this implemented?" queries.
 - Use path, title, kind, line range, source tool, base score, and preview together.
 - Do not invent paths, indices, or evidence.
 {self._mode_instruction(config)}
@@ -153,7 +156,8 @@ Input:
         if config.mode == "file_first":
             return (
                 "- Rank owning files first, then choose the best symbol/chunk inside the file.\n"
-                "- Prefer implementation files over broad summaries, wrappers, and tests unless the query asks for them."
+                "- Prefer implementation files over broad summaries, wrappers, tests, examples, docs, and benchmarks "
+                "unless the query asks for them."
             )
         if config.mode == "base_rank_prior":
             return "- Treat input order and score as a strong prior; move candidates only with clearly better evidence."
@@ -224,6 +228,21 @@ Input:
         if len(compact) <= max_chars:
             return compact
         return compact[:max_chars].rstrip() + "..."
+
+    def _path_role(self, path: str) -> str:
+        normalized = path.lower().replace("\\", "/")
+        parts = [part for part in normalized.split("/") if part]
+        name = parts[-1] if parts else normalized
+        suffix = name.rsplit(".", 1)[-1] if "." in name else ""
+        if suffix in {"md", "mdx", "rst", "txt", "adoc"} or "docs" in parts or name.startswith("readme"):
+            return "doc"
+        if any(part in {"test", "tests", "spec", "specs", "__tests__"} for part in parts):
+            return "test"
+        if any(part in {"example", "examples", "demo", "demos", "benchmark", "benchmarks"} for part in parts):
+            return "example"
+        if any(part in {"generated", "gen", "dist", "build", "target"} for part in parts):
+            return "generated"
+        return "implementation"
 
     def _int(self, value: Any) -> int | None:
         try:

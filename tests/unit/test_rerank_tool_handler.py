@@ -145,6 +145,29 @@ def test_rerank_tool_handler_applies_runtime_mode_reason_and_preview_overrides()
     assert payload["metrics"]["mode"] == "precision"
 
 
+def test_rerank_tool_handler_marks_path_roles_for_small_local_rankers() -> None:
+    provider = FakeGenerationProvider(json.dumps({"results": [{"index": 2, "confidence": 0.9}]}))
+    handler = RerankToolHandler(provider, LlmRerankConfig(candidate_limit=3, include_reasons=False))
+
+    payload = handler.rerank(
+        "where is auth implemented?",
+        [
+            {"id": "test", "path": "src/tests/test_auth.py", "score": 0.9},
+            {"id": "impl", "path": "src/auth.py", "score": 0.8},
+            {"id": "doc", "path": "README.md", "score": 0.7},
+        ],
+        2,
+        {},
+    )
+
+    prompt = provider.prompts[0]
+    assert '"path_role": "test"' in prompt
+    assert '"path_role": "implementation"' in prompt
+    assert '"path_role": "doc"' in prompt
+    assert "Tests/examples/docs can support evidence" in prompt
+    assert payload["candidates"][0]["path_role"] == "implementation"
+
+
 def test_rerank_tool_handler_empty_or_pathless_candidates_skip_model_call() -> None:
     provider = FakeGenerationProvider(json.dumps({"results": [{"index": 1, "confidence": 1.0}]}))
     handler = RerankToolHandler(provider, LlmRerankConfig())

@@ -21,7 +21,7 @@ generation:
   api_key: local
   temperature: 0
   max_tokens: 1536
-  response_format: false
+  response_format: json_schema
   timeout_ms: 120000
 
 indexing:
@@ -125,7 +125,7 @@ experiments:
         api_key: local
         temperature: 0
         max_tokens: 1536
-        response_format: false
+        response_format: json_schema
         timeout_ms: 120000
       rerank_generation:
         provider: openai_compatible
@@ -134,7 +134,7 @@ experiments:
         api_key: local
         temperature: 0
         max_tokens: 1536
-        response_format: false
+        response_format: json_schema
         timeout_ms: 120000
       description: "Battle candidate: H6.1 EmbeddingGemma candidates, local Gemma 4 E2B plans/tools and reranks."
     - name: agent_gemma4_e2b_rerank_gemini_lite
@@ -153,7 +153,7 @@ experiments:
         api_key: local
         temperature: 0
         max_tokens: 1536
-        response_format: false
+        response_format: json_schema
         timeout_ms: 120000
       rerank_generation:
         provider: gemini

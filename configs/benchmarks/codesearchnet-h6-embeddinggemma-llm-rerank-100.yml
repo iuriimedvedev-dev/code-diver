@@ -120,7 +120,7 @@ experiments:
         api_key: local
         temperature: 0
         max_tokens: 512
-        response_format: false
+        response_format: json_schema
         timeout_ms: 120000
         extra_body:
           enable_thinking: false
@@ -134,7 +134,7 @@ experiments:
         api_key: local
         temperature: 0
         max_tokens: 512
-        response_format: false
+        response_format: json_schema
         timeout_ms: 120000
         extra_body:
           enable_thinking: false
@@ -148,7 +148,7 @@ experiments:
         api_key: local
         temperature: 0
         max_tokens: 512
-        response_format: false
+        response_format: json_schema
         timeout_ms: 120000
         extra_body:
           enable_thinking: false

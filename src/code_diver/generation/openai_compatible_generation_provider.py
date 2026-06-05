@@ -16,7 +16,7 @@ class OpenAICompatibleGenerationProvider(OpenAIGenerationProvider):
         url: str | None = None,
         timeout_seconds: float = Defaults.OPENAI_TIMEOUT_SECONDS,
         max_tokens: int | None = None,
-        response_format: bool = True,
+        response_format: bool | str | dict[str, Any] = True,
         extra_body: dict[str, Any] | None = None,
         retry_attempts: int = Defaults.GENERATION_RETRY_ATTEMPTS,
         retry_base_delay_seconds: float = Defaults.GENERATION_RETRY_BASE_DELAY_SECONDS,
@@ -32,7 +32,7 @@ class OpenAICompatibleGenerationProvider(OpenAIGenerationProvider):
             retry_max_delay_seconds=retry_max_delay_seconds,
         )
         self.name = "openai_compatible"
-        self._response_format_supported = response_format
+        self._response_format_supported: bool | str | dict[str, Any] = response_format
         self.max_tokens = max_tokens
         self.extra_body = dict(extra_body or {})
 
@@ -64,7 +64,7 @@ class OpenAICompatibleGenerationProvider(OpenAIGenerationProvider):
             total_tokens=total_tokens,
         )
 
-    def _payload(self, prompt: str, response_format: bool) -> dict[str, Any]:
+    def _payload(self, prompt: str, response_format: bool | str | dict[str, Any]) -> dict[str, Any]:
         payload: dict[str, Any] = {
             "model": self.model,
             "messages": [
@@ -74,8 +74,9 @@ class OpenAICompatibleGenerationProvider(OpenAIGenerationProvider):
             "temperature": 0,
             "stream": False,
         }
-        if response_format:
-            payload["response_format"] = {"type": "json_object"}
+        formatted = self._response_format_payload(response_format)
+        if formatted is not None:
+            payload["response_format"] = formatted
         if self.max_tokens:
             payload["max_tokens"] = self.max_tokens
         payload.update(self.extra_body)
@@ -83,7 +84,29 @@ class OpenAICompatibleGenerationProvider(OpenAIGenerationProvider):
 
     def _is_response_format_error(self, message: str) -> bool:
         normalized = message.lower()
-        return "response_format" in normalized or "json_object" in normalized
+        return "response_format" in normalized or "json_object" in normalized or "json_schema" in normalized
+
+    def _response_format_payload(self, response_format: bool | str | dict[str, Any]) -> dict[str, Any] | None:
+        if response_format is False or response_format is None:
+            return None
+        if isinstance(response_format, dict):
+            return response_format
+        if isinstance(response_format, str):
+            normalized = response_format.strip().lower()
+            if normalized in {"", "false", "none", "off"}:
+                return None
+            if normalized == "json_schema":
+                return {
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": "code_diver_json",
+                        "schema": {"type": "object"},
+                    },
+                }
+            if normalized == "json_object":
+                return {"type": "json_object"}
+            raise ValueError(f"Unsupported response_format: {response_format}")
+        return {"type": "json_object"}
 
     def _headers(self) -> dict[str, str]:
         headers = {"Content-Type": "application/json"}

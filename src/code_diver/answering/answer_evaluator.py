@@ -109,15 +109,68 @@ class AnswerEvaluator:
             context_started = perf_counter()
             context = self.context_builder.build(search_results)
             context_duration_ms = (perf_counter() - context_started) * 1000
+            retrieved_files = [search_result.item.path for search_result in search_results]
+            base_metrics = AnswerMetrics().score("", case.reference)
+            base_metrics.update(self._file_bundle_metrics(retrieved_files, case.expected_paths, prefix="candidate"))
+            base_metrics.update(self._file_bundle_metrics(context.files, case.expected_paths, prefix="context"))
+            base_metrics.update(
+                {
+                    "retrieval_duration_ms": retrieval_duration_ms,
+                    "planning_duration_ms": float(plan_payload.get("duration_ms") or 0.0),
+                    "planned_query_count": float(len(plan_payload.get("queries") or [case.question])),
+                    "rerank_duration_ms": float((plan_payload.get("final_rerank") or {}).get("duration_ms") or 0.0),
+                    "context_duration_ms": context_duration_ms,
+                    "generation_duration_ms": 0.0,
+                    "judge_duration_ms": 0.0,
+                    "retrieved_files_count": float(len(retrieved_files)),
+                    "context_files_count": float(len(context.files)),
+                    "context_error_count": float(len(context.errors)),
+                }
+            )
             generation_started = perf_counter()
             result = self.answer_provider.generate_json_result(self._answer_prompt(case, context.text))
             generation_duration_ms = (perf_counter() - generation_started) * 1000
             raw_prediction = result.text
-            payload = self.parser.parse_object(raw_prediction)
+            try:
+                payload = self.parser.parse_object(raw_prediction)
+            except Exception as exc:
+                base_metrics["generation_duration_ms"] = generation_duration_ms
+                return {
+                    "row": {
+                        "case_id": case.id,
+                        "question": case.question,
+                        "reference": case.reference,
+                        "prediction": "",
+                        "raw_prediction": raw_prediction,
+                        "retrieved_files": retrieved_files,
+                        "context_files": context.files,
+                        "context_errors": context.errors,
+                        "expected_paths": case.expected_paths,
+                        "metadata": case.metadata,
+                        "query_plan": plan_payload,
+                        "generation_model": result.model,
+                        "metrics": base_metrics,
+                        "error": str(exc),
+                        "duration_ms": (perf_counter() - started) * 1000,
+                    },
+                    "usage": {
+                        "input_tokens": result.input_tokens,
+                        "output_tokens": result.output_tokens,
+                        "total_tokens": result.total_tokens,
+                    },
+                    "generation_model": result.model,
+                    "planning_usage": planning_usage,
+                    "planning_model": planning_model,
+                    "rerank_usage": rerank_usage,
+                    "rerank_model": rerank_model,
+                    "judge_usage": None,
+                    "judge_model": None,
+                    "error": 1,
+                    "judge_error": 0,
+                }
             answer = str(payload.get("answer") or "").strip()
             citations = payload.get("citations") if isinstance(payload.get("citations"), list) else []
             metrics = AnswerMetrics().score(answer, case.reference)
-            retrieved_files = [search_result.item.path for search_result in search_results]
             metrics.update(self._file_bundle_metrics(retrieved_files, case.expected_paths, prefix="candidate"))
             metrics.update(self._file_bundle_metrics(context.files, case.expected_paths, prefix="context"))
             metrics.update(self._citation_metrics(citations, context.file_ranges))

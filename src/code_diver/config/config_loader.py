@@ -163,7 +163,9 @@ class ConfigLoader:
             max_tokens=self._optional_int(
                 mapping.get("max_tokens", base.max_tokens if base is not None else Defaults.GENERATION_MAX_TOKENS)
             ),
-            response_format=bool(mapping.get("response_format", base.response_format if base is not None else True)),
+            response_format=self._response_format(
+                mapping.get("response_format", base.response_format if base is not None else True)
+            ),
             extra_body=dict(mapping.get("extra_body", base.extra_body if base is not None else {})),
             retry_attempts=int(
                 mapping.get(
@@ -188,6 +190,20 @@ class ConfigLoader:
                 )
             ),
         )
+
+    def _response_format(self, value: Any) -> bool | str | dict[str, object]:
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, dict):
+            return dict(value)
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized in {"true", "yes", "on"}:
+                return True
+            if normalized in {"false", "no", "off", "none"}:
+                return False
+            return normalized
+        return bool(value)
 
     def _indexing(self, data: Any) -> IndexingConfig:
         mapping = self._mapping(data)

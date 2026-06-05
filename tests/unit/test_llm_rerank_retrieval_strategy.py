@@ -190,6 +190,28 @@ def test_llm_rerank_limits_llm_prefix_and_preserves_base_tail() -> None:
     assert '"limit": 1' in strategy.generation_provider.prompts[0]
 
 
+def test_llm_rerank_prompt_marks_path_roles_and_prefers_implementation_owners() -> None:
+    results = [
+        _result("test", "src/tests/test_auth.py", 0.9),
+        _result("impl", "src/auth.py", 0.8),
+        _result("doc", "README.md", 0.7),
+    ]
+    provider = FakeGenerationProvider('{"results":[{"index":2}]}')
+    strategy = LlmRerankRetrievalStrategy(
+        FakeStrategy(results),
+        provider,
+        LlmRerankConfig(candidate_limit=3),
+    )
+
+    strategy.search("where is auth implemented?", 2)
+
+    prompt = provider.prompts[0]
+    assert '"path_role": "test"' in prompt
+    assert '"path_role": "implementation"' in prompt
+    assert '"path_role": "doc"' in prompt
+    assert "Prefer implementation owner files over tests" in prompt
+
+
 def _result(item_id: str, path: str, score: float) -> SearchResult:
     return SearchResult(
         item=CodeItem(

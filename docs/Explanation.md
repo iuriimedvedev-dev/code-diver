@@ -413,6 +413,34 @@ available only as `codesearchnet-mteb-python-hash-smoke` for no-key plumbing che
 Human eval output prints selected settings, a progress bar over known case count, and a
 metrics table. Use `--json` only when a script needs machine-readable output.
 
+## Local Gemma Structured Output
+
+Local Gemma 4 E2B/E4B runs must use the serving runtime's chat template and JSON
+Schema support. We should not manually build Gemma turn tokens in prompts.
+
+Correct config shape for structured local Gemma tasks:
+
+```yaml
+generation:
+  provider: openai_compatible
+  response_format: json_schema
+  extra_body:
+    enable_thinking: false
+```
+
+The old `response_format: false` workaround came from `json_object` failures and
+made local Gemma produce JSON by prompt only. That distorted earlier local
+rerank/answer evals. The OpenAI-compatible provider now supports
+`response_format: json_schema`, and rerank candidates carry `path_role`
+metadata so small local models can separate implementation owners from tests,
+examples, docs, and generated files.
+
+H6.1 calibrated hybrid weights are still our fixed search micromodel. They rank
+candidate files from vector, lexical, path, symbol, graph, and file-vote signals.
+They are not a property of Gemini/Gemma/Qwen. LLMs sit after that: they generate
+queries, rerank candidates, inspect/read files, and write the final code
+explanation.
+
 ## TUI Goal
 
 The UI should make the search process inspectable:

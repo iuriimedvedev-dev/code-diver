@@ -211,7 +211,7 @@ experiments:
         api_key: local
         temperature: 0
         max_tokens: 1536
-        response_format: false
+        response_format: json_schema
         timeout_ms: 120000
       rerank_generation:
         provider: gemini
@@ -240,7 +240,7 @@ experiments:
         api_key: local
         temperature: 0
         max_tokens: 1024
-        response_format: false
+        response_format: json_schema
         timeout_ms: 180000
       rerank_generation:
         provider: gemini

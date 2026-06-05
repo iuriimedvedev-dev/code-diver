@@ -31,7 +31,7 @@ candidate files
 | --- | --- | --- | --- |
 | Embedding model | Build/query the H6.1 file metadata locator. | EmbeddingGemma-300M H6.1 is the current best same-stack local default. Earlier Qwen3 0.6B/4B tests were weaker after rerank on Protogen; Qwen 4B improved raw candidate generation but did not improve the best Gemini-reranked result. | Keep EmbeddingGemma-300M as default, continue controlled A/B against Qwen 0.6B/4B and code-specialized embeddings. |
 | Reranker model | Reorder a fixed candidate set from H6.1 before code reading. | Gemini 3.1 Flash Lite is the best measured reranker on the current 100-case same-index slice. | Use Gemini Lite for quality mode; keep local rerankers as offline/local-only candidates. |
-| Answer-agent model | Choose tool calls over the reranked files, read/grep/source-inspect, and answer the user's code question. | We have stage evidence that Gemma E4B is a strong local explainer, but not yet a full E2E answer-agent benchmark. | Build the E2E answer eval; do not infer answer quality from file Hit@K alone. |
+| Answer-agent model | Choose tool calls over the reranked files, read/grep/source-inspect, and answer the user's code question. | We have stage evidence that Gemma E4B is a strong local explainer. The first E2E smoke found a serving/config bug: local Gemma structured tasks must use `response_format: json_schema`, not the old `response_format: false` workaround. | Re-run local Gemma answer-agent evals with corrected structured output before making final local-model decisions. |
 
 The first E2E benchmark runner is now implemented as `evaluate-answers`. It
 measures retrieval/rerank, bounded context reads, final answer generation, and
@@ -86,6 +86,38 @@ Current interpretation:
   default reranker in the current prompt budget.
 - This still is not the full answer-agent eval because the code snippet is given
   to the model instead of discovered through H6.1 search + rerank + read/grep.
+
+## Local Gemma Structured-Output Fix
+
+The local Gemma answer/search experiments hit a real serving-contract bug. The
+MLX Gemma server applies the checkpoint chat template itself, and its structured
+output path expects OpenAI-compatible `response_format.type=json_schema`. Our
+older configs disabled response format after `json_object` failures, so local
+Gemma was often asked to produce JSON by prompt only.
+
+Fixes now landed:
+
+- preserve `response_format: json_schema` in config loading;
+- send JSON Schema payloads from the OpenAI-compatible provider;
+- keep `extra_body.enable_thinking=false` for structured JSON tasks;
+- preserve retrieval/context metrics when answer JSON parsing fails;
+- include `path_role` in LLM-rerank candidates;
+- tell rerankers to prefer implementation owner files over tests/examples/docs
+  unless the query explicitly asks for supporting files.
+
+Tiny Qibo 3-case smoke after the fix:
+
+| Setup | File recall | File MRR | Candidate Hit@1 | Candidate Hit@5 | Context recall | Token F1 | Mean ms |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Gemini Lite H7 baseline | 0.722 | 1.000 | 1.000 | 1.000 | 0.722 | 0.434 | 4,694 |
+| Gemma E2B before path-role fix | 0.611 | 0.161 | 0.000 | 0.667 | 0.000 | 0.171 | 9,130 |
+| Gemma E2B json_schema + path_role | 0.611 | 0.694 | 0.667 | 0.667 | 0.444 | 0.208 | 21,659 |
+| Gemma E4B before path-role fix | 0.611 | 0.426 | 0.333 | 0.333 | 0.333 | 0.308 | 26,868 |
+| Gemma E4B json_schema + path_role | 0.611 | 0.704 | 0.667 | 0.667 | 0.444 | 0.314 | 26,621 |
+
+Interpretation: the old local Gemma runs are directional only. The corrected
+format materially improves head ranking, but Gemini Lite remains better and much
+faster on this smoke. See `docs/gemma-4-local-template-fix-2026-06-05.md`.
 
 ## Rerank-Only Result
 

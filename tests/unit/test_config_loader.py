@@ -453,3 +453,20 @@ experiments:
     assert hypothesis.cross_encoder_rerank.url == "http://127.0.0.1:8080/v1/rerank"
     assert hypothesis.cross_encoder_rerank.candidate_limit == 5
     assert hypothesis.cross_encoder_rerank.timeout_ms == 30000
+
+
+def test_config_loader_preserves_named_generation_response_format(tmp_path: Path) -> None:
+    config_path = tmp_path / "code-diver.yml"
+    config_path.write_text(
+        """
+generation:
+  provider: openai_compatible
+  model: local-chat
+  response_format: json_schema
+""".strip(),
+        encoding="utf-8",
+    )
+
+    config = ConfigLoader().load(config_path)
+
+    assert config.generation.response_format == "json_schema"
