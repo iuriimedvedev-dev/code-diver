@@ -94,6 +94,7 @@ def test_answer_context_builder_reads_ranked_files(tmp_path: Path) -> None:
     context = AnswerContextBuilder(tmp_path, max_files=1, lines_per_file=40).build(results)
 
     assert context.files == ["src/auth.py"]
+    assert context.file_ranges["src/auth.py"] == (1, 2)
     assert "Authentication summary" in context.text
     assert "def login" in context.text
     assert "src/auth.py:1-2" in context.text
@@ -178,6 +179,9 @@ def test_answer_evaluator_searches_reads_answers_and_judges(tmp_path: Path) -> N
     assert report["metrics"]["context_duration_ms"] >= 0
     assert report["metrics"]["generation_duration_ms"] >= 0
     assert report["metrics"]["judge_duration_ms"] >= 0
+    assert report["metrics"]["citation_count"] == 1.0
+    assert report["metrics"]["citation_path_valid_rate"] == 1.0
+    assert report["metrics"]["citation_line_valid_rate"] == 1.0
     assert report["metrics"]["judge_overall"] > 4.0
     assert report["usage"]["model_calls"] == 1
     assert report["judge_usage"]["model_calls"] == 1

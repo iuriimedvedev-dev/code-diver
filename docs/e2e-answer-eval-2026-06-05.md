@@ -83,6 +83,8 @@ paths:
 | `context_file_hit` | Whether at least one expected file survives into the answer context. |
 | `context_file_recall` | Expected file coverage in the files actually read into context. |
 | `context_file_precision` | Fraction of context files that are expected files. |
+| `citation_path_valid_rate` | Fraction of answer citations pointing to files in the retrieved context. |
+| `citation_line_valid_rate` | Fraction of answer citations whose line range overlaps the retrieved excerpt. |
 
 It also includes cheap answer/reference text overlap:
 
@@ -294,3 +296,25 @@ benchmark path and shows the next concrete targets:
    part of interactive latency.
 4. Repeated runs can change top-rank order even with temperature 0, so larger
    E2E comparisons should run with saved reports and confidence intervals.
+
+Follow-up citation-validation run:
+
+| Metric | Value |
+| --- | ---: |
+| `citation_count` | `2.500` |
+| `citation_path_valid_rate` | `1.000` |
+| `citation_line_valid_rate` | `1.000` |
+| `judge_citation_quality` | `3.500` |
+| `judge_overall` | `4.188` |
+| `answer_duration_ms_mean` | `5441` |
+
+The deterministic citation checks passed: cited files were in context and cited
+line ranges overlapped the retrieved excerpts. The judge still rated citation
+quality below perfect because one answer cited an existing range that was not the
+best evidence for the full specialized-method claim. This separates two classes
+of citation failure:
+
+- **Malformed citation**: path/range not present in retrieved context. The new
+  deterministic metrics catch this cheaply.
+- **Weak evidence citation**: path/range exists but does not fully support the
+  claim. This still needs judge scoring or a future claim-to-evidence verifier.

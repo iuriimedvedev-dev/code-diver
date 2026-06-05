@@ -24,6 +24,7 @@ class AnswerContextBuilder:
 
     def build(self, results: list[SearchResult]) -> AnswerContext:
         files: list[str] = []
+        file_ranges: dict[str, tuple[int, int]] = {}
         errors: list[str] = []
         blocks: list[str] = []
         seen: set[str] = set()
@@ -41,6 +42,7 @@ class AnswerContextBuilder:
                 errors.append(f"{path}: {exc}")
                 continue
             files.append(path)
+            file_ranges[path] = (int(excerpt["startLine"]), int(excerpt["endLine"]))
             index_summary = result.item.content.strip()
             if len(index_summary) > 1400:
                 index_summary = f"{index_summary[:1400].rstrip()}..."
@@ -58,4 +60,4 @@ class AnswerContextBuilder:
                     ]
                 )
             )
-        return AnswerContext(text="\n\n".join(blocks), files=files, errors=errors)
+        return AnswerContext(text="\n\n".join(blocks), files=files, file_ranges=file_ranges, errors=errors)

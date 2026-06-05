@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from time import perf_counter
@@ -100,6 +101,7 @@ class AnswerEvaluator:
             retrieved_files = [search_result.item.path for search_result in search_results]
             metrics.update(self._file_bundle_metrics(retrieved_files, case.expected_paths, prefix="candidate"))
             metrics.update(self._file_bundle_metrics(context.files, case.expected_paths, prefix="context"))
+            metrics.update(self._citation_metrics(citations, context.file_ranges))
             metrics.update(
                 {
                     "retrieval_duration_ms": retrieval_duration_ms,
@@ -246,6 +248,45 @@ Retrieved context:
 
     def _normalize_path(self, path: str) -> str:
         return path.strip().lstrip("./")
+
+    def _citation_metrics(self, citations: list[Any], file_ranges: dict[str, tuple[int, int]]) -> dict[str, float]:
+        if not citations:
+            return {
+                "citation_count": 0.0,
+                "citation_path_valid_rate": 0.0,
+                "citation_line_valid_rate": 0.0,
+            }
+        path_hits = 0
+        line_hits = 0
+        for citation in citations:
+            if not isinstance(citation, dict):
+                continue
+            path = self._normalize_path(str(citation.get("path") or ""))
+            if path not in file_ranges:
+                continue
+            path_hits += 1
+            cited_range = self._line_range(str(citation.get("lines") or ""))
+            if cited_range is None:
+                continue
+            context_start, context_end = file_ranges[path]
+            if cited_range[0] <= context_end and cited_range[1] >= context_start:
+                line_hits += 1
+        total = len(citations)
+        return {
+            "citation_count": float(total),
+            "citation_path_valid_rate": path_hits / max(total, 1),
+            "citation_line_valid_rate": line_hits / max(total, 1),
+        }
+
+    def _line_range(self, value: str) -> tuple[int, int] | None:
+        numbers = [int(match) for match in re.findall(r"\d+", value)]
+        if not numbers:
+            return None
+        start = numbers[0]
+        end = numbers[1] if len(numbers) > 1 else start
+        if end < start:
+            start, end = end, start
+        return start, end
 
     def _dedupe_files(self, files: list[str]) -> list[str]:
         seen: set[str] = set()

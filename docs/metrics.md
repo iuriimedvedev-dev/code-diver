@@ -104,6 +104,9 @@ not prove the system found the right code.
 | `context_file_hit` | Whether any expected file survives into the bounded context sent to the answer model. | `1.0` | If this is lower than candidate hit, context selection is losing evidence. |
 | `context_file_recall` | Expected file coverage in the files actually read into context. | `1.0` | Main bundle-completeness metric for the answer model. |
 | `context_file_precision` | Context files that are expected files. | Higher | Measures evidence noise after deduplication and context limits. |
+| `citation_count` | Number of structured citations returned by the answer model. | Depends | Detects uncited answers and citation spam. |
+| `citation_path_valid_rate` | Citations whose path appears in the retrieved context. | `1.0` | Catches invented or stale file paths before judge scoring. |
+| `citation_line_valid_rate` | Citations whose line range overlaps the retrieved excerpt for that path. | `1.0` | Catches line-number hallucinations and bad citation formatting. |
 | `token_*`, `key_token_*`, `bigram_*` | Text overlap between final answer and reference answer. | Higher | Cheap deterministic regression signal; weak for paraphrases. |
 | `judge_answer_correctness` | Questionnaire score for directly answering the question. | `4.0` | Main semantic answer metric. |
 | `judge_evidence_grounding` | Questionnaire score for grounding in retrieved context/reference. | `4.0` | Penalizes unsupported architecture claims. |
