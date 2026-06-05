@@ -108,9 +108,11 @@ class ConfigLoader:
 
     def _embedding(self, data: Any) -> EmbeddingConfig:
         mapping = self._mapping(data)
+        provider = str(mapping.get("provider", Defaults.EMBEDDING_PROVIDER))
+        default_model = Defaults.EMBEDDING_MODEL if provider == Defaults.EMBEDDING_PROVIDER else None
         return EmbeddingConfig(
-            provider=str(mapping.get("provider", Defaults.EMBEDDING_PROVIDER)),
-            model=mapping.get("model", Defaults.EMBEDDING_MODEL),
+            provider=provider,
+            model=mapping.get("model", default_model),
             dimensions=self._optional_int(mapping.get("dimensions", Defaults.EMBEDDING_DIMENSIONS)),
             api_key=mapping.get("api_key", Defaults.EMBEDDING_API_KEY),
             project=mapping.get("project"),

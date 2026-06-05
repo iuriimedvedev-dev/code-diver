@@ -35,6 +35,12 @@ from .ai_indexing import AiCodebaseScanner, HybridCodebaseScanner
 from .benchmarks import BenchmarkAssetService, BenchmarkProfile, BenchmarkProfileRegistry
 from .domain import CodeItemIndexKindResolver, EvalResult, SearchResult
 from .env import EnvFileLoader
+from .explanation import (
+    CodeExplanationDatasetPreparer,
+    CodeExplanationEvaluator,
+    ExplanationDatasetLoader,
+    ExplanationJudge,
+)
 from .experiments import ExperimentRunner
 from .generation import create_generation_provider
 from .graph import CodeGraphBuilder, CodeGraphStore
@@ -82,6 +88,7 @@ ADVANCED_COMMANDS = {
     CommandName.ASK.value,
     CommandName.CHAT.value,
     CommandName.EVALUATE_INDEXING.value,
+    CommandName.EVALUATE_EXPLANATIONS.value,
     CommandName.EVALUATE_SEARCH_TOOLS.value,
     CommandName.EXPERIMENT.value,
     CommandName.GREP.value,
@@ -368,6 +375,30 @@ def add_advanced_parsers(subparsers: argparse._SubParsersAction[argparse.Argumen
     evaluate_search_tools.add_argument(OptionName.DETAILS.value, action="store_true")
     evaluate_search_tools.add_argument(OptionName.JSON.value, action="store_true")
     evaluate_search_tools.set_defaults(func=cmd_evaluate_search_tools)
+
+    evaluate_explanations = subparsers.add_parser(
+        CommandName.EVALUATE_EXPLANATIONS.value,
+        help="Evaluate generated code explanations with reference and optional LLM judge metrics.",
+    )
+    evaluate_explanations.add_argument(
+        OptionName.BENCHMARK.value,
+        choices=["codexglue-code-to-text-python"],
+        default="codexglue-code-to-text-python",
+    )
+    evaluate_explanations.add_argument(OptionName.DATASET.value, type=Path, default=None)
+    evaluate_explanations.add_argument("--cases", type=int, default=50)
+    evaluate_explanations.add_argument("--output", type=Path, default=None)
+    evaluate_explanations.add_argument("--judge", action="store_true", help="Score answers with an LLM-as-judge rubric.")
+    evaluate_explanations.add_argument(
+        "--judge-config",
+        type=Path,
+        default=None,
+        help="Optional YAML config for the LLM judge provider.",
+    )
+    evaluate_explanations.add_argument("--judge-model", default=None)
+    evaluate_explanations.add_argument(OptionName.YES.value, action="store_true")
+    evaluate_explanations.add_argument(OptionName.JSON.value, action="store_true")
+    evaluate_explanations.set_defaults(func=cmd_evaluate_explanations)
 
     experiment = subparsers.add_parser(
         CommandName.EXPERIMENT.value,
@@ -1516,6 +1547,113 @@ def cmd_evaluate_search_tools(args: argparse.Namespace, config: AppConfig) -> in
             print(f"  error_count: {row['error_count']}")
         for name, value in row["metrics"].items():
             print(f"  {name}: {value:.4f}" if isinstance(value, float) else f"  {name}: {value}")
+    return 0
+
+
+def cmd_evaluate_explanations(args: argparse.Namespace, config: AppConfig) -> int:
+    dataset = args.dataset or Path(".code-diver/benchmarks/codexglue-code-to-text-python/explanations.jsonl")
+    output = args.output or Path(".code-diver/reports/codexglue-code-explanation-eval.json")
+    if not dataset.exists():
+        if not args.yes and not sys.stdin.isatty():
+            print("error: explanation benchmark dataset is missing; pass --yes to download/prepare it.", file=sys.stderr)
+            return 1
+        if not args.yes:
+            print(
+                "Benchmark 'codexglue-code-to-text-python' is not prepared.\n"
+                "Source: google/code_x_glue_ct_code_to_text (python test split).\n"
+                f"Local output: {dataset}\n"
+                "Download and prepare it now? [y/N] ",
+                end="",
+                file=sys.stderr,
+            )
+            if input().strip().lower() not in {"y", "yes"}:
+                return 1
+        with render_activity("preparing CodeXGLUE Python code explanation benchmark", enabled=not args.json):
+            preparation = CodeExplanationDatasetPreparer().prepare_codexglue_python(dataset, limit=max(args.cases, 1))
+    else:
+        preparation = None
+
+    cases = ExplanationDatasetLoader().load(dataset)[: max(args.cases, 0)]
+    if not cases:
+        print(f"error: no explanation cases found in {dataset}", file=sys.stderr)
+        return 1
+
+    judge = None
+    if args.judge:
+        judge_config = ConfigLoader().load(args.judge_config) if args.judge_config else config
+        judge_config = apply_runtime_config(args, judge_config)
+        if args.judge_model:
+            judge_config = replace(judge_config, generation=replace(judge_config.generation, model=args.judge_model))
+        judge = ExplanationJudge(create_generation_provider(judge_config))
+
+    progress_bar = None
+    task_id = None
+    if not args.json:
+        progress_bar = Progress(
+            SpinnerColumn(style="green"),
+            TextColumn("[bold green]evaluating explanation cases[/bold green]"),
+            BarColumn(),
+            MofNCompleteColumn(),
+            TimeElapsedColumn(),
+            TimeRemainingColumn(),
+            console=status_console(),
+        )
+        progress_bar.start()
+        task_id = progress_bar.add_task("explanations", total=len(cases))
+    try:
+        def advance_progress(completed: int, _total: int, _case: object) -> None:
+            if progress_bar is not None and task_id is not None:
+                progress_bar.update(task_id, completed=completed)
+
+        report = CodeExplanationEvaluator(
+            create_generation_provider(config),
+            judge=judge,
+            progress_callback=advance_progress,
+        ).evaluate(cases)
+    finally:
+        if progress_bar is not None:
+            progress_bar.stop()
+    payload = {
+        "benchmark": args.benchmark,
+        "dataset": str(dataset),
+        "prepared": preparation,
+        "generation": {
+            "provider": config.generation.provider,
+            "model": config.generation.model,
+        },
+        "judge": {
+            "enabled": bool(args.judge),
+            "config": str(args.judge_config) if args.judge_config else None,
+            "model": args.judge_model or (judge_config.generation.model if args.judge else config.generation.model),
+        },
+        **report,
+    }
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    if args.json:
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+        return 0
+    print(f"saved explanation eval report: {output}")
+    metrics = payload["metrics"]
+    table = Table(title="code explanation metrics")
+    table.add_column("metric", style="cyan")
+    table.add_column("value", justify="right")
+    for key in [
+        "cases",
+        "token_f1",
+        "key_token_f1",
+        "bigram_f1",
+        "judge_correctness",
+        "judge_completeness",
+        "judge_specificity",
+        "judge_groundedness",
+        "judge_overall",
+        "duration_ms",
+    ]:
+        if key in metrics:
+            value = metrics[key]
+            table.add_row(key, f"{value:.4f}" if isinstance(value, float) else str(value))
+    Console().print(table)
     return 0
 
 

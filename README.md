@@ -146,6 +146,23 @@ path. Generated local cases are deterministic and useful for regression checks, 
 they are not a replacement for a curated semantic benchmark because queries are
 derived from file paths and symbols.
 
+For code-explanation evaluation, use the advanced CodeXGLUE code-to-text lane:
+
+```bash
+uv run code-diver --help-all evaluate-explanations \
+  --benchmark codexglue-code-to-text-python \
+  --cases 50 \
+  --yes \
+  --judge \
+  --judge-model gemini-3.1-flash-lite
+```
+
+This prepares a public Python function/docstring benchmark, generates developer-facing
+code explanations, scores token/key-token/bigram overlap against the reference
+docstring, and can add LLM-as-judge scores for correctness, completeness,
+specificity, and groundedness. See
+[docs/code-explanation-eval-2026-06-05.md](docs/code-explanation-eval-2026-06-05.md).
+
 ## Retrieval Experiments
 
 `code-diver.yml` controls storage and retrieval strategy:

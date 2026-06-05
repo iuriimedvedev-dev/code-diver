@@ -59,20 +59,43 @@ class GeminiGenerationProvider:
         raise RuntimeError("Gemini generation failed for all configured models: " + " | ".join(errors))
 
     def _generate_json(self, model: str, prompt: str) -> GenerationResult:
-        config_kwargs = {
-            "temperature": self.temperature,
-            "response_mime_type": "application/json",
-        }
-        if self.thinking_budget is not None:
+        config = self._make_generation_config(response_mime_type=True, thinking=True)
+        try:
+            response = self._call_generate_content(model, prompt, config)
+        except Exception as exc:
+            if not self._is_unsupported_generation_config_error(exc):
+                raise
+            config = self._make_generation_config(response_mime_type=False, thinking=False)
+            response = self._call_generate_content(model, prompt, config)
+        return self._generation_result_from_response(model, response)
+
+    def _make_generation_config(self, *, response_mime_type: bool, thinking: bool):
+        config_kwargs = {"temperature": self.temperature}
+        if response_mime_type:
+            config_kwargs["response_mime_type"] = "application/json"
+        if thinking and self.thinking_budget is not None:
             config_kwargs["thinking_config"] = self.types.ThinkingConfig(thinking_budget=self.thinking_budget)
-        config = self.types.GenerateContentConfig(**config_kwargs)
-        response = self.retry.run(
+        return self.types.GenerateContentConfig(**config_kwargs)
+
+    def _call_generate_content(self, model: str, prompt: str, config):
+        return self.retry.run(
             lambda: self.client.models.generate_content(
                 model=model,
                 contents=prompt,
                 config=config,
             )
         )
+
+    def _is_unsupported_generation_config_error(self, exc: Exception) -> bool:
+        message = str(exc)
+        return (
+            "responseMimeType" in message
+            or "response_mime_type" in message
+            or "thinkingConfig" in message
+            or "thinking_config" in message
+        ) and ("INVALID_ARGUMENT" in message or "400" in message)
+
+    def _generation_result_from_response(self, model: str, response) -> GenerationResult:
         text = getattr(response, "text", None)
         if not text:
             raise RuntimeError("Gemini returned an empty indexing response.")

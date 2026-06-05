@@ -11,6 +11,22 @@ We have two separate phases:
 
 The key rule: indexing quality defines the ceiling. If the right file is not present in the candidate set, no reranker can recover it.
 
+There is also a separate product question: can the assistant explain the code it
+found? Retrieval metrics do not answer that. Code Diver now has an explanation
+evaluation lane based on CodeXGLUE code-to-text Python:
+
+```text
+source code snippet
+-> configured explanation model
+-> generated developer-facing explanation
+-> token/key-token/bigram overlap against reference docstring
+-> optional LLM judge for correctness, completeness, specificity, groundedness
+```
+
+This is not a replacement for repo-level search evaluation. It is a clean public
+benchmark for the explainer part of the product, while H5/CodeSearchNet remains
+the primary benchmark for finding code.
+
 ## Current Direction: H5 By Default, Small Hot Locator Underneath
 
 For a large repository like IntelliJ, indexing every chunk of source code is the wrong default. It creates a second copy of the repository inside the vector DB, increases RAM/storage, and gives the reranker too many near-duplicate candidates.

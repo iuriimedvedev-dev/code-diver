@@ -54,6 +54,29 @@ An item is counted as relevant when its indexed id matches an expected id exactl
 | `top_result_kind.<kind>.rate` | Fraction of cases where the top result came from `chunk`, `symbol`, `file_summary`, or fallback kind. | Depends. | Shows which index type dominates first rank. |
 | `first_relevant_kind.<kind>.rate` | Among hit cases, fraction where the first relevant result came from that index type. | Depends. | Shows which index type actually finds correct evidence. |
 
+## Code Explanation Metrics
+
+`evaluate-explanations` measures answer quality after code has already been
+provided to the model. This is separate from retrieval quality.
+
+| Metric | Meaning | Good value | What it tells us |
+| --- | --- | ---: | --- |
+| `token_precision` | Generated explanation tokens that overlap the reference docstring. | Higher | Low values mean verbose or off-topic explanations. |
+| `token_recall` | Reference docstring tokens covered by the generated explanation. | Higher | Low values mean the explanation missed important documented behavior. |
+| `token_f1` | Harmonic mean of token precision and recall. | Higher | Cheap reproducible summary metric for docstring similarity. |
+| `key_token_precision` / `key_token_recall` / `key_token_f1` | Same overlap after stop-word removal and simple token normalization. | Higher | Better signal for technical terms than raw token overlap. |
+| `bigram_precision` / `bigram_recall` / `bigram_f1` | Two-token phrase overlap. | Higher | Stricter than token overlap; catches whether important phrases survive. |
+| `prediction_tokens` | Mean generated explanation length. | Depends | Helps detect terse answers and expensive over-explanation. |
+| `reference_tokens` | Mean reference docstring length. | Depends | Context for interpreting overlap scores. |
+| `judge_correctness` | LLM-as-judge score for factual accuracy. | `5.0` | Main semantic correctness score. |
+| `judge_completeness` | LLM-as-judge score for purpose, inputs/outputs, and key behavior coverage. | `5.0` | Whether the answer is useful beyond a one-line summary. |
+| `judge_specificity` | LLM-as-judge score for code-specific detail. | `5.0` | Penalizes generic explanations that could fit any function. |
+| `judge_groundedness` | LLM-as-judge score for claims supported by code/reference. | `5.0` | Penalizes hallucinated behavior. |
+| `judge_overall` | Mean of the four judge dimensions. | `5.0` | Overall semantic explanation quality. |
+
+Use overlap metrics for cheap regression checks. Use judge metrics for model
+selection, but compare runs only when the same judge model and prompt were used.
+
 ## Statistical Reliability
 
 Every core quality metric now also reports a small statistical family:

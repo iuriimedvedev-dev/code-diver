@@ -70,6 +70,30 @@ def test_evaluate_search_tools_parser_accepts_case_limit() -> None:
     assert args.workers == 4
 
 
+def test_evaluate_explanations_parser_accepts_benchmark_and_judge() -> None:
+    args = build_parser(include_advanced=True).parse_args(
+        [
+            "evaluate-explanations",
+            "--benchmark",
+            "codexglue-code-to-text-python",
+            "--cases",
+            "5",
+            "--judge",
+            "--judge-config",
+            "configs/judge.yml",
+            "--judge-model",
+            "gemini-3.1-flash-lite",
+            "--json",
+        ]
+    )
+
+    assert args.benchmark == "codexglue-code-to-text-python"
+    assert args.cases == 5
+    assert args.judge is True
+    assert str(args.judge_config) == "configs/judge.yml"
+    assert args.judge_model == "gemini-3.1-flash-lite"
+
+
 def test_resolve_benchmark_profile_returns_none_when_not_requested() -> None:
     assert resolve_benchmark_profile(Namespace(benchmark=None)) is None
 

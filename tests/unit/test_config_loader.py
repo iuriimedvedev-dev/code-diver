@@ -341,6 +341,24 @@ plugins:
     assert config.plugins == ["plugin.py"]
 
 
+def test_config_loader_does_not_force_default_model_for_custom_embedding_provider(tmp_path: Path) -> None:
+    config_path = tmp_path / "code-diver.yml"
+    config_path.write_text(
+        """
+embedding:
+  provider: hash
+  dimensions: 128
+""".strip(),
+        encoding="utf-8",
+    )
+
+    config = ConfigLoader().load(config_path)
+
+    assert config.embedding.provider == "hash"
+    assert config.embedding.model is None
+    assert config.embedding.dimensions == 128
+
+
 def test_config_loader_rejects_non_mapping_yaml(tmp_path: Path) -> None:
     config_path = tmp_path / "code-diver.yml"
     config_path.write_text("- not\n- a\n- mapping\n", encoding="utf-8")
