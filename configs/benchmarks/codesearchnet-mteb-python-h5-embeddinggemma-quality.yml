@@ -35,7 +35,18 @@ scanner:
 search:
   limit: 10
   preview_lines: 8
-  strategy: hybrid
+  strategy: hybrid_rerank
+
+generation:
+  provider: gemini
+  model: gemini-3.1-flash-lite
+  fallback_models: []
+  project: "236777862453"
+  location: global
+  temperature: 0
+  thinking_budget: 256
+  api_version: v1beta
+  timeout_ms: 30000
 
 hybrid_search:
   candidate_limit: 280
@@ -106,12 +117,15 @@ evaluation:
 experiments:
   suite: codesearchnet-mteb-python-h5-embeddinggemma-quality
   strategies:
-    - hybrid
+    - hybrid_rerank
   hypotheses:
-    - name: h3_embeddinggemma_no_ranker
+    - name: h6_embeddinggemma_gemini_lite_rerank
+      strategy: hybrid_rerank
+      description: "Default quality profile: H6.1 EmbeddingGemma candidates reranked by Gemini 3.1 Flash Lite."
+    - name: h6_embeddinggemma_no_ranker
       strategy: hybrid
-      description: "H3 candidate generation over EmbeddingGemma 300M file metadata."
-    - name: h3_embeddinggemma_qwen3_reranker_0_6b
+      description: "Fast H6.1 candidate generation over EmbeddingGemma 300M file metadata without LLM rerank."
+    - name: h6_embeddinggemma_qwen3_reranker_0_6b
       strategy: cross_encoder_rerank
       description: "EmbeddingGemma H3 candidates reranked by local Qwen3-Reranker 0.6B."
 

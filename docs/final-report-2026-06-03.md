@@ -116,7 +116,7 @@ Claude audit status: attempted with Claude Code Opus 4.8, but the CLI returned `
 
 ## Current Product Defaults
 
-Without a config file, Code Diver now applies built-in H5 indexing/search defaults:
+Without a config file, Code Diver now applies built-in H6.1 indexing/search defaults:
 
 ```bash
 uv run code-diver index /path/to/repo
@@ -124,17 +124,18 @@ uv run code-diver search "where is authentication handled"
 uv run code-diver evaluate --benchmark codesearchnet-mteb-python-1000 --yes --reindex
 ```
 
-The no-config H5 defaults:
+The no-config H6.1 defaults:
 
 - index file manifests and summaries;
 - disable broad line chunking;
-- use hybrid candidate generation;
+- use calibrated hybrid candidate generation;
 - use BM25, vector, path, symbol, and file-vote signals;
 - route weights by query shape;
 - run Gemini 3.1 Flash Lite top-10 LLM reranking for best measured quality.
 
-As of 2026-06-04, `codesearchnet-mteb-python-1000` points at the Qwen-backed
-H5 quality profile. The old hash profile is exposed only as
+As of 2026-06-05, `codesearchnet-mteb-python-1000` points at the
+EmbeddingGemma-backed H6.1 quality profile with Gemini 3.1 Flash Lite rerank.
+The old hash profile is exposed only as
 `codesearchnet-mteb-python-hash-smoke` and is not used for quality conclusions.
 
 ## Remaining Hard Problems

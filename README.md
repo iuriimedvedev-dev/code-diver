@@ -11,8 +11,8 @@ uv run code-diver init --platform apple-metal --embedding embeddinggemma-300m --
 ```
 
 The default quality profile is H6.1: local EmbeddingGemma-300M file-metadata
-embeddings plus calibrated hybrid retrieval. Gemini is used for the optional
-Search agent / LLM-rerank experiments, not for the deterministic default path.
+embeddings plus calibrated hybrid retrieval and Gemini 3.1 Flash Lite reranking.
+The fast local fallback is the same H6.1 hybrid locator without LLM rerank.
 For the Gemini side, provide one of:
 
 ```bash
@@ -27,9 +27,11 @@ gcloud auth application-default login
 
 Secrets can live in `.env`; the CLI loads it before creating providers. `.env` is ignored by git. Advanced research commands, visible with `--help-all`, can still integrate optional orchestration backends.
 
-The no-config path is intentionally local-first:
+The no-config indexing path is intentionally local-first:
 
-- indexing/search default: H6.1 file-first hybrid retrieval over file summaries/manifests;
+- indexing default: H6.1 file-first artifacts over file summaries/manifests;
+- quality benchmark default: H6.1 hybrid retrieval plus Gemini 3.1 Flash Lite rerank;
+- fast/local search fallback: H6.1 hybrid retrieval without LLM rerank;
 - local embedding default for quality runs: EmbeddingGemma-300M through an OpenAI-compatible local server;
 - no-key smoke checks are explicit and use the separate hash benchmark profile.
 
@@ -131,7 +133,8 @@ uv run code-diver evaluate \
 
 This benchmark profile uses the EmbeddingGemma-backed H6.1 quality config. Run
 `uv run code-diver init --platform apple-metal --embedding embeddinggemma-300m --yes --start`
-first for the default local model setup. For a no-key smoke check only, use
+first for the default local embedding setup and set `GEMINI_API_KEY` or Google
+ADC credentials for Gemini Lite reranking. For a no-key smoke check only, use
 `--benchmark codesearchnet-mteb-python-hash-smoke`.
 
 Without `--yes`, the CLI asks before downloading missing benchmark assets.
@@ -177,7 +180,7 @@ storage:
   provider: qdrant
 
 search:
-  strategy: hybrid # H6.1 default: calibrated H3 candidates
+  strategy: hybrid_rerank # quality default: H6.1 candidates + Gemini Lite rerank
 
 embedding:
   provider: openai_compatible
@@ -220,8 +223,9 @@ uv run code-diver --config configs/protogen.yml experiment
 ```
 
 Some legacy experiment configs intentionally use deterministic hash embeddings for
-repeatable plumbing tests. They are not quality configs. The product default is H6.1 with
-local EmbeddingGemma embeddings, Qdrant, and calibrated hybrid retrieval.
+repeatable plumbing tests. They are not quality configs. The product quality default is
+H6.1 with local EmbeddingGemma embeddings, calibrated hybrid retrieval, and Gemini Lite
+reranking. The fast local fallback uses the same H6.1 index without LLM rerank.
 
 The default indexing profile is file-first. It stores compact `file_summary` and `file_manifest` items for each source file, then returns ranked files for targeted code exploration. It does not permanently embed full source chunks by default; the agent can inspect candidate files later with grep, symbol, read, and optional localized deep-index tools.
 
