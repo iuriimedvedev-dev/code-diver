@@ -126,6 +126,13 @@ The default answer judge prompt is
 `judge_*` metrics only when judge model, prompt, dataset, and context limits are
 the same.
 
+`evaluate-answers` also emits the standard statistical suffixes for every
+numeric E2E metric: `_variance`, `_stddev`, `_stderr`, `_ci95_low`,
+`_ci95_high`, and `_ci95_width`. Binary hit/validity metrics use Wilson
+intervals; continuous overlap, latency, and judge scores use normal intervals.
+On tiny smoke runs these intervals are intentionally wide and should prevent us
+from overclaiming quality.
+
 ## Statistical Reliability
 
 Every core quality metric now also reports a small statistical family:
