@@ -41,6 +41,26 @@ Interpretation:
   agent loop it drops too many correct files.
 - Gemma E2B should not rerank search results in the current prompt/tool contract.
 
+## Explanation / Judge Result
+
+This is a separate axis. It does not measure whether retrieval found the right
+file. It measures whether a model can explain a known code snippet against a
+reference answer, with an AI judge questionnaire.
+
+| Explainer | Judge | Cases | Judge overall | Purpose | Behavior | Groundedness | Completeness | Clarity | Mean ms/case | Result |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| Gemma 4 E2B | Gemma 4 E4B | 100 | 1.283 | 1.08 | 1.05 | 1.07 | 1.00 | 1.08 | 2,896 | Too weak as explainer. |
+| Gemma 4 E4B | Gemma 4 E4B | 100 | 4.252 | 3.56 | 3.51 | 3.51 | 3.36 | 3.55 | 6,296 | Strong local explainer candidate. |
+| Gemma 4 E2B | Qwen3.5 9B | 100 | 1.198 | 0.96 | 0.96 | 0.96 | 0.96 | 0.96 | 3,490 | Cross-family judge agrees E2B is weak. |
+| Gemma 4 E4B | Qwen3.5 9B | 100 | 4.430 | 3.54 | 3.54 | 3.53 | 3.55 | 3.56 | 9,500 | Cross-family judge agrees E4B is strong. |
+
+Current interpretation:
+
+- Gemma 4 E4B is currently the best local explainer we have measured.
+- Gemma 4 E2B is usable for narrow structured rerank, but not for explanation.
+- Qwen3.5 9B is useful as a cross-family judge, but its latency makes it a poor
+  default reranker in the current prompt budget.
+
 ## Same-Index Rerank-Only Result
 
 This isolates the reranker role. The candidate generator is fixed:
