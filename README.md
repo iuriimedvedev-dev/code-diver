@@ -194,6 +194,10 @@ To benchmark the agent-first query planner, add `--agentic-queries`. In that
 mode the model generates several targeted search probes and Code Diver runs them
 in parallel before reading candidate files.
 
+The separate shared-rerank hypothesis is explicit: add
+`--agentic-query-search-strategy hybrid --agentic-query-rerank` to use cheap
+planned probes followed by one final LLM rerank over the merged pool.
+
 ## Retrieval Experiments
 
 `code-diver.yml` controls storage and retrieval strategy:

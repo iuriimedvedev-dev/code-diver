@@ -40,6 +40,7 @@ Evidence: [current research state](../current-research-state-2026-06-04.md), [fi
 | H4 | LLM query planner / multi-query variants | research only | Fixed some misses, but full evidence is partial and costlier. |
 | Agentic H3 | Open-ended tool loop over H3 tools | rejected as default | Worse quality and higher cost than Pure H3 in valid 100-case IntelliJ comparison. |
 | H5 | H3 candidates + final LLM ranker | active quality layer | Best historical API-rerank quality on the public local positive slice; must be rerun on H6.1 before promotion. |
+| H7 | Agent-planned probes + one shared rerank | proposed / research only | More faithful to the agent-first product shape than raw vector search, but not default until it beats simpler paths on the same E2E cases. |
 | Reranker variants | Gemini 3.5, Gemini Lite, Qwen3.5 4B, cross-encoder candidates | mixed | Gemini 3.5 is oracle/costly; Gemini Lite is active tradeoff; Qwen local is viable but slow; CE rerankers remain follow-up. |
 | Embedding variants | Qwen3 0.6B, Qwen3 4B, EmbeddingGemma, Gemini, Voyage | active matrix | EmbeddingGemma-300M is current practical default; Qwen3 0.6B is the control. |
 | Public benchmark | CodeSearchNet/MTEB Python positive slice | active internal benchmark | Strong internal comparison, not official SOTA. |
@@ -61,6 +62,7 @@ Evidence: [current research state](../current-research-state-2026-06-04.md), [fi
 | `H4` | Multi-query planner before retrieval | research only | Partial 175-case matrix; Hit@10 `0.869` Gemini Lite, `0.863` Gemini 3.5 | Some case-level fixes, incomplete full-run evidence. |
 | `H5` | H3 + top-10 LLM ranker | accepted quality layer | CodeSearchNet local positive slice Hit@10 `0.982`, Hit@1 `0.904` with Gemini Lite | Best measured quality/cost tradeoff. |
 | `H5-LOCAL` | H3 + local Qwen3.5 4B ranker | fallback | CodeSearchNet local positive slice Hit@10 `0.967`, mean `7708 ms` | No API spend, but not interactive default. |
+| `H7` | Agent-planned probes + one shared LLM rerank | proposed | No accepted benchmark yet; CLI flag exists for E2E answer eval | Tests whether LLM-generated probes improve recall before a single final ranker. |
 
 ## Where To Read Next
 

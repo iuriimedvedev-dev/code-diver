@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from code_diver.answering import (
+    AnswerCandidateReranker,
     AnswerCase,
     AnswerContextBuilder,
     AnswerDatasetLoader,
@@ -14,6 +15,7 @@ from code_diver.answering import (
     AnswerJudgeRubric,
     AnswerQueryPlanner,
 )
+from code_diver.config import LlmRerankConfig
 from code_diver.domain import CodeItem, SearchResult
 from code_diver.generation import GenerationResult
 
@@ -283,6 +285,107 @@ def test_answer_evaluator_uses_llm_generated_search_queries(tmp_path: Path) -> N
         "measurement probability flow",
         "backend sampling frequencies",
     ]
+
+
+def test_answer_evaluator_can_rerank_merged_planned_query_pool(tmp_path: Path) -> None:
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "alpha.py").write_text("def alpha_owner():\n    return 'broad'\n", encoding="utf-8")
+    (src / "beta.py").write_text("def beta_owner():\n    return 'specific'\n", encoding="utf-8")
+    alpha = SearchResult(
+        CodeItem(
+            id="src/alpha.py",
+            path="src/alpha.py",
+            title="alpha",
+            content="Broad candidate.",
+            start_line=1,
+        ),
+        0.9,
+    )
+    beta = SearchResult(
+        CodeItem(
+            id="src/beta.py",
+            path="src/beta.py",
+            title="beta",
+            content="Specific candidate.",
+            start_line=1,
+        ),
+        0.1,
+    )
+    main_retrieval = FakeRetrievalStrategy([])
+    probe_retrieval = FakeRetrievalStrategy(
+        {
+            "Where is the exact owner?": [],
+            "broad owner": [alpha],
+            "specific owner": [beta],
+        }
+    )
+    planner_provider = FakeGenerationProvider(
+        [
+            json.dumps(
+                {
+                    "queries": [{"query": "broad owner"}, {"query": "specific owner"}],
+                    "rationale": "Try broad and specific probes.",
+                }
+            )
+        ]
+    )
+    rerank_provider = FakeGenerationProvider(
+        [
+            json.dumps(
+                {
+                    "results": [
+                        {"index": 2, "confidence": 0.9},
+                        {"index": 1, "confidence": 0.4},
+                    ]
+                }
+            )
+        ]
+    )
+    answer_provider = FakeGenerationProvider(
+        [
+            json.dumps(
+                {
+                    "answer": "The exact owner is beta.",
+                    "citations": [{"path": "src/beta.py", "lines": "1", "reason": "specific owner"}],
+                }
+            )
+        ]
+    )
+
+    report = AnswerEvaluator(
+        main_retrieval,
+        answer_provider,
+        AnswerContextBuilder(tmp_path, max_files=2, lines_per_file=40),
+        query_planner=AnswerQueryPlanner(planner_provider, max_queries=3),
+        query_retrieval_strategy=probe_retrieval,
+        query_result_reranker=AnswerCandidateReranker(
+            rerank_provider,
+            LlmRerankConfig(candidate_limit=10, rerank_limit=2, retry_attempts=1),
+        ),
+        limit=2,
+        query_workers=2,
+    ).evaluate(
+        [
+            AnswerCase(
+                id="owner",
+                question="Where is the exact owner?",
+                reference="src/beta.py owns the specific behavior.",
+                expected_paths=["src/beta.py"],
+            )
+        ]
+    )
+
+    assert main_retrieval.queries == []
+    assert sorted(query for query, _limit in probe_retrieval.queries) == [
+        "Where is the exact owner?",
+        "broad owner",
+        "specific owner",
+    ]
+    assert report["results"][0]["retrieved_files"][0] == "src/beta.py"
+    assert report["results"][0]["query_plan"]["final_rerank"]["selected_indices"] == [2, 1]
+    assert report["rerank_usage"]["model_calls"] == 1
+    assert report["metrics"]["file_mrr"] == 1.0
 
 
 def test_answer_judge_rubric_computes_weighted_overall() -> None:

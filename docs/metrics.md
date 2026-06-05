@@ -106,6 +106,7 @@ not prove the system found the right code.
 | `context_file_precision` | Context files that are expected files. | Higher | Measures evidence noise after deduplication and context limits. |
 | `planned_query_count` | Number of search probes used for the case. | Depends | Shows whether the run used single-query retrieval or agent-generated multi-query retrieval. |
 | `planning_duration_ms` | Time spent asking the LLM to generate search probes. | Lower | Extra agentic planning overhead before retrieval. |
+| `rerank_duration_ms` | Time spent in an optional final shared rerank over a merged planned-query candidate pool. | Lower | Separates reranker overhead from probe retrieval and answer generation. |
 | `citation_count` | Number of structured citations returned by the answer model. | Depends | Detects uncited answers and citation spam. |
 | `citation_path_valid_rate` | Citations whose path appears in the retrieved context. | `1.0` | Catches invented or stale file paths before judge scoring. |
 | `citation_line_valid_rate` | Citations whose line range overlaps the retrieved excerpt for that path. | `1.0` | Catches line-number hallucinations and bad citation formatting. |

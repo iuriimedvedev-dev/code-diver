@@ -293,6 +293,26 @@ Status meanings:
 | Follow-ups | Compare depth 0, 1, 2, 3; add route-specific training; add pairwise/listwise loss; test whether dynamic weights are useful only on low-confidence H3 cases. |
 | Links | [local model axis experiments](../local-model-axis-experiments-2026-06-04.md), [H5 hybrid weight calibration](../h5-hybrid-weight-calibration-2026-06-04.md), `.code-diver/reports/h6-2-mlp-weights-pure-h3-qwen-fresh-codesearchnet-1000.json`, `.code-diver/reports/h6-2-mlp-weights-embeddinggemma-codesearchnet-1000.json`, `scripts/calibrate_hybrid_weights.py` |
 
+## H7 - Agent-Planned Probes With One Shared Rerank
+
+| Field | Value |
+| --- | --- |
+| ID | `H7` |
+| Status | proposed / research only |
+| Motivation | Test the agent-first product shape without letting the model perform expensive open-ended repository exploration. The LLM should generate several targeted search probes, Code Diver should run bounded retrieval in parallel, and only then should the LLM rank the merged evidence pool once. |
+| Assumptions | Multi-query planning can improve candidate recall for informal questions; reranking the merged pool once is cheaper and cleaner than reranking every probe independently; using a cheap probe retriever avoids multiplying LLM cost by query count. |
+| Index composition | Same H6.1/H5 file-first metadata index. No code-body vectors are required for this hypothesis. |
+| Search/ranking flow | User question -> LLM query planner -> 2-4 parallel bounded probe searches, usually `hybrid` -> deterministic candidate merge/dedupe -> one shared LLM rerank over the merged pool -> bounded file context reads -> answer generation. |
+| Model/provider matrix | Planner/reranker can be Gemini 3.1 Flash Lite, Qwen3.5 4B, Gemma E2B/E4B, or other configured generation providers. Embeddings remain whatever the active index uses. |
+| Dataset | Start with SWE-QA-Pro/Qibo E2E smoke, then compare on larger SWE-QA-Pro slices once the answer dataset is stable. |
+| Metrics | Required: candidate/context file Hit@1/3/5/K, candidate/context recall and precision, answer token/key-token/bigram F1, judge metrics where enabled, `planned_query_count`, `planning_duration_ms`, `rerank_duration_ms`, total latency, model calls, tokens, estimated cost, degraded/error count. |
+| Cost/latency/index-size | Reuses the same index. Adds one query-planning model call and optionally one shared rerank model call. Probe searches can run in parallel, but total retrieval latency still includes planner + probes + final rerank. |
+| Result summary | Not accepted yet. The first `--agentic-queries` smoke without shared rerank stayed flat on recall and was slower than single-query retrieval on the 3-case Qibo slice. H7 exists to test the cleaner variant explicitly instead of treating that smoke as the final agentic answer. |
+| Decision | Not default. Promote only if it improves file/context recall or answer judge score enough to justify planner/rerank latency on the same cases. Reject if it only reshuffles candidates while adding cost. |
+| Failure modes | Query probes can collapse to the same intent; a weak deterministic merge can bury the right candidate before rerank; shared rerank can overfit previews; planner/reranker using the same model family as answer generation can hide correlated failures. |
+| Follow-ups | Add diversity constraints to query planning; compare `hybrid` probe search against `hybrid_rerank` probe search; test one final rerank versus no final rerank; add a full Branch A inspector with outline/symbol/rg/read tools after candidate selection. |
+| Links | [E2E answer evaluation](../e2e-answer-eval-2026-06-05.md), `uv run code-diver --help-all evaluate-answers --agentic-queries --agentic-query-search-strategy hybrid --agentic-query-rerank` |
+
 ## LOCAL-MODEL-AXIS - Three-Axis Local Model Search
 
 | Field | Value |

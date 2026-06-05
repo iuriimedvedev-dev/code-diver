@@ -50,6 +50,19 @@ uv run code-diver --root ../checked-out-repo --help-all evaluate-answers \
   --query-workers 4
 ```
 
+To measure the separate shared-rerank hypothesis:
+
+```bash
+uv run code-diver --root ../checked-out-repo --help-all evaluate-answers \
+  --dataset path/to/answer-cases.jsonl \
+  --cases 20 \
+  --agentic-queries \
+  --query-count 4 \
+  --query-workers 4 \
+  --agentic-query-search-strategy hybrid \
+  --agentic-query-rerank
+```
+
 The runner writes:
 
 - full report: `.code-diver/reports/code-answer-e2e-eval.json`
@@ -74,6 +87,7 @@ The current answer context is deterministic:
    question.
 2. In `--agentic-queries` mode, ask the LLM to generate several targeted search
    probes, execute them in parallel, and merge/dedupe the file candidates.
+   By default the planned probes use the configured search strategy.
 3. Deduplicate top files.
 4. Read bounded excerpts from each file.
 5. Include the indexed file summary/manifest text beside the excerpt.
@@ -91,6 +105,11 @@ outline/symbol/rg/read tools inside the final answer step. `--agentic-queries`
 adds the first agentic decision point: LLM-generated search probes before
 retrieval. It still does not yet build the Branch B ephemeral syntax-aware index
 over candidate files. Those are the next controlled comparisons.
+
+`--agentic-query-rerank` is intentionally not default. It is a separate
+hypothesis: use cheap planned probes to maximize candidate recall, then run one
+shared LLM rerank over the merged pool. This tests whether "one final ranker"
+beats reranking each probe or using deterministic merge scores.
 
 ## Metrics
 
@@ -110,6 +129,7 @@ paths:
 | `context_file_precision` | Fraction of context files that are expected files. |
 | `planned_query_count` | Number of search probes used for this case. |
 | `planning_duration_ms` | Time spent asking the model to plan search probes. |
+| `rerank_duration_ms` | Time spent in optional final shared rerank over the merged probe pool. |
 | `citation_path_valid_rate` | Fraction of answer citations pointing to files in the retrieved context. |
 | `citation_line_valid_rate` | Fraction of answer citations whose line range overlaps the retrieved excerpt. |
 
@@ -147,10 +167,12 @@ in one reproducible report.
 1. Add repo checkout/cache preparation for SWE-QA-Pro by `repo@commit_id`.
 2. Compare single-query retrieval against `--agentic-queries` on Qibo and larger
    SWE-QA-Pro slices.
-3. Compare Branch A full agentic file inspection against the current bounded
+3. Compare `--agentic-queries --agentic-query-search-strategy hybrid
+   --agentic-query-rerank` against plain `--agentic-queries`.
+4. Compare Branch A full agentic file inspection against the current bounded
    context reader.
-4. Compare Branch B ephemeral syntax-aware candidate-file indexing.
-5. Run the same answer/judge setup with Gemma 4 E4B, Qwen3.5, and Gemini Lite.
+5. Compare Branch B ephemeral syntax-aware candidate-file indexing.
+6. Run the same answer/judge setup with Gemma 4 E4B, Qwen3.5, and Gemini Lite.
 
 ## Initial Local Smoke
 

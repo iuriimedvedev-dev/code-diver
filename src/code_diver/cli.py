@@ -33,6 +33,7 @@ from .agent.h3_search_tool_handler import H3SearchToolHandler
 from .agent.rerank_tool_handler import RerankToolHandler
 from .ai_indexing import AiCodebaseScanner, HybridCodebaseScanner
 from .answering import (
+    AnswerCandidateReranker,
     AnswerContextBuilder,
     AnswerDatasetLoader,
     AnswerEvaluator,
@@ -64,6 +65,7 @@ from .settings import (
     Defaults,
     EmbeddingProviderId,
     OptionName,
+    RetrievalStrategyId,
     SchemaKey,
     VectorStoreProviderId,
 )
@@ -455,6 +457,17 @@ def add_advanced_parsers(subparsers: argparse._SubParsersAction[argparse.Argumen
     )
     evaluate_answers.add_argument("--query-count", type=int, default=4, help="Maximum LLM-generated search queries.")
     evaluate_answers.add_argument("--query-workers", type=int, default=4, help="Parallel retrieval workers for planned queries.")
+    evaluate_answers.add_argument(
+        "--agentic-query-search-strategy",
+        choices=[RetrievalStrategyId.VECTOR.value, RetrievalStrategyId.HYBRID.value, RetrievalStrategyId.HYBRID_RERANK.value],
+        default=None,
+        help="Retrieval strategy used for LLM-planned probe queries. Defaults to the configured search strategy.",
+    )
+    evaluate_answers.add_argument(
+        "--agentic-query-rerank",
+        action="store_true",
+        help="Experimental: after planned probe queries, run one shared LLM rerank over the merged candidate pool.",
+    )
     evaluate_answers.add_argument("--output", type=Path, default=None)
     evaluate_answers.add_argument("--partial-output", type=Path, default=None)
     evaluate_answers.add_argument(
@@ -1790,6 +1803,9 @@ def cmd_evaluate_explanations(args: argparse.Namespace, config: AppConfig) -> in
 
 
 def cmd_evaluate_answers(args: argparse.Namespace, config: AppConfig) -> int:
+    if args.agentic_query_rerank and not args.agentic_queries:
+        print("error: --agentic-query-rerank requires --agentic-queries", file=sys.stderr)
+        return 1
     dataset = answer_dataset_path(args)
     output = args.output or Path(".code-diver/reports/code-answer-e2e-eval.json")
     preparation = prepare_answer_benchmark(args, dataset, enabled=not bool(args.json))
@@ -1822,6 +1838,15 @@ def cmd_evaluate_answers(args: argparse.Namespace, config: AppConfig) -> int:
     strategy = make_retrieval_strategy(config, provider, vector_store)
     answer_provider = create_generation_provider(config)
     query_planner = AnswerQueryPlanner(answer_provider, max_queries=args.query_count) if args.agentic_queries else None
+    query_retrieval_strategy = None
+    if args.agentic_queries and args.agentic_query_search_strategy:
+        query_config = replace(config, search=replace(config.search, strategy=args.agentic_query_search_strategy))
+        query_retrieval_strategy = make_retrieval_strategy(query_config, provider, vector_store)
+    query_result_reranker = (
+        AnswerCandidateReranker(answer_provider, config.llm_rerank)
+        if args.agentic_queries and args.agentic_query_rerank
+        else None
+    )
     judge = None
     judge_config = None
     if args.judge:
@@ -1846,6 +1871,8 @@ def cmd_evaluate_answers(args: argparse.Namespace, config: AppConfig) -> int:
                 ("context", f"{context_files} files x {args.context_lines} lines"),
                 ("query mode", "llm multi-query" if args.agentic_queries else "single query"),
                 ("query count", args.query_count if args.agentic_queries else 1),
+                ("query search", args.agentic_query_search_strategy or config.search.strategy),
+                ("query final rerank", bool(query_result_reranker)),
                 ("answer model", f"{config.generation.provider}:{config.generation.model}"),
                 ("judge", args.judge),
                 ("workers", worker_count),
@@ -1903,6 +1930,8 @@ def cmd_evaluate_answers(args: argparse.Namespace, config: AppConfig) -> int:
             ),
             judge=judge,
             query_planner=query_planner,
+            query_retrieval_strategy=query_retrieval_strategy,
+            query_result_reranker=query_result_reranker,
             limit=limit,
             query_workers=args.query_workers,
             workers=worker_count,
@@ -1927,6 +1956,8 @@ def cmd_evaluate_answers(args: argparse.Namespace, config: AppConfig) -> int:
             "agentic_queries": bool(args.agentic_queries),
             "query_count": args.query_count if args.agentic_queries else 1,
             "query_workers": args.query_workers,
+            "agentic_query_search_strategy": args.agentic_query_search_strategy or config.search.strategy,
+            "agentic_query_rerank": bool(args.agentic_query_rerank),
             "embedding_provider": config.embedding.provider,
             "embedding_model": config.embedding.model,
             "answer_provider": config.generation.provider,
@@ -2026,6 +2057,7 @@ def render_answer_metrics_table(metrics: dict[str, Any]) -> None:
         "context_file_precision",
         "planned_query_count",
         "planning_duration_ms",
+        "rerank_duration_ms",
         "citation_count",
         "citation_path_valid_rate",
         "citation_line_valid_rate",

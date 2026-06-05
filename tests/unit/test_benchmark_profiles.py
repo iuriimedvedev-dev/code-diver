@@ -118,6 +118,9 @@ def test_evaluate_answers_parser_accepts_benchmark_and_judge() -> None:
             "3",
             "--query-workers",
             "2",
+            "--agentic-query-search-strategy",
+            "hybrid",
+            "--agentic-query-rerank",
             "--judge",
             "--judge-model",
             "gemini-3.1-flash-lite",
@@ -134,6 +137,8 @@ def test_evaluate_answers_parser_accepts_benchmark_and_judge() -> None:
     assert args.agentic_queries is True
     assert args.query_count == 3
     assert args.query_workers == 2
+    assert args.agentic_query_search_strategy == "hybrid"
+    assert args.agentic_query_rerank is True
     assert args.judge is True
     assert args.judge_model == "gemini-3.1-flash-lite"
 

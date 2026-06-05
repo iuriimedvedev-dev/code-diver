@@ -1,3 +1,4 @@
+from .answer_candidate_reranker import AnswerCandidateReranker
 from .answer_case import AnswerCase
 from .answer_context import AnswerContext
 from .answer_context_builder import AnswerContextBuilder
@@ -13,6 +14,7 @@ from .swe_qa_pro_dataset_preparer import SweQaProDatasetPreparer
 
 __all__ = [
     "AnswerCase",
+    "AnswerCandidateReranker",
     "AnswerContext",
     "AnswerContextBuilder",
     "AnswerDatasetLoader",

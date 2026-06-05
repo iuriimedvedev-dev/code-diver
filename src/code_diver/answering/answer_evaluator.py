@@ -11,6 +11,7 @@ from ..explanation.jsonish_parser import JsonishParser
 from ..domain import SearchResult
 from ..generation import GenerationProvider
 from ..strategies import RetrievalStrategy
+from .answer_candidate_reranker import AnswerCandidateReranker
 from .answer_case import AnswerCase
 from .answer_context_builder import AnswerContextBuilder
 from .answer_judge import AnswerJudge
@@ -25,6 +26,8 @@ class AnswerEvaluator:
     context_builder: AnswerContextBuilder
     judge: AnswerJudge | None = None
     query_planner: AnswerQueryPlanner | None = None
+    query_retrieval_strategy: RetrievalStrategy | None = None
+    query_result_reranker: AnswerCandidateReranker | None = None
     limit: int = 10
     query_workers: int = 4
     workers: int = 1
@@ -37,6 +40,7 @@ class AnswerEvaluator:
         rows_by_index: list[dict[str, Any] | None] = [None] * len(cases)
         usage = self._empty_usage()
         planning_usage = self._empty_usage()
+        rerank_usage = self._empty_usage()
         judge_usage = self._empty_usage()
         errors = 0
         judge_errors = 0
@@ -52,6 +56,8 @@ class AnswerEvaluator:
                 self._merge_usage_dict(usage, result["generation_model"], result["usage"])
                 if result["planning_usage"] is not None:
                     self._merge_usage_dict(planning_usage, result["planning_model"], result["planning_usage"])
+                if result["rerank_usage"] is not None:
+                    self._merge_usage_dict(rerank_usage, result["rerank_model"], result["rerank_usage"])
                 if result["judge_usage"] is not None:
                     self._merge_usage_dict(judge_usage, result["judge_model"], result["judge_usage"])
                 self._notify_progress(completed, len(cases), case, result["row"])
@@ -71,6 +77,8 @@ class AnswerEvaluator:
                     self._merge_usage_dict(usage, result["generation_model"], result["usage"])
                     if result["planning_usage"] is not None:
                         self._merge_usage_dict(planning_usage, result["planning_model"], result["planning_usage"])
+                    if result["rerank_usage"] is not None:
+                        self._merge_usage_dict(rerank_usage, result["rerank_model"], result["rerank_usage"])
                     if result["judge_usage"] is not None:
                         self._merge_usage_dict(judge_usage, result["judge_model"], result["judge_usage"])
                     self._notify_progress(completed, len(cases), case, result["row"])
@@ -83,6 +91,7 @@ class AnswerEvaluator:
             "metrics": metrics,
             "usage": usage,
             "planning_usage": planning_usage if self.query_planner is not None else None,
+            "rerank_usage": rerank_usage if self.query_result_reranker is not None else None,
             "judge_usage": judge_usage if self.judge is not None else None,
             "error_count": errors,
             "judge_error_count": judge_errors if self.judge is not None else None,
@@ -95,7 +104,7 @@ class AnswerEvaluator:
         empty_usage = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
         try:
             retrieval_started = perf_counter()
-            search_results, plan_payload, planning_usage, planning_model = self._retrieve(case)
+            search_results, plan_payload, planning_usage, planning_model, rerank_usage, rerank_model = self._retrieve(case)
             retrieval_duration_ms = (perf_counter() - retrieval_started) * 1000
             context_started = perf_counter()
             context = self.context_builder.build(search_results)
@@ -117,6 +126,7 @@ class AnswerEvaluator:
                     "retrieval_duration_ms": retrieval_duration_ms,
                     "planning_duration_ms": float(plan_payload.get("duration_ms") or 0.0),
                     "planned_query_count": float(len(plan_payload.get("queries") or [case.question])),
+                    "rerank_duration_ms": float((plan_payload.get("final_rerank") or {}).get("duration_ms") or 0.0),
                     "context_duration_ms": context_duration_ms,
                     "generation_duration_ms": generation_duration_ms,
                     "judge_duration_ms": 0.0,
@@ -166,6 +176,8 @@ class AnswerEvaluator:
                 "generation_model": result.model,
                 "planning_usage": planning_usage,
                 "planning_model": planning_model,
+                "rerank_usage": rerank_usage,
+                "rerank_model": rerank_model,
                 "judge_usage": judge_usage,
                 "judge_model": judge_model,
                 "error": 0,
@@ -189,17 +201,24 @@ class AnswerEvaluator:
                 "generation_model": getattr(self.answer_provider, "model", "unknown"),
                 "planning_usage": None,
                 "planning_model": None,
+                "rerank_usage": None,
+                "rerank_model": None,
                 "judge_usage": None,
                 "judge_model": None,
                 "error": 1,
                 "judge_error": 0,
             }
 
-    def _retrieve(self, case: AnswerCase) -> tuple[list[SearchResult], dict[str, Any], dict[str, int] | None, str | None]:
+    def _retrieve(
+        self,
+        case: AnswerCase,
+    ) -> tuple[list[SearchResult], dict[str, Any], dict[str, int] | None, str | None, dict[str, int] | None, str | None]:
         if self.query_planner is None:
             return (
                 self.retrieval_strategy.search(case.question, self.limit),
                 {"mode": "single_query", "queries": [case.question], "duration_ms": 0.0},
+                None,
+                None,
                 None,
                 None,
             )
@@ -216,15 +235,28 @@ class AnswerEvaluator:
             "output_tokens": result.output_tokens,
             "total_tokens": result.total_tokens,
         }
-        query_limit = max(self.limit, 1)
+        rerank_candidate_limit = self.query_result_reranker.candidate_limit if self.query_result_reranker else self.limit
+        query_limit = max(self.limit, rerank_candidate_limit, 1)
         worker_count = max(1, min(int(self.query_workers or 1), len(plan.queries)))
+        probe_strategy = self.query_retrieval_strategy or self.retrieval_strategy
         if worker_count == 1:
-            result_sets = [self.retrieval_strategy.search(query, query_limit) for query in plan.queries]
+            result_sets = [probe_strategy.search(query, query_limit) for query in plan.queries]
         else:
             with ThreadPoolExecutor(max_workers=worker_count) as executor:
-                futures = [executor.submit(self.retrieval_strategy.search, query, query_limit) for query in plan.queries]
+                futures = [executor.submit(probe_strategy.search, query, query_limit) for query in plan.queries]
                 result_sets = [future.result() for future in futures]
-        return self._merge_query_results(result_sets, self.limit), plan_payload, usage, result.model
+        merged = self._merge_query_results(result_sets, query_limit)
+        if self.query_result_reranker is None:
+            return merged[: self.limit], plan_payload, usage, result.model, None, None
+        reranked, rerank_payload = self.query_result_reranker.rerank(case.question, merged, self.limit)
+        plan_payload["final_rerank"] = rerank_payload
+        rerank_usage = {
+            "input_tokens": int(rerank_payload.get("input_tokens") or 0),
+            "output_tokens": int(rerank_payload.get("output_tokens") or 0),
+            "total_tokens": int(rerank_payload.get("total_tokens") or 0),
+        }
+        rerank_model = str(rerank_payload.get("model") or "")
+        return reranked, plan_payload, usage, result.model, rerank_usage, rerank_model
 
     def _merge_query_results(self, result_sets: list[list[SearchResult]], limit: int) -> list[SearchResult]:
         best_by_file: dict[str, SearchResult] = {}
