@@ -83,16 +83,34 @@ class AnswerEvaluator:
         raw_prediction = ""
         empty_usage = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
         try:
+            retrieval_started = perf_counter()
             search_results = self.retrieval_strategy.search(case.question, self.limit)
+            retrieval_duration_ms = (perf_counter() - retrieval_started) * 1000
+            context_started = perf_counter()
             context = self.context_builder.build(search_results)
+            context_duration_ms = (perf_counter() - context_started) * 1000
+            generation_started = perf_counter()
             result = self.answer_provider.generate_json_result(self._answer_prompt(case, context.text))
+            generation_duration_ms = (perf_counter() - generation_started) * 1000
             raw_prediction = result.text
             payload = self.parser.parse_object(raw_prediction)
             answer = str(payload.get("answer") or "").strip()
             citations = payload.get("citations") if isinstance(payload.get("citations"), list) else []
             metrics = AnswerMetrics().score(answer, case.reference)
             retrieved_files = [search_result.item.path for search_result in search_results]
-            metrics.update(self._retrieval_metrics(retrieved_files, case.expected_paths))
+            metrics.update(self._file_bundle_metrics(retrieved_files, case.expected_paths, prefix="candidate"))
+            metrics.update(self._file_bundle_metrics(context.files, case.expected_paths, prefix="context"))
+            metrics.update(
+                {
+                    "retrieval_duration_ms": retrieval_duration_ms,
+                    "context_duration_ms": context_duration_ms,
+                    "generation_duration_ms": generation_duration_ms,
+                    "judge_duration_ms": 0.0,
+                    "retrieved_files_count": float(len(retrieved_files)),
+                    "context_files_count": float(len(context.files)),
+                    "context_error_count": float(len(context.errors)),
+                }
+            )
             row: dict[str, Any] = {
                 "case_id": case.id,
                 "question": case.question,
@@ -113,7 +131,9 @@ class AnswerEvaluator:
             judge_error = 0
             if self.judge is not None:
                 try:
+                    judge_started = perf_counter()
                     judged = self.judge.judge(case, answer, context.text)
+                    metrics["judge_duration_ms"] = (perf_counter() - judge_started) * 1000
                     row["judge"] = judged
                     row["metrics"].update(judged["scores"])
                     judge_usage = judged["usage"]
@@ -175,22 +195,67 @@ Retrieved context:
 {context}
 """
 
-    def _retrieval_metrics(self, retrieved_files: list[str], expected_paths: list[str]) -> dict[str, float]:
+    def _file_bundle_metrics(
+        self,
+        files: list[str],
+        expected_paths: list[str],
+        *,
+        prefix: str,
+    ) -> dict[str, float]:
         if not expected_paths:
             return {}
         normalized_expected = {self._normalize_path(path) for path in expected_paths}
-        normalized_retrieved = [self._normalize_path(path) for path in retrieved_files]
-        hits = [path for path in normalized_retrieved if path in normalized_expected]
-        first_rank = next((index for index, path in enumerate(normalized_retrieved, start=1) if path in normalized_expected), 0)
-        return {
-            "file_hit": 1.0 if hits else 0.0,
-            "file_recall": len(set(hits)) / max(len(normalized_expected), 1),
-            "file_precision": len(hits) / max(len(normalized_retrieved), 1),
-            "file_mrr": (1.0 / first_rank) if first_rank else 0.0,
+        normalized_files = self._dedupe_files([self._normalize_path(path) for path in files])
+        first_rank = next(
+            (index for index, path in enumerate(normalized_files, start=1) if path in normalized_expected),
+            0,
+        )
+        metrics = {
+            f"{prefix}_file_hit": 1.0 if first_rank else 0.0,
+            f"{prefix}_file_mrr": (1.0 / first_rank) if first_rank else 0.0,
+            f"{prefix}_file_recall": self._file_recall(normalized_files, normalized_expected),
+            f"{prefix}_file_precision": self._file_precision(normalized_files, normalized_expected),
         }
+        if prefix == "candidate":
+            metrics.update(
+                {
+                    "file_hit": metrics[f"{prefix}_file_hit"],
+                    "file_recall": metrics[f"{prefix}_file_recall"],
+                    "file_precision": metrics[f"{prefix}_file_precision"],
+                    "file_mrr": metrics[f"{prefix}_file_mrr"],
+                }
+            )
+        for k in (1, 3, 5, self.limit):
+            if k <= 0:
+                continue
+            subset = normalized_files[:k]
+            metrics[f"{prefix}_file_hit@{k}"] = 1.0 if any(path in normalized_expected for path in subset) else 0.0
+            metrics[f"{prefix}_file_recall@{k}"] = self._file_recall(subset, normalized_expected)
+            metrics[f"{prefix}_file_precision@{k}"] = self._file_precision(subset, normalized_expected)
+        return metrics
+
+    def _file_recall(self, files: list[str], expected_paths: set[str]) -> float:
+        hits = {path for path in files if path in expected_paths}
+        return len(hits) / max(len(expected_paths), 1)
+
+    def _file_precision(self, files: list[str], expected_paths: set[str]) -> float:
+        if not files:
+            return 0.0
+        hits = [path for path in files if path in expected_paths]
+        return len(hits) / max(len(files), 1)
 
     def _normalize_path(self, path: str) -> str:
         return path.strip().lstrip("./")
+
+    def _dedupe_files(self, files: list[str]) -> list[str]:
+        seen: set[str] = set()
+        deduped: list[str] = []
+        for path in files:
+            if path in seen:
+                continue
+            seen.add(path)
+            deduped.append(path)
+        return deduped
 
     def _notify_progress(self, completed: int, total: int, case: AnswerCase, row: dict[str, Any]) -> None:
         if self.progress_callback is not None:

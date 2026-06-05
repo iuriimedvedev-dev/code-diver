@@ -170,6 +170,14 @@ def test_answer_evaluator_searches_reads_answers_and_judges(tmp_path: Path) -> N
     assert report["metrics"]["cases"] == 1.0
     assert report["metrics"]["file_hit"] == 1.0
     assert report["metrics"]["file_recall"] == 1.0
+    assert report["metrics"]["candidate_file_hit@1"] == 1.0
+    assert report["metrics"]["candidate_file_recall@5"] == 1.0
+    assert report["metrics"]["context_file_hit"] == 1.0
+    assert report["metrics"]["context_file_recall"] == 1.0
+    assert report["metrics"]["retrieval_duration_ms"] >= 0
+    assert report["metrics"]["context_duration_ms"] >= 0
+    assert report["metrics"]["generation_duration_ms"] >= 0
+    assert report["metrics"]["judge_duration_ms"] >= 0
     assert report["metrics"]["judge_overall"] > 4.0
     assert report["usage"]["model_calls"] == 1
     assert report["judge_usage"]["model_calls"] == 1

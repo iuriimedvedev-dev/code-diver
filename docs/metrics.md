@@ -99,6 +99,11 @@ not prove the system found the right code.
 | `file_recall` | Expected files covered by candidates. | `1.0` | Critical for multi-file questions such as "where is user editing handled?" |
 | `file_precision` | Retrieved files that are expected files. | Higher | How noisy the evidence bundle is before answer generation. |
 | `file_mrr` | Reciprocal rank of the first expected file. | `1.0` | Whether the correct evidence is near the top. |
+| `candidate_file_hit@1/3/5/K` | Whether any expected file appears in the top N retrieved files before context truncation. | `1.0` | Separates retrieval/rerank quality from later context selection. |
+| `candidate_file_recall@1/3/5/K` | Expected file coverage in the top N retrieved files. | `1.0` | Shows whether a larger candidate pool contains the full answer bundle. |
+| `context_file_hit` | Whether any expected file survives into the bounded context sent to the answer model. | `1.0` | If this is lower than candidate hit, context selection is losing evidence. |
+| `context_file_recall` | Expected file coverage in the files actually read into context. | `1.0` | Main bundle-completeness metric for the answer model. |
+| `context_file_precision` | Context files that are expected files. | Higher | Measures evidence noise after deduplication and context limits. |
 | `token_*`, `key_token_*`, `bigram_*` | Text overlap between final answer and reference answer. | Higher | Cheap deterministic regression signal; weak for paraphrases. |
 | `judge_answer_correctness` | Questionnaire score for directly answering the question. | `4.0` | Main semantic answer metric. |
 | `judge_evidence_grounding` | Questionnaire score for grounding in retrieved context/reference. | `4.0` | Penalizes unsupported architecture claims. |
@@ -107,6 +112,10 @@ not prove the system found the right code.
 | `judge_specificity` | Questionnaire score for concrete code-specific detail. | `4.0` | Penalizes generic "this handles auth" answers. |
 | `judge_hallucination_control` | Questionnaire score for avoiding invented files/APIs/line numbers. | `4.0` | Safety guard for code exploration. |
 | `judge_overall` | Weighted final score from the answer judge rubric. | `5.0` | Overall answer quality with the configured judge. |
+| `retrieval_duration_ms` | Search and rerank wall-clock time per case. | Lower | Whether candidate generation/rerank is the bottleneck. |
+| `context_duration_ms` | Bounded file read/context assembly time per case. | Lower | Whether local file inspection is the bottleneck. |
+| `generation_duration_ms` | Final answer generation time per case. | Lower | Whether the explainer model is the bottleneck. |
+| `judge_duration_ms` | Optional judge time per case. | Lower | Benchmark-only overhead; not user-facing latency. |
 | `answer_duration_ms_mean` | Mean wall-clock duration per case. | Lower | End-user latency for the measured answer pipeline. |
 
 The default answer judge prompt is

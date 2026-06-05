@@ -78,6 +78,11 @@ paths:
 | `file_recall` | Fraction of expected files covered by retrieved candidates. |
 | `file_precision` | Fraction of retrieved files that are expected files. |
 | `file_mrr` | Reciprocal rank of the first expected file. |
+| `candidate_file_hit@1/3/5/K` | Whether the top N retrieved files contain at least one expected file. |
+| `candidate_file_recall@1/3/5/K` | Expected file coverage in the top N retrieved files. |
+| `context_file_hit` | Whether at least one expected file survives into the answer context. |
+| `context_file_recall` | Expected file coverage in the files actually read into context. |
+| `context_file_precision` | Fraction of context files that are expected files. |
 
 It also includes cheap answer/reference text overlap:
 
@@ -139,13 +144,20 @@ Result:
 | `cases` | `1` |
 | `file_hit` | `1.000` |
 | `file_recall` | `0.333` |
-| `file_precision` | `0.250` |
+| `file_precision` | `0.200` |
 | `file_mrr` | `0.500` |
-| `token_f1` | `0.311` |
-| `key_token_f1` | `0.300` |
-| `bigram_f1` | `0.063` |
-| `answer_duration_ms_mean` | `3678` |
-| answer model tokens | `9395` |
+| `candidate_file_hit@3` | `1.000` |
+| `candidate_file_hit@5` | `1.000` |
+| `context_file_hit` | `1.000` |
+| `context_file_recall` | `0.333` |
+| `token_f1` | `0.286` |
+| `key_token_f1` | `0.259` |
+| `bigram_f1` | `0.067` |
+| `retrieval_duration_ms` | `2290` |
+| `context_duration_ms` | `1` |
+| `generation_duration_ms` | `2230` |
+| `answer_duration_ms_mean` | `4522` |
+| answer model tokens | `10090` |
 
 Expected files were:
 
@@ -158,3 +170,23 @@ and `answer_context_builder.py`; it also pulled the new docs and tests. The fina
 Gemini Lite answer was coherent, but the evidence bundle was incomplete. This is
 the first concrete proof that answer quality cannot be inferred from a single
 retrieved file hit: E2E needs bundle recall, citation quality, and judge metrics.
+
+## First Stage-Metrics Ablation
+
+Same one-case local smoke, same index, same answer model:
+
+| Setup | Context files | Candidate hit@3 | Candidate hit@5 | Context hit | Context recall | Retrieval ms | Generation ms | Total ms | Judge overall |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `hybrid_rerank` | 4 | `1.000` | `1.000` | `1.000` | `0.333` | `2290` | `2230` | `4522` | not run |
+| `hybrid` | 4 | `0.000` | `1.000` | `0.000` | `0.000` | `1159` | `2687` | `3849` | not run |
+| `hybrid_rerank` + judge | 4 | `1.000` | `1.000` | `1.000` | `0.333` | `2122` | `2465` | `6572` | `4.813` |
+
+Interpretation:
+
+- Plain `hybrid` had the right file by rank 5, but `context-files=4` dropped it.
+- `hybrid_rerank` roughly doubled retrieval latency on this smoke, but moved one
+  expected file into the answer context.
+- Local file reading is not the bottleneck here: context assembly was ~1-2 ms.
+- The next optimization should test a cheaper gate: run fast `hybrid`, include a
+  slightly wider deduped context, or rerank only when the top-file confidence is
+  weak.
