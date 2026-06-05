@@ -6,22 +6,26 @@ Updated: 2026-06-05.
 
 Run 100-case local-model experiments without mixing variables.
 
-The fixed search baseline is H6.1:
+The product target is an answer agent:
 
 ```text
-EmbeddingGemma-300M file metadata index
--> H6.1 calibrated hybrid candidate generator
--> optional reranker / agent layer
+user question
+-> H6.1 calibrated hybrid file search over EmbeddingGemma-300M file metadata
+-> LLM reranks candidate files
+-> answer agent uses outline/symbol/rg/grep/read over those files
+-> final code explanation / answer with evidence
 ```
 
 Explanation and AI-judge experiments use CodeXGLUE code-to-text because H6.1 is a
-code-search setup, not an explanation benchmark. These results must be reported
-in a separate section.
+code-search setup, not an end-to-end answer-agent benchmark. These results must
+be reported in a separate section.
 
-There are two independent evaluation stages:
+There are three evaluation stages:
 
 1. **Find the right code.** Measured on CodeSearchNet retrieval with H6.1.
-2. **Explain provided code.** Measured on CodeXGLUE code-to-text.
+2. **Rank candidate files.** Measured by freezing H6.1 candidates and changing
+   only the LLM reranker.
+3. **Explain provided code.** Measured on CodeXGLUE code-to-text.
 
 Do not average these metrics. A future full E2E benchmark can be generated with
 our tools, but it should be explicitly marked `synthetic` until manually audited.
@@ -36,7 +40,7 @@ our tools, but it should be explicitly marked `synthetic` until manually audited
 | Embedding model | `google/embeddinggemma-300m` |
 | Candidate generator | H6.1 static/grid hybrid weights |
 | Retrieval top-k | `10` |
-| Agent tools | `code_diver_h3_search`, outline/symbol/rg/grep/read, rerank |
+| Answer-agent tools | `code_diver_h3_search`, outline/symbol/rg/grep/read, rerank |
 | Explanation dataset | CodeXGLUE code-to-text Python |
 | Judge prompt | `prompts/code-explanation-judge.md` |
 
@@ -74,9 +78,13 @@ Every run must record:
 | `SR-2` | Gemma 4 E2B listwise reranker | to be split from agent config | `evaluate-search-tools --cases 100 --hypothesis agent_gemma4_e2b_local_rerank` | `.code-diver/reports/h6-1-local-matrix-sr2-gemma-e2b-rerank-100.json` | queued |
 | `SR-3` | Gemma 4 E4B listwise reranker | needs E4B endpoint fix to `8013` | `evaluate-search-tools --cases 100 --hypothesis agent_gemma4_e4b_local_rerank` | `.code-diver/reports/h6-1-local-matrix-sr3-gemma-e4b-rerank-100.json` | config patch required |
 
-## Orchestrator Matrix
+## Search-Planning / Answer-Agent Tool Matrix
 
-| ID | Agent model | Reranker model | Config | Command | Output | Status |
+These runs are not the final answer quality metric. They measure the pre-answer
+tool loop that searches/reranks candidate files before the model writes the final
+code explanation.
+
+| ID | Tool-loop model | Reranker model | Config | Command | Output | Status |
 | --- | --- | --- | --- | --- | --- | --- |
 | `OR-1` | Gemma 4 E2B 4-bit | Gemini Lite | `configs/benchmarks/codesearchnet-agent-axis-embeddinggemma-100.yml` | `uv run code-diver --config configs/benchmarks/codesearchnet-agent-axis-embeddinggemma-100.yml evaluate-search-tools --cases 100 --workers 2 --hypothesis agent_gemma4_e2b_rerank_gemini_lite --json` | `.code-diver/reports/h6-1-local-matrix-or1-e2b-agent-gemini-rerank-100.json` | queued |
 | `OR-2` | Gemma 4 E4B 4-bit | Gemini Lite | patched endpoint `8013` | `uv run code-diver --config <patched> evaluate-search-tools --cases 100 --workers 2 --hypothesis agent_gemma4_e4b_rerank_gemini_lite --json` | `.code-diver/reports/h6-1-local-matrix-or2-e4b-agent-gemini-rerank-100.json` | config patch required |
@@ -100,12 +108,12 @@ Every run must record:
 - Earlier explanation gates accidentally used a 1-case local dataset because the benchmark had been prepared with `--cases 1`. The CLI now expands the local CodeXGLUE artifact when a later run requests more cases.
 - The H6.1 agent configs currently need an E4B endpoint correction: E4B rows must use `8013`, not `8012`.
 - Explanation and AI-judge quality cannot be merged into H6.1 retrieval metrics. They should be reported side by side, not averaged.
-- `OR-3` is now a valid same-index 100-case local-only run. It proves the local
-  Gemma E2B agent loop is technically stable, but it strongly underperforms the
-  static locator and is not a primary search candidate.
-- `OR-5` is the current API-agent control: Gemini 3.1 Flash Lite both plans and
-  reranks. It is better than local E2B, but still loses top-k recall to static H6.1
-  on this file-level benchmark.
+- `OR-3` is now a valid same-index 100-case local-only search-planning run. It
+  proves Gemma E2B can execute the tool loop, but it strongly underperforms the
+  deterministic H6.1 locator and is not a primary candidate-file search setup.
+- `OR-5` is the current API search-planning control: Gemini 3.1 Flash Lite both
+  plans and reranks. It is better than local E2B, but still loses top-k recall to
+  static H6.1 on this file-level benchmark.
 - `evaluate-explanations` now supports `--workers` and `--partial-output`; large runs should always write partial progress.
 - Local models often return JSON-ish output. The evaluator and judge now strip fenced JSON and repair invalid backslash escapes before treating a case as malformed.
 - Cross-family judge is required. Gemma-vs-Gemma can overfit to family style; Qwen3.5 9B judge is the first local cross-family control.
@@ -118,8 +126,8 @@ Every run must record:
 | ID | Cases | Hit@1 | Hit@3 | Hit@5 | Hit@10 | File Recall@10 | File MRR@10 | nDCG@10 | Precision@R | Mean ms | P95 ms | Notes |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
 | `SR-0` | 100 | 0.820 | 0.930 | 0.970 | 0.970 | 0.970 | 0.876 | 0.900 | 0.820 | 858 | 863 | Fixed H6.1 static baseline; no LLM rerank. |
-| `OR-3` | 100 | 0.510 | 0.570 | 0.640 | 0.700 | 0.700 | 0.564 | 0.596 | 0.510 | 11,501 | 12,879 | Gemma E2B local agent+rerank; 406 model calls, 312 tool calls, 3.05M local tokens, degraded 0. Stable but rejects itself on quality and speed. |
-| `OR-5` | 100 | 0.740 | 0.860 | 0.860 | 0.860 | 0.860 | 0.797 | 0.813 | 0.740 | 10,660 | 14,375 | Gemini 3.1 Flash Lite agent+rerank; 454 model calls, 330 tool calls, 2.51M tokens, estimated API cost `$0.70`, degraded 0. Better precision, worse recall than static H6.1. |
+| `OR-3` | 100 | 0.510 | 0.570 | 0.640 | 0.700 | 0.700 | 0.564 | 0.596 | 0.510 | 11,501 | 12,879 | Gemma E2B local search-planning loop + rerank; 406 model calls, 312 tool calls, 3.05M local tokens, degraded 0. Stable but rejects itself on quality and speed. |
+| `OR-5` | 100 | 0.740 | 0.860 | 0.860 | 0.860 | 0.860 | 0.797 | 0.813 | 0.740 | 10,660 | 14,375 | Gemini 3.1 Flash Lite search-planning loop + rerank; 454 model calls, 330 tool calls, 2.51M tokens, estimated API cost `$0.70`, degraded 0. Better precision, worse recall than static H6.1. |
 
 ### Current Search Interpretation
 
@@ -127,14 +135,23 @@ The same-index 100-case comparison now says:
 
 1. **H6.1 static remains the default.** It has the best Hit@1/3/5/10 and is
    around `0.86s/query`.
-2. **Gemma 4 E2B is not good enough as a search orchestrator/reranker.** It is
+2. **Gemma 4 E2B is not good enough for the search-planning loop.** It is
    reliable and fully local, but it drops Hit@5 from `0.970` to `0.640` while
    increasing mean latency to `11.5s/query`.
 3. **Gemini 3.1 Flash Lite is the better intelligence layer, but not as a free
-   agent loop.** It improves Precision@10 (`0.277` vs static `0.147`) because it
+   search-planning loop.** It improves Precision@10 (`0.277` vs static `0.147`) because it
    returns a narrower final set, but loses recall (`0.860` vs `0.970`). That makes
    it a candidate for hard-tail rerank or precision mode, not the default broad
    search path.
+
+The end-to-end answer-agent branch is still open:
+
+```text
+reranked files
+-> A: bounded outline/symbol/rg/grep/read
+-> B: ephemeral syntax-aware code index inside candidate files
+-> code explanation answer
+```
 
 ## Explanation Results So Far
 

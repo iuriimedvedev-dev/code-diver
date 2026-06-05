@@ -2,44 +2,62 @@
 
 ## Product Pipeline
 
-The product is not just file retrieval. The intended runtime is:
+The product is a code-answering agent, not a standalone file searcher. The
+intended runtime is:
 
 ```text
-user question
--> H6.1 locator finds candidate files
--> reranker chooses the best candidate file set/order
--> orchestrator/explainer reads outlines, symbols, grep/rg hits, and source ranges
--> final answer explains the code with evidence
+agent receives user question
+-> deterministic hybrid file search over calibrated H6.1 indexes
+-> LLM reranks the candidate files
+-> answer agent reads file outlines, symbols, rg/grep hits, and source ranges
+-> answer agent explains the code and answers the user's question with evidence
 ```
 
 Older notes use `static` to mean "deterministic locator only." That is only the
 candidate-generation stage, not the whole product.
+
+The branch we still need to compare inside the answer agent is:
+
+```text
+candidate files
+-> A: agent uses bounded outline/symbol/rg/grep/read tools directly
+-> B: build/use an ephemeral syntax-aware code index inside those files, then rerank/read
+-> final answer
+```
 
 ## Three Separate Model Variables
 
 | Variable | Job | Current best evidence | Current decision |
 | --- | --- | --- | --- |
 | Embedding model | Build/query the H6.1 file metadata locator. | EmbeddingGemma-300M H6.1 is the current best same-stack local default. Earlier Qwen3 0.6B/4B tests were weaker after rerank on Protogen; Qwen 4B improved raw candidate generation but did not improve the best Gemini-reranked result. | Keep EmbeddingGemma-300M as default, continue controlled A/B against Qwen 0.6B/4B and code-specialized embeddings. |
-| Reranker model | Reorder a fixed candidate set from H6.1. | Gemini 3.1 Flash Lite is historically strong and cheap. Gemma E2B failed when tested as combined agent+reranker; that does not fully isolate rerank-only quality. | Need one-shot rerank-only matrix. Do not judge local rerank only from open-ended agent loop. |
-| Orchestrator/explainer model | Use tools, read code, and answer the user. | Gemma E4B is the best local explainer so far on CodeXGLUE-style explanation eval. Gemma E2B produced too many malformed structured explanations. Qwen3.5 9B is useful as a cross-family judge. | Use H6.1 candidates, then test explainer quality separately from retrieval Hit@K. |
+| Reranker model | Reorder a fixed candidate set from H6.1 before code reading. | Gemini 3.1 Flash Lite is the best measured reranker on the current 100-case same-index slice. | Use Gemini Lite for quality mode; keep local rerankers as offline/local-only candidates. |
+| Answer-agent model | Choose tool calls over the reranked files, read/grep/source-inspect, and answer the user's code question. | We have stage evidence that Gemma E4B is a strong local explainer, but not yet a full E2E answer-agent benchmark. | Build the E2E answer eval; do not infer answer quality from file Hit@K alone. |
 
-## Same-Index Agent/Rerank Result
+## Search-Planning Slice Result
 
-This was the latest 100-case CodeSearchNet run over the same H6.1 EmbeddingGemma
-candidate generator:
+This is not the final product metric. It is a 100-case CodeSearchNet slice that
+measures what happens when an LLM is allowed to operate in the search-planning
+part of the pipeline before the final explanation step:
+
+```text
+question -> H6.1 search tool -> model/tool loop -> optional rerank -> ranked files
+```
 
 | Setup | Cases | Hit@1 | Hit@5 | Hit@10 | Precision@10 | nDCG@10 | Mean ms | Result |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
 | H6.1 deterministic locator | 100 | 0.820 | 0.970 | 0.970 | 0.147 | 0.900 | 858 | Best broad candidate generation. |
-| H6.1 + Gemini 3.1 Flash Lite agent/rerank | 100 | 0.740 | 0.860 | 0.860 | 0.277 | 0.813 | 10,660 | Better precision, worse recall. Candidate for gated precision mode. |
-| H6.1 + Gemma 4 E2B local agent/rerank | 100 | 0.510 | 0.640 | 0.700 | 0.070 | 0.596 | 11,501 | Fully local and stable, but not good enough for search ranking. |
+| H6.1 + Gemini 3.1 Flash Lite search-planning/rerank | 100 | 0.740 | 0.860 | 0.860 | 0.277 | 0.813 | 10,660 | Better precision, worse recall. Candidate for gated precision mode. |
+| H6.1 + Gemma 4 E2B local search-planning/rerank | 100 | 0.510 | 0.640 | 0.700 | 0.070 | 0.596 | 11,501 | Fully local and stable, but not good enough for search ranking. |
 
 Interpretation:
 
 - H6.1 locator is currently the best broad candidate generator.
 - Gemini Lite can narrow results and improve Precision@10, but as an unrestricted
-  agent loop it drops too many correct files.
-- Gemma E2B should not rerank search results in the current prompt/tool contract.
+  search-planning loop it drops too many correct files.
+- Gemma E2B should not run the search-planning loop in the current prompt/tool
+  contract.
+- These numbers do not answer whether the final answer-agent can explain code
+  well after receiving the right files.
 
 ## Explanation / Judge Result
 
@@ -60,8 +78,10 @@ Current interpretation:
 - Gemma 4 E2B is usable for narrow structured rerank, but not for explanation.
 - Qwen3.5 9B is useful as a cross-family judge, but its latency makes it a poor
   default reranker in the current prompt budget.
+- This still is not the full answer-agent eval because the code snippet is given
+  to the model instead of discovered through H6.1 search + rerank + read/grep.
 
-## Same-Index Rerank-Only Result
+## Rerank-Only Result
 
 This isolates the reranker role. The candidate generator is fixed:
 
@@ -148,12 +168,12 @@ Candidates:
 This isolates whether a local model can rank files. The latest E2B agent result
 does not isolate that because it mixes query planning, tool selection, and rerank.
 
-### 3. Orchestrator / Explainer Axis
+### 3. Answer-Agent Axis
 
 This is a separate product metric:
 
 ```text
-question + H6.1 candidates -> tool reads -> final explanation answer
+question -> H6.1 hybrid search -> LLM rerank -> read/grep/source inspection -> final answer
 ```
 
 Retrieval Hit@K cannot score this. We need:
@@ -167,3 +187,9 @@ Retrieval Hit@K cannot score this. We need:
 
 Current local explainer evidence points to Gemma E4B over Gemma E2B. Qwen3.5 9B
 is useful as cross-family judge, not yet proven as the best explainer.
+
+The next answer-agent experiment must compare:
+
+- **Branch A:** reranked files -> bounded outline/symbol/rg/grep/read -> answer;
+- **Branch B:** reranked files -> ephemeral syntax-aware code index -> code-level
+  retrieval/rerank -> read -> answer.
