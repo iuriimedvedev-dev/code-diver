@@ -1,5 +1,7 @@
 # Current Research State - 2026-06-04
 
+Updated: 2026-06-05. The 2026-06-04 Qwen-only rows below remain valid historical H5 rows, but the latest sequential embedding-axis comparison found a stronger file-candidate generator with EmbeddingGemma-300M.
+
 ## SOTA Status
 
 We should **not** claim SOTA on the official CodeSearchNet/MTEB benchmark.
@@ -16,13 +18,14 @@ That makes the result useful for comparing our own hypotheses, but not enough fo
 
 ## Current Best Results
 
-All rows use local Qwen3-Embedding-0.6B file-metadata embeddings.
+The first three rows use local Qwen3-Embedding-0.6B file-metadata embeddings and were the 2026-06-04 quality baseline. The final row is the fresh 2026-06-05 embedding-axis result on the same 1000-case positive slice, without LLM reranking.
 
-| Setup | Ranker | Cases | Hit@1 | Hit@3 | Hit@5 | Hit@10 | nDCG@10 | Mean ms/query | Position |
-| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| Pure H3 | none | 1000 | 0.823 | 0.919 | 0.944 | 0.961 | 0.900 | 555 | fastest / no API |
-| H5 | Gemini 3.1 Flash Lite | 1000 | 0.904 | 0.965 | 0.977 | 0.982 | 0.948 | 3020 | best quality |
-| H5 compact | local Qwen3.5 4B | 1000 | 0.842 | 0.936 | 0.953 | 0.967 | 0.913 | 7708 | no-API LLM fallback |
+| Setup | Embedding | Ranker | Cases | Hit@1 | Hit@3 | Hit@5 | Hit@10 | Recall@10 | Precision@10 | Precision@R | nDCG@10 | Mean ms/query | Position |
+| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| Pure H3 | Qwen3-Embedding-0.6B | none | 1000 | 0.823 | 0.919 | 0.944 | 0.961 | 0.961 | 0.177 | 0.823 | 0.900 | 555 | old fastest / no API |
+| H5 | Qwen3-Embedding-0.6B | Gemini 3.1 Flash Lite | 1000 | 0.904 | 0.965 | 0.977 | 0.982 | 0.982 | 0.182 | 0.904 | 0.948 | 3020 | old best quality |
+| H5 compact | Qwen3-Embedding-0.6B | local Qwen3.5 4B | 1000 | 0.842 | 0.936 | 0.953 | 0.967 | 0.967 | 0.176 | 0.842 | 0.913 | 7708 | no-API LLM fallback |
+| H5 file metadata | EmbeddingGemma-300M | none | 1000 | 0.848 | 0.947 | 0.964 | 0.975 | 0.975 | 0.173 | 0.848 | 0.918 | 787 | current best no-rerank candidate generator |
 
 The project goal `Hit@10 >= 0.95` is met on the local positive-slice by all three quality profiles.
 
@@ -31,10 +34,11 @@ The project goal `Hit@10 >= 0.95` is met on the local positive-slice by all thre
 | Category | Winner | Why |
 | --- | --- | --- |
 | Best quality | H5 + Gemini 3.1 Flash Lite | Best Hit@1, Hit@3, Hit@5, Hit@10, nDCG, MAP, and MRR. |
-| Fastest | Pure H3 + Qwen embeddings | 555ms/query, no LLM call, still Hit@10 0.961. |
+| Fastest | Pure H3 + Qwen embeddings | 555ms/query, no LLM call, still Hit@10 0.961 in the old Qwen baseline. |
 | Cheapest external spend | Pure H3 + Qwen embeddings | Local embeddings after index is built; no ranking API. |
 | Default quality profile | H5 + Gemini 3.1 Flash Lite | Adds about 2.47s/query and API tokens, but improves Hit@1 from 0.823 to 0.904. |
 | No-API LLM mode | H5 compact + local Qwen3.5 4B | Valid and above target, but too slow for default interactive use. |
+| Best no-rerank candidate generator | H5 file metadata + EmbeddingGemma-300M | Fresh sequential 1000-case run: Hit@3 0.947, Hit@5 0.964, Recall@10 0.975, but mean latency 787ms. |
 
 ## What We Learned
 
@@ -66,8 +70,8 @@ Two failed/aborted eval attempts produced useful engineering fixes:
 
 We are **not official SOTA** yet.
 
-We do have a strong, reproducible local positive-slice result and a clear current best architecture:
+We do have a strong, reproducible local positive-slice result and a clear current direction:
 
 ```text
-Qwen3 file-metadata embeddings -> H3 hybrid file candidates -> Gemini Flash Lite top-10 LLM ranking.
+EmbeddingGemma/Qwen file-metadata embeddings -> calibrated H3/H5 hybrid file candidates -> optional Gemini Flash Lite top-10 LLM ranking.
 ```

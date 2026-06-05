@@ -2,6 +2,8 @@
 
 Date: 2026-06-04
 
+Latest validated update: 2026-06-05. Treat the explicit 2026-06-05 sequential sections as the current source of truth for the embedding-axis and H6.1 calibration numbers. Earlier 2026-06-04 sections are retained as experiment history and may use smaller splits or pre-correction reports.
+
 ## Experiment Rule
 
 Code Diver has three independent model axes:
@@ -29,6 +31,8 @@ Impact: old Qwen/H6 reports that relied on `index-pure-h3.json` or `index-h5-qwe
 The Qwen3-Reranker llama.cpp setup also needed a runtime correction. `llama-server --ctx-size 2048 --parallel 4` gives roughly `512` tokens per slot, causing CodeSearchNet docstring queries to fail at `/v1/rerank`. The valid reranker gate uses `--ctx-size 8192 --parallel 4` so each slot has enough context.
 
 ## H6.1 / H6.2 Calibration Status
+
+Historical 2026-06-04 calibration snapshot; superseded for current decisions by the 2026-06-05 sequential calibration section below.
 
 H6.1 calibrated fixed hybrid weights on the 700/300 CodeSearchNet split. It improved head ranking slightly, but did not improve candidate coverage:
 
@@ -103,6 +107,8 @@ Interpretation:
 
 ## H6.2 On Pure H3
 
+Historical 700/300 split snapshot; useful for H6.2 rejection rationale, but not the current calibrated weight source.
+
 Report:
 
 ```text
@@ -155,6 +161,8 @@ Interpretation:
 Decision: reject the current H6.2 binary-loss dynamic-weight MLP as a default. It does not clear the `+0.05` threshold under a valid same-index comparison. Use H6.1 static/grid only as a small calibrated improvement; the bigger lever remains embedding model quality.
 
 ## Embedding Axis Under H6
+
+Historical 700/300 split snapshot; superseded for current embedding-axis comparison by the 2026-06-05 1000-case sequential comparison.
 
 The next run changed only the embedding model and reran the same H3/H6 calibration protocol.
 
@@ -302,7 +310,7 @@ Embedding axis:
 | Candidate | Status |
 | --- | --- |
 | Qwen3-Embedding-0.6B 4-bit | baseline, integrated |
-| EmbeddingGemma-300M | integrated through `sentence_transformers`, promote to 1,000-case run |
+| EmbeddingGemma-300M | integrated through `sentence_transformers`; won the 1000-case quality comparison, needs hot-server runtime optimization |
 | Qwen3-Embedding-4B | pending runtime/download validation |
 
 Reranker axis:
@@ -387,19 +395,19 @@ Valid reports:
 
 Results:
 
-| Agent model | Cases | Hit@1 | Hit@3 | Hit@5 | Hit@10 | MRR@10 | nDCG@10 | Precision@10 | Mean ms | p95 ms | Cost estimator | Errors |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| Gemini 3.1 Flash Lite | 25 | 0.760 | 0.920 | 0.920 | 0.920 | 0.833 | 0.856 | 0.232 | 11,320 | 20,022 | $0.206 | 0 |
-| Qwen3.5 4B OptiQ 4-bit | 10 | 0.800 | 1.000 | 1.000 | 1.000 | 0.883 | 0.913 | 0.100 | 37,020 | 47,739 | $0.468 estimator | 0 |
-| Gemma 4 E2B 4-bit | 10 | 0.700 | 0.900 | 0.900 | 0.900 | 0.783 | 0.813 | 0.150 | 18,001 | 25,362 | $0.582 estimator | 0 |
-| Gemma 4 E4B OptiQ 4-bit | 10 | 0.800 | 0.900 | 0.900 | 0.900 | 0.833 | 0.850 | 0.450 | 56,573 | 77,396 | $0.686 estimator | 0 |
-| Gemma 4 12B IT Q4_K_M | 0 completed | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | runtime failure |
+| Agent model | Cases | Hit@1 | Hit@3 | Hit@5 | Hit@10 | Recall@10 | Precision@10 | Precision@R | MRR@10 | nDCG@10 | Mean ms | p95 ms | Cost estimator | Errors |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Gemini 3.1 Flash Lite | 25 | 0.760 | 0.920 | 0.920 | 0.920 | 0.920 | 0.232 | 0.760 | 0.833 | 0.856 | 11,320 | 20,022 | $0.206 | 0 |
+| Qwen3.5 4B OptiQ 4-bit | 10 | 0.800 | 1.000 | 1.000 | 1.000 | 1.000 | 0.100 | 0.800 | 0.883 | 0.913 | 37,020 | 47,739 | $0.468 estimator | 0 |
+| Gemma 4 E2B 4-bit | 10 | 0.700 | 0.900 | 0.900 | 0.900 | 0.900 | 0.150 | 0.700 | 0.783 | 0.813 | 18,001 | 25,362 | $0.582 estimator | 0 |
+| Gemma 4 E4B OptiQ 4-bit | 10 | 0.800 | 0.900 | 0.900 | 0.900 | 0.900 | 0.450 | 0.800 | 0.833 | 0.850 | 56,573 | 77,396 | $0.686 estimator | 0 |
+| Gemma 4 12B IT Q4_K_M | 0 completed | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | runtime failure |
 
 Interpretation:
 
 - H6.2 is not the baseline for this axis. The agent-axis runs are built on the better H6.1 EmbeddingGemma candidate generator.
 - Qwen3.5 4B produced the best 10-case quality row, but the sample is too small and the confidence interval is wide. It is a promotion candidate, not a winner.
-- Gemini Lite remains the practical interactive planner because it is 3-5x faster than the local planners in this setup.
+- Gemini Lite remains the practical interactive planner in this setup: it is about `1.6x` faster than Gemma E2B by mean latency, about `3.3x` faster than Qwen3.5 4B, and about `5.0x` faster than Gemma E4B. Samples are still small and not same-size across rows.
 - Gemma E2B is the first local Gemma planner worth keeping in the matrix: it is much faster than E4B and preserved Hit@3/5/10 at `0.900` on the same 10-case gate. Its Hit@1/MRR are weaker, so it needs a 100-case run before promotion.
 - Gemma E4B follows the protocol after increasing `max_tokens` and adding a no-Markdown-fence prompt guard, but its latency is too high for the default planner role.
 - Gemma 4 12B started and generated valid tool calls, but with llama.cpp loaded it blocked the local retrieval path after the first H3 tool call for more than 4 minutes. Treat this as runtime-not-viable until the planner and embedding/search runtimes are isolated.

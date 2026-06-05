@@ -1,5 +1,7 @@
 # CodeSearchNet Agentic Model Eval - 2026-06-04
 
+Updated: 2026-06-05. This document remains the record for the agentic/H5 protocol pass. For current embedding-axis numbers, use `docs/local-model-axis-experiments-2026-06-04.md`, especially the 2026-06-05 sequential sections. The Qwen-only quality rows below are historical baselines, not the latest embedding comparison.
+
 This report records the public CodeSearchNet/MTEB Python positive-slice checks after adding bounded H3 Agentic behavior and the first real Qwen-embedding quality profile.
 
 The short version:
@@ -48,7 +50,7 @@ The prompt still allows the first candidate pass to fan out into 2-4 parallel `c
 
 ## Quality Metrics
 
-These rows use `configs/codesearchnet-mteb-python-h5-qwen-quality.yml`: local Qwen3-Embedding-0.6B file metadata index, H3 hybrid candidate generation, and optional LLM final ranking. They are local positive-slice numbers, not official full-corpus MTEB scores.
+These rows use `configs/codesearchnet-mteb-python-h5-qwen-quality.yml`: local Qwen3-Embedding-0.6B file metadata index, H3 hybrid candidate generation, and optional LLM final ranking. They are local positive-slice numbers, not official full-corpus MTEB scores. A later sequential embedding-axis run improved the no-rerank candidate generator with EmbeddingGemma-300M: Hit@3 `0.947`, Hit@5 `0.964`, Recall@10 `0.975`, Precision@R `0.848`, mean latency `787ms`.
 
 | Setup | Cases | Index | Ranker | Hit@1 | Hit@3 | Hit@5 | Hit@10 | Recall@10 | Precision@10 | nDCG@10 | MAP@10 | Mean ms | P95 ms |
 | --- | ---: | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
