@@ -113,6 +113,11 @@ def test_evaluate_answers_parser_accepts_benchmark_and_judge() -> None:
             "4",
             "--context-lines",
             "120",
+            "--agentic-queries",
+            "--query-count",
+            "3",
+            "--query-workers",
+            "2",
             "--judge",
             "--judge-model",
             "gemini-3.1-flash-lite",
@@ -126,6 +131,9 @@ def test_evaluate_answers_parser_accepts_benchmark_and_judge() -> None:
     assert args.limit == 5
     assert args.context_files == 4
     assert args.context_lines == 120
+    assert args.agentic_queries is True
+    assert args.query_count == 3
+    assert args.query_workers == 2
     assert args.judge is True
     assert args.judge_model == "gemini-3.1-flash-lite"
 

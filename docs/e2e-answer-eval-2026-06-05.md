@@ -19,6 +19,10 @@ question
 
 `evaluate-answers` is the first benchmark lane for that full path.
 
+The core product assumption is agent-first: the model should decide which search
+queries to run. Deterministic hybrid/vector retrieval is a bounded tool the
+agent calls, not the user-facing solution by itself.
+
 ## Command
 
 The command is advanced because the public assignment surface remains
@@ -33,6 +37,17 @@ uv run code-diver --root ../checked-out-repo --help-all evaluate-answers \
   --judge \
   --judge-prompt prompts/code-answer-judge.md \
   --judge-model gemini-3.1-flash-lite
+```
+
+To measure the agentic query-planning path:
+
+```bash
+uv run code-diver --root ../checked-out-repo --help-all evaluate-answers \
+  --dataset path/to/answer-cases.jsonl \
+  --cases 20 \
+  --agentic-queries \
+  --query-count 4 \
+  --query-workers 4
 ```
 
 The runner writes:
@@ -55,11 +70,14 @@ the first runner because it changes benchmark cost and latency semantics.
 
 The current answer context is deterministic:
 
-1. Run the configured retrieval strategy.
-2. Deduplicate top files.
-3. Read bounded excerpts from each file.
-4. Include the indexed file summary/manifest text beside the excerpt.
-5. Ask the configured generation model for JSON:
+1. In default mode, run the configured retrieval strategy once with the user
+   question.
+2. In `--agentic-queries` mode, ask the LLM to generate several targeted search
+   probes, execute them in parallel, and merge/dedupe the file candidates.
+3. Deduplicate top files.
+4. Read bounded excerpts from each file.
+5. Include the indexed file summary/manifest text beside the excerpt.
+6. Ask the configured generation model for JSON:
    `answer`, `citations`, and `confidence`.
 
 Default context width is strategy-aware: `4` files for `hybrid_rerank`, `8`
@@ -69,9 +87,10 @@ noise, while non-reranked `hybrid` needs a wider context window to avoid droppin
 evidence.
 
 This is Branch A-lite. It does not yet let the answer model freely call
-outline/symbol/rg/read tools inside the final answer step, and it does not yet
-build the Branch B ephemeral syntax-aware index over candidate files. Those are
-the next controlled comparisons.
+outline/symbol/rg/read tools inside the final answer step. `--agentic-queries`
+adds the first agentic decision point: LLM-generated search probes before
+retrieval. It still does not yet build the Branch B ephemeral syntax-aware index
+over candidate files. Those are the next controlled comparisons.
 
 ## Metrics
 
@@ -89,6 +108,8 @@ paths:
 | `context_file_hit` | Whether at least one expected file survives into the answer context. |
 | `context_file_recall` | Expected file coverage in the files actually read into context. |
 | `context_file_precision` | Fraction of context files that are expected files. |
+| `planned_query_count` | Number of search probes used for this case. |
+| `planning_duration_ms` | Time spent asking the model to plan search probes. |
 | `citation_path_valid_rate` | Fraction of answer citations pointing to files in the retrieved context. |
 | `citation_line_valid_rate` | Fraction of answer citations whose line range overlaps the retrieved excerpt. |
 
@@ -124,12 +145,12 @@ in one reproducible report.
 ## Next Experiments
 
 1. Add repo checkout/cache preparation for SWE-QA-Pro by `repo@commit_id`.
-2. Compare Branch A full agentic file inspection against the current deterministic
-   bounded-context reader.
-3. Compare Branch B ephemeral syntax-aware candidate-file indexing.
-4. Run the same answer/judge setup with Gemma 4 E4B, Qwen3.5, and Gemini Lite.
-5. Store per-stage cost and latency separately: retrieval, context read, answer,
-   judge.
+2. Compare single-query retrieval against `--agentic-queries` on Qibo and larger
+   SWE-QA-Pro slices.
+3. Compare Branch A full agentic file inspection against the current bounded
+   context reader.
+4. Compare Branch B ephemeral syntax-aware candidate-file indexing.
+5. Run the same answer/judge setup with Gemma 4 E4B, Qwen3.5, and Gemini Lite.
 
 ## Initial Local Smoke
 
@@ -346,3 +367,56 @@ of citation failure:
   deterministic metrics catch this cheaply.
 - **Weak evidence citation**: path/range exists but does not fully support the
   claim. This still needs judge scoring or a future claim-to-evidence verifier.
+
+## Agentic Query-Planning Smoke
+
+Same 3-case Qibo slice, same `hybrid_rerank` strategy, no judge,
+`limit=12`, `context-files=4`, `context-lines=180`.
+
+The comparison isolates the first agentic decision point:
+
+- single-query mode sends the user's original question directly to H6.1;
+- `--agentic-queries` asks the answer model to generate up to four search probes,
+  runs those retrieval calls in parallel, merges candidates, then uses the same
+  context reader and answer generator.
+
+Commands:
+
+```bash
+uv run code-diver --root /tmp/code-diver-qibo --help-all evaluate-answers \
+  --dataset /tmp/code-diver-swe-qibo-3.jsonl \
+  --cases 3 \
+  --limit 12 \
+  --context-lines 180 \
+  --output /tmp/code-diver-e2e-qibo-3-single-after-agentic.json
+
+uv run code-diver --root /tmp/code-diver-qibo --help-all evaluate-answers \
+  --dataset /tmp/code-diver-swe-qibo-3.jsonl \
+  --cases 3 \
+  --limit 12 \
+  --context-lines 180 \
+  --agentic-queries \
+  --query-count 4 \
+  --query-workers 4 \
+  --output /tmp/code-diver-e2e-qibo-3-agentic-queries.json
+```
+
+| Mode | Planned queries | File recall | Context recall | Context precision | Hit@1 | Hit@3 | Hit@5 | Token F1 | Bigram F1 | Planning ms | Retrieval ms | Total ms |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Single query | `1.000` | `0.722` | `0.722` | `0.333` | `0.667` | `1.000` | `1.000` | `0.365` | `0.135` | `0` | `2535` | `4227` |
+| LLM multi-query | `4.000` | `0.722` | `0.722` | `0.333` | `0.667` | `0.667` | `1.000` | `0.366` | `0.144` | `1380` | `3629` | `5357` |
+
+Interpretation:
+
+- This smoke does **not** prove agentic query planning is useful yet.
+- Recall stayed flat, `Hit@3` got worse, and latency increased by ~1.1s/case.
+- The product direction is still agent-first, but the current planner is only
+  the first controlled slice: LLM-generated probes need better prompts, better
+  merge/scoring, or a cheaper base retrieval mode before scaling.
+- The next controlled test should compare:
+  1. multi-query planning over fast non-reranked `hybrid`, followed by one final
+     LLM rerank over the merged pool;
+  2. query diversity constraints so generated probes do not collapse onto the
+     same lexical intent;
+  3. full Branch A inspection where the model can call outline/symbol/rg/read on
+     candidate files before answering.

@@ -190,6 +190,10 @@ answer. The SWE-QA-Pro adapter prepares public repo-question cases, but the firs
 E2E runner expects `--root` to point at the matching repository checkout. See
 [docs/e2e-answer-eval-2026-06-05.md](docs/e2e-answer-eval-2026-06-05.md).
 
+To benchmark the agent-first query planner, add `--agentic-queries`. In that
+mode the model generates several targeted search probes and Code Diver runs them
+in parallel before reading candidate files.
+
 ## Retrieval Experiments
 
 `code-diver.yml` controls storage and retrieval strategy:

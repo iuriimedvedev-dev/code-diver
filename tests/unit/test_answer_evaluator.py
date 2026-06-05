@@ -12,6 +12,7 @@ from code_diver.answering import (
     AnswerEvaluator,
     AnswerJudge,
     AnswerJudgeRubric,
+    AnswerQueryPlanner,
 )
 from code_diver.domain import CodeItem, SearchResult
 from code_diver.generation import GenerationResult
@@ -43,12 +44,14 @@ class FakeGenerationProvider:
 
 
 class FakeRetrievalStrategy:
-    def __init__(self, results: list[SearchResult]):
+    def __init__(self, results: list[SearchResult] | dict[str, list[SearchResult]]):
         self.results = results
         self.queries: list[tuple[str, int]] = []
 
     def search(self, query: str, limit: int) -> list[SearchResult]:
         self.queries.append((query, limit))
+        if isinstance(self.results, dict):
+            return self.results.get(query, [])[:limit]
         return self.results[:limit]
 
 
@@ -189,6 +192,97 @@ def test_answer_evaluator_searches_reads_answers_and_judges(tmp_path: Path) -> N
     assert report["usage"]["model_calls"] == 1
     assert report["judge_usage"]["model_calls"] == 1
     assert report["results"][0]["context_files"] == ["src/auth.py"]
+
+
+def test_answer_evaluator_uses_llm_generated_search_queries(tmp_path: Path) -> None:
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "state.py").write_text("def probabilities(state):\n    return state\n", encoding="utf-8")
+    (src / "backend.py").write_text("def sample_frequencies(probabilities):\n    return probabilities\n", encoding="utf-8")
+    state_result = SearchResult(
+        CodeItem(
+            id="src/state.py",
+            path="src/state.py",
+            title="state",
+            content="Calculates probabilities from quantum states.",
+            start_line=1,
+        ),
+        0.7,
+    )
+    backend_result = SearchResult(
+        CodeItem(
+            id="src/backend.py",
+            path="src/backend.py",
+            title="backend",
+            content="Samples final measurement frequencies from probabilities.",
+            start_line=1,
+        ),
+        0.8,
+    )
+    retrieval = FakeRetrievalStrategy(
+        {
+            "Where does measurement data flow to final outcomes?": [],
+            "measurement probability flow": [state_result],
+            "backend sampling frequencies": [backend_result],
+        }
+    )
+    planner_provider = FakeGenerationProvider(
+        [
+            json.dumps(
+                {
+                    "queries": [
+                        {"query": "measurement probability flow"},
+                        {"query": "backend sampling frequencies"},
+                    ],
+                    "rationale": "Split state probabilities from backend sampling.",
+                }
+            )
+        ]
+    )
+    answer_provider = FakeGenerationProvider(
+        [
+            json.dumps(
+                {
+                    "answer": "Measurement data flows through state probabilities and backend sampling.",
+                    "citations": [
+                        {"path": "src/state.py", "lines": "1", "reason": "probabilities"},
+                        {"path": "src/backend.py", "lines": "1", "reason": "sampling"},
+                    ],
+                }
+            )
+        ]
+    )
+    case = AnswerCase(
+        id="measurement",
+        question="Where does measurement data flow to final outcomes?",
+        reference="src/state.py computes probabilities and src/backend.py samples frequencies.",
+        expected_paths=["src/state.py", "src/backend.py"],
+    )
+
+    report = AnswerEvaluator(
+        retrieval,
+        answer_provider,
+        AnswerContextBuilder(tmp_path, max_files=4, lines_per_file=40),
+        query_planner=AnswerQueryPlanner(planner_provider, max_queries=3),
+        limit=4,
+        query_workers=2,
+    ).evaluate([case])
+
+    assert sorted(query for query, _limit in retrieval.queries) == [
+        "Where does measurement data flow to final outcomes?",
+        "backend sampling frequencies",
+        "measurement probability flow",
+    ]
+    assert report["planning_usage"]["model_calls"] == 1
+    assert report["metrics"]["planned_query_count"] == 3.0
+    assert report["metrics"]["file_recall"] == 1.0
+    assert report["metrics"]["context_file_recall"] == 1.0
+    assert report["results"][0]["query_plan"]["mode"] == "llm_multi_query"
+    assert report["results"][0]["query_plan"]["queries"] == [
+        "Where does measurement data flow to final outcomes?",
+        "measurement probability flow",
+        "backend sampling frequencies",
+    ]
 
 
 def test_answer_judge_rubric_computes_weighted_overall() -> None:

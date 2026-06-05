@@ -8,12 +8,14 @@ from time import perf_counter
 from typing import Any, Callable
 
 from ..explanation.jsonish_parser import JsonishParser
+from ..domain import SearchResult
 from ..generation import GenerationProvider
 from ..strategies import RetrievalStrategy
 from .answer_case import AnswerCase
 from .answer_context_builder import AnswerContextBuilder
 from .answer_judge import AnswerJudge
 from .answer_metrics import AnswerMetrics
+from .answer_query_planner import AnswerQueryPlanner
 
 
 @dataclass(slots=True)
@@ -22,7 +24,9 @@ class AnswerEvaluator:
     answer_provider: GenerationProvider
     context_builder: AnswerContextBuilder
     judge: AnswerJudge | None = None
+    query_planner: AnswerQueryPlanner | None = None
     limit: int = 10
+    query_workers: int = 4
     workers: int = 1
     progress_callback: Callable[[int, int, AnswerCase], None] | None = None
     row_callback: Callable[[int, int, dict[str, Any]], None] | None = None
@@ -32,6 +36,7 @@ class AnswerEvaluator:
         started = perf_counter()
         rows_by_index: list[dict[str, Any] | None] = [None] * len(cases)
         usage = self._empty_usage()
+        planning_usage = self._empty_usage()
         judge_usage = self._empty_usage()
         errors = 0
         judge_errors = 0
@@ -45,6 +50,8 @@ class AnswerEvaluator:
                 errors += int(result["error"])
                 judge_errors += int(result["judge_error"])
                 self._merge_usage_dict(usage, result["generation_model"], result["usage"])
+                if result["planning_usage"] is not None:
+                    self._merge_usage_dict(planning_usage, result["planning_model"], result["planning_usage"])
                 if result["judge_usage"] is not None:
                     self._merge_usage_dict(judge_usage, result["judge_model"], result["judge_usage"])
                 self._notify_progress(completed, len(cases), case, result["row"])
@@ -62,6 +69,8 @@ class AnswerEvaluator:
                     errors += int(result["error"])
                     judge_errors += int(result["judge_error"])
                     self._merge_usage_dict(usage, result["generation_model"], result["usage"])
+                    if result["planning_usage"] is not None:
+                        self._merge_usage_dict(planning_usage, result["planning_model"], result["planning_usage"])
                     if result["judge_usage"] is not None:
                         self._merge_usage_dict(judge_usage, result["judge_model"], result["judge_usage"])
                     self._notify_progress(completed, len(cases), case, result["row"])
@@ -73,6 +82,7 @@ class AnswerEvaluator:
         return {
             "metrics": metrics,
             "usage": usage,
+            "planning_usage": planning_usage if self.query_planner is not None else None,
             "judge_usage": judge_usage if self.judge is not None else None,
             "error_count": errors,
             "judge_error_count": judge_errors if self.judge is not None else None,
@@ -85,7 +95,7 @@ class AnswerEvaluator:
         empty_usage = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
         try:
             retrieval_started = perf_counter()
-            search_results = self.retrieval_strategy.search(case.question, self.limit)
+            search_results, plan_payload, planning_usage, planning_model = self._retrieve(case)
             retrieval_duration_ms = (perf_counter() - retrieval_started) * 1000
             context_started = perf_counter()
             context = self.context_builder.build(search_results)
@@ -105,6 +115,8 @@ class AnswerEvaluator:
             metrics.update(
                 {
                     "retrieval_duration_ms": retrieval_duration_ms,
+                    "planning_duration_ms": float(plan_payload.get("duration_ms") or 0.0),
+                    "planned_query_count": float(len(plan_payload.get("queries") or [case.question])),
                     "context_duration_ms": context_duration_ms,
                     "generation_duration_ms": generation_duration_ms,
                     "judge_duration_ms": 0.0,
@@ -124,6 +136,7 @@ class AnswerEvaluator:
                 "context_errors": context.errors,
                 "expected_paths": case.expected_paths,
                 "metadata": case.metadata,
+                "query_plan": plan_payload,
                 "generation_model": result.model,
                 "metrics": metrics,
                 "duration_ms": (perf_counter() - started) * 1000,
@@ -151,6 +164,8 @@ class AnswerEvaluator:
                     "total_tokens": result.total_tokens,
                 },
                 "generation_model": result.model,
+                "planning_usage": planning_usage,
+                "planning_model": planning_model,
                 "judge_usage": judge_usage,
                 "judge_model": judge_model,
                 "error": 0,
@@ -172,11 +187,57 @@ class AnswerEvaluator:
                 },
                 "usage": empty_usage,
                 "generation_model": getattr(self.answer_provider, "model", "unknown"),
+                "planning_usage": None,
+                "planning_model": None,
                 "judge_usage": None,
                 "judge_model": None,
                 "error": 1,
                 "judge_error": 0,
             }
+
+    def _retrieve(self, case: AnswerCase) -> tuple[list[SearchResult], dict[str, Any], dict[str, int] | None, str | None]:
+        if self.query_planner is None:
+            return (
+                self.retrieval_strategy.search(case.question, self.limit),
+                {"mode": "single_query", "queries": [case.question], "duration_ms": 0.0},
+                None,
+                None,
+            )
+        started = perf_counter()
+        plan, result = self.query_planner.plan_result(case)
+        plan_payload = {
+            "mode": "llm_multi_query",
+            "queries": plan.queries,
+            "rationale": plan.rationale,
+            "duration_ms": (perf_counter() - started) * 1000,
+        }
+        usage = {
+            "input_tokens": result.input_tokens,
+            "output_tokens": result.output_tokens,
+            "total_tokens": result.total_tokens,
+        }
+        query_limit = max(self.limit, 1)
+        worker_count = max(1, min(int(self.query_workers or 1), len(plan.queries)))
+        if worker_count == 1:
+            result_sets = [self.retrieval_strategy.search(query, query_limit) for query in plan.queries]
+        else:
+            with ThreadPoolExecutor(max_workers=worker_count) as executor:
+                futures = [executor.submit(self.retrieval_strategy.search, query, query_limit) for query in plan.queries]
+                result_sets = [future.result() for future in futures]
+        return self._merge_query_results(result_sets, self.limit), plan_payload, usage, result.model
+
+    def _merge_query_results(self, result_sets: list[list[SearchResult]], limit: int) -> list[SearchResult]:
+        best_by_file: dict[str, SearchResult] = {}
+        for query_index, results in enumerate(result_sets):
+            query_boost = 1.0 / (query_index + 1)
+            for rank, result in enumerate(results, start=1):
+                file_key = self._normalize_path(result.item.path)
+                rank_score = 1.0 / rank
+                merged_score = float(result.score) + rank_score + (0.05 * query_boost)
+                existing = best_by_file.get(file_key)
+                if existing is None or merged_score > existing.score:
+                    best_by_file[file_key] = SearchResult(result.item, merged_score)
+        return sorted(best_by_file.values(), key=lambda item: item.score, reverse=True)[:limit]
 
     def _answer_prompt(self, case: AnswerCase, context: str) -> str:
         return f"""Answer the developer's repository question using only the provided retrieval context.

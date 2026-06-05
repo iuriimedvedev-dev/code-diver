@@ -37,6 +37,7 @@ from .answering import (
     AnswerDatasetLoader,
     AnswerEvaluator,
     AnswerJudge,
+    AnswerQueryPlanner,
     SweQaProDatasetPreparer,
 )
 from .benchmarks import BenchmarkAssetService, BenchmarkProfile, BenchmarkProfileRegistry
@@ -447,6 +448,13 @@ def add_advanced_parsers(subparsers: argparse._SubParsersAction[argparse.Argumen
         help="Files to read into answer context. Defaults to 4 for hybrid_rerank, 8 otherwise.",
     )
     evaluate_answers.add_argument("--context-lines", type=int, default=160)
+    evaluate_answers.add_argument(
+        "--agentic-queries",
+        action="store_true",
+        help="Let the LLM generate multiple search queries before retrieval.",
+    )
+    evaluate_answers.add_argument("--query-count", type=int, default=4, help="Maximum LLM-generated search queries.")
+    evaluate_answers.add_argument("--query-workers", type=int, default=4, help="Parallel retrieval workers for planned queries.")
     evaluate_answers.add_argument("--output", type=Path, default=None)
     evaluate_answers.add_argument("--partial-output", type=Path, default=None)
     evaluate_answers.add_argument(
@@ -1813,6 +1821,7 @@ def cmd_evaluate_answers(args: argparse.Namespace, config: AppConfig) -> int:
     provider = make_embedding_provider(config, vector_store.metadata())
     strategy = make_retrieval_strategy(config, provider, vector_store)
     answer_provider = create_generation_provider(config)
+    query_planner = AnswerQueryPlanner(answer_provider, max_queries=args.query_count) if args.agentic_queries else None
     judge = None
     judge_config = None
     if args.judge:
@@ -1835,6 +1844,8 @@ def cmd_evaluate_answers(args: argparse.Namespace, config: AppConfig) -> int:
                 ("search", config.search.strategy),
                 ("limit", limit),
                 ("context", f"{context_files} files x {args.context_lines} lines"),
+                ("query mode", "llm multi-query" if args.agentic_queries else "single query"),
+                ("query count", args.query_count if args.agentic_queries else 1),
                 ("answer model", f"{config.generation.provider}:{config.generation.model}"),
                 ("judge", args.judge),
                 ("workers", worker_count),
@@ -1891,7 +1902,9 @@ def cmd_evaluate_answers(args: argparse.Namespace, config: AppConfig) -> int:
                 max_file_bytes=config.scanner.max_file_bytes,
             ),
             judge=judge,
+            query_planner=query_planner,
             limit=limit,
+            query_workers=args.query_workers,
             workers=worker_count,
             progress_callback=advance_progress,
             row_callback=write_partial,
@@ -1911,6 +1924,9 @@ def cmd_evaluate_answers(args: argparse.Namespace, config: AppConfig) -> int:
             "limit": limit,
             "context_files": context_files,
             "context_lines": args.context_lines,
+            "agentic_queries": bool(args.agentic_queries),
+            "query_count": args.query_count if args.agentic_queries else 1,
+            "query_workers": args.query_workers,
             "embedding_provider": config.embedding.provider,
             "embedding_model": config.embedding.model,
             "answer_provider": config.generation.provider,
@@ -2008,6 +2024,8 @@ def render_answer_metrics_table(metrics: dict[str, Any]) -> None:
         "context_file_hit",
         "context_file_recall",
         "context_file_precision",
+        "planned_query_count",
+        "planning_duration_ms",
         "citation_count",
         "citation_path_valid_rate",
         "citation_line_valid_rate",
