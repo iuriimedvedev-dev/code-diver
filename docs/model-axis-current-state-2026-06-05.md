@@ -165,6 +165,27 @@ Trace token/cost notes:
 | Gemini 3.1 Flash Lite | 100 | 1,075,620 | 7,214 | ~$0.28 |
 | Qwen3.5 9B local | 100 | 966,718 | 14,935 | local runtime, no API bill |
 
+## Local Gemma 4 Rerank Update - 2026-06-06
+
+A same-index local-only rerank matrix was run on 10/100/200 CodeSearchNet cases
+after fixing local Gemma structured output. See
+`docs/gemma4-local-rerank-matrix-2026-06-06.md`.
+
+The 200-case result:
+
+| Setup | Cases | Hit@1 | Hit@3 | Hit@5 | Hit@10 | MRR@10 | nDCG@10 | Mean ms | Decision |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| H6.1 static | 200 | 0.800 | 0.935 | 0.970 | 0.975 | 0.8695 | 0.8960 | 872 | Default broad candidate order. |
+| H6.1 + Gemma 4 E2B precision | 200 | 0.780 | 0.945 | 0.970 | 0.975 | 0.8623 | 0.8909 | 3619 | Reject as always-on reranker. |
+| H6.1 + Gemma 4 E2B base-prior | 200 | 0.795 | 0.935 | 0.965 | 0.975 | 0.8671 | 0.8943 | 3946 | Reject as always-on reranker. |
+| H6.1 + Gemma 4 E4B precision | 200 | 0.805 | 0.935 | 0.970 | 0.975 | 0.8729 | 0.8985 | 8866 | Marginal quality lift, high latency. |
+| H6.1 + Gemma 4 E4B base-prior | 200 | 0.810 | 0.940 | 0.970 | 0.975 | 0.8758 | 0.9007 | 8819 | Best local reranker so far, but gate it. |
+
+Interpretation: Gemma 4 E4B base-prior is the best local reranker measured so
+far, but the gain over static H6.1 is small (`+0.010` Hit@1, `+0.0047` nDCG)
+for roughly `10x` mean latency. It should be used for hard/ambiguous queries or
+offline quality mode, not as the default for every interactive query.
+
 ## What We Still Need To Test
 
 ### 1. Embedding Axis
