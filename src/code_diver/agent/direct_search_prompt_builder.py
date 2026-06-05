@@ -132,6 +132,10 @@ When ready, return up to {limit} results:
             lines.append(
                 f"- Exact strings, config keys, CLI flags, error names: use {' or '.join(exact_tools)} as an exact probe, preferably parallel with semantic search when available."
             )
+            if "code_diver_grep" in names and "code_diver_rg" in names:
+                lines.append(
+                    "- code_diver_grep is literal substring search only. For alternation, wildcards, word boundaries, or escaped regex such as auth|login, load.*csv, or \\\\bToken\\\\b, use code_diver_rg."
+                )
             lines.append(
                 "- After candidate files exist, unscoped grep/rg is automatically limited to those candidate files. Use explicit path only when you intentionally want a specific package/file scope."
             )

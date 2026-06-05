@@ -62,16 +62,21 @@ kept as research, not promoted.
 
 ## Why Agent/LLM Rerank Is Not The Default Yet
 
-LLM ranking is still the likely quality layer, but current local agent/rerank runs
-do not have a valid 1000-case result over the same H6.1 index. Existing small gates
-are useful but not enough to promote:
+LLM ranking is still useful, but the latest same-index 100-case tests show that
+an always-on agent loop is not the default search path. The static H6.1 locator
+keeps substantially better recall and is more than an order of magnitude faster.
 
-| Agent/ranker | Cases | Hit@10 | Mean ms | Status |
-| --- | ---: | ---: | ---: | --- |
-| Gemini 3.1 Flash Lite agent axis | 25 | 0.920 | 11,320 | valid, small |
-| Qwen3.5 4B agent axis | 10 | 1.000 | 37,020 | promising, too small/slow |
-| Gemma 4 E4B agent axis | 10 | 0.900 | 56,573 | too slow |
-| Gemma 4 E2B 1000 attempt | n/a | n/a | n/a | invalid zero-byte artifact |
+| Agent/ranker | Cases | Hit@1 | Hit@5 | Hit@10 | Precision@10 | nDCG@10 | Mean ms | Status |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| H6.1 static, no LLM | 100 | 0.820 | 0.970 | 0.970 | 0.147 | 0.900 | 858 | default |
+| Gemini 3.1 Flash Lite agent+rerank | 100 | 0.740 | 0.860 | 0.860 | 0.277 | 0.813 | 10,660 | better precision, lower recall |
+| Gemma 4 E2B local agent+rerank | 100 | 0.510 | 0.640 | 0.700 | 0.070 | 0.596 | 11,501 | stable but rejected |
+
+The important nuance: Gemini Lite is still the best tested API intelligence layer
+for structured ranking, but using it as an unrestricted search agent narrows the
+result set too aggressively on this benchmark. That raises Precision@10 while
+dropping Hit@5/Hit@10. The likely production shape is static H6.1 first, then
+Gemini Lite only for hard-tail rerank, precision mode, or final explanation.
 
 Promotion rule: a reranker/agent becomes default only after a same-index, non-degraded
 run beats H6.1 by at least `+0.02 Hit@1` without reducing Hit@10 and with an acceptable

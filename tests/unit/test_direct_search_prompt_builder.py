@@ -76,6 +76,7 @@ def test_search_prompt_describes_hybrid_tool_routing_policy() -> None:
                 {"name": "code_diver_outline"},
                 {"name": "code_diver_symbols"},
                 {"name": "code_diver_read"},
+                {"name": "code_diver_grep"},
                 {"name": "code_diver_rg"},
             ]
         ),
@@ -90,7 +91,9 @@ def test_search_prompt_describes_hybrid_tool_routing_policy() -> None:
     assert "Never call code_diver_symbols without path" in prompt
     assert "prefer code_diver_outline before code_diver_read" in prompt
     assert "code_diver_read has a hard budget of 10 calls per case" in prompt
-    assert "Verify cheaply with code_diver_rg, code_diver_outline, code_diver_symbols" in prompt
+    assert "Verify cheaply with code_diver_grep, code_diver_rg, code_diver_outline, code_diver_symbols" in prompt
+    assert "code_diver_grep is literal substring search only" in prompt
+    assert "use code_diver_rg" in prompt
 
 
 def test_search_prompt_describes_agentic_h3_multiquery_policy() -> None:

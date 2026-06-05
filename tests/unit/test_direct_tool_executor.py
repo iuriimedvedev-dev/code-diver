@@ -44,6 +44,40 @@ def test_direct_tool_executor_read_returns_bounded_source_on_request(tmp_path: P
     assert payload["result"]["lines"] == [{"line": 2, "text": "line two"}]
 
 
+def test_direct_tool_executor_read_accepts_model_line_range_string(tmp_path: Path) -> None:
+    source = tmp_path / "src" / "service.py"
+    source.parent.mkdir()
+    source.write_text("\n".join(f"line {index}" for index in range(1, 120)), encoding="utf-8")
+
+    result = DirectToolExecutor(tmp_path, ["code_diver_read"]).execute(
+        ToolCall("code_diver_read", {"file": "src/service.py", "startLine": 20, "lines": "20-60"})
+    )
+
+    payload = json.loads(result.content)
+    assert payload["ok"] is True
+    assert payload["result"]["lines"][0] == {"line": 20, "text": "line 20"}
+    assert payload["result"]["lines"][-1] == {"line": 60, "text": "line 60"}
+
+
+def test_direct_tool_executor_inspect_read_accepts_model_line_range_string(tmp_path: Path) -> None:
+    source = tmp_path / "src" / "service.py"
+    source.parent.mkdir()
+    source.write_text("\n".join(f"line {index}" for index in range(1, 120)), encoding="utf-8")
+
+    result = DirectToolExecutor(tmp_path, ["code_diver_inspect"]).execute(
+        ToolCall(
+            "code_diver_inspect",
+            {"reads": [{"file": "src/service.py", "startLine": 20, "lines": "20-60"}]},
+        )
+    )
+
+    payload = json.loads(result.content)
+    assert payload["ok"] is True
+    read_result = payload["result"]["sections"][0]["result"]
+    assert read_result["lines"][0] == {"line": 20, "text": "line 20"}
+    assert read_result["lines"][-1] == {"line": 60, "text": "line 60"}
+
+
 def test_direct_tool_executor_outline_returns_file_structure_without_bodies(tmp_path: Path) -> None:
     source = tmp_path / "src" / "users.py"
     source.parent.mkdir()

@@ -78,7 +78,7 @@ class DirectToolExecutor:
             return ReadExcerptService(self.root, self.exclude, self.max_file_bytes).structured(
                 self._validated_required_path(args.get("file") or args.get("path")),
                 start_line=int(args.get("startLine", args.get("start_line", 1)) or 1),
-                lines=int(args.get("lines") or 80),
+                lines=self._line_count(args.get("lines"), default=80),
             )
         if call.name == "code_diver_inspect":
             return self._inspect(args)
@@ -200,7 +200,7 @@ class DirectToolExecutor:
                     "result": ReadExcerptService(self.root, self.exclude, self.max_file_bytes).structured(
                         path,
                         start_line=int(value.get("startLine", value.get("start_line", 1)) or 1),
-                        lines=int(value.get("lines") or 80),
+                        lines=self._line_count(value.get("lines"), default=80),
                     ),
                 }
             )
@@ -381,6 +381,30 @@ class DirectToolExecutor:
             return None
         text = str(value).strip()
         return text or None
+
+    def _line_count(self, value: Any, *, default: int) -> int:
+        if value is None or value == "":
+            return default
+        if isinstance(value, bool):
+            return default
+        if isinstance(value, int):
+            return max(1, min(value, 400))
+        text = str(value).strip()
+        if not text:
+            return default
+        if "-" in text:
+            parts = [part.strip() for part in text.split("-", 1)]
+            try:
+                start = int(parts[0])
+                end = int(parts[1])
+                if end >= start:
+                    return max(1, min(end - start + 1, 400))
+            except (TypeError, ValueError):
+                pass
+        try:
+            return max(1, min(int(text), 400))
+        except ValueError:
+            return default
 
     def _validated_optional_path(self, value: Any) -> str | None:
         path = self._optional_str(value)

@@ -370,16 +370,32 @@ The 2026-06-04 H6 pass changed the baseline for model-axis testing:
 | What candidate generator should model-axis tests use? | H6.1 static/grid weights over EmbeddingGemma-300M file metadata. |
 | What was the best measured local embedding so far? | EmbeddingGemma-300M in the same H3/H6 setup: validation Hit@1 `0.863`, Hit@10 `0.983`, MRR `0.911`. |
 
-Fresh agent/planner axis over that H6.1 + EmbeddingGemma generator:
+Fresh same-index agent/planner axis over that H6.1 + EmbeddingGemma generator:
 
-| Agent model | Cases | Hit@1 | Hit@3 | Hit@5 | Hit@10 | MRR@10 | nDCG@10 | Mean ms | Status |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| Gemini 3.1 Flash Lite | 25 | 0.760 | 0.920 | 0.920 | 0.920 | 0.833 | 0.856 | 11,320 | valid, practical latency |
-| Qwen3.5 4B OptiQ 4-bit | 10 | 0.800 | 1.000 | 1.000 | 1.000 | 0.883 | 0.913 | 37,020 | promising quality, too slow for default |
-| Gemma 4 E4B OptiQ 4-bit | 10 | 0.800 | 0.900 | 0.900 | 0.900 | 0.833 | 0.850 | 56,573 | valid protocol after prompt/output-budget fix, too slow |
-| Gemma 4 12B IT Q4_K_M | 0 | n/a | n/a | n/a | n/a | n/a | n/a | n/a | runtime stalled before first completed case |
+| Setup | Cases | Hit@1 | Hit@3 | Hit@5 | Hit@10 | Precision@10 | MRR@10 | nDCG@10 | Mean ms | Status |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| H6.1 static, no LLM | 100 | 0.820 | 0.930 | 0.970 | 0.970 | 0.147 | 0.876 | 0.900 | 858 | current default |
+| H6.1 + Gemini 3.1 Flash Lite agent/rerank | 100 | 0.740 | 0.860 | 0.860 | 0.860 | 0.277 | 0.797 | 0.813 | 10,660 | better precision, worse recall |
+| H6.1 + Gemma 4 E2B local agent/rerank | 100 | 0.510 | 0.570 | 0.640 | 0.700 | 0.070 | 0.564 | 0.596 | 11,501 | fully local and stable, rejected for search |
 
-These are small agent-axis samples, so they are not final quality rankings. They do show the practical tradeoff: local planners can be accurate on easy early cases, but current latency is 3-5x worse than Gemini Lite and Gemma 12B needs runtime isolation before it is worth evaluating.
+This is the cleanest current answer to the local-model question. Fully local
+Gemma E2B can run the agent loop without degraded cases, but it harms ranking and
+is about 13x slower than the static locator. Gemini Lite is clearly the stronger
+agent/reranker, and its Precision@10 is higher because it returns a narrower,
+more opinionated set. But on this benchmark that confidence is too aggressive:
+it drops Hit@5/Hit@10 from `0.970` to `0.860`.
+
+So the immediate production policy is:
+
+1. Use H6.1 static for broad search and default CLI results.
+2. Use Gemini Lite only as a gated precision/rerank/explanation layer when the
+   user wants fewer, more curated candidates or when the static score margin is
+   low.
+3. Keep local Gemma E2B for explanation experiments and future hard-tail
+   offline rerank, not the default interactive search loop.
+
+The older small local planner samples are now directional only. Qwen/Gemma E4B
+still need same-index 100-case reruns before they can challenge this decision.
 
 The attempted 1000-case agentic slice is not valid for search-quality selection:
 

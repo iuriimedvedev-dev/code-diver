@@ -411,7 +411,7 @@ class DirectSearchOrchestrator:
 
     def _adaptive_hypothesis(self, hypothesis_name: str) -> bool:
         lowered = hypothesis_name.lower()
-        return "adaptive" in lowered or "agentic" in lowered or "deep" in lowered
+        return lowered.startswith("agent_") or "adaptive" in lowered or "agentic" in lowered or "deep" in lowered
 
     def _should_continue_for_adaptive_evidence(
         self,

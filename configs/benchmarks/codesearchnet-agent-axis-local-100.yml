@@ -1,0 +1,170 @@
+root: .code-diver/benchmarks/mteb-codesearchnet-python/corpus
+artifact: .code-diver/benchmarks/mteb-codesearchnet-python/index-h5-embeddinggemma-300m-quality.json
+
+storage:
+  provider: json
+
+embedding:
+  provider: sentence_transformers
+  model: google/embeddinggemma-300m
+  dimensions: 768
+  batch_size: 96
+  workers: 1
+  max_input_chars: 1200
+  query_prefix: "task: code retrieval | query: "
+  document_prefix: "title: none | text: "
+
+generation:
+  provider: openai_compatible
+  model: mlx-community/gemma-4-e2b-it-4bit
+  url: http://127.0.0.1:8012/v1/chat/completions
+  api_key: local
+  temperature: 0
+  max_tokens: 1536
+  response_format: false
+  timeout_ms: 120000
+  extra_body:
+    enable_thinking: false
+
+indexing:
+  mode: scanner
+
+scanner:
+  include:
+    - "**/*.py"
+  max_file_bytes: 200000
+  line_chunks: false
+  chunk_lines: 220
+  structural_chunks: false
+  symbol_chunks: false
+  symbol_body: false
+  file_summary_chunks: true
+  file_manifest_chunks: true
+  max_symbols_per_file: 96
+
+search:
+  limit: 10
+  preview_lines: 8
+  strategy: hybrid
+
+hybrid_search:
+  candidate_limit: 280
+  lexical_candidate_limit: 900
+  vector_weight: 0.5625
+  lexical_weight: 0.1875
+  path_weight: 0.08333333333333334
+  symbol_weight: 0.04166666666666667
+  symbol_match_weight: 0.04166666666666667
+  graph_weight: 0.08333333333333334
+  file_vote_weight: 0.0
+  graph_depth: 0
+  graph_neighbor_limit: 0
+  vector_kind_limits:
+    file_summary: 170
+    file_manifest: 170
+  vector_kind_multipliers:
+    file_summary: 1.0
+    file_manifest: 1.08
+  routing_enabled: true
+  lexical_scoring: bm25
+  fusion: weighted
+  preserve_vector_top: true
+  vector_top_score_margin: 0.03
+  item_kind_weights:
+    file_summary: 1.0
+    file_manifest: 1.08
+  min_token_length: 3
+
+llm_rerank:
+  candidate_limit: 30
+  rerank_limit: 10
+  max_preview_chars: 700
+  mode: file_first
+  include_reasons: false
+  preserve_top_candidate: true
+  preserve_top_score_margin: 0.03
+  retry_attempts: 2
+  retry_base_delay_seconds: 1.0
+  retry_max_delay_seconds: 8.0
+
+graph:
+  enabled: true
+  artifact: .code-diver/benchmarks/mteb-codesearchnet-python/graph-h5-embeddinggemma-300m-quality.json
+  ast_enabled: false
+  reference_edges_enabled: false
+  call_edges_enabled: false
+  expansion_depth: 0
+  neighbor_limit: 0
+
+trace:
+  enabled: true
+  artifact: .code-diver/traces/codesearchnet-agent-axis-local-100.jsonl
+  include_prompts: true
+
+evaluation:
+  dataset: .code-diver/tmp/codesearchnet_python_100.jsonl
+  limit: 10
+  workers: 1
+
+experiments:
+  suite: codesearchnet-agent-axis-local-100
+  strategies:
+    - hybrid
+  hypotheses:
+    - name: agent_gemma4_e2b_local_rerank
+      tools: &agent_tools
+        - code_diver_h3_search
+        - code_diver_outline
+        - code_diver_symbols
+        - code_diver_rg
+        - code_diver_grep
+        - code_diver_read
+        - code_diver_rerank
+      generation: &gemma_e2b
+        provider: openai_compatible
+        model: mlx-community/gemma-4-e2b-it-4bit
+        url: http://127.0.0.1:8012/v1/chat/completions
+        api_key: local
+        temperature: 0
+        max_tokens: 1536
+        response_format: false
+        timeout_ms: 120000
+        extra_body:
+          enable_thinking: false
+      rerank_generation: *gemma_e2b
+      description: "Local-only agent: Gemma 4 E2B plans/tool-calls and reranks over H6.1 EmbeddingGemma candidates."
+    - name: agent_gemma4_e4b_local_rerank
+      tools: *agent_tools
+      generation: &gemma_e4b
+        provider: openai_compatible
+        model: mlx-community/gemma-4-e4b-it-4bit
+        url: http://127.0.0.1:8013/v1/chat/completions
+        api_key: local
+        temperature: 0
+        max_tokens: 1536
+        response_format: false
+        timeout_ms: 120000
+        extra_body:
+          enable_thinking: false
+      rerank_generation: *gemma_e4b
+      description: "Local-only agent: Gemma 4 E4B plans/tool-calls and reranks over H6.1 EmbeddingGemma candidates."
+    - name: agent_qwen35_9b_local_rerank
+      tools: *agent_tools
+      generation: &qwen35_9b
+        provider: openai_compatible
+        model: mlx-community/Qwen3.5-9B-MLX-4bit
+        url: http://127.0.0.1:8014/v1/chat/completions
+        api_key: local
+        temperature: 0
+        max_tokens: 1536
+        response_format: false
+        timeout_ms: 120000
+        extra_body:
+          enable_thinking: false
+      rerank_generation: *qwen35_9b
+      description: "Local-only agent: Qwen3.5 9B plans/tool-calls and reranks over H6.1 EmbeddingGemma candidates."
+
+metrics:
+  enabled: false
+
+plugins: []
