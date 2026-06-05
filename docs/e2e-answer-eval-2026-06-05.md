@@ -117,3 +117,44 @@ in one reproducible report.
 4. Run the same answer/judge setup with Gemma 4 E4B, Qwen3.5, and Gemini Lite.
 5. Store per-stage cost and latency separately: retrieval, context read, answer,
    judge.
+
+## Initial Local Smoke
+
+Command:
+
+```bash
+uv run code-diver --root . --help-all evaluate-answers \
+  --dataset /tmp/code-diver-answer-smoke.jsonl \
+  --cases 1 \
+  --limit 8 \
+  --context-files 4 \
+  --context-lines 120 \
+  --output /tmp/code-diver-e2e-smoke.json
+```
+
+Result:
+
+| Metric | Value |
+| --- | ---: |
+| `cases` | `1` |
+| `file_hit` | `1.000` |
+| `file_recall` | `0.333` |
+| `file_precision` | `0.250` |
+| `file_mrr` | `0.500` |
+| `token_f1` | `0.311` |
+| `key_token_f1` | `0.300` |
+| `bigram_f1` | `0.063` |
+| `answer_duration_ms_mean` | `3678` |
+| answer model tokens | `9395` |
+
+Expected files were:
+
+- `src/code_diver/cli.py`
+- `src/code_diver/answering/answer_evaluator.py`
+- `src/code_diver/answering/answer_context_builder.py`
+
+The retrieved/context bundle covered `answer_evaluator.py` but missed `cli.py`
+and `answer_context_builder.py`; it also pulled the new docs and tests. The final
+Gemini Lite answer was coherent, but the evidence bundle was incomplete. This is
+the first concrete proof that answer quality cannot be inferred from a single
+retrieved file hit: E2E needs bundle recall, citation quality, and judge metrics.
