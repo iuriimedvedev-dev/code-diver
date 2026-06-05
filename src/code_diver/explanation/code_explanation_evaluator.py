@@ -51,13 +51,8 @@ class CodeExplanationEvaluator:
                 self.progress_callback(index, total_cases, case)
         aggregate = metrics.aggregate(rows)
         if self.judge is not None:
-            for key in [
-                "judge_correctness",
-                "judge_completeness",
-                "judge_specificity",
-                "judge_groundedness",
-                "judge_overall",
-            ]:
+            judge_keys = [key for key in rows[0]["metrics"] if key.startswith("judge_")] if rows else []
+            for key in judge_keys:
                 aggregate[key] = sum(float(row["metrics"].get(key, 0.0)) for row in rows) / max(len(rows), 1)
         aggregate["cases"] = float(len(rows))
         aggregate["duration_ms"] = (perf_counter() - started) * 1000

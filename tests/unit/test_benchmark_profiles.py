@@ -79,6 +79,8 @@ def test_evaluate_explanations_parser_accepts_benchmark_and_judge() -> None:
             "--cases",
             "5",
             "--judge",
+            "--judge-prompt",
+            "prompts/custom-judge.md",
             "--judge-config",
             "configs/judge.yml",
             "--judge-model",
@@ -90,6 +92,7 @@ def test_evaluate_explanations_parser_accepts_benchmark_and_judge() -> None:
     assert args.benchmark == "codexglue-code-to-text-python"
     assert args.cases == 5
     assert args.judge is True
+    assert str(args.judge_prompt) == "prompts/custom-judge.md"
     assert str(args.judge_config) == "configs/judge.yml"
     assert args.judge_model == "gemini-3.1-flash-lite"
 

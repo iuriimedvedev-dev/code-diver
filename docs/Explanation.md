@@ -20,12 +20,19 @@ source code snippet
 -> configured explanation model
 -> generated developer-facing explanation
 -> token/key-token/bigram overlap against reference docstring
--> optional LLM judge for correctness, completeness, specificity, groundedness
+-> optional LLM judge questionnaire from prompts/code-explanation-judge.md
+-> deterministic weighted judge_overall score
 ```
 
 This is not a replacement for repo-level search evaluation. It is a clean public
 benchmark for the explainer part of the product, while H5/CodeSearchNet remains
 the primary benchmark for finding code.
+
+The judge is intentionally rubric-based. It answers seven concrete questions:
+purpose accuracy, behavior accuracy, API contract, groundedness, specificity,
+completeness, and clarity. Each answer includes a 0-4 score and short evidence.
+Code Diver computes the final 0-5 `judge_overall` score from fixed weights, so
+the final metric is reproducible for a given judge model and prompt.
 
 ## Current Direction: H5 By Default, Small Hot Locator Underneath
 

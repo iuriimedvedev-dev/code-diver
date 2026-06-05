@@ -154,13 +154,15 @@ uv run code-diver --help-all evaluate-explanations \
   --cases 50 \
   --yes \
   --judge \
+  --judge-prompt prompts/code-explanation-judge.md \
   --judge-model gemini-3.1-flash-lite
 ```
 
 This prepares a public Python function/docstring benchmark, generates developer-facing
 code explanations, scores token/key-token/bigram overlap against the reference
-docstring, and can add LLM-as-judge scores for correctness, completeness,
-specificity, and groundedness. See
+docstring, and can add LLM-as-judge questionnaire scores with a weighted final
+grade. The default editable judge prompt lives at
+`prompts/code-explanation-judge.md`. See
 [docs/code-explanation-eval-2026-06-05.md](docs/code-explanation-eval-2026-06-05.md).
 
 ## Retrieval Experiments

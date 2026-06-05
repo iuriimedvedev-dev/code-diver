@@ -2,31 +2,40 @@ from __future__ import annotations
 
 import json
 import re
+from pathlib import Path
 from typing import Any
 
 from ..generation import GenerationProvider
 from .explanation_case import ExplanationCase
+from .explanation_judge_rubric import ExplanationJudgeRubric
 
 
 class ExplanationJudge:
-    def __init__(self, provider: GenerationProvider):
+    DEFAULT_PROMPT_PATH = Path("prompts/code-explanation-judge.md")
+
+    def __init__(
+        self,
+        provider: GenerationProvider,
+        *,
+        prompt_path: Path | None = None,
+        rubric: ExplanationJudgeRubric | None = None,
+    ):
         self.provider = provider
+        self.prompt_path = prompt_path or self.DEFAULT_PROMPT_PATH
+        self.prompt_template = self._load_prompt_template(self.prompt_path)
+        self.rubric = rubric or ExplanationJudgeRubric()
 
     def judge(self, case: ExplanationCase, prediction: str) -> dict[str, Any]:
         prompt = self._prompt(case, prediction)
         result = self.provider.generate_json_result(prompt)
         payload = self._parse_json(result.text)
-        scores = payload.get("scores") if isinstance(payload.get("scores"), dict) else {}
-        normalized_scores = {
-            "judge_correctness": self._bounded_score(scores.get("correctness")),
-            "judge_completeness": self._bounded_score(scores.get("completeness")),
-            "judge_specificity": self._bounded_score(scores.get("specificity")),
-            "judge_groundedness": self._bounded_score(scores.get("groundedness")),
-        }
-        normalized_scores["judge_overall"] = sum(normalized_scores.values()) / max(len(normalized_scores), 1)
+        scored = self.rubric.score(payload)
         return {
-            "scores": normalized_scores,
-            "rationale": str(payload.get("rationale") or ""),
+            "scores": scored["scores"],
+            "questionnaire": scored["questionnaire"],
+            "rationale": scored["rationale"],
+            "critical_issues": scored["critical_issues"],
+            "prompt_path": str(self.prompt_path),
             "model": result.model,
             "usage": {
                 "input_tokens": result.input_tokens,
@@ -36,41 +45,13 @@ class ExplanationJudge:
         }
 
     def _prompt(self, case: ExplanationCase, prediction: str) -> str:
-        return f"""You are judging a code explanation.
-
-Score the candidate explanation against the source code. Use the reference docstring as supporting ground truth, but do not require identical wording.
-
-Rubric, integer scores 1-5:
-- correctness: factual accuracy about the code.
-- completeness: covers purpose, inputs/outputs, and key behavior.
-- specificity: names concrete concepts from the code rather than generic filler.
-- groundedness: every important claim is supported by the shown code/reference.
-
-Return JSON only:
-{{
-  "scores": {{
-    "correctness": 1,
-    "completeness": 1,
-    "specificity": 1,
-    "groundedness": 1
-  }},
-  "rationale": "short reason"
-}}
-
-Function metadata:
-{json.dumps(case.metadata, ensure_ascii=False)}
-
-Code:
-```python
-{case.code}
-```
-
-Reference docstring:
-{case.reference}
-
-Candidate explanation:
-{prediction}
-"""
+        return (
+            self.prompt_template.replace("{{metadata_json}}", json.dumps(case.metadata, ensure_ascii=False, indent=2))
+            .replace("{{code}}", case.code)
+            .replace("{{reference}}", case.reference)
+            .replace("{{prediction}}", prediction)
+            .replace("{{user_prompt}}", case.prompt)
+        )
 
     def _parse_json(self, text: str) -> dict[str, Any]:
         try:
@@ -81,9 +62,7 @@ Candidate explanation:
                 return json.loads(match.group(0))
             raise
 
-    def _bounded_score(self, value: Any) -> float:
-        try:
-            score = float(value)
-        except (TypeError, ValueError):
-            return 0.0
-        return min(max(score, 1.0), 5.0)
+    def _load_prompt_template(self, prompt_path: Path) -> str:
+        if not prompt_path.exists():
+            raise FileNotFoundError(f"Explanation judge prompt not found: {prompt_path}")
+        return prompt_path.read_text(encoding="utf-8")

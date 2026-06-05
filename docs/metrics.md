@@ -68,11 +68,14 @@ provided to the model. This is separate from retrieval quality.
 | `bigram_precision` / `bigram_recall` / `bigram_f1` | Two-token phrase overlap. | Higher | Stricter than token overlap; catches whether important phrases survive. |
 | `prediction_tokens` | Mean generated explanation length. | Depends | Helps detect terse answers and expensive over-explanation. |
 | `reference_tokens` | Mean reference docstring length. | Depends | Context for interpreting overlap scores. |
-| `judge_correctness` | LLM-as-judge score for factual accuracy. | `5.0` | Main semantic correctness score. |
-| `judge_completeness` | LLM-as-judge score for purpose, inputs/outputs, and key behavior coverage. | `5.0` | Whether the answer is useful beyond a one-line summary. |
-| `judge_specificity` | LLM-as-judge score for code-specific detail. | `5.0` | Penalizes generic explanations that could fit any function. |
-| `judge_groundedness` | LLM-as-judge score for claims supported by code/reference. | `5.0` | Penalizes hallucinated behavior. |
-| `judge_overall` | Mean of the four judge dimensions. | `5.0` | Overall semantic explanation quality. |
+| `judge_purpose_accuracy` | Questionnaire score for correctly identifying what the code is for. | `4.0` | Catches wrong high-level explanations. |
+| `judge_behavior_accuracy` | Questionnaire score for control flow, transformations, branches, loops, calls, and returned behavior. | `4.0` | Main semantic behavior metric. |
+| `judge_api_contract` | Questionnaire score for inputs, outputs, side effects, and visible errors/exceptions. | `4.0` | Whether the answer helps a caller or maintainer. |
+| `judge_groundedness` | Questionnaire score for claims supported by code/reference. | `4.0` | Penalizes hallucinated behavior. |
+| `judge_specificity` | Questionnaire score for code-specific detail. | `4.0` | Penalizes generic explanations that could fit any function. |
+| `judge_completeness` | Questionnaire score for important behavior coverage. | `4.0` | Whether the answer is useful beyond a one-line summary. |
+| `judge_clarity` | Questionnaire score for concise, readable developer wording. | `4.0` | Separates correct but unusable explanations from good ones. |
+| `judge_overall` | Weighted final score computed from the questionnaire. | `5.0` | Overall semantic explanation quality. |
 
 Use overlap metrics for cheap regression checks. Use judge metrics for model
 selection, but compare runs only when the same judge model and prompt were used.

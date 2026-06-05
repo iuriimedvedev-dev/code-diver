@@ -3,6 +3,8 @@ from .code_explanation_evaluator import CodeExplanationEvaluator
 from .explanation_case import ExplanationCase
 from .explanation_dataset_loader import ExplanationDatasetLoader
 from .explanation_judge import ExplanationJudge
+from .explanation_judge_criterion import ExplanationJudgeCriterion
+from .explanation_judge_rubric import ExplanationJudgeRubric
 from .explanation_metrics import ExplanationMetrics
 
 __all__ = [
@@ -11,5 +13,7 @@ __all__ = [
     "ExplanationCase",
     "ExplanationDatasetLoader",
     "ExplanationJudge",
+    "ExplanationJudgeCriterion",
+    "ExplanationJudgeRubric",
     "ExplanationMetrics",
 ]

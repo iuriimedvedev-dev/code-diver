@@ -390,6 +390,12 @@ def add_advanced_parsers(subparsers: argparse._SubParsersAction[argparse.Argumen
     evaluate_explanations.add_argument("--output", type=Path, default=None)
     evaluate_explanations.add_argument("--judge", action="store_true", help="Score answers with an LLM-as-judge rubric.")
     evaluate_explanations.add_argument(
+        "--judge-prompt",
+        type=Path,
+        default=None,
+        help="Editable markdown prompt used by the LLM judge.",
+    )
+    evaluate_explanations.add_argument(
         "--judge-config",
         type=Path,
         default=None,
@@ -1584,7 +1590,7 @@ def cmd_evaluate_explanations(args: argparse.Namespace, config: AppConfig) -> in
         judge_config = apply_runtime_config(args, judge_config)
         if args.judge_model:
             judge_config = replace(judge_config, generation=replace(judge_config.generation, model=args.judge_model))
-        judge = ExplanationJudge(create_generation_provider(judge_config))
+        judge = ExplanationJudge(create_generation_provider(judge_config), prompt_path=args.judge_prompt)
 
     progress_bar = None
     task_id = None
@@ -1624,6 +1630,7 @@ def cmd_evaluate_explanations(args: argparse.Namespace, config: AppConfig) -> in
         "judge": {
             "enabled": bool(args.judge),
             "config": str(args.judge_config) if args.judge_config else None,
+            "prompt": str(args.judge_prompt or ExplanationJudge.DEFAULT_PROMPT_PATH),
             "model": args.judge_model or (judge_config.generation.model if args.judge else config.generation.model),
         },
         **report,
@@ -1643,10 +1650,13 @@ def cmd_evaluate_explanations(args: argparse.Namespace, config: AppConfig) -> in
         "token_f1",
         "key_token_f1",
         "bigram_f1",
-        "judge_correctness",
-        "judge_completeness",
-        "judge_specificity",
+        "judge_purpose_accuracy",
+        "judge_behavior_accuracy",
+        "judge_api_contract",
         "judge_groundedness",
+        "judge_specificity",
+        "judge_completeness",
+        "judge_clarity",
         "judge_overall",
         "duration_ms",
     ]:

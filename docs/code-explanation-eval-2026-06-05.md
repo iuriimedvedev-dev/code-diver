@@ -39,6 +39,7 @@ uv run code-diver --help-all evaluate-explanations \
   --cases 50 \
   --yes \
   --judge \
+  --judge-prompt prompts/code-explanation-judge.md \
   --judge-model gemini-3.1-flash-lite
 ```
 
@@ -50,6 +51,7 @@ uv run code-diver --config configs/local-explainer.yml --help-all evaluate-expla
   --cases 50 \
   --yes \
   --judge \
+  --judge-prompt prompts/code-explanation-judge.md \
   --judge-config configs/gemini-judge.yml \
   --judge-model gemini-3.1-flash-lite
 ```
@@ -72,15 +74,34 @@ Local deterministic metrics:
 | `prediction_tokens` | Mean generated explanation length. |
 | `reference_tokens` | Mean reference docstring length. |
 
-Optional LLM-as-judge metrics:
+Optional LLM-as-judge metrics are computed from an editable questionnaire prompt.
+The default prompt is [prompts/code-explanation-judge.md](../prompts/code-explanation-judge.md).
+The model returns a structured answer for each criterion, including a score,
+short verdict, and evidence. Code Diver then computes the weighted final score
+deterministically.
 
 | Metric | Scale | Meaning |
 | --- | --- | --- |
-| `judge_correctness` | 1-5 | Factual accuracy about the shown code. |
-| `judge_completeness` | 1-5 | Covers purpose, inputs/outputs, and key behavior. |
-| `judge_specificity` | 1-5 | Uses concrete code-specific concepts instead of generic text. |
-| `judge_groundedness` | 1-5 | Important claims are supported by code/reference. |
-| `judge_overall` | 1-5 | Mean of the four judge dimensions. |
+| `judge_purpose_accuracy` | 0-4 | Correctly identifies what the code is for. |
+| `judge_behavior_accuracy` | 0-4 | Accurately describes control flow, transformations, branches, loops, calls, and returned behavior. |
+| `judge_api_contract` | 0-4 | Correctly covers inputs, outputs, side effects, and visible errors/exceptions. |
+| `judge_groundedness` | 0-4 | Important claims are supported by code/reference; hallucinations are penalized. |
+| `judge_specificity` | 0-4 | Mentions concrete names and concepts from the code. |
+| `judge_completeness` | 0-4 | Covers the important behavior a developer needs to understand or modify the code. |
+| `judge_clarity` | 0-4 | Concise, readable, and organized for a developer. |
+| `judge_overall` | 0-5 | Weighted final score computed by Code Diver from the questionnaire. |
+
+Default weights:
+
+| Criterion | Weight |
+| --- | ---: |
+| `purpose_accuracy` | `0.18` |
+| `behavior_accuracy` | `0.22` |
+| `api_contract` | `0.15` |
+| `groundedness` | `0.18` |
+| `specificity` | `0.12` |
+| `completeness` | `0.10` |
+| `clarity` | `0.05` |
 
 ## Known Limitations
 
@@ -91,8 +112,8 @@ Optional LLM-as-judge metrics:
   terse, outdated, or describe API contracts not visible in the function body.
 - Token overlap metrics are cheap and reproducible, but they penalize correct
   paraphrases. The judge rubric exists because explanation quality is semantic.
-- LLM-as-judge can be biased. Use the same judge model/config across comparisons
-  and keep the full JSON report for auditability.
+- LLM-as-judge can be biased. Use the same judge model/config/prompt across
+  comparisons and keep the full JSON report for auditability.
 
 ## Next Layer
 
@@ -117,8 +138,9 @@ uv run code-diver --help-all evaluate-explanations \
   --cases 1 \
   --yes \
   --judge \
+  --judge-prompt prompts/code-explanation-judge.md \
   --judge-model gemini-3.1-flash-lite \
-  --output .code-diver/reports/codexglue-code-explanation-judge-smoke.json \
+  --output .code-diver/reports/codexglue-code-explanation-questionnaire-smoke.json \
   --json
 ```
 
@@ -130,16 +152,59 @@ Result:
 | `token_f1` | `0.125` |
 | `key_token_f1` | `0.151` |
 | `bigram_f1` | `0.000` |
-| `judge_correctness` | `5.000` |
-| `judge_completeness` | `5.000` |
-| `judge_specificity` | `5.000` |
-| `judge_groundedness` | `5.000` |
+| `judge_purpose_accuracy` | `4.000` |
+| `judge_behavior_accuracy` | `4.000` |
+| `judge_api_contract` | `4.000` |
+| `judge_groundedness` | `4.000` |
+| `judge_specificity` | `4.000` |
+| `judge_completeness` | `4.000` |
+| `judge_clarity` | `4.000` |
 | `judge_overall` | `5.000` |
 | generation tokens | `482` |
-| judge tokens | `650` |
-| duration | `1878 ms` |
+| judge tokens | `1556` |
+| duration | `2799 ms` |
 
 This single case demonstrates why explanation eval needs both deterministic
 overlap and semantic judge metrics. The reference docstring is only nine tokens,
-so phrase overlap is low even though the generated explanation correctly
-describes XML parsing, `durl` iteration, URL extraction, and the returned list.
+so phrase overlap is low even though the questionnaire judge marks every
+criterion as excellent and records concrete evidence: XML parsing, `durl`
+iteration, URL extraction, returned list, and no unsupported claims.
+
+## Local Judge Smoke
+
+Gemma 4 E4B was tested as a local questionnaire judge while keeping Gemini 3.1
+Flash Lite as the explanation generator:
+
+```bash
+uv run code-diver --help-all evaluate-explanations \
+  --cases 1 \
+  --yes \
+  --judge \
+  --judge-prompt prompts/code-explanation-judge.md \
+  --judge-config configs/explanation-judge-gemma4-e4b.yml \
+  --output .code-diver/reports/codexglue-code-explanation-gemma4-e4b-judge-smoke.json \
+  --json
+```
+
+The first attempted `mlx-community/gemma-4-e4b-it-OptiQ-4bit` runtime failed in
+`mlx_vlm.server` with missing vision-tower parameters. The working local judge
+config uses `mlx-community/gemma-4-e4b-it-4bit` on `127.0.0.1:8013`.
+
+| Metric | Gemini Lite judge | Gemma 4 E4B local judge |
+| --- | ---: | ---: |
+| `cases` | `1` | `1` |
+| `judge_purpose_accuracy` | `4.000` | `4.000` |
+| `judge_behavior_accuracy` | `4.000` | `4.000` |
+| `judge_api_contract` | `4.000` | `3.000` |
+| `judge_groundedness` | `4.000` | `4.000` |
+| `judge_specificity` | `4.000` | `3.000` |
+| `judge_completeness` | `4.000` | `3.000` |
+| `judge_clarity` | `4.000` | `4.000` |
+| `judge_overall` | `5.000` | `4.538` |
+| judge tokens | `1556` | `1673` |
+| total duration | `2799 ms` | `8085 ms` |
+
+The local judge was stricter and more diagnostic on this case: it did not mark
+everything perfect, and it explained the small deductions around API contract,
+specificity, and completeness. The tradeoff is latency. This needs a larger
+sample before treating Gemma E4B as a judge default.
