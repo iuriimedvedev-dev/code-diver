@@ -41,6 +41,52 @@ Interpretation:
   agent loop it drops too many correct files.
 - Gemma E2B should not rerank search results in the current prompt/tool contract.
 
+## Same-Index Rerank-Only Result
+
+This isolates the reranker role. The candidate generator is fixed:
+
+```text
+H6.1 EmbeddingGemma locator -> top 30 structured candidates -> one-shot LLM rerank
+```
+
+The model does not plan new searches and does not read files. It only reorders the
+same H6.1 candidate set.
+
+| Setup | Cases | Hit@1 | Hit@3 | Hit@5 | Hit@10 | Recall@10 | Precision@10 | MRR@10 | nDCG@10 | Mean ms | P95 ms | Result |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| H6.1 deterministic locator | 100 | 0.820 | 0.930 | 0.970 | 0.970 | 0.970 | 0.147 | 0.876 | 0.900 | 858 | 863 | Baseline candidate order. |
+| H6.1 + Gemma 4 E2B rerank-only | 100 | 0.800 | 0.930 | 0.970 | 0.970 | 0.970 | 0.147 | 0.870 | 0.895 | 3,444 | 3,958 | Stable local reranker, but slightly worse than baseline. |
+| H6.1 + Gemma 4 E4B rerank-only | 100 | 0.830 | 0.930 | 0.970 | 0.970 | 0.970 | 0.147 | 0.883 | 0.905 | 7,927 | 9,035 | Small quality gain, high local latency. |
+| H6.1 + Gemini 3.1 Flash Lite rerank-only | 100 | 0.900 | 0.980 | 0.990 | 0.990 | 0.990 | 0.153 | 0.941 | 0.953 | 2,530 | 3,985 | Best observed reranker on this controlled slice. |
+| H6.1 + Qwen3.5 9B rerank-only | 100 | 0.840 | 0.950 | 0.960 | 0.970 | 0.970 | 0.151 | 0.896 | 0.915 | 19,125 | 21,872 | Best local quality after E4B, but too slow for default reranking. |
+
+Current interpretation:
+
+- Reranking **is** an LLM-shaped task, but the role contract must be tight.
+- The 100-case rerank-only run sends roughly 1M input tokens through the reranker
+  because each case carries 30 structured candidates with previews. Prompt budget
+  is therefore a first-class tuning knob, not an implementation detail.
+- Gemma 4 E2B failed as an unrestricted agent, but is acceptable as a bounded
+  reranker. It still does not improve H6.1.
+- Gemma 4 E4B gives a small rerank-only quality lift, but costs too much latency
+  for a default interactive reranker.
+- Qwen3.5 9B improves over the H6.1 baseline on Hit@1/MRR/nDCG, but its current
+  prompt/candidate budget makes it impractical as an always-on local reranker.
+- Gemini 3.1 Flash Lite currently gives the best quality/latency tradeoff for the
+  reranker role.
+- Current default recommendation: H6.1 EmbeddingGemma locator plus Gemini 3.1
+  Flash Lite reranker. For local-only mode, prefer Gemma 4 E2B when latency is
+  strict and Qwen3.5 9B only for slower high-quality/offline runs.
+
+Trace token/cost notes:
+
+| Reranker | Rerank responses | Input tokens | Output tokens | Estimated API cost |
+| --- | ---: | ---: | ---: | ---: |
+| Gemma 4 E2B local | 100 | 1,077,421 | 4,958 | local runtime, no API bill |
+| Gemma 4 E4B local | 100 | 1,077,421 | 4,223 | local runtime, no API bill |
+| Gemini 3.1 Flash Lite | 100 | 1,075,620 | 7,214 | ~$0.28 |
+| Qwen3.5 9B local | 100 | 966,718 | 14,935 | local runtime, no API bill |
+
 ## What We Still Need To Test
 
 ### 1. Embedding Axis
