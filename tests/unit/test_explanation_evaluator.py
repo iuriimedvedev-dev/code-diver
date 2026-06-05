@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import json
+from threading import Lock
+from time import sleep
 
 import pytest
 
 from code_diver.explanation import CodeExplanationEvaluator, ExplanationCase, ExplanationJudge, ExplanationMetrics
+from code_diver.explanation.jsonish_parser import JsonishParser
 from code_diver.generation import GenerationResult
 
 
@@ -26,6 +29,31 @@ class FakeProvider:
         self.prompts.append(prompt)
         return GenerationResult(
             text=self.responses.pop(0),
+            model=self.model,
+            input_tokens=10,
+            output_tokens=5,
+            total_tokens=15,
+        )
+
+
+class PromptAwareProvider:
+    name = "prompt-aware"
+    model = "prompt-aware-model"
+
+    def __init__(self):
+        self.prompts: list[str] = []
+        self.lock = Lock()
+
+    def generate_json_result(self, prompt: str) -> GenerationResult:
+        with self.lock:
+            self.prompts.append(prompt)
+        if "slow" in prompt:
+            sleep(0.02)
+            explanation = "Slow case explained."
+        else:
+            explanation = "Fast case explained."
+        return GenerationResult(
+            text=json.dumps({"explanation": explanation}),
             model=self.model,
             input_tokens=10,
             output_tokens=5,
@@ -120,3 +148,52 @@ def test_explanation_judge_uses_custom_prompt_file(tmp_path) -> None:
     assert "custom judge prompt" in provider.prompts[0]
     assert "sample.py" in provider.prompts[0]
     assert judged["prompt_path"] == str(prompt)
+
+
+def test_code_explanation_evaluator_records_malformed_case_and_continues() -> None:
+    cases = [
+        ExplanationCase(id="bad", code="def bad(): pass", reference="Does bad.", prompt="Explain it."),
+        ExplanationCase(id="good", code="def ok(): return True", reference="Return true.", prompt="Explain it."),
+    ]
+    provider = FakeProvider(
+        [
+            '{"explanation": "broken\njson"}',
+            json.dumps({"explanation": "Returns true."}),
+        ]
+    )
+
+    report = CodeExplanationEvaluator(provider).evaluate(cases)
+
+    assert report["metrics"]["cases"] == 2.0
+    assert report["error_count"] == 1
+    assert report["results"][0]["prediction"] == ""
+    assert "error" in report["results"][0]
+    assert report["results"][1]["prediction"] == "Returns true."
+
+
+def test_jsonish_parser_repairs_fenced_json_with_invalid_escapes() -> None:
+    parsed = JsonishParser().parse_object(
+        '```json\n{"explanation": "Uses regex \\(group\\) and path C:\\\\tmp."}\n```'
+    )
+
+    assert parsed["explanation"] == "Uses regex \\(group\\) and path C:\\tmp."
+
+
+def test_code_explanation_evaluator_can_run_cases_concurrently_in_dataset_order() -> None:
+    cases = [
+        ExplanationCase(id="slow", code="def slow(): pass", reference="Slow case.", prompt="Explain slow."),
+        ExplanationCase(id="fast", code="def fast(): pass", reference="Fast case.", prompt="Explain fast."),
+    ]
+    progress: list[int] = []
+
+    report = CodeExplanationEvaluator(
+        PromptAwareProvider(),
+        workers=2,
+        progress_callback=lambda completed, _total, _case: progress.append(completed),
+    ).evaluate(cases)
+
+    assert report["metrics"]["cases"] == 2.0
+    assert [row["case_id"] for row in report["results"]] == ["slow", "fast"]
+    assert [row["prediction"] for row in report["results"]] == ["Slow case explained.", "Fast case explained."]
+    assert sorted(progress) == [1, 2]
+    assert report["usage"]["model_calls"] == 2

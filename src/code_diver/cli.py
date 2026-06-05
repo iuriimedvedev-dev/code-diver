@@ -388,6 +388,18 @@ def add_advanced_parsers(subparsers: argparse._SubParsersAction[argparse.Argumen
     evaluate_explanations.add_argument(OptionName.DATASET.value, type=Path, default=None)
     evaluate_explanations.add_argument("--cases", type=int, default=50)
     evaluate_explanations.add_argument("--output", type=Path, default=None)
+    evaluate_explanations.add_argument(
+        "--workers",
+        type=int,
+        default=None,
+        help="Evaluate explanation cases concurrently. Defaults to evaluation.workers.",
+    )
+    evaluate_explanations.add_argument(
+        "--partial-output",
+        type=Path,
+        default=None,
+        help="Write an incremental partial report after each completed case.",
+    )
     evaluate_explanations.add_argument("--judge", action="store_true", help="Score answers with an LLM-as-judge rubric.")
     evaluate_explanations.add_argument(
         "--judge-prompt",
@@ -1580,6 +1592,25 @@ def cmd_evaluate_explanations(args: argparse.Namespace, config: AppConfig) -> in
         preparation = None
 
     cases = ExplanationDatasetLoader().load(dataset)[: max(args.cases, 0)]
+    if args.cases > 0 and len(cases) < args.cases and args.benchmark == "codexglue-code-to-text-python":
+        if not args.yes and not sys.stdin.isatty():
+            print(
+                f"error: explanation benchmark has only {len(cases)} cases; pass --yes to prepare {args.cases}.",
+                file=sys.stderr,
+            )
+            return 1
+        if not args.yes:
+            print(
+                f"Benchmark has only {len(cases)} local cases, but {args.cases} were requested.\n"
+                f"Expand local output now? [y/N] ",
+                end="",
+                file=sys.stderr,
+            )
+            if input().strip().lower() not in {"y", "yes"}:
+                return 1
+        with render_activity("expanding CodeXGLUE Python code explanation benchmark", enabled=not args.json):
+            preparation = CodeExplanationDatasetPreparer().prepare_codexglue_python(dataset, limit=args.cases)
+        cases = ExplanationDatasetLoader().load(dataset)[: args.cases]
     if not cases:
         print(f"error: no explanation cases found in {dataset}", file=sys.stderr)
         return 1
@@ -1591,6 +1622,10 @@ def cmd_evaluate_explanations(args: argparse.Namespace, config: AppConfig) -> in
         if args.judge_model:
             judge_config = replace(judge_config, generation=replace(judge_config.generation, model=args.judge_model))
         judge = ExplanationJudge(create_generation_provider(judge_config), prompt_path=args.judge_prompt)
+
+    worker_count = max(1, int(args.workers or config.evaluation.workers or 1))
+    partial_output = args.partial_output or output.with_suffix(f"{output.suffix}.partial")
+    partial_rows: list[dict[str, Any]] = []
 
     progress_bar = None
     task_id = None
@@ -1611,10 +1646,31 @@ def cmd_evaluate_explanations(args: argparse.Namespace, config: AppConfig) -> in
             if progress_bar is not None and task_id is not None:
                 progress_bar.update(task_id, completed=completed)
 
+        def write_partial(completed: int, total: int, row: dict[str, Any]) -> None:
+            partial_rows.append(row)
+            partial_output.parent.mkdir(parents=True, exist_ok=True)
+            partial_output.write_text(
+                json.dumps(
+                    {
+                        "partial": True,
+                        "completed": completed,
+                        "total": total,
+                        "workers": worker_count,
+                        "output": str(output),
+                        "results": partial_rows,
+                    },
+                    indent=2,
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
         report = CodeExplanationEvaluator(
             create_generation_provider(config),
             judge=judge,
             progress_callback=advance_progress,
+            row_callback=write_partial,
+            workers=worker_count,
         ).evaluate(cases)
     finally:
         if progress_bar is not None:
@@ -1627,6 +1683,7 @@ def cmd_evaluate_explanations(args: argparse.Namespace, config: AppConfig) -> in
             "provider": config.generation.provider,
             "model": config.generation.model,
         },
+        "workers": worker_count,
         "judge": {
             "enabled": bool(args.judge),
             "config": str(args.judge_config) if args.judge_config else None,

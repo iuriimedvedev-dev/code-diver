@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import json
-import re
 from pathlib import Path
 from typing import Any
 
 from ..generation import GenerationProvider
 from .explanation_case import ExplanationCase
 from .explanation_judge_rubric import ExplanationJudgeRubric
+from .jsonish_parser import JsonishParser
 
 
 class ExplanationJudge:
@@ -19,11 +19,13 @@ class ExplanationJudge:
         *,
         prompt_path: Path | None = None,
         rubric: ExplanationJudgeRubric | None = None,
+        parser: JsonishParser | None = None,
     ):
         self.provider = provider
         self.prompt_path = prompt_path or self.DEFAULT_PROMPT_PATH
         self.prompt_template = self._load_prompt_template(self.prompt_path)
         self.rubric = rubric or ExplanationJudgeRubric()
+        self.parser = parser or JsonishParser()
 
     def judge(self, case: ExplanationCase, prediction: str) -> dict[str, Any]:
         prompt = self._prompt(case, prediction)
@@ -54,13 +56,7 @@ class ExplanationJudge:
         )
 
     def _parse_json(self, text: str) -> dict[str, Any]:
-        try:
-            return json.loads(text)
-        except json.JSONDecodeError:
-            match = re.search(r"\{.*\}", text, flags=re.DOTALL)
-            if match:
-                return json.loads(match.group(0))
-            raise
+        return self.parser.parse_object(text)
 
     def _load_prompt_template(self, prompt_path: Path) -> str:
         if not prompt_path.exists():

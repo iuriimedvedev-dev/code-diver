@@ -1,0 +1,123 @@
+# H6.1 Local Model Matrix
+
+Updated: 2026-06-05.
+
+## Goal
+
+Run 100-case local-model experiments without mixing variables.
+
+The fixed search baseline is H6.1:
+
+```text
+EmbeddingGemma-300M file metadata index
+-> H6.1 calibrated hybrid candidate generator
+-> optional reranker / agent layer
+```
+
+Explanation and AI-judge experiments use CodeXGLUE code-to-text because H6.1 is a
+code-search setup, not an explanation benchmark. These results must be reported
+in a separate section.
+
+There are two independent evaluation stages:
+
+1. **Find the right code.** Measured on CodeSearchNet retrieval with H6.1.
+2. **Explain provided code.** Measured on CodeXGLUE code-to-text.
+
+Do not average these metrics. A future full E2E benchmark can be generated with
+our tools, but it should be explicitly marked `synthetic` until manually audited.
+
+## Fixed Variables
+
+| Axis | Value |
+| --- | --- |
+| Search dataset | `.code-diver/tmp/codesearchnet_python_100.jsonl` |
+| Search cases | `100` |
+| Search index | `.code-diver/benchmarks/mteb-codesearchnet-python/index-h5-embeddinggemma-300m-quality.json` |
+| Embedding model | `google/embeddinggemma-300m` |
+| Candidate generator | H6.1 static/grid hybrid weights |
+| Retrieval top-k | `10` |
+| Agent tools | `code_diver_h3_search`, outline/symbol/rg/grep/read, rerank |
+| Explanation dataset | CodeXGLUE code-to-text Python |
+| Judge prompt | `prompts/code-explanation-judge.md` |
+
+## Local Runtime Ports
+
+| Model | Role candidates | Endpoint | Status |
+| --- | --- | --- | --- |
+| Gemma 4 E2B 4-bit | orchestrator, reranker, explainer, judge | `http://127.0.0.1:8012/v1/chat/completions` | Running |
+| Gemma 4 E4B 4-bit | orchestrator, reranker, explainer, judge | `http://127.0.0.1:8013/v1/chat/completions` | Running |
+| Qwen3.5 9B MLX 4-bit | cross-family AI judge | `http://127.0.0.1:8014/v1/chat/completions` | Running |
+| Gemma 4 E4B OptiQ 4-bit | rejected runtime | `8013` attempted | Failed startup in `mlx_vlm.server` with missing vision-tower parameters |
+
+## Validity Gates
+
+Every run must record:
+
+| Gate | Requirement |
+| --- | --- |
+| `completed_cases` | Equals planned cases unless explicitly marked partial. |
+| `error_count` | `0` for valid quality comparisons. |
+| JSON contract | All model outputs parse into the expected schema. |
+| Degraded cases | Count and reason must be reported. |
+| Model identity | Report must contain provider, model, endpoint, and config path. |
+| Runtime | Mean and p95 latency must be reported. |
+| Token usage | Input/output/total tokens when available. |
+| Cost | Local runs use `$0` direct API cost; still report estimated local token volume. |
+| Long-run persistence | Runs above 10 cases should write partial progress before each case or at least every N cases. |
+
+## Search / Reranker Matrix
+
+| ID | Changed variable | Config | Command | Output | Status |
+| --- | --- | --- | --- | --- | --- |
+| `SR-0` | No reranker, H6.1 static baseline | `configs/benchmarks/codesearchnet-h6-embeddinggemma-reranker-100.yml` | `uv run code-diver --config configs/benchmarks/codesearchnet-h6-embeddinggemma-reranker-100.yml experiment --hypothesis h6_embeddinggemma_static --json` | `.code-diver/reports/h6-1-local-matrix-sr0-static-100.json` | complete |
+| `SR-1` | Qwen3-Reranker 0.6B cross-encoder | same | `uv run code-diver --config configs/benchmarks/codesearchnet-h6-embeddinggemma-reranker-100.yml experiment --hypothesis h6_embeddinggemma_qwen3_reranker_0_6b --json` | `.code-diver/reports/h6-1-local-matrix-sr1-qwen3-reranker-100.json` | queued; requires llama.cpp rerank server |
+| `SR-2` | Gemma 4 E2B listwise reranker | to be split from agent config | `evaluate-search-tools --cases 100 --hypothesis agent_gemma4_e2b_local_rerank` | `.code-diver/reports/h6-1-local-matrix-sr2-gemma-e2b-rerank-100.json` | queued |
+| `SR-3` | Gemma 4 E4B listwise reranker | needs E4B endpoint fix to `8013` | `evaluate-search-tools --cases 100 --hypothesis agent_gemma4_e4b_local_rerank` | `.code-diver/reports/h6-1-local-matrix-sr3-gemma-e4b-rerank-100.json` | config patch required |
+
+## Orchestrator Matrix
+
+| ID | Agent model | Reranker model | Config | Command | Output | Status |
+| --- | --- | --- | --- | --- | --- | --- |
+| `OR-1` | Gemma 4 E2B 4-bit | Gemini Lite | `configs/benchmarks/codesearchnet-agent-axis-embeddinggemma-100.yml` | `uv run code-diver --config configs/benchmarks/codesearchnet-agent-axis-embeddinggemma-100.yml evaluate-search-tools --cases 100 --workers 2 --hypothesis agent_gemma4_e2b_rerank_gemini_lite --json` | `.code-diver/reports/h6-1-local-matrix-or1-e2b-agent-gemini-rerank-100.json` | queued |
+| `OR-2` | Gemma 4 E4B 4-bit | Gemini Lite | patched endpoint `8013` | `uv run code-diver --config <patched> evaluate-search-tools --cases 100 --workers 2 --hypothesis agent_gemma4_e4b_rerank_gemini_lite --json` | `.code-diver/reports/h6-1-local-matrix-or2-e4b-agent-gemini-rerank-100.json` | config patch required |
+| `OR-3` | Gemma 4 E2B 4-bit | Gemma 4 E2B 4-bit | `configs/benchmarks/codesearchnet-agent-axis-embeddinggemma-1000.yml` | `uv run code-diver --config configs/benchmarks/codesearchnet-agent-axis-embeddinggemma-1000.yml evaluate-search-tools --cases 100 --workers 2 --hypothesis agent_gemma4_e2b_local_rerank --json` | `.code-diver/reports/h6-1-local-matrix-or3-e2b-agent-e2b-rerank-100.json` | paused; not part of clean two-stage protocol |
+| `OR-4` | Gemma 4 E4B 4-bit | Gemma 4 E4B 4-bit | new local config | `evaluate-search-tools --cases 100 --workers 2 --hypothesis agent_gemma4_e4b_local_rerank` | `.code-diver/reports/h6-1-local-matrix-or4-e4b-agent-e4b-rerank-100.json` | config patch required |
+
+## Explanation / AI-Judge Matrix
+
+| ID | Explanation model | Judge model | Dataset | Command | Output | Status |
+| --- | --- | --- | --- | --- | --- | --- |
+| `EX-1` | Gemma 4 E2B 4-bit | Gemma 4 E4B 4-bit | CodeXGLUE code-to-text Python | `uv run code-diver --config configs/explanation-judge-gemma4-e2b.yml --help-all evaluate-explanations --cases 100 --yes --judge --judge-prompt prompts/code-explanation-judge.md --judge-config configs/explanation-judge-gemma4-e4b.yml --workers 4 --partial-output .code-diver/reports/h6-1-local-matrix-ex1-e2b-explain-e4b-judge-100.partial.json` | `.code-diver/reports/h6-1-local-matrix-ex1-e2b-explain-e4b-judge-100.json` | complete; Gemma-family judge |
+| `EX-2` | Gemma 4 E4B 4-bit | Gemma 4 E4B 4-bit | CodeXGLUE code-to-text Python | `uv run code-diver --config configs/explanation-judge-gemma4-e4b.yml --help-all evaluate-explanations --cases 100 --yes --judge --judge-prompt prompts/code-explanation-judge.md --judge-config configs/explanation-judge-gemma4-e4b.yml --workers 4 --partial-output .code-diver/reports/h6-1-local-matrix-ex2-e4b-explain-e4b-judge-100.partial.json` | `.code-diver/reports/h6-1-local-matrix-ex2-e4b-explain-e4b-judge-100.json` | complete |
+| `EX-3` | Gemma 4 E2B 4-bit | Qwen3.5 9B MLX 4-bit | CodeXGLUE code-to-text Python | `uv run code-diver --config configs/explanation-judge-gemma4-e2b.yml --help-all evaluate-explanations --cases 100 --yes --judge --judge-prompt prompts/code-explanation-judge.md --judge-config configs/explanation-judge-qwen35-9b.yml --workers 4 --partial-output .code-diver/reports/h6-1-local-matrix-ex3-e2b-explain-qwen9b-judge-100.partial.json` | `.code-diver/reports/h6-1-local-matrix-ex3-e2b-explain-qwen9b-judge-100.json` | complete; cross-family judge |
+| `EX-4` | Gemma 4 E4B 4-bit | Qwen3.5 9B MLX 4-bit | CodeXGLUE code-to-text Python | `uv run code-diver --config configs/explanation-judge-gemma4-e4b.yml --help-all evaluate-explanations --cases 100 --yes --judge --judge-prompt prompts/code-explanation-judge.md --judge-config configs/explanation-judge-qwen35-9b.yml --workers 4 --partial-output .code-diver/reports/h6-1-local-matrix-ex4-e4b-explain-qwen9b-judge-100.partial.json` | `.code-diver/reports/h6-1-local-matrix-ex4-e4b-explain-qwen9b-judge-100.json` | complete; cross-family judge |
+
+## Current Protocol Notes
+
+- `Gemma E4B OptiQ` is not a valid local runtime in the current `mlx_vlm.server` path.
+- `Gemma E2B` can fail the strict JSON contract for explanation eval. The evaluator now captures raw malformed JSON per case and continues, so one bad case does not abort the full run.
+- Earlier explanation gates accidentally used a 1-case local dataset because the benchmark had been prepared with `--cases 1`. The CLI now expands the local CodeXGLUE artifact when a later run requests more cases.
+- The H6.1 agent configs currently need an E4B endpoint correction: E4B rows must use `8013`, not `8012`.
+- Explanation and AI-judge quality cannot be merged into H6.1 retrieval metrics. They should be reported side by side, not averaged.
+- `OR-3` was started and then intentionally stopped. The immediate goal is clean two-stage evaluation, not a slow agentic E2E approximation.
+- `evaluate-explanations` now supports `--workers` and `--partial-output`; large runs should always write partial progress.
+- Local models often return JSON-ish output. The evaluator and judge now strip fenced JSON and repair invalid backslash escapes before treating a case as malformed.
+- Cross-family judge is required. Gemma-vs-Gemma can overfit to family style; Qwen3.5 9B judge is the first local cross-family control.
+- Gemma 4 E2B is not viable as a strict structured explainer in the current prompt/output contract. It produced 72-76 malformed generations per 100 cases.
+- Gemma 4 E4B is viable as an explainer, but still needs parse-level retry or a plain-text output mode because it produced 9 malformed generations per 100 cases.
+- Qwen3.5 9B is useful as a cross-family judge. It scored E4B explanations higher than E4B self-judge, with similar judge-error count, but higher runtime.
+
+## Search Results So Far
+
+| ID | Cases | Hit@1 | Hit@3 | Hit@5 | Hit@10 | File Recall@10 | File MRR@10 | nDCG@10 | Precision@R | Mean ms | P95 ms | Notes |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| `SR-0` | 100 | 0.810 | 0.920 | 0.960 | 0.970 | 0.970 | 0.876 | 0.899 | 0.810 | 875 | 928 | Fixed H6.1 static baseline; no LLM rerank. |
+
+## Explanation Results So Far
+
+| ID | Explainer | Judge | Cases | Gen errors | Judge errors | Judge overall | Token F1 | Key-token F1 | Bigram F1 | Duration min | Gen tokens | Judge tokens | Notes |
+| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| `EX-1` | Gemma 4 E2B 4-bit | Gemma 4 E4B 4-bit | 100 | 72 | 1 | 1.283 | 0.035 | 0.034 | 0.016 | 4.83 | 27116 | 58692 | Reject as structured explainer; too many malformed generations. |
+| `EX-2` | Gemma 4 E4B 4-bit | Gemma 4 E4B 4-bit | 100 | 9 | 2 | 4.252 | 0.135 | 0.125 | 0.052 | 10.49 | 85320 | 190264 | Best local Gemma-only explanation setup so far. |
+| `EX-3` | Gemma 4 E2B 4-bit | Qwen3.5 9B MLX 4-bit | 100 | 76 | 0 | 1.198 | 0.044 | 0.041 | 0.019 | 5.82 | 24609 | 52102 | Cross-family judge confirms E2B explainer rejection. |
+| `EX-4` | Gemma 4 E4B 4-bit | Qwen3.5 9B MLX 4-bit | 100 | 9 | 2 | 4.430 | 0.137 | 0.127 | 0.054 | 15.83 | 84505 | 184980 | Best cross-family judged local explanation setup; slower than EX-2. |

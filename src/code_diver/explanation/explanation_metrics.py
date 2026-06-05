@@ -52,16 +52,18 @@ class ExplanationMetrics:
         }
 
     def aggregate(self, rows: list[dict[str, Any]]) -> dict[str, float]:
-        metric_keys = (
-            [
+        metric_keys = sorted(
+            {
                 key
-                for key, value in (rows[0].get("metrics") or {}).items()
+                for row in rows
+                for key, value in (row.get("metrics") or {}).items()
                 if isinstance(value, (int, float))
-            ]
-            if rows
-            else []
+            }
         )
-        return {key: mean(float(row["metrics"][key]) for row in rows) for key in metric_keys}
+        return {
+            key: mean(float((row.get("metrics") or {}).get(key, 0.0)) for row in rows)
+            for key in metric_keys
+        }
 
     def _tokens(self, value: str) -> list[str]:
         return [self._normalize_token(token) for token in re.findall(r"[A-Za-z_][A-Za-z0-9_]*|[0-9]+", value.lower())]
