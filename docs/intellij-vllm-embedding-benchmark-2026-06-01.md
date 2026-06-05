@@ -4,7 +4,7 @@ Run ID: `7e7e1a3c67ae`
 
 Dataset: `datasets/intellij_eval_1000.jsonl`
 
-Suite: `configs/intellij-embedding-benchmark.yml`
+Suite: `configs/intellij/intellij-embedding-benchmark.yml`
 
 Index storage: local Qdrant at `http://localhost:6333`
 

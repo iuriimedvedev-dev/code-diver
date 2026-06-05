@@ -1,0 +1,101 @@
+root: ../protogen
+artifact: .code-diver/protogen-orchestrated-hash-index.json
+
+storage:
+  provider: json
+
+embedding:
+  provider: hash
+  dimensions: 256
+  batch_size: 64
+  workers: 4
+
+generation:
+  provider: gemini
+  model: gemini-3.5-flash
+  fallback_models:
+    - gemini-3-flash-preview
+    - gemini-2.5-flash
+  temperature: 0
+  thinking_budget: 1024
+  api_version: v1alpha
+  timeout_ms: 20000
+
+indexing:
+  mode: orchestrated
+  ai:
+    tree_depth: 4
+    tree_limit: 800
+
+scanner:
+  include:
+    - README.md
+    - pyproject.toml
+    - Dockerfile
+    - docker-compose*.yml
+    - src/*.py
+    - src/**/*.py
+    - evals/*.yaml
+    - scripts/*.py
+    - frontend/package.json
+  exclude:
+    - .claude/**
+    - .codex/**
+    - .opencode/**
+    - frontend/node_modules/**
+    - generated/**
+    - htmlcov/**
+    - logs/**
+    - workspaces/**
+    - src/app/**
+    - src/templates/**
+    - src/tests/**
+    - src/themes/**
+    - test_generated/**
+    - test_codex_cli/**
+    - "*.db"
+    - "*.history*"
+    - "*.png"
+    - ".env*"
+  max_file_bytes: 500000
+  chunk_lines: 120
+  symbol_chunks: false
+
+search:
+  limit: 10
+  preview_lines: 10
+  strategy: orchestrated
+
+recursive_search:
+  rounds: 2
+  branch_limit: 3
+  limit: 5
+
+graph:
+  enabled: true
+  artifact: .code-diver/protogen-orchestrated-hash-graph.json
+  ast_enabled: true
+  expansion_depth: 1
+  neighbor_limit: 20
+
+trace:
+  enabled: true
+  artifact: .code-diver/traces/protogen-orchestrated-hash-indexing.jsonl
+  include_prompts: true
+
+evaluation:
+  dataset: datasets/protogen_eval.jsonl
+  limit: 10
+
+experiments:
+  suite: protogen-orchestrated-hash
+  strategies:
+    - orchestrated
+    - vector
+    - recursive
+    - graph
+
+metrics:
+  enabled: false
+
+plugins: []

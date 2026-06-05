@@ -4,7 +4,7 @@ Run ID: `f6126ddf8af1424682e1794ec09145d1`
 
 Dataset: `datasets/protogen_eval_100.jsonl`
 
-Config: `configs/protogen-ollama-qdrant.yml`
+Config: `configs/protogen-legacy/protogen-ollama-qdrant.yml`
 
 Index: local Ollama `mxbai-embed-large` embeddings, local Qdrant collection `protogen_ollama_embeddings`
 

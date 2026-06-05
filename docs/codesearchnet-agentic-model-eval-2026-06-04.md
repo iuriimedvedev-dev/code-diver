@@ -33,8 +33,8 @@ Temporary slices:
 Configs:
 
 ```text
-configs/codesearchnet-mteb-python-pure-h3.yml
-configs/codesearchnet-mteb-python-h3-agentic.yml
+configs/benchmarks/codesearchnet-mteb-python-pure-h3.yml
+configs/benchmarks/codesearchnet-mteb-python-h3-agentic.yml
 ```
 
 The public agentic config uses the same existing public Pure H3 JSON index and changes only the search mode/model loop. It is therefore a post-retrieval/tool orchestration comparison, not a new embedding benchmark.
@@ -50,7 +50,7 @@ The prompt still allows the first candidate pass to fan out into 2-4 parallel `c
 
 ## Quality Metrics
 
-These rows use `configs/codesearchnet-mteb-python-h5-qwen-quality.yml`: local Qwen3-Embedding-0.6B file metadata index, H3 hybrid candidate generation, and optional LLM final ranking. They are local positive-slice numbers, not official full-corpus MTEB scores. A later sequential embedding-axis run improved the no-rerank candidate generator with EmbeddingGemma-300M: Hit@3 `0.947`, Hit@5 `0.964`, Recall@10 `0.975`, Precision@R `0.848`, mean latency `787ms`.
+These rows use `configs/benchmarks/codesearchnet-mteb-python-h5-qwen-quality.yml`: local Qwen3-Embedding-0.6B file metadata index, H3 hybrid candidate generation, and optional LLM final ranking. They are local positive-slice numbers, not official full-corpus MTEB scores. A later sequential embedding-axis run improved the no-rerank candidate generator with EmbeddingGemma-300M: Hit@3 `0.947`, Hit@5 `0.964`, Recall@10 `0.975`, Precision@R `0.848`, mean latency `787ms`.
 
 | Setup | Cases | Index | Ranker | Hit@1 | Hit@3 | Hit@5 | Hit@10 | Recall@10 | Precision@10 | nDCG@10 | MAP@10 | Mean ms | P95 ms |
 | --- | ---: | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |

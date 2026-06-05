@@ -8,7 +8,7 @@ This run tests the cheap ranking changes from `.plans/2026-06-01_quality-improve
 
 - Embedding providers now expose configurable `document_prefix` and `query_prefix` fields for OpenAI-compatible embeddings.
 - Hybrid retrieval now supports `preserve_vector_top` with `vector_top_score_margin`.
-- `configs/protogen-ollama-qdrant.yml` now contains guarded routed/GraphRAG hypotheses.
+- `configs/protogen-legacy/protogen-ollama-qdrant.yml` now contains guarded routed/GraphRAG hypotheses.
 - Unit coverage was added for config loading, provider prefix payloads, and vector-top guard behavior.
 
 ## Deterministic Eval Results

@@ -48,7 +48,7 @@ The calibration script is:
 
 ```bash
 uv run python scripts/calibrate_hybrid_weights.py \
-  --config configs/codesearchnet-mteb-python-h5-qwen-quality.yml \
+  --config configs/benchmarks/codesearchnet-mteb-python-h5-qwen-quality.yml \
   --train-size 700 \
   --validation-size 300 \
   --output .code-diver/reports/h5-hybrid-weight-calibration-codesearchnet-1000.json
@@ -127,7 +127,7 @@ The calibration script also has an experimental NumPy MLP scorer. It supports tw
 
 ```bash
 uv run python scripts/calibrate_hybrid_weights.py \
-  --config configs/codesearchnet-mteb-python-h5-qwen-quality.yml \
+  --config configs/benchmarks/codesearchnet-mteb-python-h5-qwen-quality.yml \
   --train-size 80 \
   --validation-size 20 \
   --feature-cache .code-diver/tmp/h5-calibration-smoke-features.json \
@@ -151,7 +151,7 @@ Vector-output smoke command:
 
 ```bash
 uv run python scripts/calibrate_hybrid_weights.py \
-  --config configs/codesearchnet-mteb-python-h5-qwen-quality.yml \
+  --config configs/benchmarks/codesearchnet-mteb-python-h5-qwen-quality.yml \
   --train-size 80 \
   --validation-size 20 \
   --feature-cache .code-diver/tmp/h5-calibration-smoke-features.json \

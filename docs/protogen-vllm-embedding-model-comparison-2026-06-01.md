@@ -4,7 +4,7 @@ Run artifact: `.code-diver/reports/protogen-vllm-embedding-benchmark.json`
 
 Dataset: `datasets/protogen_eval_100.jsonl`
 
-Index profile: rich deterministic Protogen profile from `configs/protogen-ollama-qdrant.yml` with Qdrant storage override.
+Index profile: rich deterministic Protogen profile from `configs/protogen-legacy/protogen-ollama-qdrant.yml` with Qdrant storage override.
 
 Candidate/rerank hypotheses:
 

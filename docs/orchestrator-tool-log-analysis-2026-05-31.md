@@ -7,7 +7,7 @@ This report covers the interrupted live `evaluate-search-tools` run `a9b42c820a0
 Command:
 
 ```text
-uv run code-diver --config configs/protogen-ollama-qdrant.yml evaluate-search-tools --dataset datasets/protogen_eval.jsonl --hypothesis ai_search_hybrid_orchestrator --hypothesis ai_search_vector_only --hypothesis ai_search_vector_rg --hypothesis ai_search_vector_symbols --hypothesis ai_search_vector_inspect --hypothesis ai_search_rg_only --hypothesis ai_search_grep_only --hypothesis ai_search_symbols_only --hypothesis ai_search_tree_only --hypothesis ai_search_inspect_only --json
+uv run code-diver --config configs/protogen-legacy/protogen-ollama-qdrant.yml evaluate-search-tools --dataset datasets/protogen_eval.jsonl --hypothesis ai_search_hybrid_orchestrator --hypothesis ai_search_vector_only --hypothesis ai_search_vector_rg --hypothesis ai_search_vector_symbols --hypothesis ai_search_vector_inspect --hypothesis ai_search_rg_only --hypothesis ai_search_grep_only --hypothesis ai_search_symbols_only --hypothesis ai_search_tree_only --hypothesis ai_search_inspect_only --json
 ```
 
 The run was stopped deliberately after confirming it was still using standalone Gemini API billing through the default direct `generation` provider. The process exited with code `143`.
@@ -66,7 +66,7 @@ The estimate is based on local model usage events and `ModelCostEstimator`; it i
 
 ## Billing Finding
 
-`configs/protogen-ollama-qdrant.yml` previously did not define a `generation:` section. Direct evals therefore used `Defaults.GENERATION_PROVIDER`, which is `gemini`, not Pi and not Vertex. That means direct orchestrator runs used the standalone Gemini Developer API client with the AI Studio API key.
+`configs/protogen-legacy/protogen-ollama-qdrant.yml` previously did not define a `generation:` section. Direct evals therefore used `Defaults.GENERATION_PROVIDER`, which is `gemini`, not Pi and not Vertex. That means direct orchestrator runs used the standalone Gemini Developer API client with the AI Studio API key.
 
 The config now explicitly sets:
 
@@ -113,7 +113,7 @@ Highest-value findings:
 Applied immediately:
 
 - `ParallelToolExecutor` now catches per-tool exceptions and returns a failed `ToolResult`, preserving successful results from the same parallel batch.
-- `configs/protogen-ollama-qdrant.yml` now routes direct generation through Vertex.
+- `configs/protogen-legacy/protogen-ollama-qdrant.yml` now routes direct generation through Vertex.
 - `ModelCostEstimator` now uses explicit `gemini-3-flash-preview` pricing.
 
 Verification:
@@ -184,7 +184,7 @@ Run `66fa11b0e393` evaluated the four main agent-tool hypotheses on `datasets/pr
 Command:
 
 ```text
-uv run code-diver --config configs/protogen-ollama-qdrant.yml evaluate-search-tools --hypothesis ai_search_hybrid_orchestrator --hypothesis ai_search_vector_only --hypothesis ai_search_vector_rg --hypothesis ai_search_vector_symbols --json
+uv run code-diver --config configs/protogen-legacy/protogen-ollama-qdrant.yml evaluate-search-tools --hypothesis ai_search_hybrid_orchestrator --hypothesis ai_search_vector_only --hypothesis ai_search_vector_rg --hypothesis ai_search_vector_symbols --json
 ```
 
 ### Summary
@@ -259,7 +259,7 @@ Run `2714426c462a4d54baad12aadc39b517` evaluated `hybrid_candidates_llm_rerank` 
 Command:
 
 ```text
-uv run code-diver --config configs/protogen-ollama-qdrant.yml experiment --hypothesis hybrid_candidates_llm_rerank --json
+uv run code-diver --config configs/protogen-legacy/protogen-ollama-qdrant.yml experiment --hypothesis hybrid_candidates_llm_rerank --json
 ```
 
 ### Result

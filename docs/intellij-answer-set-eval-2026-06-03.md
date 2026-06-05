@@ -29,7 +29,7 @@ Evaluation now supports `glob:` expected paths in both direct CLI eval and `Eval
 
 Config:
 
-- Index: `configs/intellij-postrank-h3-manifest.yml`
+- Index: `configs/intellij/intellij-postrank-h3-manifest.yml`
 - Dataset: `datasets/intellij_eval_1000.answer_sets.jsonl`
 - Retrieval: manifest + summary hybrid union
 - Reranker: Vertex `gemini-3.5-flash`
@@ -93,7 +93,7 @@ Command:
 
 ```bash
 uv run python scripts/run_postrank_h2_deterministic.py \
-  --config configs/intellij-postrank-h3-manifest.yml \
+  --config configs/intellij/intellij-postrank-h3-manifest.yml \
   --dataset datasets/intellij_eval_1000.answer_sets.jsonl \
   --cases 1000 \
   --progress-every 25 \
@@ -144,7 +144,7 @@ Started full 6x1000 rerun:
 
 ```bash
 uv run python scripts/run_postrank_h2_deterministic.py \
-  --config configs/intellij-postrank-h2.yml \
+  --config configs/intellij/intellij-postrank-h2.yml \
   --dataset datasets/intellij_eval_1000.answer_sets.jsonl \
   --cases 1000 \
   --progress-every 50 \

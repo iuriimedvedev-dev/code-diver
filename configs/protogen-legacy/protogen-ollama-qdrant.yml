@@ -1,0 +1,948 @@
+root: ../protogen
+artifact: .code-diver/protogen-ollama-qdrant-index.json
+
+storage:
+  provider: qdrant
+  qdrant:
+    location: .code-diver/qdrant-ollama-v2
+    collection: protogen_ollama_embeddings
+    batch_size: 256
+
+embedding:
+  provider: openai_compatible
+  model: mxbai-embed-large
+  dimensions:
+  url: http://127.0.0.1:11434/v1/embeddings
+  api_key: ollama
+  batch_size: 1
+  workers: 4
+  max_input_chars: 400
+
+generation:
+  provider: vertex
+  model: gemini-3.5-flash
+  fallback_models:
+    - gemini-3-flash-preview
+    - gemini-2.5-flash
+  project: "236777862453"
+  location: global
+  temperature: 0
+  thinking_budget: 1024
+  api_version: v1
+  timeout_ms: 20000
+
+indexing:
+  mode: scanner
+
+scanner:
+  include:
+    - README.md
+    - pyproject.toml
+    - Dockerfile
+    - docker-compose*.yml
+    - src/*.py
+    - src/**/*.py
+    - evals/*.yaml
+    - scripts/*.py
+    - frontend/package.json
+  exclude:
+    - .claude/**
+    - .codex/**
+    - .opencode/**
+    - frontend/node_modules/**
+    - generated/**
+    - htmlcov/**
+    - logs/**
+    - workspaces/**
+    - src/app/**
+    - src/templates/**
+    - src/tests/**
+    - src/themes/**
+    - test_generated/**
+    - test_codex_cli/**
+    - "*.db"
+    - "*.history*"
+    - "*.png"
+    - ".env*"
+  max_file_bytes: 500000
+  chunk_lines: 180
+  structural_chunks: true
+  symbol_chunks: true
+  file_summary_chunks: true
+
+search:
+  limit: 10
+  preview_lines: 10
+  strategy: vector
+
+recursive_search:
+  rounds: 2
+  branch_limit: 3
+  limit: 5
+
+hybrid_search:
+  candidate_limit: 80
+  lexical_candidate_limit: 80
+  vector_weight: 0.6
+  lexical_weight: 0.18
+  path_weight: 0.12
+  symbol_weight: 0.05
+  symbol_match_weight: 0.0
+  graph_weight: 0.05
+  file_vote_weight: 0.04
+  graph_depth: 1
+  graph_neighbor_limit: 20
+  item_kind_weights:
+    file_summary: 0.82
+    symbol: 1.04
+    structural_chunk: 0.72
+    chunk: 1.05
+  min_token_length: 3
+
+llm_rerank:
+  candidate_limit: 40
+  max_preview_chars: 700
+  mode: file_first
+  include_reasons: true
+
+cross_encoder_rerank:
+  provider: llama_cpp
+  model: Qwen3-Reranker-0.6B
+  url: http://127.0.0.1:8080/v1/rerank
+  candidate_limit: 40
+  max_document_chars: 900
+  timeout_ms: 20000
+  preserve_top_candidate: false
+
+graph:
+  enabled: true
+  artifact: .code-diver/protogen-ollama-qdrant-graph.json
+  ast_enabled: true
+  reference_edges_enabled: true
+  call_edges_enabled: true
+  expansion_depth: 1
+  neighbor_limit: 20
+
+pi:
+  binary: npx
+  launcher_args:
+    - -y
+    - "@earendil-works/pi-coding-agent"
+  extension: .pi/extensions/code-diver-rag.ts
+  prompt_template: .pi/prompts/code-diver-rag.md
+  provider: google
+  model: google/gemini-3.5-flash
+  fallback_models:
+    - google/gemini-3-flash-preview
+    - google/gemini-2.5-flash
+  timeout_seconds: 90
+  tools:
+    - code_diver_search
+    - code_diver_inspect
+    - code_diver_open
+    - code_diver_evaluate
+    - code_diver_tree
+    - code_diver_grep
+    - code_diver_rg
+    - code_diver_read
+    - code_diver_symbols
+    - code_diver_rerank
+  toolsets:
+    vector_search:
+      - code_diver_search
+      - code_diver_inspect
+      - code_diver_open
+      - code_diver_tree
+      - code_diver_symbols
+      - code_diver_grep
+      - code_diver_rg
+      - code_diver_read
+      - code_diver_evaluate
+      - code_diver_rerank
+    grep_search:
+      - code_diver_inspect
+      - code_diver_tree
+      - code_diver_symbols
+      - code_diver_grep
+      - code_diver_rg
+      - code_diver_read
+  extra_args: []
+
+trace:
+  enabled: true
+  artifact: .code-diver/traces/protogen-ollama-qdrant-indexing.jsonl
+  include_prompts: true
+
+evaluation:
+  dataset: datasets/protogen_eval_100.jsonl
+  limit: 10
+
+experiments:
+  suite: protogen-ollama-qdrant
+  strategies:
+    - vector
+    - recursive
+    - graph
+    - hybrid
+    - hybrid_rerank
+  hypotheses:
+    - name: vector_qdrant
+      strategy: vector
+      toolset: vector_search
+      description: Qdrant vector retrieval with mxbai embeddings.
+    - name: recursive_qdrant
+      strategy: recursive
+      toolset: vector_search
+      description: Multi-round Qdrant vector retrieval.
+    - name: graph_ast_qdrant
+      strategy: graph
+      toolset: vector_search
+      description: AST GraphRAG expansion over Qdrant results.
+    - name: hybrid_candidates_no_llm
+      strategy: hybrid
+      description: Deterministic vector, lexical, path, symbol, and graph candidate fusion without LLM turns.
+    - name: hybrid_candidates_lexical
+      strategy: hybrid
+      hybrid_search:
+        candidate_limit: 80
+        lexical_candidate_limit: 120
+        vector_weight: 0.35
+        lexical_weight: 0.35
+        path_weight: 0.2
+        symbol_weight: 0.05
+        graph_weight: 0.05
+        graph_depth: 1
+        graph_neighbor_limit: 20
+        min_token_length: 3
+      description: Deterministic fusion with stronger lexical and path signals.
+    - name: hybrid_candidates_graph_boost
+      strategy: hybrid
+      hybrid_search:
+        candidate_limit: 80
+        lexical_candidate_limit: 80
+        vector_weight: 0.5
+        lexical_weight: 0.15
+        path_weight: 0.1
+        symbol_weight: 0.05
+        graph_weight: 0.2
+        graph_depth: 2
+        graph_neighbor_limit: 30
+        min_token_length: 3
+      description: Deterministic fusion with stronger AST/import/call graph propagation.
+    - name: hybrid_candidates_bm25_rrf
+      strategy: hybrid
+      hybrid_search:
+        candidate_limit: 80
+        lexical_candidate_limit: 120
+        vector_weight: 0.55
+        lexical_weight: 0.25
+        path_weight: 0.1
+        symbol_weight: 0.05
+        graph_weight: 0.05
+        graph_depth: 1
+        graph_neighbor_limit: 20
+        lexical_scoring: bm25
+        fusion: rrf
+        rrf_k: 60
+        bm25_k1: 1.2
+        bm25_b: 0.75
+        min_token_length: 3
+      description: Deterministic BM25 lexical scoring with reciprocal rank fusion over vector, lexical, path, symbol, and graph signals.
+    - name: hybrid_candidates_bm25_weighted
+      strategy: hybrid
+      hybrid_search:
+        candidate_limit: 80
+        lexical_candidate_limit: 120
+        vector_weight: 0.6
+        lexical_weight: 0.18
+        path_weight: 0.12
+        symbol_weight: 0.05
+        graph_weight: 0.05
+        graph_depth: 1
+        graph_neighbor_limit: 20
+        lexical_scoring: bm25
+        fusion: weighted
+        bm25_k1: 1.2
+        bm25_b: 0.75
+        min_token_length: 3
+      description: BM25 lexical scoring with the existing weighted fusion baseline.
+    - name: hybrid_candidates_bm25_rrf_vector
+      strategy: hybrid
+      hybrid_search:
+        candidate_limit: 80
+        lexical_candidate_limit: 120
+        vector_weight: 0.78
+        lexical_weight: 0.1
+        path_weight: 0.06
+        symbol_weight: 0.03
+        graph_weight: 0.03
+        graph_depth: 1
+        graph_neighbor_limit: 20
+        lexical_scoring: bm25
+        fusion: rrf
+        rrf_k: 80
+        bm25_k1: 1.2
+        bm25_b: 0.75
+        min_token_length: 3
+      description: BM25/RRF profile biased toward vector rank to protect hit@1 and MRR.
+    - name: hybrid_candidates_routed
+      strategy: hybrid
+      hybrid_search:
+        candidate_limit: 80
+        lexical_candidate_limit: 120
+        vector_weight: 0.6
+        lexical_weight: 0.18
+        path_weight: 0.12
+        symbol_weight: 0.05
+        graph_weight: 0.05
+        graph_depth: 1
+        graph_neighbor_limit: 20
+        routing_enabled: true
+        min_token_length: 3
+      description: Deterministic router selects stronger lexical/path/symbol or graph weighting by query shape.
+    - name: hybrid_candidates_multi_index_routed
+      strategy: hybrid
+      hybrid_search:
+        candidate_limit: 100
+        lexical_candidate_limit: 160
+        vector_weight: 0.58
+        lexical_weight: 0.16
+        path_weight: 0.12
+        symbol_weight: 0.06
+        graph_weight: 0.08
+        graph_depth: 1
+        graph_neighbor_limit: 24
+        routing_enabled: true
+        lexical_scoring: bm25
+        fusion: weighted
+        item_kind_weights:
+          file_summary: 1.08
+          symbol: 1.04
+          chunk: 1.0
+        min_token_length: 3
+      description: "Three-index hybrid: line chunks, symbol chunks, and file summaries with routed weighted fusion."
+    - name: hybrid_candidates_multi_index_guarded
+      strategy: hybrid
+      hybrid_search:
+        candidate_limit: 100
+        lexical_candidate_limit: 140
+        vector_weight: 0.6
+        lexical_weight: 0.18
+        path_weight: 0.12
+        symbol_weight: 0.05
+        graph_weight: 0.05
+        graph_depth: 1
+        graph_neighbor_limit: 20
+        routing_enabled: true
+        item_kind_weights:
+          file_summary: 0.82
+          symbol: 1.03
+          chunk: 1.0
+        min_token_length: 3
+      description: "Three-index guarded fusion: summaries are recall candidates, symbols/chunks stay primary ranking evidence."
+    - name: hybrid_candidates_modern_graphrag
+      strategy: hybrid
+      hybrid_search:
+        candidate_limit: 100
+        lexical_candidate_limit: 140
+        vector_weight: 0.62
+        lexical_weight: 0.17
+        path_weight: 0.11
+        symbol_weight: 0.05
+        graph_weight: 0.03
+        graph_depth: 1
+        graph_neighbor_limit: 36
+        vector_kind_multipliers:
+          chunk: 0.46
+          symbol: 0.30
+          file_summary: 0.12
+          structural_chunk: 0.12
+        routing_enabled: true
+        item_kind_weights:
+          file_summary: 0.82
+          symbol: 1.04
+          chunk: 1.0
+        min_token_length: 3
+      description: "Typed AST GraphRAG with query-aware traversal over calls, references, imports, containment, summaries, and same-file edges."
+    - name: hybrid_candidates_structural_file_vote
+      strategy: hybrid
+      hybrid_search:
+        candidate_limit: 120
+        lexical_candidate_limit: 160
+        vector_weight: 0.6
+        lexical_weight: 0.17
+        path_weight: 0.11
+        symbol_weight: 0.05
+        graph_weight: 0.03
+        file_vote_weight: 0.04
+        graph_depth: 1
+        graph_neighbor_limit: 36
+        vector_kind_multipliers:
+          chunk: 0.45
+          symbol: 0.30
+          file_summary: 0.10
+          structural_chunk: 0.15
+        routing_enabled: true
+        lexical_scoring: bm25
+        fusion: weighted
+        preserve_vector_top: true
+        vector_top_score_margin: 0.03
+        item_kind_weights:
+          file_summary: 0.82
+          symbol: 1.04
+          structural_chunk: 0.72
+          chunk: 1.05
+        min_token_length: 3
+      description: "AST-aware structural chunks plus file-level voting across vector, lexical, symbol, summary, and graph evidence."
+    - name: hybrid_candidates_symbol_first
+      strategy: hybrid
+      hybrid_search:
+        candidate_limit: 120
+        lexical_candidate_limit: 160
+        vector_weight: 0.56
+        lexical_weight: 0.15
+        path_weight: 0.1
+        symbol_weight: 0.06
+        symbol_match_weight: 0.08
+        graph_weight: 0.02
+        file_vote_weight: 0.03
+        graph_depth: 1
+        graph_neighbor_limit: 36
+        vector_kind_multipliers:
+          chunk: 0.35
+          symbol: 0.45
+          file_summary: 0.10
+          structural_chunk: 0.10
+        routing_enabled: true
+        lexical_scoring: bm25
+        fusion: weighted
+        preserve_vector_top: true
+        vector_top_score_margin: 0.03
+        item_kind_weights:
+          file_summary: 0.82
+          symbol: 1.08
+          structural_chunk: 0.70
+          chunk: 1.03
+        min_token_length: 3
+      description: "Symbol-first deterministic lane with a symbol-name prior and scalable split-vector budgets."
+    - name: hybrid_candidates_routed_vector_guard
+      strategy: hybrid
+      hybrid_search:
+        candidate_limit: 80
+        lexical_candidate_limit: 120
+        vector_weight: 0.6
+        lexical_weight: 0.18
+        path_weight: 0.12
+        symbol_weight: 0.05
+        graph_weight: 0.05
+        graph_depth: 1
+        graph_neighbor_limit: 20
+        routing_enabled: true
+        preserve_vector_top: true
+        vector_top_score_margin: 0.03
+        min_token_length: 3
+      description: "Route-conditional hybrid fusion with a confidence-margin guard that prevents weak secondary signals from demoting a clear vector top-1."
+    - name: hybrid_candidates_routed_vector_guard_always
+      strategy: hybrid
+      hybrid_search:
+        candidate_limit: 80
+        lexical_candidate_limit: 120
+        vector_weight: 0.6
+        lexical_weight: 0.18
+        path_weight: 0.12
+        symbol_weight: 0.05
+        graph_weight: 0.05
+        graph_depth: 1
+        graph_neighbor_limit: 20
+        routing_enabled: true
+        preserve_vector_top: true
+        vector_top_score_margin: 0.0
+        min_token_length: 3
+      description: "Ablation: always preserve the vector top-1 after routed fusion to measure the maximum possible guard effect."
+    - name: hybrid_candidates_modern_graphrag_vector_guard
+      strategy: hybrid
+      hybrid_search:
+        candidate_limit: 100
+        lexical_candidate_limit: 140
+        vector_weight: 0.62
+        lexical_weight: 0.17
+        path_weight: 0.11
+        symbol_weight: 0.05
+        graph_weight: 0.03
+        graph_depth: 1
+        graph_neighbor_limit: 36
+        vector_kind_multipliers:
+          chunk: 0.45
+          symbol: 0.30
+          file_summary: 0.10
+          structural_chunk: 0.15
+        routing_enabled: true
+        preserve_vector_top: true
+        vector_top_score_margin: 0.03
+        item_kind_weights:
+          file_summary: 0.82
+          symbol: 1.04
+          chunk: 1.0
+        min_token_length: 3
+      description: "Modern GraphRAG profile plus vector top-1 preservation when the embedding score margin is confident."
+    - name: hybrid_candidates_llm_rerank
+      strategy: hybrid_rerank
+      hybrid_search:
+        candidate_limit: 40
+        lexical_candidate_limit: 80
+        vector_weight: 0.62
+        lexical_weight: 0.17
+        path_weight: 0.11
+        symbol_weight: 0.05
+        graph_weight: 0.03
+        graph_depth: 1
+        graph_neighbor_limit: 24
+        routing_enabled: true
+        item_kind_weights:
+          file_summary: 0.82
+          symbol: 1.04
+          chunk: 1.0
+        min_token_length: 3
+      llm_rerank:
+        candidate_limit: 40
+        max_preview_chars: 700
+        mode: balanced
+        include_reasons: true
+      description: "Balanced baseline: deterministic hybrid candidate generation followed by one bounded Vertex/Gemini rerank call."
+    - name: hybrid_rerank_top20_compact
+      strategy: hybrid_rerank
+      hybrid_search:
+        candidate_limit: 40
+        lexical_candidate_limit: 80
+        vector_weight: 0.62
+        lexical_weight: 0.17
+        path_weight: 0.11
+        symbol_weight: 0.05
+        graph_weight: 0.03
+        graph_depth: 1
+        graph_neighbor_limit: 24
+        routing_enabled: true
+        item_kind_weights:
+          file_summary: 0.82
+          symbol: 1.04
+          chunk: 1.0
+        min_token_length: 3
+      llm_rerank:
+        candidate_limit: 20
+        max_preview_chars: 450
+        mode: compact
+        include_reasons: false
+      description: "Bounded rerank over fewer candidates with shorter previews and no reasons."
+    - name: hybrid_rerank_flash_lite_top20_compact
+      strategy: hybrid_rerank
+      generation:
+        provider: vertex
+        model: gemini-3.1-flash-lite
+        fallback_models: []
+        project: "236777862453"
+        location: global
+        temperature: 0
+        thinking_budget: 256
+        api_version: v1
+        timeout_ms: 20000
+      hybrid_search:
+        candidate_limit: 40
+        lexical_candidate_limit: 80
+        vector_weight: 0.62
+        lexical_weight: 0.17
+        path_weight: 0.11
+        symbol_weight: 0.05
+        graph_weight: 0.03
+        graph_depth: 1
+        graph_neighbor_limit: 24
+        routing_enabled: true
+        item_kind_weights:
+          file_summary: 0.82
+          symbol: 1.04
+          chunk: 1.0
+        min_token_length: 3
+      llm_rerank:
+        candidate_limit: 20
+        max_preview_chars: 450
+        mode: compact
+        include_reasons: false
+      description: "Gemini 3.1 Flash-Lite listwise rerank over top-20 compact candidates."
+    - name: hybrid_rerank_flash_lite_file_first
+      strategy: hybrid_rerank
+      generation:
+        provider: vertex
+        model: gemini-3.1-flash-lite
+        fallback_models: []
+        project: "236777862453"
+        location: global
+        temperature: 0
+        thinking_budget: 256
+        api_version: v1
+        timeout_ms: 20000
+      hybrid_search:
+        candidate_limit: 40
+        lexical_candidate_limit: 80
+        vector_weight: 0.62
+        lexical_weight: 0.17
+        path_weight: 0.11
+        symbol_weight: 0.05
+        graph_weight: 0.03
+        graph_depth: 1
+        graph_neighbor_limit: 24
+        routing_enabled: true
+        item_kind_weights:
+          file_summary: 0.82
+          symbol: 1.04
+          chunk: 1.0
+        min_token_length: 3
+      llm_rerank:
+        candidate_limit: 40
+        max_preview_chars: 700
+        mode: file_first
+        include_reasons: true
+      description: "Gemini 3.1 Flash-Lite file-first listwise rerank over the full top-40 candidate set."
+    - name: hybrid_rerank_flash_lite_structural_file_vote
+      strategy: hybrid_rerank
+      generation:
+        provider: vertex
+        model: gemini-3.1-flash-lite
+        fallback_models: []
+        project: "236777862453"
+        location: global
+        temperature: 0
+        thinking_budget: 256
+        api_version: v1
+        timeout_ms: 20000
+      hybrid_search:
+        candidate_limit: 40
+        lexical_candidate_limit: 100
+        vector_weight: 0.6
+        lexical_weight: 0.17
+        path_weight: 0.11
+        symbol_weight: 0.05
+        graph_weight: 0.03
+        file_vote_weight: 0.04
+        graph_depth: 1
+        graph_neighbor_limit: 36
+        routing_enabled: true
+        lexical_scoring: bm25
+        fusion: weighted
+        item_kind_weights:
+          file_summary: 0.82
+          symbol: 1.04
+          structural_chunk: 0.72
+          chunk: 1.05
+        min_token_length: 3
+      llm_rerank:
+        candidate_limit: 20
+        max_preview_chars: 450
+        mode: compact
+        include_reasons: false
+      description: "Flash-Lite rerank over structural multi-index candidates with file-level consensus voting."
+    - name: hybrid_rerank_flash_lite_structural_file_first
+      strategy: hybrid_rerank
+      generation:
+        provider: vertex
+        model: gemini-3.1-flash-lite
+        fallback_models: []
+        project: "236777862453"
+        location: global
+        temperature: 0
+        thinking_budget: 256
+        api_version: v1
+        timeout_ms: 20000
+      hybrid_search:
+        candidate_limit: 40
+        lexical_candidate_limit: 100
+        vector_weight: 0.6
+        lexical_weight: 0.17
+        path_weight: 0.11
+        symbol_weight: 0.05
+        graph_weight: 0.03
+        file_vote_weight: 0.04
+        graph_depth: 1
+        graph_neighbor_limit: 36
+        routing_enabled: true
+        lexical_scoring: bm25
+        fusion: weighted
+        item_kind_weights:
+          file_summary: 0.82
+          symbol: 1.04
+          structural_chunk: 0.72
+          chunk: 1.05
+        min_token_length: 3
+      llm_rerank:
+        candidate_limit: 40
+        max_preview_chars: 700
+        mode: file_first
+        include_reasons: true
+      description: "File-first Flash-Lite rerank over structural multi-index candidates."
+    - name: hybrid_rerank_file_first
+      strategy: hybrid_rerank
+      hybrid_search:
+        candidate_limit: 40
+        lexical_candidate_limit: 80
+        vector_weight: 0.62
+        lexical_weight: 0.17
+        path_weight: 0.11
+        symbol_weight: 0.05
+        graph_weight: 0.03
+        graph_depth: 1
+        graph_neighbor_limit: 24
+        routing_enabled: true
+        item_kind_weights:
+          file_summary: 0.82
+          symbol: 1.04
+          chunk: 1.0
+        min_token_length: 3
+      llm_rerank:
+        candidate_limit: 40
+        max_preview_chars: 700
+        mode: file_first
+        include_reasons: true
+      description: "Reranker explicitly ranks owning files before choosing symbols/chunks."
+    - name: hybrid_rerank_base_prior
+      strategy: hybrid_rerank
+      hybrid_search:
+        candidate_limit: 40
+        lexical_candidate_limit: 80
+        vector_weight: 0.62
+        lexical_weight: 0.17
+        path_weight: 0.11
+        symbol_weight: 0.05
+        graph_weight: 0.03
+        graph_depth: 1
+        graph_neighbor_limit: 24
+        routing_enabled: true
+        item_kind_weights:
+          file_summary: 0.82
+          symbol: 1.04
+          chunk: 1.0
+        min_token_length: 3
+      llm_rerank:
+        candidate_limit: 40
+        max_preview_chars: 700
+        mode: base_rank_prior
+        include_reasons: true
+      description: "Reranker treats deterministic hybrid rank as a strong prior."
+    - name: hybrid_rerank_precision
+      strategy: hybrid_rerank
+      hybrid_search:
+        candidate_limit: 40
+        lexical_candidate_limit: 80
+        vector_weight: 0.62
+        lexical_weight: 0.17
+        path_weight: 0.11
+        symbol_weight: 0.05
+        graph_weight: 0.03
+        graph_depth: 1
+        graph_neighbor_limit: 24
+        routing_enabled: true
+        item_kind_weights:
+          file_summary: 0.82
+          symbol: 1.04
+          chunk: 1.0
+        min_token_length: 3
+      llm_rerank:
+        candidate_limit: 40
+        max_preview_chars: 700
+        mode: precision
+        include_reasons: true
+      description: "Reranker prompt optimizes rank-one precision and specific implementation ownership."
+    - name: hybrid_rerank_preserve_top
+      strategy: hybrid_rerank
+      hybrid_search:
+        candidate_limit: 40
+        lexical_candidate_limit: 80
+        vector_weight: 0.62
+        lexical_weight: 0.17
+        path_weight: 0.11
+        symbol_weight: 0.05
+        graph_weight: 0.03
+        graph_depth: 1
+        graph_neighbor_limit: 24
+        routing_enabled: true
+        item_kind_weights:
+          file_summary: 0.82
+          symbol: 1.04
+          chunk: 1.0
+        min_token_length: 3
+      llm_rerank:
+        candidate_limit: 40
+        max_preview_chars: 700
+        mode: balanced
+        include_reasons: true
+        preserve_top_candidate: true
+        preserve_top_score_margin: 0.08
+      description: "Balanced rerank with deterministic top candidate preserved when score gap is strong."
+    - name: hybrid_cross_encoder_rerank_qwen3_0_6b
+      strategy: cross_encoder_rerank
+      cross_encoder_rerank:
+        provider: llama_cpp
+        model: Qwen3-Reranker-0.6B
+        url: http://127.0.0.1:8080/v1/rerank
+        candidate_limit: 40
+        max_document_chars: 900
+        timeout_ms: 20000
+      description: "Dedicated Qwen3 cross-encoder rerank over deterministic hybrid candidates through llama.cpp /v1/rerank."
+    - name: hybrid_candidates_path_symbol
+      strategy: hybrid
+      hybrid_search:
+        candidate_limit: 80
+        lexical_candidate_limit: 120
+        vector_weight: 0.45
+        lexical_weight: 0.2
+        path_weight: 0.25
+        symbol_weight: 0.1
+        graph_weight: 0.0
+        graph_depth: 0
+        graph_neighbor_limit: 0
+        min_token_length: 3
+      description: Deterministic fusion emphasizing file paths and symbol metadata.
+    - name: ai_grep_only
+      toolset: grep_search
+      description: Direct orchestrator searches through grep, rg, tree, symbols, and read without vector search.
+    - name: ai_search_vector_only
+      tools:
+        - code_diver_search
+      description: Direct orchestrator searches only through the existing vector index.
+    - name: ai_search_rg_only
+      tools:
+        - code_diver_rg
+      description: Direct orchestrator searches only through structured regex matches.
+    - name: ai_search_grep_only
+      tools:
+        - code_diver_grep
+      description: Direct orchestrator searches only through structured literal grep matches.
+    - name: ai_search_symbols_only
+      tools:
+        - code_diver_symbols
+      description: Direct orchestrator searches only through structured symbol discovery.
+    - name: ai_search_tree_only
+      tools:
+        - code_diver_tree
+      description: Direct orchestrator searches only through gitignore-aware tree discovery.
+    - name: ai_search_inspect_only
+      tools:
+        - code_diver_inspect
+      description: Direct orchestrator searches only through the concurrent inspect summary tool.
+    - name: ai_search_rg_read
+      tools:
+        - code_diver_rg
+        - code_diver_read
+      description: Direct orchestrator finds candidates with rg and reads selected source ranges.
+    - name: ai_search_vector_read
+      tools:
+        - code_diver_search
+        - code_diver_read
+      description: Direct orchestrator finds candidates with vector search and reads selected source ranges.
+    - name: ai_search_vector_rerank
+      tools:
+        - code_diver_search
+        - code_diver_rerank
+      generation:
+        provider: vertex
+        model: gemini-3.1-flash-lite
+        fallback_models: []
+        project: "236777862453"
+        location: global
+        temperature: 0
+        thinking_budget: 256
+        api_version: v1
+        timeout_ms: 20000
+      llm_rerank:
+        candidate_limit: 20
+        max_preview_chars: 450
+        mode: compact
+        include_reasons: false
+      description: Direct orchestrator generates structured vector/hybrid candidates, then delegates final ordering to the AI rerank tool.
+    - name: ai_search_vector_rerank_read
+      tools:
+        - code_diver_search
+        - code_diver_rerank
+        - code_diver_read
+      generation:
+        provider: vertex
+        model: gemini-3.1-flash-lite
+        fallback_models: []
+        project: "236777862453"
+        location: global
+        temperature: 0
+        thinking_budget: 256
+        api_version: v1
+        timeout_ms: 20000
+      llm_rerank:
+        candidate_limit: 20
+        max_preview_chars: 450
+        mode: compact
+        include_reasons: false
+      description: Direct orchestrator uses vector candidates, AI reranking, then bounded read verification.
+    - name: ai_search_vector_rg
+      tools:
+        - code_diver_search
+        - code_diver_rg
+      description: Direct orchestrator combines vector candidates with explicit regex probes, without source reads.
+    - name: ai_search_vector_symbols
+      tools:
+        - code_diver_search
+        - code_diver_symbols
+      description: Direct orchestrator combines vector candidates with symbol discovery.
+    - name: ai_search_vector_inspect
+      tools:
+        - code_diver_search
+        - code_diver_inspect
+      description: Direct orchestrator combines vector candidates with the structured inspect tool.
+    - name: ai_search_hybrid_orchestrator
+      tools:
+        - code_diver_search
+        - code_diver_tree
+        - code_diver_symbols
+        - code_diver_grep
+        - code_diver_rg
+        - code_diver_read
+        - code_diver_inspect
+        - code_diver_rerank
+      description: Universal hybrid orchestrator with vector/BM25/symbol/GraphRAG candidates plus read-only parallel inspection tools.
+    - name: ai_search_adaptive_agentic_rerank
+      tools:
+        - code_diver_search
+        - code_diver_tree
+        - code_diver_symbols
+        - code_diver_grep
+        - code_diver_rg
+        - code_diver_read
+        - code_diver_inspect
+        - code_diver_rerank
+      generation:
+        provider: vertex
+        model: gemini-3.1-flash-lite
+        fallback_models: []
+        project: "236777862453"
+        location: global
+        temperature: 0
+        thinking_budget: 256
+        api_version: v1
+        timeout_ms: 20000
+      llm_rerank:
+        candidate_limit: 30
+        max_preview_chars: 550
+        mode: file_first
+        include_reasons: false
+      description: Adaptive direct orchestrator that must do multiple candidate/evidence passes, then AI-rerank before final results.
+    - name: ai_search_vector_rg_read
+      tools:
+        - code_diver_search
+        - code_diver_rg
+        - code_diver_read
+      description: Direct orchestrator combines vector candidates, explicit regex probes, and bounded reads.
+    - name: ai_search_vector_symbols_read
+      tools:
+        - code_diver_search
+        - code_diver_symbols
+        - code_diver_read
+      description: Direct orchestrator combines vector candidates, symbols, and bounded reads.
+
+metrics:
+  enabled: false
+
+plugins: []

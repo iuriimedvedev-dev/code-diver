@@ -31,7 +31,7 @@ Status meanings:
 | Decision | Superseded by hybrid file-first H3. |
 | Failure modes | Duplicate chunk pressure, weak file-level ranking, hash embeddings hiding semantic signal, dataset-specific label shape. |
 | Follow-ups | Keep hash/vector harness only for deterministic no-key smoke checks. |
-| Links | [research notes](../research.md), [metrics current runs](../metrics.md), [market comparison](../codesearchnet-market-comparison-2026-06-03.md), `configs/protogen-baseline.yml`, `configs/codesearchnet-mteb-python-hash.yml` |
+| Links | [research notes](../research.md), [metrics current runs](../metrics.md), [market comparison](../codesearchnet-market-comparison-2026-06-03.md), `configs/protogen-legacy/protogen-baseline.yml`, `configs/benchmarks/codesearchnet-mteb-python-hash.yml` |
 
 ## BASE-RECURSIVE - Recursive Retrieval
 
@@ -91,7 +91,7 @@ Status meanings:
 | Decision | Accepted. This becomes the persistent locator foundation for H3/H5. |
 | Failure modes | Correct file can be present but ranked too low; vague semantic queries may need better query variants or reranking. |
 | Follow-ups | Improve rank ordering with H3 profile union and H5 ranking; test stronger local embedders. |
-| Links | [Explanation H1](../Explanation.md), [IntelliJ file-locator sweep](../intellij-file-locator-sweep-2026-06-02.md), `configs/intellij-community-file-locator.yml` |
+| Links | [Explanation H1](../Explanation.md), [IntelliJ file-locator sweep](../intellij-file-locator-sweep-2026-06-02.md), `configs/intellij/intellij-community-file-locator.yml` |
 
 ## H1B - File Locator Plus Signature-Only Symbols
 
@@ -131,7 +131,7 @@ Status meanings:
 | Decision | Keep the lesson: structured probes are better than ephemeral indexing in this implementation. Superseded as a named architecture by H3/H5. |
 | Failure modes | Old evaluator undercounted broad multi-file answers; the answer-set six-way rerun was still pending in the source doc. |
 | Follow-ups | Replace old narrow metrics with full answer-set rerun if completed. |
-| Links | [IntelliJ H2 matrix](../intellij-h2-matrix-overnight-2026-06-02.md), [IntelliJ answer-set eval](../intellij-answer-set-eval-2026-06-03.md), `configs/intellij-postrank-h2.yml` |
+| Links | [IntelliJ H2 matrix](../intellij-h2-matrix-overnight-2026-06-02.md), [IntelliJ answer-set eval](../intellij-answer-set-eval-2026-06-03.md), `configs/intellij/intellij-postrank-h2.yml` |
 
 ## H2B - Ephemeral Candidate-File Deep Index
 
@@ -171,7 +171,7 @@ Status meanings:
 | Decision | Accepted as the production baseline candidate generator and no-API fallback. H5 is the default quality path when an LLM ranker is available. |
 | Failure modes | Public positive slice is not official full-corpus MTEB; file-level metadata may dilute function-level CodeSearchNet targets; candidate recall still caps reranking. |
 | Follow-ups | Add large-negative/full-corpus public profile; compare Qwen3 4B, EmbeddingGemma, Gemini, and Voyage Code with the same H3 stack. |
-| Links | [current research state](../current-research-state-2026-06-04.md), [CodeSearchNet agentic/model eval](../codesearchnet-agentic-model-eval-2026-06-04.md), [market comparison](../codesearchnet-market-comparison-2026-06-03.md), `configs/codesearchnet-mteb-python-h5-qwen-quality.yml`, `configs/codesearchnet-mteb-python-pure-h3.yml` |
+| Links | [current research state](../current-research-state-2026-06-04.md), [CodeSearchNet agentic/model eval](../codesearchnet-agentic-model-eval-2026-06-04.md), [market comparison](../codesearchnet-market-comparison-2026-06-03.md), `configs/benchmarks/codesearchnet-mteb-python-h5-qwen-quality.yml`, `configs/benchmarks/codesearchnet-mteb-python-pure-h3.yml` |
 
 ## H3-INTELLIJ-ORACLE - H3 Manifest Union Plus Gemini 3.5
 
@@ -181,7 +181,7 @@ Status meanings:
 | Status | oracle / not routine default |
 | Motivation | Prove the Hit@10 target is reachable on the large internal IntelliJ answer-set evaluation. |
 | Assumptions | H3 manifest candidates have enough recall and Gemini 3.5 Flash can rank broad answer-set candidates well. |
-| Index composition | `configs/intellij-postrank-h3-manifest.yml`; manifest + summary hybrid union over IntelliJ. |
+| Index composition | `configs/intellij/intellij-postrank-h3-manifest.yml`; manifest + summary hybrid union over IntelliJ. |
 | Search/ranking flow | H3 manifest union top candidates -> Gemini 3.5 Flash file-first listwise rerank -> final ranked files. |
 | Model/provider matrix | Vertex `gemini-3.5-flash` reranker. |
 | Dataset | `datasets/intellij_eval_1000.answer_sets.jsonl`, 1,000 cases, answer sets with exact paths and `glob:` labels. |
@@ -191,7 +191,7 @@ Status meanings:
 | Decision | Use as quality ceiling/oracle, not routine experiment loop. |
 | Failure modes | `answer_sets` is permissive; no-glob estimate was about `0.946`; some globs matched no files in later validation; cost is high. |
 | Follow-ups | Report full/no-glob/exact-only scores; add fail-fast/degraded gates; run cheaper Gemini Lite clean H3 answer-set sweep. |
-| Links | [IntelliJ answer-set eval](../intellij-answer-set-eval-2026-06-03.md), [final quality conclusions](../final-search-quality-conclusions-2026-06-03.md), [eval validity review](../eval-validity-review-2026-06-03.md), `configs/intellij-postrank-h3-manifest.yml` |
+| Links | [IntelliJ answer-set eval](../intellij-answer-set-eval-2026-06-03.md), [final quality conclusions](../final-search-quality-conclusions-2026-06-03.md), [eval validity review](../eval-validity-review-2026-06-03.md), `configs/intellij/intellij-postrank-h3-manifest.yml` |
 
 ## H3-AGENTIC - Open-Ended Agentic H3
 
@@ -211,7 +211,7 @@ Status meanings:
 | Decision | Not default. Keep only as hard-case/gated research. |
 | Failure modes | Over-searching, unscoped probes, candidate generator mismatch, tool protocol errors, replacing deterministic tail after LLM choices. |
 | Follow-ups | Test confidence-gated agent after Pure H3, planner-only variants, and deterministic candidate construction with agent only for low-confidence cases. |
-| Links | [agentic H3 comparison](../agentic-h3-comparison-2026-06-03.md), [CodeSearchNet agentic/model eval](../codesearchnet-agentic-model-eval-2026-06-04.md), `configs/intellij-postrank-h3-manifest.yml`, `configs/codesearchnet-mteb-python-h3-agentic.yml` |
+| Links | [agentic H3 comparison](../agentic-h3-comparison-2026-06-03.md), [CodeSearchNet agentic/model eval](../codesearchnet-agentic-model-eval-2026-06-04.md), `configs/intellij/intellij-postrank-h3-manifest.yml`, `configs/benchmarks/codesearchnet-mteb-python-h3-agentic.yml` |
 
 ## H4 - LLM Query Planner / Multi-Query Profile Union
 
@@ -231,7 +231,7 @@ Status meanings:
 | Decision | Research-only. Keep the insight that pre-retrieval query variants can help, but require stronger cost/quality proof. |
 | Failure modes | Planner cost, variant noise, partial-run instability, old evaluator labels. |
 | Follow-ups | Compare planner-only over Pure H3 candidates and confidence-gated planning on answer-set/public quality datasets. |
-| Links | [IntelliJ H2 postrank H3/H4 update](../intellij-postrank-h2-2026-06-02.md), [IntelliJ H2 matrix](../intellij-h2-matrix-overnight-2026-06-02.md), `configs/intellij-postrank-h2.yml` |
+| Links | [IntelliJ H2 postrank H3/H4 update](../intellij-postrank-h2-2026-06-02.md), [IntelliJ H2 matrix](../intellij-h2-matrix-overnight-2026-06-02.md), `configs/intellij/intellij-postrank-h2.yml` |
 
 ## H5 - H3 Candidates Plus Top-10 LLM Ranking
 
@@ -251,7 +251,7 @@ Status meanings:
 | Decision | Accepted as the default quality path. Pure H3 remains the fastest/no-API fallback and the candidate generator under H5. |
 | Failure modes | Candidate recall ceiling, prompt size for local rankers, API cost/quotas, public-slice not official full-corpus MTEB. |
 | Follow-ups | Run stronger embedding models with the same H5 protocol; add a true cross-encoder reranker baseline. |
-| Links | [current research state](../current-research-state-2026-06-04.md), [final report](../final-report-2026-06-03.md), [CodeSearchNet agentic/model eval](../codesearchnet-agentic-model-eval-2026-06-04.md), `configs/codesearchnet-mteb-python-h5-qwen-quality.yml` |
+| Links | [current research state](../current-research-state-2026-06-04.md), [final report](../final-report-2026-06-03.md), [CodeSearchNet agentic/model eval](../codesearchnet-agentic-model-eval-2026-06-04.md), `configs/benchmarks/codesearchnet-mteb-python-h5-qwen-quality.yml` |
 
 ## H6.1 - Calibrated Hybrid Candidate Weights
 
@@ -261,7 +261,7 @@ Status meanings:
 | Status | active calibration candidate |
 | Motivation | Replace manual H3/H5 hybrid weights with weights chosen on a train split and validated on held-out cases. |
 | Assumptions | The existing hybrid signals are useful, but their relative weights should be calibrated against file-level metrics rather than hand-picked. |
-| Index composition | Same H5 file-metadata index as `configs/codesearchnet-mteb-python-h5-qwen-quality.yml`: local Qwen3-Embedding-0.6B, `file_summary` + `file_manifest`, no code-body chunks. |
+| Index composition | Same H5 file-metadata index as `configs/benchmarks/codesearchnet-mteb-python-h5-qwen-quality.yml`: local Qwen3-Embedding-0.6B, `file_summary` + `file_manifest`, no code-body chunks. |
 | Search/ranking flow | H3 candidate generation -> collect score components -> grid/linear weight sweep on train -> validate frozen weights -> optionally run H5 LLM rerank over calibrated candidates. |
 | Model/provider matrix | Current calibration uses Qwen3-Embedding-0.6B candidates only; no LLM calls during calibration. |
 | Dataset | CodeSearchNet/MTEB Python local positive slice, 1,000 cases, split 700 train / 300 validation, seed `17`. |
@@ -331,7 +331,7 @@ Status meanings:
 | Decision | Promote EmbeddingGemma-300M to the next reranker/agent experiments; keep Qwen 0.6B as the control. Qwen3-Embedding-4B is still pending. |
 | Failure modes | Official MTEB scores are not directly comparable to Code Diver local positive-slice metrics; API models add cost/quota; gated licenses may block local setup. |
 | Follow-ups | Add run manifests with model/provider versions, config hashes, index hashes, and dataset hashes. |
-| Links | [local model axis experiments](../local-model-axis-experiments-2026-06-04.md), [code embedding model research](../code-embedding-model-research-2026-06-04.md), [market comparison](../codesearchnet-market-comparison-2026-06-03.md), `configs/codesearchnet-mteb-python-h5-qwen-quality.yml` |
+| Links | [local model axis experiments](../local-model-axis-experiments-2026-06-04.md), [code embedding model research](../code-embedding-model-research-2026-06-04.md), [market comparison](../codesearchnet-market-comparison-2026-06-03.md), `configs/benchmarks/codesearchnet-mteb-python-h5-qwen-quality.yml` |
 
 ## RERANK-MATRIX - LLM And Cross-Encoder Ranking
 
@@ -351,7 +351,7 @@ Status meanings:
 | Decision | Use Gemini Lite for quality/cost tradeoff; reserve Gemini 3.5 for oracle runs; keep local/cross-encoder work active. |
 | Failure modes | Reranker can only reorder candidates it sees; prompt size dominates local latency; fail-soft rerank errors can contaminate metrics if not gated. |
 | Follow-ups | Test Qwen3-Reranker via a real rerank endpoint over fixed H3 candidates; add validity status to all rerank reports. |
-| Links | [local model axis experiments](../local-model-axis-experiments-2026-06-04.md), [top-5 hypotheses eval](../top5-hypotheses-eval-2026-06-02.md), [final quality conclusions](../final-search-quality-conclusions-2026-06-03.md), [eval validity review](../eval-validity-review-2026-06-03.md), `configs/intellij-postrank-h3-manifest.yml` |
+| Links | [local model axis experiments](../local-model-axis-experiments-2026-06-04.md), [top-5 hypotheses eval](../top5-hypotheses-eval-2026-06-02.md), [final quality conclusions](../final-search-quality-conclusions-2026-06-03.md), [eval validity review](../eval-validity-review-2026-06-03.md), `configs/intellij/intellij-postrank-h3-manifest.yml` |
 
 ## PUBLIC-BENCH - CodeSearchNet / MTEB Public Slice
 
@@ -371,4 +371,4 @@ Status meanings:
 | Decision | Keep as current public comparison harness; do not use as official SOTA claim. |
 | Failure modes | No large negative pool, not official scorer, synthetic file materialization, single-positive label shape. |
 | Follow-ups | Add 20k/50k large-negative profiles and/or official-compatible scorer export. |
-| Links | [current research state](../current-research-state-2026-06-04.md), [CodeSearchNet agentic/model eval](../codesearchnet-agentic-model-eval-2026-06-04.md), [market comparison](../codesearchnet-market-comparison-2026-06-03.md), `configs/codesearchnet-mteb-python-h5-qwen-quality.yml` |
+| Links | [current research state](../current-research-state-2026-06-04.md), [CodeSearchNet agentic/model eval](../codesearchnet-agentic-model-eval-2026-06-04.md), [market comparison](../codesearchnet-market-comparison-2026-06-03.md), `configs/benchmarks/codesearchnet-mteb-python-h5-qwen-quality.yml` |

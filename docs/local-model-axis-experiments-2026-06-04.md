@@ -125,7 +125,7 @@ Fixed variables:
 
 | Axis | Value |
 | --- | --- |
-| Base config | `configs/codesearchnet-mteb-python-pure-h3.yml` |
+| Base config | `configs/benchmarks/codesearchnet-mteb-python-pure-h3.yml` |
 | Embedding model | `mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ` |
 | Candidate generator | H3 file-metadata hybrid retrieval |
 | Dataset split | 700 train / 300 validation, seed `17` |
@@ -215,7 +215,7 @@ Suite:
 
 ```bash
 uv run --group runtime-sentence-transformers python scripts/benchmark_embedding_models.py \
-  --suite configs/codesearchnet-local-embedding-axis-100.yml
+  --suite configs/local-models/codesearchnet-local-embedding-axis-100.yml
 ```
 
 Report:
@@ -253,7 +253,7 @@ Suite:
 
 ```bash
 uv run --group runtime-sentence-transformers python scripts/benchmark_embedding_models.py \
-  --suite configs/codesearchnet-local-embedding-axis-1000.yml
+  --suite configs/local-models/codesearchnet-local-embedding-axis-1000.yml
 ```
 
 Report:
@@ -473,7 +473,7 @@ Suite:
 
 ```bash
 uv run python scripts/benchmark_generation_models.py \
-  --suite configs/codesearchnet-local-gemma-ranker-slice.yml \
+  --suite configs/local-models/codesearchnet-local-gemma-ranker-slice.yml \
   --only gemma4_e4b_it_optiq_4bit
 ```
 

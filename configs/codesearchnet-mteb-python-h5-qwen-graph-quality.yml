@@ -1,0 +1,99 @@
+root: .code-diver/benchmarks/mteb-codesearchnet-python/corpus
+artifact: .code-diver/benchmarks/mteb-codesearchnet-python/index-h5-qwen3-0_6b-quality.json
+
+storage:
+  provider: json
+
+embedding:
+  provider: openai_compatible
+  model: mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ
+  dimensions:
+  url: http://127.0.0.1:8001/v1/embeddings
+  api_key: local
+  batch_size: 128
+  workers: 1
+  max_input_chars: 900
+  query_prefix: "Represent this code search query for retrieving relevant files: "
+  document_prefix: "Represent this code file metadata for retrieval: "
+
+indexing:
+  mode: scanner
+
+scanner:
+  include:
+    - "**/*.py"
+  max_file_bytes: 200000
+  line_chunks: false
+  chunk_lines: 220
+  structural_chunks: false
+  symbol_chunks: false
+  symbol_body: false
+  file_summary_chunks: true
+  file_manifest_chunks: true
+  max_symbols_per_file: 96
+
+search:
+  limit: 10
+  preview_lines: 8
+  strategy: hybrid
+
+hybrid_search:
+  candidate_limit: 280
+  lexical_candidate_limit: 900
+  vector_weight: 0.38
+  lexical_weight: 0.24
+  path_weight: 0.11
+  symbol_weight: 0.09
+  symbol_match_weight: 0.09
+  graph_weight: 0.09
+  file_vote_weight: 0.06
+  graph_depth: 1
+  graph_neighbor_limit: 8
+  vector_kind_limits:
+    file_summary: 170
+    file_manifest: 170
+  vector_kind_multipliers:
+    file_summary: 1.0
+    file_manifest: 1.08
+  routing_enabled: true
+  lexical_scoring: bm25
+  fusion: weighted
+  preserve_vector_top: true
+  vector_top_score_margin: 0.03
+  item_kind_weights:
+    file_summary: 1.0
+    file_manifest: 1.08
+  min_token_length: 3
+
+graph:
+  enabled: true
+  artifact: .code-diver/benchmarks/mteb-codesearchnet-python/graph-h5-qwen3-0_6b-quality.json
+  ast_enabled: false
+  reference_edges_enabled: false
+  call_edges_enabled: false
+  expansion_depth: 1
+  neighbor_limit: 8
+
+trace:
+  enabled: true
+  artifact: .code-diver/traces/codesearchnet-mteb-python-h5-qwen-graph-quality.jsonl
+  include_prompts: false
+
+evaluation:
+  dataset: .code-diver/benchmarks/mteb-codesearchnet-python/codesearchnet_python_1000.jsonl
+  limit: 10
+  workers: 1
+
+experiments:
+  suite: codesearchnet-mteb-python-h5-qwen-graph-quality
+  strategies:
+    - hybrid
+  hypotheses:
+    - name: h3_qwen_graph_signal
+      strategy: hybrid
+      description: "H3 Qwen file-metadata retrieval with graph expansion enabled as a bounded signal."
+
+metrics:
+  enabled: false
+
+plugins: []

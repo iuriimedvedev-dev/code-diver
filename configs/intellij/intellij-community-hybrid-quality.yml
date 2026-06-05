@@ -1,0 +1,269 @@
+root: ../intellij-community
+artifact: .code-diver/intellij-community-hybrid-quality-index.json
+
+storage:
+  provider: qdrant
+  qdrant:
+    url: http://localhost:6333
+    collection: intellij_community_hybrid_quality
+    batch_size: 1024
+
+embedding:
+  provider: openai_compatible
+  model: mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ
+  dimensions:
+  url: http://127.0.0.1:8001/v1/embeddings
+  api_key: local
+  batch_size: 256
+  workers: 1
+  max_input_chars: 700
+
+generation:
+  provider: vertex
+  model: gemini-3.5-flash
+  fallback_models:
+    - gemini-3-flash-preview
+    - gemini-2.5-flash
+  project: "236777862453"
+  location: global
+  temperature: 0
+  thinking_budget: 1024
+  api_version: v1
+  timeout_ms: 30000
+
+indexing:
+  mode: scanner
+
+scanner:
+  include:
+    - README.md
+    - CONTRIBUTING.md
+    - build.gradle
+    - build.gradle.kts
+    - settings.gradle
+    - settings.gradle.kts
+    - "**/*.java"
+    - "**/*.kt"
+    - "**/*.kts"
+    - "**/*.xml"
+    - "**/*.properties"
+    - "**/*.gradle"
+    - "**/*.gradle.kts"
+    - "**/*.md"
+    - "**/*.json"
+    - "**/*.yaml"
+    - "**/*.yml"
+  exclude:
+    - .idea/**
+    - .gradle/**
+    - .ijwb/**
+    - bazel-*/**
+    - build/**
+    - out/**
+    - dist/**
+    - target/**
+    - "**/build/**"
+    - "**/out/**"
+    - "**/test/**"
+    - "**/tests/**"
+    - "**/testData/**"
+    - "**/testdata/**"
+    - "**/generated/**"
+    - "**/gen/**"
+    - "**/.cache/**"
+    - "**/node_modules/**"
+    - "**/*.class"
+    - "**/*.jar"
+    - "**/*.zip"
+    - "**/*.png"
+    - "**/*.jpg"
+    - "**/*.jpeg"
+    - "**/*.gif"
+    - "**/*.ico"
+    - "**/*.svg"
+  max_file_bytes: 1000000
+  line_chunks: false
+  chunk_lines: 220
+  structural_chunks: true
+  symbol_chunks: true
+  file_summary_chunks: true
+  max_symbols_per_file: 32
+
+search:
+  limit: 10
+  preview_lines: 10
+  strategy: hybrid
+
+hybrid_search:
+  candidate_limit: 260
+  lexical_candidate_limit: 360
+  vector_weight: 0.52
+  lexical_weight: 0.18
+  path_weight: 0.10
+  symbol_weight: 0.08
+  symbol_match_weight: 0.08
+  graph_weight: 0.06
+  file_vote_weight: 0.05
+  graph_depth: 1
+  graph_neighbor_limit: 48
+  vector_kind_limits:
+    file_summary: 90
+    symbol: 90
+    structural_chunk: 90
+  vector_kind_multipliers:
+    file_summary: 0.90
+    symbol: 1.08
+    structural_chunk: 0.98
+  routing_enabled: true
+  lexical_scoring: bm25
+  fusion: weighted
+  preserve_vector_top: true
+  vector_top_score_margin: 0.03
+  item_kind_weights:
+    file_summary: 0.90
+    symbol: 1.08
+    structural_chunk: 0.98
+  min_token_length: 3
+
+cross_encoder_rerank:
+  provider: llama_cpp
+  model: Qwen3-Reranker-0.6B
+  url: http://127.0.0.1:8080/v1/rerank
+  candidate_limit: 40
+  max_document_chars: 900
+  timeout_ms: 20000
+
+llm_rerank:
+  candidate_limit: 40
+  max_preview_chars: 700
+  mode: file_first
+  include_reasons: true
+
+graph:
+  enabled: true
+  artifact: .code-diver/intellij-community-hybrid-quality-graph.json
+  ast_enabled: true
+  reference_edges_enabled: true
+  call_edges_enabled: true
+  expansion_depth: 1
+  neighbor_limit: 48
+
+trace:
+  enabled: true
+  artifact: .code-diver/traces/intellij-community-hybrid-quality.jsonl
+  include_prompts: true
+
+evaluation:
+  dataset: datasets/intellij_eval_1000.jsonl
+  limit: 10
+  workers: 4
+
+experiments:
+  suite: intellij-community-hybrid-quality
+  strategies:
+    - hybrid
+    - cross_encoder_rerank
+    - hybrid_rerank
+  hypotheses:
+    - name: intellij_hybrid_quality
+      strategy: hybrid
+      description: Structural, symbol, file-summary, lexical, path, and graph retrieval over IntelliJ Community.
+    - name: intellij_hybrid_quality_rrf
+      strategy: hybrid
+      hybrid_search:
+        fusion: rrf
+        candidate_limit: 260
+        lexical_candidate_limit: 360
+        routing_enabled: true
+        preserve_vector_top: true
+      description: Same IntelliJ index with reciprocal rank fusion instead of weighted score fusion.
+    - name: intellij_hybrid_quality_lexical_heavy
+      strategy: hybrid
+      hybrid_search:
+        candidate_limit: 260
+        lexical_candidate_limit: 500
+        vector_weight: 0.42
+        lexical_weight: 0.28
+        path_weight: 0.13
+        symbol_weight: 0.08
+        symbol_match_weight: 0.08
+        graph_weight: 0.04
+        file_vote_weight: 0.04
+        routing_enabled: true
+        preserve_vector_top: true
+      description: Same IntelliJ index with stronger BM25/path pressure for named APIs, symbols, and settings.
+    - name: intellij_hybrid_quality_graph_heavy
+      strategy: hybrid
+      hybrid_search:
+        candidate_limit: 320
+        lexical_candidate_limit: 360
+        vector_weight: 0.48
+        lexical_weight: 0.16
+        path_weight: 0.09
+        symbol_weight: 0.08
+        symbol_match_weight: 0.08
+        graph_weight: 0.12
+        file_vote_weight: 0.06
+        graph_depth: 2
+        graph_neighbor_limit: 80
+        routing_enabled: true
+        preserve_vector_top: true
+      description: Same IntelliJ index with stronger AST/import/call graph expansion for workflow queries.
+    - name: intellij_hybrid_quality_no_graph
+      strategy: hybrid
+      hybrid_search:
+        candidate_limit: 260
+        lexical_candidate_limit: 360
+        graph_weight: 0.0
+        graph_depth: 0
+        routing_enabled: true
+        preserve_vector_top: true
+      description: Same IntelliJ index with graph expansion disabled; control for graph contribution.
+    - name: intellij_hybrid_quality_graph_deep
+      strategy: hybrid
+      hybrid_search:
+        candidate_limit: 360
+        lexical_candidate_limit: 360
+        vector_weight: 0.44
+        lexical_weight: 0.15
+        path_weight: 0.08
+        symbol_weight: 0.08
+        symbol_match_weight: 0.08
+        graph_weight: 0.16
+        file_vote_weight: 0.06
+        graph_depth: 3
+        graph_neighbor_limit: 120
+        routing_enabled: true
+        preserve_vector_top: true
+      description: Aggressive graph ablation. Expected to help workflow if graph edges are good and hurt semantic precision if too noisy.
+    - name: intellij_hybrid_quality_cross_encoder
+      strategy: cross_encoder_rerank
+      description: Qwen3-Reranker cross-encoder over the quality hybrid candidate set.
+    - name: intellij_hybrid_quality_cross_encoder_top5
+      strategy: cross_encoder_rerank
+      cross_encoder_rerank:
+        candidate_limit: 5
+      description: Qwen3-Reranker cross-encoder over only the strongest five hybrid candidates.
+    - name: intellij_hybrid_quality_flash_lite_rerank
+      strategy: hybrid_rerank
+      generation:
+        provider: vertex
+        model: gemini-3.1-flash-lite
+        fallback_models: []
+        project: "236777862453"
+        location: global
+        temperature: 0
+        thinking_budget: 256
+        api_version: v1
+        timeout_ms: 30000
+      llm_rerank:
+        candidate_limit: 40
+        max_preview_chars: 700
+        mode: file_first
+        include_reasons: true
+      description: Gemini Flash-Lite file-first rerank over the quality hybrid candidate set.
+
+metrics:
+  enabled: false
+
+plugins: []

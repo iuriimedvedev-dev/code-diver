@@ -56,7 +56,7 @@ Key rows:
 
 ## Recommended Config
 
-Use `configs/protogen-gemma-e4b-optiq-best-100.yml` as the current best local Gemma config.
+Use `configs/local-models/protogen-gemma-e4b-optiq-best-100.yml` as the current best local Gemma config.
 
 The minimal important pieces:
 

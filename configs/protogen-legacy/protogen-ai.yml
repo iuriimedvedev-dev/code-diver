@@ -1,0 +1,173 @@
+root: ../protogen
+artifact: .code-diver/protogen-ai-index.json
+
+storage:
+  provider: json
+  qdrant:
+    url: http://localhost:6333
+    collection: code_diver_protogen_ai
+    api_key_env: QDRANT_API_KEY
+    batch_size: 128
+
+embedding:
+  provider: gemini
+  model: gemini-embedding-2
+  dimensions: 768
+  batch_size: 4
+  workers: 1
+  max_input_chars:
+  retry_attempts: 5
+  retry_delay_seconds: 30
+
+generation:
+  provider: gemini
+  model: gemini-3.5-flash
+  fallback_models:
+    - gemini-3-flash-preview
+    - gemini-2.5-flash
+  temperature: 0.1
+  thinking_budget: 1024
+  api_version: v1alpha
+  timeout_ms: 20000
+
+indexing:
+  mode: orchestrated
+  ai:
+    max_files: 120
+    max_items: 180
+    max_context_chars: 160000
+    tree_depth: 4
+    tree_limit: 800
+    discovery_limit: 300
+    discovery_patterns:
+      - "class "
+      - "def "
+      - "async def "
+      - "function "
+      - "interface "
+      - "type "
+      - "struct "
+      - "enum "
+      - "impl "
+      - "fn "
+      - "export "
+      - "module "
+      - "package "
+
+pi:
+  binary: npx
+  launcher_args:
+    - -y
+    - "@earendil-works/pi-coding-agent"
+  extension: .pi/extensions/code-diver-rag.ts
+  prompt_template: .pi/prompts/code-diver-rag.md
+  provider: google
+  model: google/gemini-3.5-flash
+  fallback_models:
+    - google/gemini-3-flash-preview
+    - google/gemini-2.5-flash
+  tools:
+    - code_diver_index
+    - code_diver_search
+    - code_diver_inspect
+    - code_diver_open
+    - code_diver_evaluate
+    - code_diver_experiment
+    - code_diver_tree
+    - code_diver_grep
+    - code_diver_rg
+    - code_diver_read
+    - code_diver_symbols
+  extra_args: []
+
+scanner:
+  include:
+    - README.md
+    - pyproject.toml
+    - Dockerfile
+    - docker-compose*.yml
+    - src/*.py
+    - src/**/*.py
+    - evals/*.yaml
+    - scripts/*.py
+    - frontend/package.json
+  exclude:
+    - .claude/**
+    - .codex/**
+    - .opencode/**
+    - frontend/node_modules/**
+    - generated/**
+    - htmlcov/**
+    - logs/**
+    - workspaces/**
+    - src/app/**
+    - src/templates/**
+    - src/tests/**
+    - src/themes/**
+    - test_generated/**
+    - test_codex_cli/**
+    - "*.db"
+    - "*.history*"
+    - "*.png"
+    - ".env*"
+  max_file_bytes: 500000
+  chunk_lines: 360
+  symbol_chunks: true
+
+search:
+  limit: 10
+  preview_lines: 10
+  strategy: orchestrated
+
+recursive_search:
+  rounds: 2
+  branch_limit: 3
+  limit: 5
+
+graph:
+  enabled: true
+  artifact: .code-diver/protogen-ai-graph.json
+  ast_enabled: true
+  expansion_depth: 1
+  neighbor_limit: 20
+
+trace:
+  enabled: true
+  artifact: .code-diver/traces/protogen-ai-indexing.jsonl
+  include_prompts: true
+
+ui:
+  color: true
+  pager: auto
+  links: true
+  editor:
+    command: code
+    args:
+      - -g
+      - "{path}:{line}"
+
+evaluation:
+  dataset: datasets/protogen_eval.jsonl
+  limit: 10
+
+experiments:
+  suite: protogen-ai
+  strategies:
+    - orchestrated
+    - vector
+    - recursive
+    - graph
+
+metrics:
+  enabled: true
+  url: http://localhost:18123
+  database: code_diver
+  username: code_diver
+  password: code_diver
+  docker_container: code-diver-clickhouse
+  metrics_table: rag_eval_metrics
+  cases_table: rag_eval_cases
+  timeout_seconds: 10
+  retention_days: 30
+
+plugins: []

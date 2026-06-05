@@ -10,8 +10,8 @@ The IntelliJ 1k evaluation dataset is prepared and reproducible.
 | Generator | `scripts/generate_intellij_eval.py` |
 | Source repo | `../intellij-community` |
 | Case count | 1,000 |
-| Baseline config | `configs/intellij-community-vllm-qdrant.yml` |
-| Quality config | `configs/intellij-community-hybrid-quality.yml` |
+| Baseline config | `configs/intellij/intellij-community-vllm-qdrant.yml` |
+| Quality config | `configs/intellij/intellij-community-hybrid-quality.yml` |
 
 Reproducibility check:
 
@@ -61,7 +61,7 @@ Interpretation: this baseline proves the local large-repo path works, but it is 
 
 ## Quality Config
 
-`configs/intellij-community-hybrid-quality.yml` is the prepared quality profile for the next heavy run.
+`configs/intellij/intellij-community-hybrid-quality.yml` is the prepared quality profile for the next heavy run.
 
 It enables:
 
@@ -79,8 +79,8 @@ It enables:
 Planned command shape:
 
 ```bash
-uv run code-diver --config configs/intellij-community-hybrid-quality.yml index
-uv run code-diver --config configs/intellij-community-hybrid-quality.yml experiment \
+uv run code-diver --config configs/intellij/intellij-community-hybrid-quality.yml index
+uv run code-diver --config configs/intellij/intellij-community-hybrid-quality.yml experiment \
   --hypothesis intellij_hybrid_quality \
   --hypothesis intellij_hybrid_quality_cross_encoder \
   --json

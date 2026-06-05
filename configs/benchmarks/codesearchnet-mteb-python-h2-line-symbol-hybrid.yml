@@ -1,0 +1,67 @@
+root: .code-diver/benchmarks/mteb-codesearchnet-python/corpus
+artifact: .code-diver/benchmarks/mteb-codesearchnet-python/index-h2-line-symbol-hybrid.json
+
+storage:
+  provider: json
+
+embedding:
+  provider: hash
+  dimensions: 512
+  batch_size: 128
+  workers: 4
+
+indexing:
+  mode: scanner
+
+scanner:
+  include:
+    - "**/*.py"
+  max_file_bytes: 200000
+  line_chunks: true
+  chunk_lines: 200
+  structural_chunks: false
+  symbol_chunks: true
+  symbol_body: false
+  file_summary_chunks: false
+  file_manifest_chunks: false
+  max_symbols_per_file: 32
+
+search:
+  limit: 10
+  preview_lines: 8
+  strategy: hybrid
+
+hybrid_search:
+  candidate_limit: 120
+  lexical_candidate_limit: 300
+  vector_weight: 0.50
+  lexical_weight: 0.30
+  path_weight: 0.10
+  symbol_weight: 0.10
+  symbol_match_weight: 0.08
+  graph_weight: 0.0
+  file_vote_weight: 0.02
+  routing_enabled: true
+  lexical_scoring: bm25
+  fusion: weighted
+  preserve_vector_top: true
+  vector_top_score_margin: 0.03
+
+trace:
+  enabled: true
+  artifact: .code-diver/traces/codesearchnet-mteb-python-h2-line-symbol-hybrid.jsonl
+  include_prompts: false
+
+evaluation:
+  dataset: .code-diver/benchmarks/mteb-codesearchnet-python/codesearchnet_python_1000.jsonl
+  limit: 10
+
+experiments:
+  suite: codesearchnet-mteb-python-h2-line-symbol-hybrid
+  strategies:
+    - hybrid
+
+metrics:
+  enabled: false
+
+plugins: []

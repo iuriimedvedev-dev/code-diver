@@ -66,7 +66,7 @@ Command:
 
 ```bash
 uv run code-diver \
-  --config configs/codesearchnet-mteb-python-h5-qwen-quality.yml \
+  --config configs/benchmarks/codesearchnet-mteb-python-h5-qwen-quality.yml \
   evaluate \
   --benchmark codesearchnet-mteb-python-1000 \
   --limit 10 \

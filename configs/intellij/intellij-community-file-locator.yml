@@ -1,0 +1,192 @@
+root: ../intellij-community
+artifact: .code-diver/intellij-community-file-locator-index.json
+
+storage:
+  provider: qdrant
+  qdrant:
+    url: http://localhost:6333
+    collection: intellij_community_file_locator
+    batch_size: 1024
+
+embedding:
+  provider: vertex
+  model: gemini-embedding-001
+  dimensions: 768
+  project: "236777862453"
+  location: global
+  batch_size: 32
+  workers: 1
+  max_input_chars: 400
+  retry_attempts: 4
+  retry_delay_seconds: 20
+
+generation:
+  provider: vertex
+  model: gemini-3.1-flash-lite
+  fallback_models: []
+  project: "236777862453"
+  location: global
+  temperature: 0
+  thinking_budget: 256
+  api_version: v1
+  timeout_ms: 30000
+
+indexing:
+  mode: scanner
+
+scanner:
+  include:
+    - README.md
+    - CONTRIBUTING.md
+    - build.gradle
+    - build.gradle.kts
+    - settings.gradle
+    - settings.gradle.kts
+    - "**/*.java"
+    - "**/*.kt"
+    - "**/*.kts"
+    - "**/*.xml"
+    - "**/*.properties"
+    - "**/*.gradle"
+    - "**/*.gradle.kts"
+    - "**/*.md"
+    - "**/*.json"
+    - "**/*.yaml"
+    - "**/*.yml"
+  exclude:
+    - .idea/**
+    - .gradle/**
+    - .ijwb/**
+    - bazel-*/**
+    - build/**
+    - out/**
+    - dist/**
+    - target/**
+    - "**/build/**"
+    - "**/out/**"
+    - "**/test/**"
+    - "**/tests/**"
+    - "**/testData/**"
+    - "**/testdata/**"
+    - "**/generated/**"
+    - "**/gen/**"
+    - "**/.cache/**"
+    - "**/node_modules/**"
+    - "**/*.class"
+    - "**/*.jar"
+    - "**/*.zip"
+    - "**/*.png"
+    - "**/*.jpg"
+    - "**/*.jpeg"
+    - "**/*.gif"
+    - "**/*.ico"
+    - "**/*.svg"
+  max_file_bytes: 1000000
+  line_chunks: false
+  structural_chunks: false
+  symbol_chunks: false
+  symbol_body: false
+  file_summary_chunks: true
+  max_symbols_per_file: 24
+
+search:
+  limit: 10
+  preview_lines: 10
+  strategy: hybrid
+
+hybrid_search:
+  candidate_limit: 180
+  lexical_candidate_limit: 650
+  vector_weight: 0.40
+  lexical_weight: 0.30
+  path_weight: 0.18
+  symbol_weight: 0.10
+  symbol_match_weight: 0.10
+  graph_weight: 0.04
+  file_vote_weight: 0.00
+  graph_depth: 1
+  graph_neighbor_limit: 64
+  vector_kind_limits:
+    file_summary: 180
+  vector_kind_multipliers:
+    file_summary: 1.0
+  routing_enabled: true
+  lexical_scoring: bm25
+  fusion: weighted
+  preserve_vector_top: true
+  vector_top_score_margin: 0.03
+  item_kind_weights:
+    file_summary: 1.0
+  min_token_length: 3
+
+llm_rerank:
+  candidate_limit: 24
+  max_preview_chars: 420
+  mode: file_first
+  include_reasons: true
+
+graph:
+  enabled: true
+  artifact: .code-diver/intellij-community-file-locator-graph.json
+  ast_enabled: false
+  reference_edges_enabled: true
+  call_edges_enabled: false
+  expansion_depth: 1
+  neighbor_limit: 64
+
+trace:
+  enabled: true
+  artifact: .code-diver/traces/intellij-community-file-locator.jsonl
+  include_prompts: true
+
+evaluation:
+  dataset: datasets/intellij_eval_1000.jsonl
+  limit: 10
+  workers: 4
+
+experiments:
+  suite: intellij-community-file-locator
+  strategies:
+    - hybrid
+    - hybrid_rerank
+  hypotheses:
+    - name: intellij_file_locator
+      strategy: hybrid
+      description: One compact semantic item per file; symbols live inside the file summary only.
+    - name: intellij_file_locator_rrf
+      strategy: hybrid
+      hybrid_search:
+        fusion: rrf
+        candidate_limit: 180
+        lexical_candidate_limit: 650
+        routing_enabled: true
+        preserve_vector_top: true
+      description: Same file-locator index with reciprocal rank fusion.
+    - name: intellij_file_locator_lexical_heavy
+      strategy: hybrid
+      hybrid_search:
+        candidate_limit: 180
+        lexical_candidate_limit: 900
+        vector_weight: 0.30
+        lexical_weight: 0.38
+        path_weight: 0.22
+        symbol_weight: 0.12
+        symbol_match_weight: 0.12
+        graph_weight: 0.02
+        file_vote_weight: 0.00
+        routing_enabled: true
+        preserve_vector_top: true
+      description: File-locator index biased toward path/BM25/symbol text.
+    - name: intellij_file_locator_flash_lite_rerank
+      strategy: hybrid_rerank
+      llm_rerank:
+        candidate_limit: 24
+        max_preview_chars: 420
+        mode: file_first
+        include_reasons: true
+      description: File-level candidates reranked by Gemini Flash-Lite before any deep grep/read step.
+
+metrics:
+  enabled: false
+
+plugins: []

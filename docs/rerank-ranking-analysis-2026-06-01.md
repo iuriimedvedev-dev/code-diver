@@ -5,7 +5,7 @@ Dataset: `datasets/protogen_eval_100.jsonl`, 100 informal code-navigation cases.
 Main run:
 
 ```text
-uv run code-diver --config configs/protogen-ollama-qdrant.yml experiment \
+uv run code-diver --config configs/protogen-legacy/protogen-ollama-qdrant.yml experiment \
   --hypothesis hybrid_candidates_llm_rerank \
   --hypothesis hybrid_rerank_top20_compact \
   --hypothesis hybrid_rerank_file_first \
@@ -19,7 +19,7 @@ Run id: `427eff134985458fa5bd38f4bc3433d1`.
 Deterministic control run:
 
 ```text
-uv run code-diver --config configs/protogen-ollama-qdrant.yml experiment \
+uv run code-diver --config configs/protogen-legacy/protogen-ollama-qdrant.yml experiment \
   --hypothesis vector_qdrant \
   --hypothesis hybrid_candidates_no_llm \
   --hypothesis hybrid_candidates_modern_graphrag

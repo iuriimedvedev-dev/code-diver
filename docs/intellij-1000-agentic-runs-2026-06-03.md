@@ -26,7 +26,7 @@ The run-specific config is saved at:
 .code-diver/reports/agentic-h3-1000/intellij-postrank-h3-manifest-answer-sets.yml
 ```
 
-It differs from `configs/intellij-postrank-h3-manifest.yml` only by using the answer-set dataset and a separate trace artifact.
+It differs from `configs/intellij/intellij-postrank-h3-manifest.yml` only by using the answer-set dataset and a separate trace artifact.
 
 ## Validity Rules
 

@@ -2,7 +2,7 @@
 
 ## Local Baseline
 
-Current `configs/protogen-ollama-qdrant.yml` uses local embeddings for the main full-repo benchmark:
+Current `configs/protogen-legacy/protogen-ollama-qdrant.yml` uses local embeddings for the main full-repo benchmark:
 
 - Embedding provider: `openai_compatible`
 - Embedding model: `mxbai-embed-large`

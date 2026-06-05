@@ -88,7 +88,7 @@ IntelliJ 1000 baseline:
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | Qwen3 Embedding 0.6B file-summary-only hybrid | 0.280 | 0.380 | 0.444 | 0.336 | 0.362 | 40.8ms |
 
-The IntelliJ baseline is intentionally under-indexed. The prepared quality config is `configs/intellij-community-hybrid-quality.yml`.
+The IntelliJ baseline is intentionally under-indexed. The prepared quality config is `configs/intellij/intellij-community-hybrid-quality.yml`.
 
 IntelliJ H3 quality ceiling, answer-set eval:
 
@@ -120,23 +120,23 @@ Fast Protogen run:
 
 ```bash
 uv sync
-uv run code-diver --config configs/protogen-ollama-qdrant.yml index
-uv run code-diver --config configs/protogen-ollama-qdrant.yml search "where is the indexing pipeline"
-uv run code-diver --config configs/protogen-ollama-qdrant.yml experiment --json
+uv run code-diver --config configs/protogen-legacy/protogen-ollama-qdrant.yml index
+uv run code-diver --config configs/protogen-legacy/protogen-ollama-qdrant.yml search "where is the indexing pipeline"
+uv run code-diver --config configs/protogen-legacy/protogen-ollama-qdrant.yml experiment --json
 ```
 
 API quality run:
 
 ```bash
 uv run python scripts/benchmark_generation_models.py \
-  --suite configs/protogen-gemini-api-embedding-3072-api-rerank.yml
+  --suite configs/local-models/protogen-gemini-api-embedding-3072-api-rerank.yml
 ```
 
 Local Qwen4B experiment:
 
 ```bash
-uv run code-diver --config configs/protogen-qwen4b-embedding-qwen4b-reranker.yml index
-uv run code-diver --config configs/protogen-qwen4b-embedding-qwen4b-reranker.yml experiment \
+uv run code-diver --config configs/protogen-legacy/protogen-qwen4b-embedding-qwen4b-reranker.yml index
+uv run code-diver --config configs/protogen-legacy/protogen-qwen4b-embedding-qwen4b-reranker.yml experiment \
   --hypothesis qwen4b_embedding_hybrid \
   --hypothesis qwen4b_embedding_qwen4b_cross_encoder_top5 \
   --json

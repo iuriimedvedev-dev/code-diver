@@ -105,7 +105,7 @@ This is the correct setup for comparing the post-locator hypotheses. The older a
 The 1000-case run was blocked by three non-quality issues:
 
 1. Qdrant container was running without published host ports. Recreating it with compose fixed `localhost:6333`.
-2. `configs/intellij-postrank-h2.yml` pointed at an interrupted staging collection. It now points at stable `intellij_community_file_locator_local_qwen`.
+2. `configs/intellij/intellij-postrank-h2.yml` pointed at an interrupted staging collection. It now points at stable `intellij_community_file_locator_local_qwen`.
 3. The H2 config had drifted away from the file-locator hypothesis by enabling structural/symbol chunks while search weights targeted `file_summary`. It is back to one `file_summary` item per file.
 
 The local Qwen locator index was rebuilt successfully:

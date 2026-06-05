@@ -408,9 +408,9 @@ These are intentionally narrower than the previous mixed toolsets:
 Recommended run order on the 10-case smoke dataset:
 
 ```bash
-uv run code-diver --config configs/protogen-ollama-qdrant.yml evaluate-search-tools --dataset datasets/protogen_eval.jsonl --hypothesis ai_search_vector_rg --hypothesis ai_search_vector_symbols --json
-uv run code-diver --config configs/protogen-ollama-qdrant.yml evaluate-search-tools --dataset datasets/protogen_eval.jsonl --hypothesis ai_search_vector_inspect --json
-uv run code-diver --config configs/protogen-ollama-qdrant.yml evaluate-search-tools --dataset datasets/protogen_eval.jsonl --hypothesis ai_search_vector_rg_read --hypothesis ai_search_vector_symbols_read --json
+uv run code-diver --config configs/protogen-legacy/protogen-ollama-qdrant.yml evaluate-search-tools --dataset datasets/protogen_eval.jsonl --hypothesis ai_search_vector_rg --hypothesis ai_search_vector_symbols --json
+uv run code-diver --config configs/protogen-legacy/protogen-ollama-qdrant.yml evaluate-search-tools --dataset datasets/protogen_eval.jsonl --hypothesis ai_search_vector_inspect --json
+uv run code-diver --config configs/protogen-legacy/protogen-ollama-qdrant.yml evaluate-search-tools --dataset datasets/protogen_eval.jsonl --hypothesis ai_search_vector_rg_read --hypothesis ai_search_vector_symbols_read --json
 ```
 
 Promote only hypotheses that beat `ai_search_vector_only` on either `hit@10` or `mrr@10` without exceeding its token budget by more than 2x. If none do, move directly to deterministic hybrid candidate generation plus one-shot reranking.
@@ -469,7 +469,7 @@ Result:
 
 Important finding: deterministic hybrid fusion achieved the improvement the agent-controlled tool hybrids did not. The gain is small, but it costs zero model tokens and avoids multi-round orchestration failures.
 
-Performance finding: fresh indexing exposed expensive graph construction stages. Broad reference edges and AST call edges are now disabled in `configs/protogen-ollama-qdrant.yml`; they need bounded/incremental builders before they are safe for default indexing.
+Performance finding: fresh indexing exposed expensive graph construction stages. Broad reference edges and AST call edges are now disabled in `configs/protogen-legacy/protogen-ollama-qdrant.yml`; they need bounded/incremental builders before they are safe for default indexing.
 
 Next implementation hypotheses:
 

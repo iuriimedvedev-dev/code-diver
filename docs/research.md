@@ -24,24 +24,24 @@ Dataset: `datasets/protogen_eval.jsonl`, 10 repository-location cases, `limit=10
 
 | Config | Indexing | Items | Strategy | Hit@10 | MRR@10 | Notes |
 | --- | --- | ---: | --- | ---: | ---: | --- |
-| `configs/protogen-baseline.yml` | line chunks, hash embeddings | 2444 | vector | 0.70 | 0.372 | Best current cheap baseline. |
-| `configs/protogen-baseline.yml` | line chunks, hash embeddings | 2444 | recursive | 0.50 | 0.256 | More latency, worse hit rate. |
-| `configs/protogen-baseline.yml` | line chunks, hash embeddings | 2444 | graph | 0.60 | 0.359 | Import/same-file graph helps some cases. |
-| `configs/protogen-symbols.yml` | symbol-only during first run, hash embeddings | 6961 | vector | 0.30 | 0.144 | Bad: tiny method chunks lost file-level context. |
-| `configs/protogen-symbols.yml` | hybrid line+symbol chunks, hash embeddings | 8842 | vector | 0.30 | 0.250 | Better MRR than symbol-only, still worse than baseline. |
-| `configs/protogen-symbols.yml` | hybrid line+symbol chunks, hash embeddings | 8842 | recursive | 0.50 | 0.298 | Best recursive run so far, still below baseline vector hit rate. |
-| `configs/protogen-symbols.yml` | hybrid line+symbol chunks, hash embeddings | 8842 | graph | 0.30 | 0.250 | Reference graph needs better reranking. |
-| `configs/protogen-orchestrated-hash.yml` | Gemini index plan + symbol replacement, hash embeddings | 6975 | orchestrated | 0.40 | 0.242 | Query planning worked, but symbol replacement hurt. |
-| `configs/protogen-symbols.yml` | hybrid line+symbol + AST graph, hash embeddings | 8842 | vector | 0.30 | 0.250 | Control after AST graph change; unchanged. |
-| `configs/protogen-symbols.yml` | hybrid line+symbol + AST graph, hash embeddings | 8842 | recursive | 0.50 | 0.298 | Still the best hash run. |
-| `configs/protogen-symbols.yml` | hybrid line+symbol + AST graph, hash embeddings | 8842 | graph | 0.30 | 0.220 | Faster after bounded imports, but quality still needs rerank/path boosts. |
-| `configs/protogen-ollama-embeddings.yml` | local mxbai-embed-large + hybrid line/symbol/AST graph | 8246 | vector | 0.90 | 0.663 | Best measured retrieval quality; JSON vector store is still slow. |
-| `configs/protogen-ollama-embeddings.yml` | local mxbai-embed-large + hybrid line/symbol/AST graph | 8246 | recursive | 0.90 | 0.612 | More latency without quality gain over vector. |
-| `configs/protogen-ollama-embeddings.yml` | local mxbai-embed-large + hybrid line/symbol/AST graph | 8246 | graph | 0.90 | 0.663 | Same quality as vector in this run; graph expansion did not improve ranking yet. |
-| `configs/protogen-ollama-qdrant.yml` | local mxbai-embed-large + embedded Qdrant | 8246 | vector | 0.90 | 0.663 | Same quality as JSON, 0.4s eval instead of 14.4s. |
-| `configs/protogen-ollama-qdrant.yml` | local mxbai-embed-large + embedded Qdrant | 8246 | recursive | 0.90 | 0.612 | 1.4s eval instead of 57.9s. |
-| `configs/protogen-ollama-qdrant.yml` | local mxbai-embed-large + embedded Qdrant | 8246 | graph | 0.90 | 0.663 | 3.8s eval; graph expansion still not improving ranking. |
-| `configs/protogen-vertex-smoke.yml` | Vertex gemini-embedding-2 selected-file smoke index | 603 | vector | 0.70 | 0.700 | End-to-end Vertex provider works through ADC; not comparable to full-repo runs. |
+| `configs/protogen-legacy/protogen-baseline.yml` | line chunks, hash embeddings | 2444 | vector | 0.70 | 0.372 | Best current cheap baseline. |
+| `configs/protogen-legacy/protogen-baseline.yml` | line chunks, hash embeddings | 2444 | recursive | 0.50 | 0.256 | More latency, worse hit rate. |
+| `configs/protogen-legacy/protogen-baseline.yml` | line chunks, hash embeddings | 2444 | graph | 0.60 | 0.359 | Import/same-file graph helps some cases. |
+| `configs/protogen-legacy/protogen-symbols.yml` | symbol-only during first run, hash embeddings | 6961 | vector | 0.30 | 0.144 | Bad: tiny method chunks lost file-level context. |
+| `configs/protogen-legacy/protogen-symbols.yml` | hybrid line+symbol chunks, hash embeddings | 8842 | vector | 0.30 | 0.250 | Better MRR than symbol-only, still worse than baseline. |
+| `configs/protogen-legacy/protogen-symbols.yml` | hybrid line+symbol chunks, hash embeddings | 8842 | recursive | 0.50 | 0.298 | Best recursive run so far, still below baseline vector hit rate. |
+| `configs/protogen-legacy/protogen-symbols.yml` | hybrid line+symbol chunks, hash embeddings | 8842 | graph | 0.30 | 0.250 | Reference graph needs better reranking. |
+| `configs/protogen-legacy/protogen-orchestrated-hash.yml` | Gemini index plan + symbol replacement, hash embeddings | 6975 | orchestrated | 0.40 | 0.242 | Query planning worked, but symbol replacement hurt. |
+| `configs/protogen-legacy/protogen-symbols.yml` | hybrid line+symbol + AST graph, hash embeddings | 8842 | vector | 0.30 | 0.250 | Control after AST graph change; unchanged. |
+| `configs/protogen-legacy/protogen-symbols.yml` | hybrid line+symbol + AST graph, hash embeddings | 8842 | recursive | 0.50 | 0.298 | Still the best hash run. |
+| `configs/protogen-legacy/protogen-symbols.yml` | hybrid line+symbol + AST graph, hash embeddings | 8842 | graph | 0.30 | 0.220 | Faster after bounded imports, but quality still needs rerank/path boosts. |
+| `configs/protogen-legacy/protogen-ollama-embeddings.yml` | local mxbai-embed-large + hybrid line/symbol/AST graph | 8246 | vector | 0.90 | 0.663 | Best measured retrieval quality; JSON vector store is still slow. |
+| `configs/protogen-legacy/protogen-ollama-embeddings.yml` | local mxbai-embed-large + hybrid line/symbol/AST graph | 8246 | recursive | 0.90 | 0.612 | More latency without quality gain over vector. |
+| `configs/protogen-legacy/protogen-ollama-embeddings.yml` | local mxbai-embed-large + hybrid line/symbol/AST graph | 8246 | graph | 0.90 | 0.663 | Same quality as vector in this run; graph expansion did not improve ranking yet. |
+| `configs/protogen-legacy/protogen-ollama-qdrant.yml` | local mxbai-embed-large + embedded Qdrant | 8246 | vector | 0.90 | 0.663 | Same quality as JSON, 0.4s eval instead of 14.4s. |
+| `configs/protogen-legacy/protogen-ollama-qdrant.yml` | local mxbai-embed-large + embedded Qdrant | 8246 | recursive | 0.90 | 0.612 | 1.4s eval instead of 57.9s. |
+| `configs/protogen-legacy/protogen-ollama-qdrant.yml` | local mxbai-embed-large + embedded Qdrant | 8246 | graph | 0.90 | 0.663 | 3.8s eval; graph expansion still not improving ranking. |
+| `configs/smoke-experiments/protogen-vertex-smoke.yml` | Vertex gemini-embedding-2 selected-file smoke index | 603 | vector | 0.70 | 0.700 | End-to-end Vertex provider works through ADC; not comparable to full-repo runs. |
 
 Important trace findings:
 

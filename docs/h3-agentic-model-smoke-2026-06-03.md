@@ -15,7 +15,7 @@ Dataset slice:
 Base config:
 
 ```text
-configs/intellij-postrank-h3-manifest.yml
+configs/intellij/intellij-postrank-h3-manifest.yml
 ```
 
 The tested hypotheses were:
