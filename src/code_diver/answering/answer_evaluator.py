@@ -1,0 +1,216 @@
+from __future__ import annotations
+
+import json
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass, field
+from time import perf_counter
+from typing import Any, Callable
+
+from ..explanation.jsonish_parser import JsonishParser
+from ..generation import GenerationProvider
+from ..strategies import RetrievalStrategy
+from .answer_case import AnswerCase
+from .answer_context_builder import AnswerContextBuilder
+from .answer_judge import AnswerJudge
+from .answer_metrics import AnswerMetrics
+
+
+@dataclass(slots=True)
+class AnswerEvaluator:
+    retrieval_strategy: RetrievalStrategy
+    answer_provider: GenerationProvider
+    context_builder: AnswerContextBuilder
+    judge: AnswerJudge | None = None
+    limit: int = 10
+    workers: int = 1
+    progress_callback: Callable[[int, int, AnswerCase], None] | None = None
+    row_callback: Callable[[int, int, dict[str, Any]], None] | None = None
+    parser: JsonishParser = field(default_factory=JsonishParser)
+
+    def evaluate(self, cases: list[AnswerCase]) -> dict[str, Any]:
+        started = perf_counter()
+        rows_by_index: list[dict[str, Any] | None] = [None] * len(cases)
+        usage = self._empty_usage()
+        judge_usage = self._empty_usage()
+        errors = 0
+        judge_errors = 0
+        worker_count = max(1, min(int(self.workers or 1), max(len(cases), 1)))
+        completed = 0
+        if worker_count == 1:
+            for index, case in enumerate(cases, start=1):
+                result = self._evaluate_case(case)
+                completed += 1
+                rows_by_index[index - 1] = result["row"]
+                errors += int(result["error"])
+                judge_errors += int(result["judge_error"])
+                self._merge_usage_dict(usage, result["generation_model"], result["usage"])
+                if result["judge_usage"] is not None:
+                    self._merge_usage_dict(judge_usage, result["judge_model"], result["judge_usage"])
+                self._notify_progress(completed, len(cases), case, result["row"])
+        else:
+            with ThreadPoolExecutor(max_workers=worker_count) as executor:
+                futures = {
+                    executor.submit(self._evaluate_case, case): (index, case)
+                    for index, case in enumerate(cases, start=1)
+                }
+                for future in as_completed(futures):
+                    index, case = futures[future]
+                    result = future.result()
+                    completed += 1
+                    rows_by_index[index - 1] = result["row"]
+                    errors += int(result["error"])
+                    judge_errors += int(result["judge_error"])
+                    self._merge_usage_dict(usage, result["generation_model"], result["usage"])
+                    if result["judge_usage"] is not None:
+                        self._merge_usage_dict(judge_usage, result["judge_model"], result["judge_usage"])
+                    self._notify_progress(completed, len(cases), case, result["row"])
+        rows = [row for row in rows_by_index if row is not None]
+        metrics = AnswerMetrics().aggregate(rows)
+        metrics["cases"] = float(len(rows))
+        metrics["answer_duration_ms_total"] = (perf_counter() - started) * 1000
+        metrics["answer_duration_ms_mean"] = metrics["answer_duration_ms_total"] / max(len(rows), 1)
+        return {
+            "metrics": metrics,
+            "usage": usage,
+            "judge_usage": judge_usage if self.judge is not None else None,
+            "error_count": errors,
+            "judge_error_count": judge_errors if self.judge is not None else None,
+            "results": rows,
+        }
+
+    def _evaluate_case(self, case: AnswerCase) -> dict[str, Any]:
+        started = perf_counter()
+        raw_prediction = ""
+        empty_usage = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
+        try:
+            search_results = self.retrieval_strategy.search(case.question, self.limit)
+            context = self.context_builder.build(search_results)
+            result = self.answer_provider.generate_json_result(self._answer_prompt(case, context.text))
+            raw_prediction = result.text
+            payload = self.parser.parse_object(raw_prediction)
+            answer = str(payload.get("answer") or "").strip()
+            citations = payload.get("citations") if isinstance(payload.get("citations"), list) else []
+            metrics = AnswerMetrics().score(answer, case.reference)
+            retrieved_files = [search_result.item.path for search_result in search_results]
+            metrics.update(self._retrieval_metrics(retrieved_files, case.expected_paths))
+            row: dict[str, Any] = {
+                "case_id": case.id,
+                "question": case.question,
+                "reference": case.reference,
+                "prediction": answer,
+                "citations": citations,
+                "retrieved_files": retrieved_files,
+                "context_files": context.files,
+                "context_errors": context.errors,
+                "expected_paths": case.expected_paths,
+                "metadata": case.metadata,
+                "generation_model": result.model,
+                "metrics": metrics,
+                "duration_ms": (perf_counter() - started) * 1000,
+            }
+            judge_usage = None
+            judge_model = None
+            judge_error = 0
+            if self.judge is not None:
+                try:
+                    judged = self.judge.judge(case, answer, context.text)
+                    row["judge"] = judged
+                    row["metrics"].update(judged["scores"])
+                    judge_usage = judged["usage"]
+                    judge_model = judged["model"]
+                except Exception as exc:
+                    judge_error = 1
+                    row["judge_error"] = str(exc)
+            return {
+                "row": row,
+                "usage": {
+                    "input_tokens": result.input_tokens,
+                    "output_tokens": result.output_tokens,
+                    "total_tokens": result.total_tokens,
+                },
+                "generation_model": result.model,
+                "judge_usage": judge_usage,
+                "judge_model": judge_model,
+                "error": 0,
+                "judge_error": judge_error,
+            }
+        except Exception as exc:
+            return {
+                "row": {
+                    "case_id": case.id,
+                    "question": case.question,
+                    "reference": case.reference,
+                    "prediction": "",
+                    "raw_prediction": raw_prediction,
+                    "expected_paths": case.expected_paths,
+                    "metadata": case.metadata,
+                    "metrics": AnswerMetrics().score("", case.reference),
+                    "error": str(exc),
+                    "duration_ms": (perf_counter() - started) * 1000,
+                },
+                "usage": empty_usage,
+                "generation_model": getattr(self.answer_provider, "model", "unknown"),
+                "judge_usage": None,
+                "judge_model": None,
+                "error": 1,
+                "judge_error": 0,
+            }
+
+    def _answer_prompt(self, case: AnswerCase, context: str) -> str:
+        return f"""Answer the developer's repository question using only the provided retrieval context.
+
+Requirements:
+- Explain the code behavior, not only where it is.
+- Cite relative file paths and line numbers from the context for important claims.
+- If the context is insufficient, say what is missing instead of inventing behavior.
+- Return JSON only: {{"answer":"...","citations":[{{"path":"...","lines":"...","reason":"..."}}],"confidence":0.0}}
+
+Question:
+{case.question}
+
+Case metadata:
+{json.dumps(case.metadata, ensure_ascii=False)}
+
+Retrieved context:
+{context}
+"""
+
+    def _retrieval_metrics(self, retrieved_files: list[str], expected_paths: list[str]) -> dict[str, float]:
+        if not expected_paths:
+            return {}
+        normalized_expected = {self._normalize_path(path) for path in expected_paths}
+        normalized_retrieved = [self._normalize_path(path) for path in retrieved_files]
+        hits = [path for path in normalized_retrieved if path in normalized_expected]
+        first_rank = next((index for index, path in enumerate(normalized_retrieved, start=1) if path in normalized_expected), 0)
+        return {
+            "file_hit": 1.0 if hits else 0.0,
+            "file_recall": len(set(hits)) / max(len(normalized_expected), 1),
+            "file_precision": len(hits) / max(len(normalized_retrieved), 1),
+            "file_mrr": (1.0 / first_rank) if first_rank else 0.0,
+        }
+
+    def _normalize_path(self, path: str) -> str:
+        return path.strip().lstrip("./")
+
+    def _notify_progress(self, completed: int, total: int, case: AnswerCase, row: dict[str, Any]) -> None:
+        if self.progress_callback is not None:
+            self.progress_callback(completed, total, case)
+        if self.row_callback is not None:
+            self.row_callback(completed, total, row)
+
+    def _empty_usage(self) -> dict[str, Any]:
+        return {
+            "model_calls": 0,
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "total_tokens": 0,
+            "models": [],
+        }
+
+    def _merge_usage_dict(self, target: dict[str, Any], model: str | None, usage: dict[str, Any]) -> None:
+        target["model_calls"] += 1
+        target["input_tokens"] += int(usage.get("input_tokens") or 0)
+        target["output_tokens"] += int(usage.get("output_tokens") or 0)
+        target["total_tokens"] += int(usage.get("total_tokens") or 0)
+        if model and model not in target["models"]:
+            target["models"].append(model)

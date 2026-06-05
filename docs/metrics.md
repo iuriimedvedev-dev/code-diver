@@ -80,6 +80,40 @@ provided to the model. This is separate from retrieval quality.
 Use overlap metrics for cheap regression checks. Use judge metrics for model
 selection, but compare runs only when the same judge model and prompt were used.
 
+## E2E Answer Metrics
+
+`evaluate-answers` measures the product path after a user asks a repository
+question:
+
+```text
+question -> retrieval/rerank -> bounded file context -> final answer -> optional judge
+```
+
+It is intentionally separate from `evaluate` and `evaluate-explanations`.
+Retrieval-only Hit@K does not prove answer quality, and snippet explanation does
+not prove the system found the right code.
+
+| Metric | Meaning | Good value | What it tells us |
+| --- | --- | ---: | --- |
+| `file_hit` | At least one expected file appears in the retrieved/context candidate set. | `1.0` | Whether the answer model had any chance to use correct evidence. |
+| `file_recall` | Expected files covered by candidates. | `1.0` | Critical for multi-file questions such as "where is user editing handled?" |
+| `file_precision` | Retrieved files that are expected files. | Higher | How noisy the evidence bundle is before answer generation. |
+| `file_mrr` | Reciprocal rank of the first expected file. | `1.0` | Whether the correct evidence is near the top. |
+| `token_*`, `key_token_*`, `bigram_*` | Text overlap between final answer and reference answer. | Higher | Cheap deterministic regression signal; weak for paraphrases. |
+| `judge_answer_correctness` | Questionnaire score for directly answering the question. | `4.0` | Main semantic answer metric. |
+| `judge_evidence_grounding` | Questionnaire score for grounding in retrieved context/reference. | `4.0` | Penalizes unsupported architecture claims. |
+| `judge_coverage` | Questionnaire score for covering required files, methods, and relationships. | `4.0` | Captures multi-file completeness. |
+| `judge_citation_quality` | Questionnaire score for useful file/line evidence. | `4.0` | Whether the answer is inspectable by a developer. |
+| `judge_specificity` | Questionnaire score for concrete code-specific detail. | `4.0` | Penalizes generic "this handles auth" answers. |
+| `judge_hallucination_control` | Questionnaire score for avoiding invented files/APIs/line numbers. | `4.0` | Safety guard for code exploration. |
+| `judge_overall` | Weighted final score from the answer judge rubric. | `5.0` | Overall answer quality with the configured judge. |
+| `answer_duration_ms_mean` | Mean wall-clock duration per case. | Lower | End-user latency for the measured answer pipeline. |
+
+The default answer judge prompt is
+[prompts/code-answer-judge.md](../prompts/code-answer-judge.md). Compare
+`judge_*` metrics only when judge model, prompt, dataset, and context limits are
+the same.
+
 ## Statistical Reliability
 
 Every core quality metric now also reports a small statistical family:

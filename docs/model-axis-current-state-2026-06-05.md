@@ -33,6 +33,12 @@ candidate files
 | Reranker model | Reorder a fixed candidate set from H6.1 before code reading. | Gemini 3.1 Flash Lite is the best measured reranker on the current 100-case same-index slice. | Use Gemini Lite for quality mode; keep local rerankers as offline/local-only candidates. |
 | Answer-agent model | Choose tool calls over the reranked files, read/grep/source-inspect, and answer the user's code question. | We have stage evidence that Gemma E4B is a strong local explainer, but not yet a full E2E answer-agent benchmark. | Build the E2E answer eval; do not infer answer quality from file Hit@K alone. |
 
+The first E2E benchmark runner is now implemented as `evaluate-answers`. It
+measures retrieval/rerank, bounded context reads, final answer generation, and
+optional AI-judge scoring. Current scope is deterministic bounded context over a
+local checkout; the next comparison is full Branch A agentic inspection versus
+Branch B ephemeral candidate-file indexing.
+
 ## Search-Planning Slice Result
 
 This is not the final product metric. It is a 100-case CodeSearchNet slice that

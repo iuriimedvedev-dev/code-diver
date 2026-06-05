@@ -1,0 +1,119 @@
+# E2E Answer Evaluation
+
+Updated: 2026-06-05.
+
+## Purpose
+
+Retrieval metrics tell us whether Code Diver found the right files. Code
+explanation metrics tell us whether a model can explain a snippet that is already
+known. The product needs both:
+
+```text
+question
+-> H6.1 hybrid file locator
+-> LLM rerank
+-> bounded file context reads
+-> final answer with file/line evidence
+-> optional AI judge
+```
+
+`evaluate-answers` is the first benchmark lane for that full path.
+
+## Command
+
+The command is advanced because the public assignment surface remains
+`index`, `search`, and `evaluate`.
+
+```bash
+uv run code-diver --root ../checked-out-repo --help-all evaluate-answers \
+  --benchmark swe-qa-pro \
+  --repo owner/name \
+  --cases 20 \
+  --yes \
+  --judge \
+  --judge-prompt prompts/code-answer-judge.md \
+  --judge-model gemini-3.1-flash-lite
+```
+
+The runner writes:
+
+- full report: `.code-diver/reports/code-answer-e2e-eval.json`
+- partial report while running:
+  `.code-diver/reports/code-answer-e2e-eval.json.partial`
+
+If `--benchmark swe-qa-pro` is used and the local JSONL does not exist, the CLI
+asks before preparing it unless `--yes` is passed. Preparation uses
+`TIGER-Lab/SWE-QA-Pro-Bench` test rows and writes Code Diver answer cases under
+`.code-diver/benchmarks/swe-qa-pro/`.
+
+## Current Scope
+
+The first implementation evaluates a local repository root. For SWE-QA-Pro, that
+means `--root` must point to a checkout of the requested `--repo` at the relevant
+commit. Automatic clone/checkout/index caching is intentionally not hidden inside
+the first runner because it changes benchmark cost and latency semantics.
+
+The current answer context is deterministic:
+
+1. Run the configured retrieval strategy.
+2. Deduplicate top files.
+3. Read bounded excerpts from each file.
+4. Include the indexed file summary/manifest text beside the excerpt.
+5. Ask the configured generation model for JSON:
+   `answer`, `citations`, and `confidence`.
+
+This is Branch A-lite. It does not yet let the answer model freely call
+outline/symbol/rg/read tools inside the final answer step, and it does not yet
+build the Branch B ephemeral syntax-aware index over candidate files. Those are
+the next controlled comparisons.
+
+## Metrics
+
+The report includes retrieval-derived file metrics when the dataset has expected
+paths:
+
+| Metric | Meaning |
+| --- | --- |
+| `file_hit` | At least one expected file appears in retrieved candidates. |
+| `file_recall` | Fraction of expected files covered by retrieved candidates. |
+| `file_precision` | Fraction of retrieved files that are expected files. |
+| `file_mrr` | Reciprocal rank of the first expected file. |
+
+It also includes cheap answer/reference text overlap:
+
+| Metric | Meaning |
+| --- | --- |
+| `token_*` | Unigram overlap with the reference answer. |
+| `key_token_*` | Stop-word-filtered unigram overlap. |
+| `bigram_*` | Two-token phrase overlap. |
+
+With `--judge`, the editable judge prompt
+[prompts/code-answer-judge.md](../prompts/code-answer-judge.md) adds a structured
+questionnaire:
+
+| Metric | Scale | Meaning |
+| --- | ---: | --- |
+| `judge_answer_correctness` | 0-4 | Directly answers the question correctly. |
+| `judge_evidence_grounding` | 0-4 | Important claims are supported by context/reference. |
+| `judge_coverage` | 0-4 | Covers required files, methods, behaviors, and relationships. |
+| `judge_citation_quality` | 0-4 | File/line citations are useful and consistent with evidence. |
+| `judge_specificity` | 0-4 | Uses concrete code names and responsibilities. |
+| `judge_hallucination_control` | 0-4 | Avoids invented APIs, files, line numbers, and architecture. |
+| `judge_overall` | 0-5 | Weighted final score computed deterministically from the questionnaire. |
+
+## What This Fixes
+
+Earlier reports could only say "we found likely files" or "Gemma E4B can explain
+a known snippet." They could not answer whether the full product gives a useful
+answer to a repository question. This lane separates the stages but keeps them
+in one reproducible report.
+
+## Next Experiments
+
+1. Add repo checkout/cache preparation for SWE-QA-Pro by `repo@commit_id`.
+2. Compare Branch A full agentic file inspection against the current deterministic
+   bounded-context reader.
+3. Compare Branch B ephemeral syntax-aware candidate-file indexing.
+4. Run the same answer/judge setup with Gemma 4 E4B, Qwen3.5, and Gemini Lite.
+5. Store per-stage cost and latency separately: retrieval, context read, answer,
+   judge.

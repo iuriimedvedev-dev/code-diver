@@ -32,6 +32,13 @@ from .agent import DirectIndexingOrchestrator, DirectSearchOrchestrator
 from .agent.h3_search_tool_handler import H3SearchToolHandler
 from .agent.rerank_tool_handler import RerankToolHandler
 from .ai_indexing import AiCodebaseScanner, HybridCodebaseScanner
+from .answering import (
+    AnswerContextBuilder,
+    AnswerDatasetLoader,
+    AnswerEvaluator,
+    AnswerJudge,
+    SweQaProDatasetPreparer,
+)
 from .benchmarks import BenchmarkAssetService, BenchmarkProfile, BenchmarkProfileRegistry
 from .domain import CodeItemIndexKindResolver, EvalResult, SearchResult
 from .env import EnvFileLoader
@@ -87,6 +94,7 @@ from .ui import EditorOpener, EvaluationRenderer, MarkdownRenderer, SearchRender
 ADVANCED_COMMANDS = {
     CommandName.ASK.value,
     CommandName.CHAT.value,
+    CommandName.EVALUATE_ANSWERS.value,
     CommandName.EVALUATE_INDEXING.value,
     CommandName.EVALUATE_EXPLANATIONS.value,
     CommandName.EVALUATE_SEARCH_TOOLS.value,
@@ -417,6 +425,49 @@ def add_advanced_parsers(subparsers: argparse._SubParsersAction[argparse.Argumen
     evaluate_explanations.add_argument(OptionName.YES.value, action="store_true")
     evaluate_explanations.add_argument(OptionName.JSON.value, action="store_true")
     evaluate_explanations.set_defaults(func=cmd_evaluate_explanations)
+
+    evaluate_answers = subparsers.add_parser(
+        CommandName.EVALUATE_ANSWERS.value,
+        help="Evaluate end-to-end code answers: search, read context, answer, and optional LLM judge.",
+    )
+    evaluate_answers.add_argument(
+        OptionName.BENCHMARK.value,
+        choices=["swe-qa-pro"],
+        default=None,
+        help="Prepare/load a public repository QA benchmark.",
+    )
+    evaluate_answers.add_argument(OptionName.DATASET.value, type=Path, default=None)
+    evaluate_answers.add_argument("--cases", type=int, default=20)
+    evaluate_answers.add_argument(OptionName.LIMIT.value, type=int, default=None)
+    evaluate_answers.add_argument("--repo", default=None, help="Filter benchmark rows to a repository, e.g. owner/name.")
+    evaluate_answers.add_argument("--context-files", type=int, default=8)
+    evaluate_answers.add_argument("--context-lines", type=int, default=160)
+    evaluate_answers.add_argument("--output", type=Path, default=None)
+    evaluate_answers.add_argument("--partial-output", type=Path, default=None)
+    evaluate_answers.add_argument(
+        "--workers",
+        type=int,
+        default=None,
+        help="Evaluate answer cases concurrently. Defaults to evaluation.workers.",
+    )
+    evaluate_answers.add_argument("--judge", action="store_true", help="Score final answers with an LLM-as-judge rubric.")
+    evaluate_answers.add_argument(
+        "--judge-prompt",
+        type=Path,
+        default=None,
+        help="Editable markdown prompt used by the answer judge.",
+    )
+    evaluate_answers.add_argument(
+        "--judge-config",
+        type=Path,
+        default=None,
+        help="Optional YAML config for the answer judge provider.",
+    )
+    evaluate_answers.add_argument("--judge-model", default=None)
+    evaluate_answers.add_argument(OptionName.REINDEX.value, action="store_true")
+    evaluate_answers.add_argument(OptionName.YES.value, action="store_true")
+    evaluate_answers.add_argument(OptionName.JSON.value, action="store_true")
+    evaluate_answers.set_defaults(func=cmd_evaluate_answers)
 
     experiment = subparsers.add_parser(
         CommandName.EXPERIMENT.value,
@@ -1723,6 +1774,246 @@ def cmd_evaluate_explanations(args: argparse.Namespace, config: AppConfig) -> in
             table.add_row(key, f"{value:.4f}" if isinstance(value, float) else str(value))
     Console().print(table)
     return 0
+
+
+def cmd_evaluate_answers(args: argparse.Namespace, config: AppConfig) -> int:
+    dataset = answer_dataset_path(args)
+    output = args.output or Path(".code-diver/reports/code-answer-e2e-eval.json")
+    preparation = prepare_answer_benchmark(args, dataset, enabled=not bool(args.json))
+    cases = AnswerDatasetLoader().load(dataset)
+    if args.repo:
+        cases = [case for case in cases if str(case.metadata.get("repo") or "") == args.repo]
+    requested_cases = max(int(args.cases or 0), 0)
+    if args.benchmark == "swe-qa-pro" and requested_cases > 0 and len(cases) < requested_cases:
+        preparation = expand_answer_benchmark(args, dataset, requested_cases, enabled=not bool(args.json))
+        cases = AnswerDatasetLoader().load(dataset)
+        if args.repo:
+            cases = [case for case in cases if str(case.metadata.get("repo") or "") == args.repo]
+    cases = cases[:requested_cases]
+    if not cases:
+        print(f"error: no answer cases found in {dataset}", file=sys.stderr)
+        return 1
+
+    vector_store = make_vector_store(config, progress=not bool(args.json))
+    if args.reindex or not vector_store.exists():
+        if args.json:
+            with contextlib.redirect_stdout(sys.stderr):
+                cmd_index(args, config)
+        else:
+            cmd_index(args, config)
+        vector_store = make_vector_store(config, progress=not bool(args.json))
+
+    limit = args.limit or config.evaluation.limit
+    provider = make_embedding_provider(config, vector_store.metadata())
+    strategy = make_retrieval_strategy(config, provider, vector_store)
+    answer_provider = create_generation_provider(config)
+    judge = None
+    judge_config = None
+    if args.judge:
+        judge_config = ConfigLoader().load(args.judge_config) if args.judge_config else config
+        judge_config = apply_runtime_config(args, judge_config)
+        if args.judge_model:
+            judge_config = replace(judge_config, generation=replace(judge_config.generation, model=args.judge_model))
+        judge = AnswerJudge(create_generation_provider(judge_config), prompt_path=args.judge_prompt)
+
+    worker_count = max(1, int(args.workers or config.evaluation.workers or 1))
+    partial_output = args.partial_output or output.with_suffix(f"{output.suffix}.partial")
+    partial_rows: list[dict[str, Any]] = []
+    if not args.json:
+        render_status_panel(
+            "E2E Answer Evaluation",
+            [
+                ("cases", len(cases)),
+                ("root", config.root.resolve()),
+                ("dataset", dataset),
+                ("search", config.search.strategy),
+                ("limit", limit),
+                ("context", f"{args.context_files} files x {args.context_lines} lines"),
+                ("answer model", f"{config.generation.provider}:{config.generation.model}"),
+                ("judge", args.judge),
+                ("workers", worker_count),
+            ],
+            border_style="green",
+        )
+
+    progress_bar = None
+    task_id = None
+    if not args.json:
+        progress_bar = Progress(
+            SpinnerColumn(style="green"),
+            TextColumn("[bold green]evaluating e2e answer cases[/bold green]"),
+            BarColumn(),
+            MofNCompleteColumn(),
+            TimeElapsedColumn(),
+            TimeRemainingColumn(),
+            console=status_console(),
+        )
+        progress_bar.start()
+        task_id = progress_bar.add_task("answers", total=len(cases))
+    try:
+        def advance_progress(completed: int, _total: int, _case: object) -> None:
+            if progress_bar is not None and task_id is not None:
+                progress_bar.update(task_id, completed=completed)
+
+        def write_partial(completed: int, total: int, row: dict[str, Any]) -> None:
+            partial_rows.append(row)
+            partial_output.parent.mkdir(parents=True, exist_ok=True)
+            partial_output.write_text(
+                json.dumps(
+                    {
+                        "partial": True,
+                        "completed": completed,
+                        "total": total,
+                        "workers": worker_count,
+                        "output": str(output),
+                        "results": partial_rows,
+                    },
+                    indent=2,
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+        report = AnswerEvaluator(
+            strategy,
+            answer_provider,
+            AnswerContextBuilder(
+                config.root,
+                max_files=args.context_files,
+                lines_per_file=args.context_lines,
+                exclude=inspection_exclude_patterns(config),
+                max_file_bytes=config.scanner.max_file_bytes,
+            ),
+            judge=judge,
+            limit=limit,
+            workers=worker_count,
+            progress_callback=advance_progress,
+            row_callback=write_partial,
+        ).evaluate(cases)
+    finally:
+        if progress_bar is not None:
+            progress_bar.stop()
+        close_vector_store(vector_store)
+
+    payload = {
+        "benchmark": args.benchmark,
+        "dataset": str(dataset),
+        "prepared": preparation,
+        "settings": {
+            "root": str(config.root),
+            "search_strategy": config.search.strategy,
+            "limit": limit,
+            "context_files": args.context_files,
+            "context_lines": args.context_lines,
+            "embedding_provider": config.embedding.provider,
+            "embedding_model": config.embedding.model,
+            "answer_provider": config.generation.provider,
+            "answer_model": config.generation.model,
+            "judge_enabled": bool(args.judge),
+            "judge_prompt": str(args.judge_prompt or AnswerJudge.DEFAULT_PROMPT_PATH),
+            "judge_model": args.judge_model or (judge_config.generation.model if judge_config else None),
+            "workers": worker_count,
+        },
+        **report,
+    }
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    if args.json:
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+        return 0
+    print(f"saved e2e answer eval report: {output}")
+    render_answer_metrics_table(payload["metrics"])
+    return 0
+
+
+def answer_dataset_path(args: argparse.Namespace) -> Path:
+    if args.dataset is not None:
+        return args.dataset
+    if args.benchmark == "swe-qa-pro":
+        repo_suffix = f"-{args.repo.replace('/', '-')}" if args.repo else ""
+        return Path(f".code-diver/benchmarks/swe-qa-pro/answers{repo_suffix}.jsonl")
+    return Path(".code-diver/eval/answer_cases.jsonl")
+
+
+def prepare_answer_benchmark(args: argparse.Namespace, dataset: Path, *, enabled: bool = True) -> dict[str, Any] | None:
+    if args.benchmark != "swe-qa-pro":
+        return None
+    if dataset.exists():
+        return None
+    if not args.yes and not sys.stdin.isatty():
+        raise RuntimeError("SWE-QA-Pro answer dataset is missing; pass --yes to download/prepare it.")
+    if not args.yes:
+        print(
+            "Benchmark 'swe-qa-pro' is not prepared.\n"
+            "Source: TIGER-Lab/SWE-QA-Pro-Bench (test split).\n"
+            f"Cases: {args.cases}\n"
+            f"Repo filter: {args.repo or '(none)'}\n"
+            f"Local output: {dataset}\n"
+            "Download and prepare it now? [y/N] ",
+            end="",
+            file=sys.stderr,
+        )
+        if input().strip().lower() not in {"y", "yes"}:
+            raise RuntimeError(f"Benchmark assets not prepared for '{args.benchmark}'.")
+    with render_activity("preparing SWE-QA-Pro answer benchmark", enabled=enabled):
+        return SweQaProDatasetPreparer().prepare(dataset, limit=max(int(args.cases or 1), 1), repo=args.repo)
+
+
+def expand_answer_benchmark(
+    args: argparse.Namespace,
+    dataset: Path,
+    requested_cases: int,
+    *,
+    enabled: bool = True,
+) -> dict[str, Any]:
+    if not args.yes and not sys.stdin.isatty():
+        raise RuntimeError(
+            f"SWE-QA-Pro answer dataset has fewer than {requested_cases} cases; pass --yes to expand it."
+        )
+    if not args.yes:
+        print(
+            f"Benchmark has fewer than {requested_cases} local cases.\n"
+            f"Repo filter: {args.repo or '(none)'}\n"
+            f"Local output: {dataset}\n"
+            "Expand it now? [y/N] ",
+            end="",
+            file=sys.stderr,
+        )
+        if input().strip().lower() not in {"y", "yes"}:
+            raise RuntimeError(f"Benchmark assets not expanded for '{args.benchmark}'.")
+    with render_activity("expanding SWE-QA-Pro answer benchmark", enabled=enabled):
+        return SweQaProDatasetPreparer().prepare(dataset, limit=requested_cases, repo=args.repo)
+
+
+def render_answer_metrics_table(metrics: dict[str, Any]) -> None:
+    table = Table(title="e2e answer metrics")
+    table.add_column("metric", style="cyan")
+    table.add_column("value", justify="right")
+    preferred = [
+        "cases",
+        "file_hit",
+        "file_recall",
+        "file_precision",
+        "file_mrr",
+        "token_f1",
+        "key_token_f1",
+        "bigram_f1",
+        "judge_answer_correctness",
+        "judge_evidence_grounding",
+        "judge_coverage",
+        "judge_citation_quality",
+        "judge_specificity",
+        "judge_hallucination_control",
+        "judge_overall",
+        "answer_duration_ms_mean",
+        "answer_duration_ms_total",
+    ]
+    for key in preferred:
+        if key not in metrics:
+            continue
+        value = metrics[key]
+        table.add_row(key, f"{value:.4f}" if isinstance(value, float) else str(value))
+    Console().print(table)
 
 
 def cmd_experiment(args: argparse.Namespace, config: AppConfig) -> int:

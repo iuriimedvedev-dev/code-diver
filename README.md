@@ -171,6 +171,25 @@ grade. The default editable judge prompt lives at
 `prompts/code-explanation-judge.md`. See
 [docs/code-explanation-eval-2026-06-05.md](docs/code-explanation-eval-2026-06-05.md).
 
+For full answer-agent evaluation, use the advanced repo-level E2E lane:
+
+```bash
+uv run code-diver --root ../checked-out-repo --help-all evaluate-answers \
+  --benchmark swe-qa-pro \
+  --repo owner/name \
+  --cases 20 \
+  --yes \
+  --judge \
+  --judge-prompt prompts/code-answer-judge.md \
+  --judge-model gemini-3.1-flash-lite
+```
+
+This measures the product path: retrieval/rerank, bounded file context reads,
+final answer generation, and optional LLM-as-judge scoring against a reference
+answer. The SWE-QA-Pro adapter prepares public repo-question cases, but the first
+E2E runner expects `--root` to point at the matching repository checkout. See
+[docs/e2e-answer-eval-2026-06-05.md](docs/e2e-answer-eval-2026-06-05.md).
+
 ## Retrieval Experiments
 
 `code-diver.yml` controls storage and retrieval strategy:

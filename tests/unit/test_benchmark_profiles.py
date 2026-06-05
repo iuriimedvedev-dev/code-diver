@@ -97,6 +97,39 @@ def test_evaluate_explanations_parser_accepts_benchmark_and_judge() -> None:
     assert args.judge_model == "gemini-3.1-flash-lite"
 
 
+def test_evaluate_answers_parser_accepts_benchmark_and_judge() -> None:
+    args = build_parser(include_advanced=True).parse_args(
+        [
+            "evaluate-answers",
+            "--benchmark",
+            "swe-qa-pro",
+            "--repo",
+            "owner/repo",
+            "--cases",
+            "3",
+            "--limit",
+            "5",
+            "--context-files",
+            "4",
+            "--context-lines",
+            "120",
+            "--judge",
+            "--judge-model",
+            "gemini-3.1-flash-lite",
+            "--json",
+        ]
+    )
+
+    assert args.benchmark == "swe-qa-pro"
+    assert args.repo == "owner/repo"
+    assert args.cases == 3
+    assert args.limit == 5
+    assert args.context_files == 4
+    assert args.context_lines == 120
+    assert args.judge is True
+    assert args.judge_model == "gemini-3.1-flash-lite"
+
+
 def test_resolve_benchmark_profile_returns_none_when_not_requested() -> None:
     assert resolve_benchmark_profile(Namespace(benchmark=None)) is None
 
