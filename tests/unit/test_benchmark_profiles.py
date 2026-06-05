@@ -62,11 +62,12 @@ def test_evaluate_parser_accepts_local_dataset_generation() -> None:
 
 def test_evaluate_search_tools_parser_accepts_case_limit() -> None:
     args = build_parser(include_advanced=True).parse_args(
-        ["evaluate-search-tools", "--cases", "25", "--limit", "10", "--json"]
+        ["evaluate-search-tools", "--cases", "25", "--limit", "10", "--workers", "4", "--json"]
     )
 
     assert args.cases == 25
     assert args.limit == 10
+    assert args.workers == 4
 
 
 def test_resolve_benchmark_profile_returns_none_when_not_requested() -> None:

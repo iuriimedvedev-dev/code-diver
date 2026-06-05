@@ -1,0 +1,173 @@
+root: .code-diver/benchmarks/mteb-codesearchnet-python/corpus
+artifact: .code-diver/benchmarks/mteb-codesearchnet-python/index-h5-embeddinggemma-300m-quality.json
+
+storage:
+  provider: json
+
+embedding:
+  provider: sentence_transformers
+  model: google/embeddinggemma-300m
+  dimensions: 768
+  batch_size: 96
+  workers: 1
+  max_input_chars: 1200
+  query_prefix: "task: code retrieval | query: "
+  document_prefix: "title: none | text: "
+
+generation:
+  provider: openai_compatible
+  model: mlx-community/gemma-4-e2b-it-4bit
+  url: http://127.0.0.1:8012/v1/chat/completions
+  api_key: local
+  temperature: 0
+  max_tokens: 1536
+  response_format: false
+  timeout_ms: 120000
+
+indexing:
+  mode: scanner
+
+scanner:
+  include:
+    - "**/*.py"
+  max_file_bytes: 200000
+  line_chunks: false
+  chunk_lines: 220
+  structural_chunks: false
+  symbol_chunks: false
+  symbol_body: false
+  file_summary_chunks: true
+  file_manifest_chunks: true
+  max_symbols_per_file: 96
+
+search:
+  limit: 10
+  preview_lines: 8
+  strategy: hybrid
+
+hybrid_search:
+  candidate_limit: 280
+  lexical_candidate_limit: 900
+  vector_weight: 0.6172839506172839
+  lexical_weight: 0.19753086419753085
+  path_weight: 0.07407407407407407
+  symbol_weight: 0.037037037037037035
+  symbol_match_weight: 0.037037037037037035
+  graph_weight: 0.037037037037037035
+  file_vote_weight: 0.0
+  graph_depth: 0
+  graph_neighbor_limit: 0
+  vector_kind_limits:
+    file_summary: 170
+    file_manifest: 170
+  vector_kind_multipliers:
+    file_summary: 1.0
+    file_manifest: 1.08
+  routing_enabled: true
+  lexical_scoring: bm25
+  fusion: weighted
+  preserve_vector_top: true
+  vector_top_score_margin: 0.03
+  item_kind_weights:
+    file_summary: 1.0
+    file_manifest: 1.08
+  min_token_length: 3
+
+llm_rerank:
+  candidate_limit: 30
+  rerank_limit: 10
+  max_preview_chars: 700
+  mode: file_first
+  include_reasons: false
+  preserve_top_candidate: true
+  preserve_top_score_margin: 0.03
+  retry_attempts: 2
+  retry_base_delay_seconds: 1.0
+  retry_max_delay_seconds: 8.0
+
+graph:
+  enabled: true
+  artifact: .code-diver/benchmarks/mteb-codesearchnet-python/graph-h5-embeddinggemma-300m-quality.json
+  ast_enabled: false
+  reference_edges_enabled: false
+  call_edges_enabled: false
+  expansion_depth: 0
+  neighbor_limit: 0
+
+trace:
+  enabled: true
+  artifact: .code-diver/traces/codesearchnet-agent-axis-embeddinggemma-1000.jsonl
+  include_prompts: false
+
+evaluation:
+  dataset: .code-diver/benchmarks/mteb-codesearchnet-python/codesearchnet_python_1000.jsonl
+  limit: 10
+  workers: 4
+
+experiments:
+  suite: codesearchnet-agent-axis-embeddinggemma-1000
+  strategies:
+    - hybrid
+  hypotheses:
+    - name: agent_gemma4_e2b_local_rerank
+      tools:
+        - code_diver_h3_search
+        - code_diver_outline
+        - code_diver_symbols
+        - code_diver_rg
+        - code_diver_grep
+        - code_diver_read
+        - code_diver_rerank
+      generation:
+        provider: openai_compatible
+        model: mlx-community/gemma-4-e2b-it-4bit
+        url: http://127.0.0.1:8012/v1/chat/completions
+        api_key: local
+        temperature: 0
+        max_tokens: 1536
+        response_format: false
+        timeout_ms: 120000
+      rerank_generation:
+        provider: openai_compatible
+        model: mlx-community/gemma-4-e2b-it-4bit
+        url: http://127.0.0.1:8012/v1/chat/completions
+        api_key: local
+        temperature: 0
+        max_tokens: 1536
+        response_format: false
+        timeout_ms: 120000
+      description: "Battle candidate: H6.1 EmbeddingGemma candidates, local Gemma 4 E2B plans/tools and reranks."
+    - name: agent_gemma4_e2b_rerank_gemini_lite
+      tools:
+        - code_diver_h3_search
+        - code_diver_outline
+        - code_diver_symbols
+        - code_diver_rg
+        - code_diver_grep
+        - code_diver_read
+        - code_diver_rerank
+      generation:
+        provider: openai_compatible
+        model: mlx-community/gemma-4-e2b-it-4bit
+        url: http://127.0.0.1:8012/v1/chat/completions
+        api_key: local
+        temperature: 0
+        max_tokens: 1536
+        response_format: false
+        timeout_ms: 120000
+      rerank_generation:
+        provider: gemini
+        model: gemini-3.1-flash-lite
+        fallback_models: []
+        project: "236777862453"
+        location: global
+        temperature: 0
+        thinking_budget: 256
+        api_version: v1beta
+        timeout_ms: 30000
+      description: "Control: local Gemma 4 E2B plans/tools, Gemini Lite reranks."
+
+metrics:
+  enabled: false
+
+plugins: []

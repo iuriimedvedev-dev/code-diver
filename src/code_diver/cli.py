@@ -7,6 +7,7 @@ import json
 import shutil
 import sys
 import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import replace
 from pathlib import Path
 from time import perf_counter
@@ -356,6 +357,12 @@ def add_advanced_parsers(subparsers: argparse._SubParsersAction[argparse.Argumen
         type=int,
         default=None,
         help="Evaluate only the first N dataset cases. --limit remains the retrieval top-k.",
+    )
+    evaluate_search_tools.add_argument(
+        "--workers",
+        type=int,
+        default=None,
+        help="Run direct search-tool cases concurrently. Defaults to evaluation.workers.",
     )
     evaluate_search_tools.add_argument(OptionName.HYPOTHESIS.value, action="append", default=[])
     evaluate_search_tools.add_argument(OptionName.DETAILS.value, action="store_true")
@@ -1357,6 +1364,7 @@ def cmd_evaluate_search_tools(args: argparse.Namespace, config: AppConfig) -> in
     if getattr(args, "cases", None) is not None:
         cases = cases[: max(0, int(args.cases))]
     limit = args.limit or config.evaluation.limit
+    worker_count = max(1, int(args.workers or config.evaluation.workers or 1))
     run_id = uuid.uuid4().hex[:12]
     rows: list[dict[str, Any]] = []
     for hypothesis in search_tool_hypotheses(config, args.hypothesis):
@@ -1364,6 +1372,11 @@ def cmd_evaluate_search_tools(args: argparse.Namespace, config: AppConfig) -> in
         tools = resolve_hypothesis_tools(config, hypothesis.name)
         log_path = search_hypothesis_log_path(eval_config, hypothesis.name, run_id)
         search_vector_store = None
+        started = perf_counter()
+        eval_results: list[Any] = []
+        durations_ms: list[float] = []
+        usage = empty_agent_usage()
+        errors: list[str] = []
         try:
             search_handler = None
             h3_search_handler = None
@@ -1409,29 +1422,65 @@ def cmd_evaluate_search_tools(args: argparse.Namespace, config: AppConfig) -> in
                 exclude=inspection_exclude_patterns(eval_config),
                 max_file_bytes=eval_config.scanner.max_file_bytes,
             )
-            eval_results = []
-            durations_ms: list[float] = []
-            usage = empty_agent_usage()
-            started = perf_counter()
-            errors: list[str] = []
-            for case in cases:
+
+            def run_case(index: int, case: Any) -> tuple[int, Any, float, dict[str, Any], str | None]:
                 case_started = perf_counter()
-                search_result = orchestrator.search(
-                    hypothesis_name=hypothesis.name,
-                    case_id=case.id,
-                    query=case.query,
-                    limit=limit,
-                )
-                durations_ms.append((perf_counter() - case_started) * 1000)
-                merge_agent_usage(usage, search_result.usage_json())
-                if search_result.error:
-                    errors.append(f"{case.id}: {search_result.error}")
-                eval_results.append(direct_search_eval_result(case, search_result.retrieved, limit))
+                try:
+                    search_result = orchestrator.search(
+                        hypothesis_name=hypothesis.name,
+                        case_id=case.id,
+                        query=case.query,
+                        limit=limit,
+                    )
+                    duration_ms = (perf_counter() - case_started) * 1000
+                    error = f"{case.id}: {search_result.error}" if search_result.error else None
+                    return (
+                        index,
+                        direct_search_eval_result(case, search_result.retrieved, limit),
+                        duration_ms,
+                        search_result.usage_json(),
+                        error,
+                    )
+                except Exception as exc:
+                    duration_ms = (perf_counter() - case_started) * 1000
+                    return (
+                        index,
+                        direct_search_eval_result(case, [], limit),
+                        duration_ms,
+                        empty_agent_usage(),
+                        f"{case.id}: {type(exc).__name__}: {exc}",
+                    )
+
+            eval_results_by_index: list[Any | None] = [None] * len(cases)
+            durations_by_index: list[float] = [0.0] * len(cases)
+            if worker_count == 1 or len(cases) <= 1:
+                completed_rows = [run_case(index, case) for index, case in enumerate(cases)]
+            else:
+                completed_rows = []
+                with ThreadPoolExecutor(max_workers=min(worker_count, max(len(cases), 1))) as executor:
+                    futures = {
+                        executor.submit(run_case, index, case): index
+                        for index, case in enumerate(cases)
+                    }
+                    for future in as_completed(futures):
+                        completed_rows.append(future.result())
+            for index, eval_result, duration_ms, case_usage, error in completed_rows:
+                eval_results_by_index[index] = eval_result
+                durations_by_index[index] = duration_ms
+                merge_agent_usage(usage, case_usage)
+                if error:
+                    errors.append(error)
+            eval_results = [result for result in eval_results_by_index if result is not None]
+            durations_ms = durations_by_index[: len(eval_results)]
         finally:
             if search_vector_store is not None:
                 close_vector_store(search_vector_store)
         metrics = direct_search_metrics(eval_results, durations_ms, limit)
         metrics["duration_ms"] = (perf_counter() - started) * 1000
+        metrics["evaluation_workers"] = worker_count
+        metrics["degraded"] = bool(errors)
+        metrics["degraded_cases"] = len(errors)
+        metrics["degraded_case_rate"] = len(errors) / max(len(cases), 1)
         row: dict[str, Any] = {
             "hypothesis": hypothesis.name,
             "tools": tools,
