@@ -1,0 +1,124 @@
+root: .code-diver/benchmarks/mteb-codesearchnet-python/corpus
+artifact: .code-diver/benchmarks/mteb-codesearchnet-python/index-h5-embeddinggemma-300m-quality.json
+
+storage:
+  provider: json
+
+embedding:
+  provider: sentence_transformers
+  model: google/embeddinggemma-300m
+  dimensions: 768
+  batch_size: 96
+  workers: 1
+  max_input_chars: 1200
+  query_prefix: "task: code retrieval | query: "
+  document_prefix: "title: none | text: "
+
+generation:
+  provider: openai_compatible
+  model: mlx-community/gemma-4-12B-it-4bit
+  url: http://127.0.0.1:8015/v1/chat/completions
+  api_key: local
+  temperature: 0
+  max_tokens: 512
+  response_format: json_schema
+  timeout_ms: 300000
+  extra_body:
+    enable_thinking: false
+
+indexing:
+  mode: scanner
+
+scanner:
+  include:
+    - "**/*.py"
+  max_file_bytes: 200000
+  line_chunks: false
+  chunk_lines: 220
+  structural_chunks: false
+  symbol_chunks: false
+  symbol_body: false
+  file_summary_chunks: true
+  file_manifest_chunks: true
+  max_symbols_per_file: 96
+
+search:
+  limit: 10
+  preview_lines: 8
+  strategy: hybrid
+
+hybrid_search:
+  candidate_limit: 280
+  lexical_candidate_limit: 900
+  vector_weight: 0.5625
+  lexical_weight: 0.1875
+  path_weight: 0.08333333333333334
+  symbol_weight: 0.04166666666666667
+  symbol_match_weight: 0.04166666666666667
+  graph_weight: 0.08333333333333334
+  file_vote_weight: 0.0
+  graph_depth: 0
+  graph_neighbor_limit: 0
+  vector_kind_limits:
+    file_summary: 170
+    file_manifest: 170
+  vector_kind_multipliers:
+    file_summary: 1.0
+    file_manifest: 1.08
+  routing_enabled: true
+  lexical_scoring: bm25
+  fusion: weighted
+  preserve_vector_top: true
+  vector_top_score_margin: 0.03
+  item_kind_weights:
+    file_summary: 1.0
+    file_manifest: 1.08
+  min_token_length: 3
+
+llm_rerank:
+  candidate_limit: 30
+  rerank_limit: 10
+  max_preview_chars: 700
+  mode: base_rank_prior
+  include_reasons: false
+  preserve_top_candidate: true
+  preserve_top_score_margin: 0.03
+  retry_attempts: 2
+  retry_base_delay_seconds: 1.0
+  retry_max_delay_seconds: 12.0
+
+graph:
+  enabled: true
+  artifact: .code-diver/benchmarks/mteb-codesearchnet-python/graph-h5-embeddinggemma-300m-quality.json
+  ast_enabled: false
+  reference_edges_enabled: false
+  call_edges_enabled: false
+  expansion_depth: 0
+  neighbor_limit: 0
+
+trace:
+  enabled: true
+  artifact: .code-diver/traces/codesearchnet-gemma4-12b-rerank-200.jsonl
+  include_prompts: false
+
+evaluation:
+  dataset: .code-diver/tmp/codesearchnet_python_200.jsonl
+  limit: 10
+  workers: 1
+
+experiments:
+  suite: codesearchnet-gemma4-12b-rerank-200
+  strategies:
+    - hybrid
+  hypotheses:
+    - name: h6_1_static_no_llm
+      strategy: hybrid
+      description: "H6.1 calibrated hybrid file locator without LLM rerank."
+    - name: gemma4_12b_rerank_after_base_prior
+      strategy: hybrid_rerank
+      description: "Gemma 4 12B MLX reranks after deterministic H6.1 candidate generation; H6.1 order is a strong prior."
+
+metrics:
+  enabled: false
+
+plugins: []

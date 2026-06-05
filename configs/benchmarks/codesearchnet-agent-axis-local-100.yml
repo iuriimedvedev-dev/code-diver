@@ -163,6 +163,21 @@ experiments:
           enable_thinking: false
       rerank_generation: *qwen35_9b
       description: "Local-only agent: Qwen3.5 9B plans/tool-calls and reranks over H6.1 EmbeddingGemma candidates."
+    - name: agent_gemma4_12b_local_rerank
+      tools: *agent_tools
+      generation: &gemma_12b
+        provider: openai_compatible
+        model: mlx-community/gemma-4-12B-it-4bit
+        url: http://127.0.0.1:8015/v1/chat/completions
+        api_key: local
+        temperature: 0
+        max_tokens: 1536
+        response_format: json_schema
+        timeout_ms: 300000
+        extra_body:
+          enable_thinking: false
+      rerank_generation: *gemma_12b
+      description: "Local-only agent: Gemma 4 12B plans/tool-calls and reranks over H6.1 EmbeddingGemma candidates."
 
 metrics:
   enabled: false
