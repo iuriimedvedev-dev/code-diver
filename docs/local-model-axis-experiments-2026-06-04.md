@@ -46,6 +46,61 @@ H6.2 now has two MLP modes:
 
 Decision: keep H6.1 as an active calibration candidate. Keep H6.2 as research only until a better listwise/pairwise loss beats H6.1 on held-out data.
 
+## 2026-06-05 Sequential Calibration Update
+
+The medium-grid calibration was rerun sequentially after the performance-measurement correction. No eval/index/model benchmark processes were run in parallel while measuring these rows.
+
+Current public benchmark limit: the available `mteb/CodeSearchNetRetrieval` Python slice contains `1000` positive qrels, so the "large" calibration sample for this dataset is all 1000 cases. The split below is `800` train / `200` validation with seed `17`, grid step `medium`, and `12,500` static profiles per embedding family.
+
+Reports:
+
+```text
+.code-diver/reports/h6-1-medium-qwen0_6b-codesearchnet-1000.json
+.code-diver/reports/h6-1-medium-embeddinggemma-codesearchnet-1000.json
+```
+
+Validation results:
+
+| Embedding | Profile | Hit@1 | Hit@3 | Hit@5 | Hit@10 | Recall@10 | Precision@R | MRR@10 |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Qwen3-Embedding-0.6B 4-bit | Manual H5/H3 weights | 0.745 | 0.900 | 0.920 | 0.950 | 0.950 | 0.745 | 0.825 |
+| Qwen3-Embedding-0.6B 4-bit | H6.1 best static | 0.755 | 0.900 | 0.925 | 0.950 | 0.950 | 0.755 | 0.833 |
+| Qwen3-Embedding-0.6B 4-bit | H6.2 dynamic-weight MLP | 0.750 | 0.890 | 0.920 | 0.960 | 0.960 | 0.750 | 0.823 |
+| EmbeddingGemma-300M | Manual H5/H3 weights | 0.820 | 0.930 | 0.955 | 0.975 | 0.975 | 0.820 | 0.877 |
+| EmbeddingGemma-300M | H6.1 best static | 0.830 | 0.940 | 0.965 | 0.975 | 0.975 | 0.830 | 0.889 |
+| EmbeddingGemma-300M | H6.2 dynamic-weight MLP | 0.810 | 0.945 | 0.955 | 0.975 | 0.975 | 0.810 | 0.878 |
+
+Best Qwen3-Embedding-0.6B static weights:
+
+```yaml
+vector_weight: 0.49019607843137253
+lexical_weight: 0.39215686274509803
+path_weight: 0.058823529411764705
+symbol_weight: 0.029411764705882353
+symbol_match_weight: 0.029411764705882353
+graph_weight: 0.0
+file_vote_weight: 0.0
+```
+
+Best EmbeddingGemma static weights:
+
+```yaml
+vector_weight: 0.6172839506172839
+lexical_weight: 0.19753086419753085
+path_weight: 0.07407407407407407
+symbol_weight: 0.037037037037037035
+symbol_match_weight: 0.037037037037037035
+graph_weight: 0.037037037037037035
+file_vote_weight: 0.0
+```
+
+Interpretation:
+
+- EmbeddingGemma is the stronger embedding family under the same calibration protocol, especially for Hit@3, Hit@5, Recall@10, and MRR.
+- H6.1 static calibration gives small but real head-ranking improvements. For EmbeddingGemma it adds `+0.010` Hit@3, `+0.010` Hit@5, and about `+0.011` MRR@10 over manual weights.
+- H6.2 dynamic-weight MLP is still not a default. It does not clear the requested `+0.05` lift threshold. On Qwen it improves Hit@10 by `+0.010` but hurts Hit@3/MRR; on EmbeddingGemma it improves Hit@3 by `+0.015` over manual but hurts Hit@1/MRR and does not improve Hit@5/10.
+- Calibration runtime was about `55.0` minutes for Qwen and `53.6` minutes for EmbeddingGemma using cached feature files. This is acceptable as a one-time offline training/calibration step, not as an interactive path.
+
 ## H6.2 On Pure H3
 
 Report:
@@ -184,6 +239,62 @@ Interpretation:
 - The confidence intervals are wide on 100 cases. This is a promotion signal to 1,000 cases, not a final winner.
 - The current `sentence_transformers` provider is in-process and slower for query encoding than the already-hot Qwen embedding server. If EmbeddingGemma wins quality on 1,000 cases, the next runtime task is to keep it hot behind a server or persistent worker.
 
+## Embedding Axis: 1000-Case Sequential Comparison
+
+Suite:
+
+```bash
+uv run --group runtime-sentence-transformers python scripts/benchmark_embedding_models.py \
+  --suite configs/codesearchnet-local-embedding-axis-1000.yml
+```
+
+Report:
+
+```text
+.code-diver/reports/codesearchnet-local-embedding-axis-1000.json
+```
+
+Fixed variables:
+
+| Axis | Value |
+| --- | --- |
+| Search/index shape | H5 file metadata: `file_summary` + `file_manifest`, no code-body vectors |
+| Search strategy | deterministic `hybrid`, no LLM reranker |
+| Dataset | `.code-diver/benchmarks/mteb-codesearchnet-python/codesearchnet_python_1000.jsonl` |
+| Hybrid weights | H5 manual weights |
+| Execution | sequential model runs; no parallel benchmark processes |
+| Retrieval unit | files; each benchmark case has one expected file |
+
+Changed variable: embedding model.
+
+| Embedding model | Provider/runtime | Index seconds | Hit@1 | Hit@3 | Hit@5 | Hit@10 | Recall@10 | Precision@10 | Precision@R | MRR@10 | nDCG@10 | Mean search ms | p95 ms |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ` | local OpenAI-compatible MLX/vLLM endpoint | 42.6 | 0.822 | 0.928 | 0.950 | 0.960 | 0.960 | 0.176 | 0.822 | 0.878 | 0.898 | 557 | 597 |
+| `google/embeddinggemma-300m` | local `sentence_transformers` in-process | 61.1 | 0.848 | 0.947 | 0.964 | 0.975 | 0.975 | 0.173 | 0.848 | 0.899 | 0.918 | 787 | 874 |
+
+EmbeddingGemma delta vs Qwen3-Embedding-0.6B:
+
+| Metric | Delta |
+| --- | ---: |
+| Hit@1 | `+0.026` |
+| Hit@3 | `+0.019` |
+| Hit@5 | `+0.014` |
+| Hit@10 / Recall@10 | `+0.015` |
+| MRR@10 | `+0.021` |
+| nDCG@10 | `+0.020` |
+| Precision@10 | `-0.003` |
+| Index build latency | `+18.5s` slower |
+| Mean search latency | `+230.7ms` slower |
+| p95 search latency | `+277.1ms` slower |
+
+Interpretation:
+
+- EmbeddingGemma is the better quality embedding model on the public 1000-case slice with an identical H5 file-metadata setup.
+- Qwen3-Embedding-0.6B remains the lower-latency local embedding baseline.
+- Since CodeSearchNet has one expected file per query in this slice, file Recall@3/5 equals Hit@3/5. For multi-file repo-local tasks, precision/recall must be read from the multi-answer datasets rather than this benchmark alone.
+- The weak `Precision@10` values are expected for a single-positive benchmark: returning ten files gives at most `0.1` exact precision before credit from duplicate/chunk-level matches. For product UX we should optimize `Hit@3/5`, `Recall@5/10`, and `Precision@R` more than raw `Precision@10`.
+- The current quality-first default should move toward EmbeddingGemma + calibrated H6.1 weights. The current latency-first local default can remain Qwen3-Embedding-0.6B until EmbeddingGemma is served through a hot embedding worker.
+
 ## Next Matrix
 
 Embedding axis:
@@ -271,6 +382,7 @@ Valid reports:
 .code-diver/reports/codesearchnet-agent-axis-gemini-lite-api-25.json
 .code-diver/reports/codesearchnet-agent-axis-qwen35-4b-api-rerank-10.json
 .code-diver/reports/codesearchnet-agent-axis-gemma4-e4b-api-rerank-10.json
+.code-diver/reports/codesearchnet-agent-axis-gemma4-e2b-api-rerank-10.json
 ```
 
 Results:
@@ -279,6 +391,7 @@ Results:
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | Gemini 3.1 Flash Lite | 25 | 0.760 | 0.920 | 0.920 | 0.920 | 0.833 | 0.856 | 0.232 | 11,320 | 20,022 | $0.206 | 0 |
 | Qwen3.5 4B OptiQ 4-bit | 10 | 0.800 | 1.000 | 1.000 | 1.000 | 0.883 | 0.913 | 0.100 | 37,020 | 47,739 | $0.468 estimator | 0 |
+| Gemma 4 E2B 4-bit | 10 | 0.700 | 0.900 | 0.900 | 0.900 | 0.783 | 0.813 | 0.150 | 18,001 | 25,362 | $0.582 estimator | 0 |
 | Gemma 4 E4B OptiQ 4-bit | 10 | 0.800 | 0.900 | 0.900 | 0.900 | 0.833 | 0.850 | 0.450 | 56,573 | 77,396 | $0.686 estimator | 0 |
 | Gemma 4 12B IT Q4_K_M | 0 completed | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | runtime failure |
 
@@ -287,6 +400,7 @@ Interpretation:
 - H6.2 is not the baseline for this axis. The agent-axis runs are built on the better H6.1 EmbeddingGemma candidate generator.
 - Qwen3.5 4B produced the best 10-case quality row, but the sample is too small and the confidence interval is wide. It is a promotion candidate, not a winner.
 - Gemini Lite remains the practical interactive planner because it is 3-5x faster than the local planners in this setup.
+- Gemma E2B is the first local Gemma planner worth keeping in the matrix: it is much faster than E4B and preserved Hit@3/5/10 at `0.900` on the same 10-case gate. Its Hit@1/MRR are weaker, so it needs a 100-case run before promotion.
 - Gemma E4B follows the protocol after increasing `max_tokens` and adding a no-Markdown-fence prompt guard, but its latency is too high for the default planner role.
 - Gemma 4 12B started and generated valid tool calls, but with llama.cpp loaded it blocked the local retrieval path after the first H3 tool call for more than 4 minutes. Treat this as runtime-not-viable until the planner and embedding/search runtimes are isolated.
 

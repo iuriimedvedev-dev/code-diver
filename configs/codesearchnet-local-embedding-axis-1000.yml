@@ -1,0 +1,42 @@
+base_config: configs/codesearchnet-mteb-python-h5-qwen-quality.yml
+run_id: local_embedding_axis_1000_20260605
+output: .code-diver/reports/codesearchnet-local-embedding-axis-1000.json
+reindex: true
+
+config_overrides:
+  evaluation:
+    dataset: .code-diver/benchmarks/mteb-codesearchnet-python/codesearchnet_python_1000.jsonl
+    limit: 10
+    workers: 1
+  search:
+    strategy: hybrid
+  trace:
+    include_prompts: false
+
+strategies:
+  - hybrid
+
+models:
+  - name: qwen3_embedding_0_6b_mlx_4bit
+    provider: openai_compatible
+    model: mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ
+    dimensions:
+    url: http://127.0.0.1:8001/v1/embeddings
+    api_key: local
+    batch_size: 128
+    workers: 1
+    max_input_chars: 900
+    document_prefix: "Represent this code file metadata for retrieval: "
+    query_prefix: "Represent this code search query for retrieving relevant files: "
+    cost_per_1m_tokens_usd: 0
+
+  - name: embeddinggemma_300m_sentence_transformers
+    provider: sentence_transformers
+    model: google/embeddinggemma-300m
+    dimensions: 768
+    batch_size: 96
+    workers: 1
+    max_input_chars: 900
+    document_prefix: "Represent this code file metadata for retrieval: "
+    query_prefix: "Represent this code search query for retrieving relevant files: "
+    cost_per_1m_tokens_usd: 0

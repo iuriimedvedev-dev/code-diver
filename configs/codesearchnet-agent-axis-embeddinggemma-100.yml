@@ -195,6 +195,35 @@ experiments:
         api_version: v1beta
         timeout_ms: 30000
       description: "Agent axis: local Gemma 4 E4B plans/tools; Gemini Lite reranks."
+    - name: agent_gemma4_e2b_rerank_gemini_lite
+      tools:
+        - code_diver_h3_search
+        - code_diver_outline
+        - code_diver_symbols
+        - code_diver_rg
+        - code_diver_grep
+        - code_diver_read
+        - code_diver_rerank
+      generation:
+        provider: openai_compatible
+        model: mlx-community/gemma-4-e2b-it-4bit
+        url: http://127.0.0.1:8012/v1/chat/completions
+        api_key: local
+        temperature: 0
+        max_tokens: 1536
+        response_format: false
+        timeout_ms: 120000
+      rerank_generation:
+        provider: gemini
+        model: gemini-3.1-flash-lite
+        fallback_models: []
+        project: "236777862453"
+        location: global
+        temperature: 0
+        thinking_budget: 256
+        api_version: v1beta
+        timeout_ms: 30000
+      description: "Agent axis: local Gemma 4 E2B plans/tools; Gemini Lite reranks."
     - name: agent_gemma4_12b_rerank_gemini_lite
       tools:
         - code_diver_h3_search
