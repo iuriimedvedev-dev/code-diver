@@ -130,6 +130,12 @@ def test_evaluate_answers_parser_accepts_benchmark_and_judge() -> None:
     assert args.judge_model == "gemini-3.1-flash-lite"
 
 
+def test_evaluate_answers_parser_uses_dynamic_context_default() -> None:
+    args = build_parser(include_advanced=True).parse_args(["evaluate-answers", "--dataset", "answers.jsonl"])
+
+    assert args.context_files is None
+
+
 def test_resolve_benchmark_profile_returns_none_when_not_requested() -> None:
     assert resolve_benchmark_profile(Namespace(benchmark=None)) is None
 

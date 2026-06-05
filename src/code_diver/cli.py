@@ -440,7 +440,12 @@ def add_advanced_parsers(subparsers: argparse._SubParsersAction[argparse.Argumen
     evaluate_answers.add_argument("--cases", type=int, default=20)
     evaluate_answers.add_argument(OptionName.LIMIT.value, type=int, default=None)
     evaluate_answers.add_argument("--repo", default=None, help="Filter benchmark rows to a repository, e.g. owner/name.")
-    evaluate_answers.add_argument("--context-files", type=int, default=8)
+    evaluate_answers.add_argument(
+        "--context-files",
+        type=int,
+        default=None,
+        help="Files to read into answer context. Defaults to 4 for hybrid_rerank, 8 otherwise.",
+    )
     evaluate_answers.add_argument("--context-lines", type=int, default=160)
     evaluate_answers.add_argument("--output", type=Path, default=None)
     evaluate_answers.add_argument("--partial-output", type=Path, default=None)
@@ -1804,6 +1809,7 @@ def cmd_evaluate_answers(args: argparse.Namespace, config: AppConfig) -> int:
         vector_store = make_vector_store(config, progress=not bool(args.json))
 
     limit = args.limit or config.evaluation.limit
+    context_files = int(args.context_files or default_answer_context_files(config))
     provider = make_embedding_provider(config, vector_store.metadata())
     strategy = make_retrieval_strategy(config, provider, vector_store)
     answer_provider = create_generation_provider(config)
@@ -1828,7 +1834,7 @@ def cmd_evaluate_answers(args: argparse.Namespace, config: AppConfig) -> int:
                 ("dataset", dataset),
                 ("search", config.search.strategy),
                 ("limit", limit),
-                ("context", f"{args.context_files} files x {args.context_lines} lines"),
+                ("context", f"{context_files} files x {args.context_lines} lines"),
                 ("answer model", f"{config.generation.provider}:{config.generation.model}"),
                 ("judge", args.judge),
                 ("workers", worker_count),
@@ -1879,7 +1885,7 @@ def cmd_evaluate_answers(args: argparse.Namespace, config: AppConfig) -> int:
             answer_provider,
             AnswerContextBuilder(
                 config.root,
-                max_files=args.context_files,
+                max_files=context_files,
                 lines_per_file=args.context_lines,
                 exclude=inspection_exclude_patterns(config),
                 max_file_bytes=config.scanner.max_file_bytes,
@@ -1903,7 +1909,7 @@ def cmd_evaluate_answers(args: argparse.Namespace, config: AppConfig) -> int:
             "root": str(config.root),
             "search_strategy": config.search.strategy,
             "limit": limit,
-            "context_files": args.context_files,
+            "context_files": context_files,
             "context_lines": args.context_lines,
             "embedding_provider": config.embedding.provider,
             "embedding_model": config.embedding.model,
@@ -2028,6 +2034,10 @@ def render_answer_metrics_table(metrics: dict[str, Any]) -> None:
         value = metrics[key]
         table.add_row(key, f"{value:.4f}" if isinstance(value, float) else str(value))
     Console().print(table)
+
+
+def default_answer_context_files(config: AppConfig) -> int:
+    return 4 if config.search.strategy == "hybrid_rerank" else 8
 
 
 def cmd_experiment(args: argparse.Namespace, config: AppConfig) -> int:

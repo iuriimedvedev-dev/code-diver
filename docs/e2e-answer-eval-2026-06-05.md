@@ -62,6 +62,12 @@ The current answer context is deterministic:
 5. Ask the configured generation model for JSON:
    `answer`, `citations`, and `confidence`.
 
+Default context width is strategy-aware: `4` files for `hybrid_rerank`, `8`
+files for non-reranked search. The Qibo mini-matrix below showed that rerank
+already moves the useful file bundle high enough that wider context mostly adds
+noise, while non-reranked `hybrid` needs a wider context window to avoid dropping
+evidence.
+
 This is Branch A-lite. It does not yet let the answer model freely call
 outline/symbol/rg/read tools inside the final answer step, and it does not yet
 build the Branch B ephemeral syntax-aware index over candidate files. Those are
@@ -296,6 +302,28 @@ benchmark path and shows the next concrete targets:
    part of interactive latency.
 4. Repeated runs can change top-rank order even with temperature 0, so larger
    E2E comparisons should run with saved reports and confidence intervals.
+
+## Qibo Context/Rerank Matrix
+
+Same 3-case Qibo slice, no judge, `limit=12`, `context-lines=180`:
+
+| Strategy | Context files | File recall | Context recall | Context precision | Hit@1 | Hit@3 | Hit@5 | Token F1 | Bigram F1 | Retrieval ms | Total ms |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `hybrid` | 4 | `0.611` | `0.333` | `0.083` | `0.333` | `0.333` | `0.333` | `0.275` | `0.065` | `1164` | `2786` |
+| `hybrid` | 8 | `0.611` | `0.611` | `0.125` | `0.333` | `0.333` | `0.333` | `0.368` | `0.135` | `321` | `2134` |
+| `hybrid` | 12 | `0.611` | `0.611` | `0.094` | `0.333` | `0.333` | `0.333` | `0.335` | `0.145` | `319` | `1994` |
+| `hybrid_rerank` | 4 | `0.722` | `0.722` | `0.333` | `0.667` | `1.000` | `1.000` | `0.365` | `0.135` | `1440` | `3205` |
+| `hybrid_rerank` | 8 | `0.722` | `0.722` | `0.167` | `0.667` | `1.000` | `1.000` | `0.361` | `0.152` | `1441` | `3181` |
+| `hybrid_rerank` | 12 | `0.722` | `0.722` | `0.131` | `0.667` | `1.000` | `1.000` | `0.385` | `0.157` | `1530` | `3336` |
+
+Interpretation:
+
+- Rerank improves file bundle recall on this slice: `0.611 -> 0.722`.
+- Rerank also moves relevant files into the top 3/5, so `context-files=4` is
+  enough and gives the highest context precision.
+- Without rerank, `context-files=4` drops evidence; `8` recovers all candidate
+  recall available in the top 12.
+- `context-files=12` adds noise without improving recall on this slice.
 
 Follow-up citation-validation run:
 
