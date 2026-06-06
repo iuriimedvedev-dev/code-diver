@@ -230,3 +230,37 @@ Interpretation:
   order and be counted as a model-contract failure.
 - A raw 200-case 12B rerank run is in progress before applying any guard, so the
   100/200 comparison stays honest.
+
+## Gemma 4 12B Rerank 200
+
+| Strategy | Hit@1 | Hit@3 | Hit@5 | Hit@10 | Precision@10 | Recall@10 | MRR@10 | nDCG@10 | Mean ms | P95 ms | Duration ms | Degraded |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `h6_1_static_no_llm` | 0.8000 | 0.9350 | 0.9700 | 0.9750 | 0.1510 | 0.9750 | 0.8695 | 0.8960 | 855.5977 | 893.3267 | 171167.9253 | 0 |
+| `gemma4_12b_rerank_after_base_prior` | 0.8150 | 0.9600 | 0.9700 | 0.9800 | 0.1555 | 0.9800 | 0.8857 | 0.9097 | 36790.6611 | 42151.1951 | 7358192.1965 | 0 |
+
+Diagnostics:
+
+| Metric | Value |
+| --- | ---: |
+| Rerank calls | 200 |
+| Empty `selected_indices` | 74 |
+| Empty rate | 0.37 |
+| Total tokens | 2228511 |
+| Model ms sum | 7194901.0 |
+
+Updated interpretation:
+
+- 12B confirms a real local quality gain on 200 cases: Hit@1 `+0.015`,
+  Hit@3 `+0.025`, Hit@10 `+0.005`, MRR `+0.0162`, nDCG `+0.0137`.
+- The gain is smaller than the 100-case slice suggested, but directionally
+  consistent.
+- Latency is not interactive: mean `36.8s/query`, p95 `42.2s/query`.
+- Empty structured selections are stable at `37%` on both 100 and 200 cases.
+- Decision: Gemma 4 12B is a valid **offline high-quality local reranker**. It
+  should not be the default interactive reranker unless we add a strong
+  confidence gate and only route hard queries to it.
+
+Next required engineering fix: empty rerank output should be marked degraded and
+should explicitly preserve the H6.1 candidate order. Today base-prior behavior
+mostly prevents catastrophic quality loss, but observability does not count this
+as degraded.
