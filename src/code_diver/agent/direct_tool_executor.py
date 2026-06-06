@@ -28,6 +28,7 @@ class DirectToolExecutor:
         max_file_bytes: int = 1_000_000,
         max_inspect_reads: int = 10,
         max_scoped_probe_files: int = 30,
+        candidate_only_after_search: bool = False,
     ):
         self.root = root
         self.guard = PathGuard(root)
@@ -39,6 +40,7 @@ class DirectToolExecutor:
         self.exclude = exclude or []
         self.max_file_bytes = max_file_bytes
         self.max_inspect_reads = max_inspect_reads
+        self.candidate_only_after_search = candidate_only_after_search
         self.scoped_search = CandidateScopedSearch(max_scoped_probe_files)
         self.candidate_bank: list[dict[str, Any]] = []
 
@@ -66,7 +68,7 @@ class DirectToolExecutor:
             return self._symbols(args)
         if call.name == "code_diver_outline":
             return FileOutlineService(self.root, self.exclude, self.max_file_bytes).structured(
-                self._validated_required_path(args.get("file") or args.get("path")),
+                self._validated_required_candidate_path(args.get("file") or args.get("path")),
                 import_limit=int(args.get("importLimit", args.get("import_limit", 80)) or 80),
                 symbol_limit=int(args.get("symbolLimit", args.get("symbol_limit", 200)) or 200),
             )
@@ -76,7 +78,7 @@ class DirectToolExecutor:
             return self._rg(args)
         if call.name == "code_diver_read":
             return ReadExcerptService(self.root, self.exclude, self.max_file_bytes).structured(
-                self._validated_required_path(args.get("file") or args.get("path")),
+                self._validated_required_candidate_path(args.get("file") or args.get("path")),
                 start_line=int(args.get("startLine", args.get("start_line", 1)) or 1),
                 lines=self._line_count(args.get("lines"), default=80),
             )
@@ -265,6 +267,18 @@ class DirectToolExecutor:
 
     def _candidate_scope_paths(self, requested_path: str | None) -> list[str]:
         paths = self.scoped_search.paths(requested_path, self.candidate_bank)
+        if not paths and self.candidate_only_after_search and self.candidate_bank and requested_path:
+            normalized = requested_path.strip().removeprefix("./").rstrip("/")
+            candidate_paths = self._candidate_bank_paths()
+            paths = [
+                path
+                for path in candidate_paths
+                if path == normalized or path.startswith(f"{normalized}/")
+            ][: self.scoped_search.max_files]
+            if not paths:
+                raise ValueError(
+                    "candidate_scope_violation: after search, probe tools may only inspect candidate files"
+                )
         valid_paths: list[str] = []
         for path in paths:
             valid_paths.append(self._validated_required_path(path))
@@ -418,6 +432,16 @@ class DirectToolExecutor:
         self.guard.resolve(path)
         return path
 
+    def _validated_required_candidate_path(self, value: Any) -> str:
+        path = self._validated_required_path(value)
+        if self.candidate_only_after_search and self.candidate_bank:
+            normalized = path.strip().removeprefix("./").rstrip("/")
+            if normalized not in self._candidate_bank_paths():
+                raise ValueError(
+                    "candidate_scope_violation: after search, read/outline tools may only inspect candidate files"
+                )
+        return path
+
     def _object_value(self, value: Any, key: str) -> dict[str, Any]:
         if isinstance(value, dict):
             return value
@@ -545,6 +569,16 @@ class DirectToolExecutor:
                 path = ""
             if path and path not in paths:
                 paths.append(path)
+        return paths
+
+    def _candidate_bank_paths(self) -> list[str]:
+        paths: list[str] = []
+        for path in self._candidate_files(self.candidate_bank):
+            normalized = path.strip().removeprefix("./").rstrip("/")
+            if normalized and normalized not in paths:
+                paths.append(normalized)
+            if len(paths) >= self.scoped_search.max_files:
+                break
         return paths
 
     def _json_result(self, name: str, result: dict[str, Any], started: float, degraded: bool) -> str:

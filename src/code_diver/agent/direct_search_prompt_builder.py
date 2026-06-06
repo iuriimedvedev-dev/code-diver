@@ -46,6 +46,7 @@ Tool observations are structured JSON. Candidate-producing tools return metrics,
 The runtime executes independent tool_calls in parallel. When several cheap probes are useful, put them in the same tool_calls array instead of waiting for another round.
 {tool_guidance}
 If this hypothesis name contains "adaptive", "agentic", or "deep", you are expected to run an iterative search loop: first generate candidates, then run at most one different targeted probe or rewritten-query pass, then rank/verify before final results. The first candidate pass may include 2-4 parallel code_diver_h3_search calls with different precise queries when that improves recall. Do not stop after a single weak candidate list, but do not keep searching after a plausible rerank.
+In agentic hypotheses, discovery is done only by code_diver_search/code_diver_h3_search. After candidate files exist, every grep/rg/symbols/outline/read probe is restricted by the runtime to those candidate files. Do not request new repository paths for digging; inspect only files returned by search.
 
 Hybrid tool policy:
 {policy}
@@ -137,7 +138,7 @@ When ready, return up to {limit} results:
                     "- code_diver_grep is literal substring search only. For alternation, wildcards, word boundaries, or escaped regex such as auth|login, load.*csv, or \\\\bToken\\\\b, use code_diver_rg."
                 )
             lines.append(
-                "- After candidate files exist, unscoped grep/rg is automatically limited to those candidate files. Use explicit path only when you intentionally want a specific package/file scope."
+                "- After candidate files exist, grep/rg is automatically limited to those candidate files in agentic runs. Use explicit path only to narrow inside an already returned candidate file or candidate directory."
             )
         if "code_diver_ephemeral_search" in names:
             lines.append(

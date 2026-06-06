@@ -291,14 +291,18 @@ Interpretation:
   offline reranker candidate or possibly a bounded code explainer/judge
   candidate.
 
-## Gemma 4 E2B QAT Monotonic Agent Smoke
+## Gemma 4 E2B QAT Monotonic Candidate-Only Agent Smoke
 
-The open-ended agentic loop can be worse than the deterministic search it calls
-when it is allowed to replace the candidate set. We added a monotonic variant:
+The agentic loop should not browse the repository freely. Its discovery phase is
+search-only; after search it should inspect only files from the candidate bank.
+The earlier failure mode was that the agent could still replace the candidate
+set or request explicit paths outside the found files. We added a monotonic,
+candidate-only variant:
 
 ```text
 baseline H6.1 topK
 -> agent may generate extra H3/grep/outline/rerank calls
+-> grep/rg/symbols/outline/read are restricted to candidate files
 -> final K preserves the baseline topK membership
 ```
 
@@ -358,5 +362,7 @@ Interpretation:
 - The prompt and structured observations are too large for small local agents.
   The next useful agentic experiment is a bounded two-turn policy:
   baseline H6.1, one parallel query rewrite pass, one rerank/final answer.
-- QAT E2B via llama.cpp is promising as a local tool-calling runtime, but not
-  as an unrestricted search orchestrator.
+- QAT E2B via llama.cpp is promising as a local tool-calling runtime, but the
+  current multi-round candidate-only loop is still too slow. The next branch
+  should be two-turn: search query generation, candidate-only inspection/rerank,
+  final answer.

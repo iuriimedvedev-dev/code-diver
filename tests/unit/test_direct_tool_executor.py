@@ -245,6 +245,95 @@ def test_direct_tool_executor_respects_explicit_rg_path_after_candidate_bank(tmp
     assert [candidate["path"] for candidate in payload["result"]["candidates"]] == ["other/unrelated.py"]
 
 
+def test_direct_tool_executor_strict_candidate_mode_rejects_explicit_rg_outside_bank(tmp_path: Path) -> None:
+    candidate = tmp_path / "src" / "candidate.py"
+    candidate.parent.mkdir()
+    candidate.write_text("class TargetOwner:\n    pass\n", encoding="utf-8")
+    unrelated = tmp_path / "other" / "unrelated.py"
+    unrelated.parent.mkdir()
+    unrelated.write_text("class TargetOwner:\n    pass\n", encoding="utf-8")
+
+    def h3_handler(query: str, limit: int, args: dict[str, object]) -> dict[str, object]:
+        return {
+            "candidates": [{"path": "src/candidate.py", "score": 0.9}],
+            "metrics": {"candidateCount": 1},
+        }
+
+    executor = DirectToolExecutor(
+        tmp_path,
+        ["code_diver_h3_search", "code_diver_rg"],
+        h3_search_handler=h3_handler,
+        candidate_only_after_search=True,
+    )
+    executor.execute(ToolCall("code_diver_h3_search", {"query": "target owner"}))
+
+    result = executor.execute(ToolCall("code_diver_rg", {"pattern": "TargetOwner", "path": "other", "limit": 10}))
+
+    payload = json.loads(result.content)
+    assert result.ok is False
+    assert "candidate_scope_violation" in payload["error"]
+
+
+def test_direct_tool_executor_strict_candidate_mode_allows_explicit_candidate_directory(tmp_path: Path) -> None:
+    candidate = tmp_path / "src" / "candidate.py"
+    candidate.parent.mkdir()
+    candidate.write_text("class TargetOwner:\n    pass\n", encoding="utf-8")
+    unrelated = tmp_path / "other" / "unrelated.py"
+    unrelated.parent.mkdir()
+    unrelated.write_text("class TargetOwner:\n    pass\n", encoding="utf-8")
+
+    def h3_handler(query: str, limit: int, args: dict[str, object]) -> dict[str, object]:
+        return {
+            "candidates": [{"path": "src/candidate.py", "score": 0.9}],
+            "metrics": {"candidateCount": 1},
+        }
+
+    executor = DirectToolExecutor(
+        tmp_path,
+        ["code_diver_h3_search", "code_diver_rg"],
+        h3_search_handler=h3_handler,
+        candidate_only_after_search=True,
+    )
+    executor.execute(ToolCall("code_diver_h3_search", {"query": "target owner"}))
+
+    result = executor.execute(ToolCall("code_diver_rg", {"pattern": "TargetOwner", "path": "src", "limit": 10}))
+
+    payload = json.loads(result.content)
+    assert result.ok is True
+    assert payload["metrics"]["scopedToCandidateFiles"] is True
+    assert payload["metrics"]["scopedFileCount"] == 1
+    assert [candidate["path"] for candidate in payload["result"]["candidates"]] == ["src/candidate.py"]
+
+
+def test_direct_tool_executor_strict_candidate_mode_rejects_read_outside_bank(tmp_path: Path) -> None:
+    candidate = tmp_path / "src" / "candidate.py"
+    candidate.parent.mkdir()
+    candidate.write_text("class TargetOwner:\n    pass\n", encoding="utf-8")
+    unrelated = tmp_path / "other" / "unrelated.py"
+    unrelated.parent.mkdir()
+    unrelated.write_text("class TargetOwner:\n    pass\n", encoding="utf-8")
+
+    def h3_handler(query: str, limit: int, args: dict[str, object]) -> dict[str, object]:
+        return {
+            "candidates": [{"path": "src/candidate.py", "score": 0.9}],
+            "metrics": {"candidateCount": 1},
+        }
+
+    executor = DirectToolExecutor(
+        tmp_path,
+        ["code_diver_h3_search", "code_diver_read"],
+        h3_search_handler=h3_handler,
+        candidate_only_after_search=True,
+    )
+    executor.execute(ToolCall("code_diver_h3_search", {"query": "target owner"}))
+
+    result = executor.execute(ToolCall("code_diver_read", {"file": "other/unrelated.py", "startLine": 1, "lines": 1}))
+
+    payload = json.loads(result.content)
+    assert result.ok is False
+    assert "candidate_scope_violation" in payload["error"]
+
+
 def test_direct_tool_executor_scopes_unscoped_symbols_to_candidate_bank(tmp_path: Path) -> None:
     candidate = tmp_path / "src" / "candidate.py"
     candidate.parent.mkdir()

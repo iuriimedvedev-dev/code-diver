@@ -279,6 +279,7 @@ The agentic idea is still right at the product level: the LLM should choose sear
 | --- | --- | --- | --- |
 | Broad text probes | The model called `code_diver_rg`/`code_diver_grep` without `path` after H3 had already found candidate files. | IntelliJ-wide regex/literal scans added seconds and often returned weak unrelated matches. | Unscoped grep/rg now automatically search only the current candidate bank once candidates exist. |
 | Parallel batch race | The model put `code_diver_h3_search` and unscoped `code_diver_rg` in the same `tool_calls` array. | The runtime executed them in parallel, so rg started before candidate bank existed and still scanned the whole repo. | Orchestrator now stages first-pass candidate tools before delayed probes when a batch mixes candidate generation with unscoped probes. Result order is preserved. |
+| Explicit path escape | After candidates existed, the model could still pass `path: src`, `path: java`, or another broad path to a digging tool. | That bypassed the intended "search first, then inspect found files" contract. | Agentic runs now enable strict candidate-only mode: after search, `grep`/`rg`/`symbols` are intersected with candidate files, and `read`/`outline` outside the candidate bank are rejected. |
 | Full-repo symbol scans | `code_diver_symbols` was treated as safe when H3 was available. The model could call it without path, or with a path like `java`. | A path such as `java` scanned tens of thousands of files; one trace showed 47,194 scanned files and a 17.5s symbol call. | Symbols now require a path or candidate bank when H3/search exists. After candidates exist, unscoped symbols and broad symbol directories are intersected with candidate files. |
 | Prompt-only control | Earlier constraints existed mostly as instructions. | LLMs sometimes ignore or creatively reinterpret instructions under pressure. | Expensive behavior is now enforced in executor/orchestrator code, and the prompt/manifest describe the enforced contract. |
 | Too many verification rounds | The agent keeps reading/probing after enough candidates exist. | It spends tokens and latency without improving candidate recall. | Rerank is forced after candidate-producing passes, but we still need a confidence-gated stop policy. |
@@ -299,7 +300,7 @@ The bounded-tool direction we are testing now is:
 ```text
 LLM chooses query variants
 -> H3/file locator returns candidate files
--> grep/rg/symbols/outline are automatically scoped to those candidates
+-> grep/rg/symbols/outline/read are runtime-scoped to those candidates
 -> reranker ranks the candidate bank
 -> read only final evidence ranges
 ```
@@ -322,7 +323,7 @@ So the next quality lever is not more raw tool freedom. It is better policy:
 1. run Pure H3 first;
 2. look at confidence, score margin, source agreement, and whether expected answer type is multi-file;
 3. invoke the agent only for low-confidence/hard cases;
-4. make the agent use H3 as a query-planning/reranking assistant, not as an open-ended replacement for deterministic retrieval.
+4. make the agent use H3 as a query-planning/reranking assistant, then inspect only the resulting candidate files.
 
 Qwen3.5 4B local is a useful counterpoint: it beat bounded Gemini Lite on the 100-case slice, but at roughly 3x the Gemini bounded latency and 3.5x the Pure H3 latency. That suggests the local model may be useful for offline sweeps or hard-case reranking, but not as the default interactive orchestrator unless we reduce model turns sharply.
 
