@@ -813,3 +813,61 @@ def test_direct_search_orchestrator_treats_agent_prefix_as_agentic(tmp_path: Pat
     events = [json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines()]
     completed = [event for event in events if event["event"] == "search_case_completed"]
     assert completed[-1]["payload"]["fallback"] == "agentic_rerank_early_stop"
+
+
+def test_direct_search_orchestrator_monotonic_agent_preserves_h3_baseline_tail(tmp_path: Path) -> None:
+    log_path = tmp_path / "search.jsonl"
+    provider = FakeSearchGenerationProvider(
+        [
+            json.dumps(
+                {
+                    "reason": "try a narrower query",
+                    "tool_calls": [{"name": "code_diver_h3_search", "arguments": {"query": "wrong helper", "limit": 3}}],
+                }
+            ),
+            json.dumps(
+                {
+                    "reason": "rerank narrowed candidates",
+                    "tool_calls": [{"name": "code_diver_rerank", "arguments": {"query": "wrong helper", "limit": 3}}],
+                }
+            ),
+        ]
+    )
+
+    def h3_handler(query: str, limit: int, args: dict[str, object]) -> dict[str, object]:
+        if query == "where is auth?":
+            candidates = [
+                {"id": "base", "path": "src/auth.py", "title": "Auth", "score": 0.95},
+                {"id": "base-helper", "path": "src/session.py", "title": "Session", "score": 0.75},
+            ]
+        else:
+            candidates = [
+                {"id": "wrong", "path": "src/wrong.py", "title": "Wrong", "score": 0.9},
+            ]
+        return {"candidates": candidates, "metrics": {"candidateCount": len(candidates)}}
+
+    def rerank_handler(query: str, candidates: list[dict], limit: int, args: dict) -> dict:
+        return {
+            "candidates": [
+                {"id": "wrong", "path": "src/wrong.py", "title": "Wrong", "score": 0.9},
+                {"id": "wrong-2", "path": "src/wrong_2.py", "title": "Wrong 2", "score": 0.8},
+                {"id": "wrong-3", "path": "src/wrong_3.py", "title": "Wrong 3", "score": 0.7},
+            ],
+            "metrics": {"modelCalls": 1, "inputTokens": 10, "outputTokens": 2, "totalTokens": 12},
+        }
+
+    result = DirectSearchOrchestrator(
+        root=tmp_path,
+        generation_provider=provider,
+        allowed_tools=["code_diver_h3_search", "code_diver_rerank"],
+        log_path=log_path,
+        h3_search_handler=h3_handler,
+        rerank_handler=rerank_handler,
+    ).search(hypothesis_name="agent_gemma4_e4b_monotonic_local_rerank", case_id="case-1", query="where is auth?", limit=3)
+
+    assert result.error is None
+    assert result.retrieved == ["src/wrong.py", "src/auth.py", "src/session.py"]
+    events = [json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines()]
+    assert [event["event"] for event in events].count("monotonic_baseline_seeded") == 1
+    completed = [event for event in events if event["event"] == "search_case_completed"]
+    assert completed[-1]["payload"]["retrieved"] == ["src/wrong.py", "src/auth.py", "src/session.py"]

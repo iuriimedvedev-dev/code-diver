@@ -285,6 +285,15 @@ The agentic idea is still right at the product level: the LLM should choose sear
 
 The important lesson: for large repos, tool descriptions are not enough. The runtime must protect the search budget. The LLM should decide *what* to search, but the tool layer must decide *how far* a probe is allowed to expand.
 
+There is a second, less obvious failure mode: an agentic loop is not
+automatically monotonic. Even if the agent calls H6.1/H3 internally, it can still
+return a worse final topK by reranking, truncating, or replacing the baseline
+candidate set. That is why an agent can score worse than the search tool it uses.
+We now test a monotonic variant separately: the orchestrator seeds the run with
+the raw H6.1 topK and the final K must preserve those baseline paths. The agent
+can still generate better queries and reorder candidates, but it cannot silently
+drop the deterministic baseline.
+
 The bounded-tool direction we are testing now is:
 
 ```text
@@ -377,6 +386,7 @@ Fresh same-index agent/planner axis over that H6.1 + EmbeddingGemma generator:
 | H6.1 static, no LLM | 100 | 0.820 | 0.930 | 0.970 | 0.970 | 0.147 | 0.876 | 0.900 | 858 | current default |
 | H6.1 + Gemini 3.1 Flash Lite agent/rerank | 100 | 0.740 | 0.860 | 0.860 | 0.860 | 0.277 | 0.797 | 0.813 | 10,660 | better precision, worse recall |
 | H6.1 + Gemma 4 E2B local agent/rerank | 100 | 0.510 | 0.570 | 0.640 | 0.700 | 0.070 | 0.564 | 0.596 | 11,501 | fully local and stable, rejected for search |
+| H6.1 + Gemma 4 E2B QAT monotonic agent/rerank | 10 | 0.500 | 0.700 | 0.900 | 1.000 | 0.100 | 0.659 | 0.741 | 57,018 | valid smoke only; preserves baseline, too slow |
 
 This is the cleanest current answer to the local-model question. Fully local
 Gemma E2B can run the agent loop without degraded cases, but it harms ranking and
@@ -393,6 +403,9 @@ So the immediate production policy is:
    low.
 3. Keep local Gemma E2B for explanation experiments and future hard-tail
    offline rerank, not the default interactive search loop.
+4. Treat monotonic agentic search as a research branch, not a default. Its first
+   valid QAT E2B smoke reached Hit@10 `1.000` on 10 cases, but required `50`
+   model calls, `397,911` local tokens, and `57s` mean latency.
 
 The older small local planner samples are now directional only. Qwen/Gemma E4B
 still need same-index 100-case reruns before they can challenge this decision.
@@ -417,6 +430,20 @@ metrics table. Use `--json` only when a script needs machine-readable output.
 
 Local Gemma 4 E2B/E4B runs must use the serving runtime's chat template and JSON
 Schema support. We should not manually build Gemma turn tokens in prompts.
+
+The current upgraded `mlx_vlm` runtime works for our Gemma 4 12B MLX path but
+fails on the MLX E2B/E4B artifacts with a layer/weight mismatch. For fresh Gemma
+4 E2B/E4B QAT testing, use GGUF through `llama.cpp` instead. The working local
+smoke used:
+
+```bash
+llama-server \
+  -m .code-diver/models/gemma-4-e2b-it-qat-GGUF/gemma-4-E2B-it-qat-UD-Q4_K_XL.gguf \
+  --host 127.0.0.1 --port 8016 -ngl 999 -c 16384 -np 1 --jinja
+```
+
+`-c 8192` is too small for the current agent prompt plus structured H3
+observations. It caused context overflow and fallback on every tested case.
 
 Correct config shape for structured local Gemma tasks:
 

@@ -77,10 +77,32 @@ class DirectSearchOrchestrator:
             },
         )
         fallback_paths: list[str] = []
+        baseline_paths: list[str] = []
         try:
             read_calls_used = 0
             tool_names_used: set[str] = set()
             candidate_tool_calls = 0
+            if self._monotonic_hypothesis(hypothesis_name):
+                baseline_results, read_calls_used = self._execute_tools(
+                    executor,
+                    [ToolCall("code_diver_h3_search", {"query": query, "limit": max(limit, 30)})],
+                    result,
+                    case_id,
+                    read_calls_used,
+                )
+                tool_names_used.update(item.name for item in baseline_results)
+                candidate_tool_calls += self._candidate_tool_count(baseline_results)
+                baseline_paths = self._fallback_paths(baseline_results)[:limit]
+                fallback_paths = self._merge_paths(fallback_paths, baseline_paths, limit)
+                self.logger.write(
+                    "monotonic_baseline_seeded",
+                    {
+                        "case_id": case_id,
+                        "query": query,
+                        "paths": baseline_paths,
+                        "candidate_tool_calls": candidate_tool_calls,
+                    },
+                )
             for round_index in range(1, self.MAX_ROUNDS + 1):
                 prompt = self.prompt_builder.build(
                     hypothesis_name=hypothesis_name,
@@ -155,7 +177,12 @@ class DirectSearchOrchestrator:
                         )
                         tool_names_used.update(item.name for item in tool_results)
                         candidate_tool_calls += self._candidate_tool_count(tool_results)
-                        fallback_paths = self._fallback_paths(tool_results) or fallback_paths
+                        fallback_paths = self._updated_fallback_paths(
+                            self._fallback_paths(tool_results),
+                            fallback_paths,
+                            baseline_paths,
+                            limit,
+                        )
                         history.append(
                             {
                                 "round": round_index,
@@ -180,10 +207,20 @@ class DirectSearchOrchestrator:
                             read_calls_used,
                         )
                         tool_names_used.update(item.name for item in tool_results)
-                        fallback_paths = self._fallback_paths(tool_results) or fallback_paths
+                        fallback_paths = self._updated_fallback_paths(
+                            self._fallback_paths(tool_results),
+                            fallback_paths,
+                            baseline_paths,
+                            limit,
+                        )
                         early_paths = self._agentic_rerank_early_stop_paths(hypothesis_name, tool_results, limit)
                         if early_paths:
-                            return self._complete_with_rerank_early_stop(result, case_id, early_paths, limit)
+                            return self._complete_with_rerank_early_stop(
+                                result,
+                                case_id,
+                                self._monotonic_paths(early_paths, baseline_paths, limit),
+                                limit,
+                            )
                         history.append(
                             {
                                 "round": round_index,
@@ -199,7 +236,7 @@ class DirectSearchOrchestrator:
                         )
                         continue
                     result.retrieved = self._with_fallback_paths(
-                        self._parse_results(parsed["results"], limit),
+                        self._monotonic_paths(self._parse_results(parsed["results"], limit), baseline_paths, limit),
                         fallback_paths,
                         limit,
                     )
@@ -257,10 +294,20 @@ class DirectSearchOrchestrator:
                         read_calls_used,
                     )
                     tool_names_used.update(item.name for item in tool_results)
-                    fallback_paths = self._fallback_paths(tool_results) or fallback_paths
+                    fallback_paths = self._updated_fallback_paths(
+                        self._fallback_paths(tool_results),
+                        fallback_paths,
+                        baseline_paths,
+                        limit,
+                    )
                     early_paths = self._agentic_rerank_early_stop_paths(hypothesis_name, tool_results, limit)
                     if early_paths:
-                        return self._complete_with_rerank_early_stop(result, case_id, early_paths, limit)
+                        return self._complete_with_rerank_early_stop(
+                            result,
+                            case_id,
+                            self._monotonic_paths(early_paths, baseline_paths, limit),
+                            limit,
+                        )
                     history.append(
                         {
                             "round": round_index,
@@ -288,7 +335,12 @@ class DirectSearchOrchestrator:
                     )
                     tool_names_used.update(item.name for item in tool_results)
                     candidate_tool_calls += self._candidate_tool_count(tool_results)
-                    fallback_paths = self._fallback_paths(tool_results) or fallback_paths
+                    fallback_paths = self._updated_fallback_paths(
+                        self._fallback_paths(tool_results),
+                        fallback_paths,
+                        baseline_paths,
+                        limit,
+                    )
                     history.append(
                         {
                             "round": round_index,
@@ -313,10 +365,20 @@ class DirectSearchOrchestrator:
                 )
                 tool_names_used.update(item.name for item in tool_results)
                 candidate_tool_calls += self._candidate_tool_count(tool_results)
-                fallback_paths = self._fallback_paths(tool_results) or fallback_paths
+                fallback_paths = self._updated_fallback_paths(
+                    self._fallback_paths(tool_results),
+                    fallback_paths,
+                    baseline_paths,
+                    limit,
+                )
                 early_paths = self._agentic_rerank_early_stop_paths(hypothesis_name, tool_results, limit)
                 if early_paths:
-                    return self._complete_with_rerank_early_stop(result, case_id, early_paths, limit)
+                    return self._complete_with_rerank_early_stop(
+                        result,
+                        case_id,
+                        self._monotonic_paths(early_paths, baseline_paths, limit),
+                        limit,
+                    )
                 history.append(
                     {
                         "round": round_index,
@@ -327,7 +389,7 @@ class DirectSearchOrchestrator:
                     }
                 )
             if fallback_paths:
-                result.retrieved = fallback_paths[:limit]
+                result.retrieved = self._monotonic_paths(fallback_paths, baseline_paths, limit)
                 self.logger.write(
                     "search_case_completed",
                     {
@@ -412,6 +474,9 @@ class DirectSearchOrchestrator:
     def _adaptive_hypothesis(self, hypothesis_name: str) -> bool:
         lowered = hypothesis_name.lower()
         return lowered.startswith("agent_") or "adaptive" in lowered or "agentic" in lowered or "deep" in lowered
+
+    def _monotonic_hypothesis(self, hypothesis_name: str) -> bool:
+        return "monotonic" in hypothesis_name.lower() and "code_diver_h3_search" in self.allowed_tools
 
     def _should_continue_for_adaptive_evidence(
         self,
@@ -732,6 +797,42 @@ class DirectSearchOrchestrator:
         return result
 
     def _with_fallback_paths(self, paths: list[str], fallback_paths: list[str], limit: int) -> list[str]:
+        return self._merge_paths(paths, fallback_paths, limit)
+
+    def _updated_fallback_paths(
+        self,
+        new_paths: list[str],
+        fallback_paths: list[str],
+        baseline_paths: list[str],
+        limit: int,
+    ) -> list[str]:
+        if not baseline_paths:
+            return new_paths or fallback_paths
+        return self._merge_paths(new_paths, fallback_paths, limit)
+
+    def _monotonic_paths(self, paths: list[str], baseline_paths: list[str], limit: int) -> list[str]:
+        if not baseline_paths:
+            return paths[:limit]
+        baseline = baseline_paths[:limit]
+        missing_baseline = {path for path in baseline if path not in paths[:limit]}
+        merged: list[str] = []
+        for path in paths:
+            if path in merged:
+                continue
+            if path in missing_baseline:
+                missing_baseline.remove(path)
+                merged.append(path)
+                continue
+            if len(merged) + len(missing_baseline) < limit:
+                merged.append(path)
+        for path in baseline:
+            if path not in merged:
+                merged.append(path)
+            if len(merged) >= limit:
+                break
+        return merged[:limit]
+
+    def _merge_paths(self, paths: list[str], fallback_paths: list[str], limit: int) -> list[str]:
         merged = list(paths)
         for path in fallback_paths:
             if path not in merged:

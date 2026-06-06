@@ -133,6 +133,19 @@ experiments:
           enable_thinking: false
       rerank_generation: *gemma_e2b
       description: "Local-only agent: Gemma 4 E2B plans/tool-calls and reranks over H6.1 EmbeddingGemma candidates."
+    - name: agent_gemma4_e2b_qat_llama_monotonic_local_rerank
+      tools: *agent_tools
+      generation: &gemma_e2b_qat_llama
+        provider: openai_compatible
+        model: gemma-4-E2B-it-qat-UD-Q4_K_XL
+        url: http://127.0.0.1:8016/v1/chat/completions
+        api_key: local
+        temperature: 0
+        max_tokens: 1536
+        response_format: json_object
+        timeout_ms: 180000
+      rerank_generation: *gemma_e2b_qat_llama
+      description: "Local-only monotonic agent: Unsloth Gemma 4 E2B QAT GGUF via llama.cpp plans/tool-calls and reranks while preserving H6.1 baseline topK."
     - name: agent_gemma4_e4b_local_rerank
       tools: *agent_tools
       generation: &gemma_e4b
@@ -148,6 +161,11 @@ experiments:
           enable_thinking: false
       rerank_generation: *gemma_e4b
       description: "Local-only agent: Gemma 4 E4B plans/tool-calls and reranks over H6.1 EmbeddingGemma candidates."
+    - name: agent_gemma4_e4b_monotonic_local_rerank
+      tools: *agent_tools
+      generation: *gemma_e4b
+      rerank_generation: *gemma_e4b
+      description: "Local-only monotonic agent: seeds H6.1 baseline first, lets Gemma 4 E4B search/rerank, and preserves baseline topK in the final K."
     - name: agent_qwen35_9b_local_rerank
       tools: *agent_tools
       generation: &qwen35_9b
@@ -178,6 +196,11 @@ experiments:
           enable_thinking: false
       rerank_generation: *gemma_12b
       description: "Local-only agent: Gemma 4 12B plans/tool-calls and reranks over H6.1 EmbeddingGemma candidates."
+    - name: agent_gemma4_12b_monotonic_local_rerank
+      tools: *agent_tools
+      generation: *gemma_12b
+      rerank_generation: *gemma_12b
+      description: "Local-only monotonic agent: seeds H6.1 baseline first, lets Gemma 4 12B search/rerank, and preserves baseline topK in the final K."
 
 metrics:
   enabled: false

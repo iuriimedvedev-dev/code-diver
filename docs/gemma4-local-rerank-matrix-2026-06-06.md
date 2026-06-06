@@ -290,3 +290,73 @@ Interpretation:
 - Decision: do not run 12B as a broad search-agent by default. Keep it as an
   offline reranker candidate or possibly a bounded code explainer/judge
   candidate.
+
+## Gemma 4 E2B QAT Monotonic Agent Smoke
+
+The open-ended agentic loop can be worse than the deterministic search it calls
+when it is allowed to replace the candidate set. We added a monotonic variant:
+
+```text
+baseline H6.1 topK
+-> agent may generate extra H3/grep/outline/rerank calls
+-> final K preserves the baseline topK membership
+```
+
+This makes the hypothesis explicit: the agent may reorder or add evidence, but
+it must not silently throw away the deterministic baseline candidates.
+
+Runtime findings:
+
+- `mlx-community/gemma-4-e2b-it-4bit` and `mlx-community/gemma-4-e4b-it-4bit`
+  currently fail under the upgraded `mlx_vlm` runtime with a layer/weight
+  mismatch. Older MLX E4B results remain historical but should not be extended
+  without pinning the previous runtime.
+- Unsloth Gemma 4 E2B QAT GGUF runs correctly through `llama-server`.
+- `n_ctx=8192` is too small for the current agent prompt plus structured H3
+  observations: every 10-case run fell back after `exceed_context_size_error`.
+- `n_ctx=16384` is enough for the 10-case smoke, but the loop is still too slow.
+
+Commands:
+
+```bash
+hf download unsloth/gemma-4-E2B-it-qat-GGUF \
+  gemma-4-E2B-it-qat-UD-Q4_K_XL.gguf config.json README.md \
+  --local-dir .code-diver/models/gemma-4-e2b-it-qat-GGUF
+
+llama-server \
+  -m .code-diver/models/gemma-4-e2b-it-qat-GGUF/gemma-4-E2B-it-qat-UD-Q4_K_XL.gguf \
+  --host 127.0.0.1 --port 8016 -ngl 999 -c 16384 -np 1 --jinja
+
+uv run code-diver \
+  --config configs/benchmarks/codesearchnet-agent-axis-local-100.yml \
+  --help-all evaluate-search-tools \
+  --cases 10 --workers 1 \
+  --hypothesis agent_gemma4_e2b_qat_llama_monotonic_local_rerank \
+  --details --json
+```
+
+| Setup | Cases | Hit@1 | Hit@3 | Hit@5 | Hit@10 | Precision@10 | Recall@10 | MRR@10 | nDCG@10 | Mean ms | P95 ms | Model calls | Tool calls | Tokens | Notes |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| Gemma 4 E2B QAT llama.cpp monotonic, `ctx=8192` | 10 | 0.500 | 0.500 | 0.800 | 0.800 | 0.080 | 0.800 | 0.570 | 0.625 | 6,909 | 17,644 | 10 | 21 | 33,871 | Invalid quality run: all cases fell back after context overflow. |
+| Gemma 4 E2B QAT llama.cpp monotonic, `ctx=16384` | 10 | 0.500 | 0.700 | 0.900 | 1.000 | 0.100 | 1.000 | 0.659 | 0.741 | 57,018 | 93,462 | 50 | 47 | 397,911 | Valid smoke, but too slow and too token-heavy. |
+
+Trace diagnostics for the valid 16k run:
+
+| Fallback | Cases |
+| --- | ---: |
+| `agentic_rerank_early_stop` | 3 |
+| `none` | 3 |
+| `max_rounds_last_candidates` | 3 |
+| `agent_protocol_error_last_candidates` | 1 |
+
+Interpretation:
+
+- Monotonic seeding did what it was supposed to do: Hit@10 reached `1.000` on
+  this tiny slice instead of losing baseline candidates.
+- The agent still does too much work. `50` model calls for `10` queries is not
+  acceptable for interactive search.
+- The prompt and structured observations are too large for small local agents.
+  The next useful agentic experiment is a bounded two-turn policy:
+  baseline H6.1, one parallel query rewrite pass, one rerank/final answer.
+- QAT E2B via llama.cpp is promising as a local tool-calling runtime, but not
+  as an unrestricted search orchestrator.
