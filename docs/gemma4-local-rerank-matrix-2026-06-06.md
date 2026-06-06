@@ -167,3 +167,66 @@ We still launched a 100-case E4B agentic run to verify this is not only 10-case
 noise. If that run confirms the drop, the local Gemma agent should not own broad
 candidate discovery. It can still be useful later in the product pipeline for
 bounded file reading and explanation after H6.1 has already found candidates.
+
+## Agentic Loop 100-Case Result
+
+The 100-case E4B agentic run confirmed the 10-case sanity direction:
+
+| Setup | Cases | Hit@1 | Hit@3 | Hit@5 | Hit@10 | Precision@10 | Recall@10 | MRR@10 | nDCG@10 | Mean ms | P95 ms | Model calls | Tool calls | Tokens | Degraded |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Gemma 4 E4B agentic | 100 | 0.480 | 0.720 | 0.780 | 0.780 | 0.154 | 0.780 | 0.602 | 0.647 | 39030.9 | 48536.4 | 510 | 345 | 3132763 | 0 |
+
+Decision: local Gemma 4 E4B should not own broad search/tool planning in the
+current contract. It follows JSON/tool protocol, but the free agentic loop loses
+too much recall and first-rank quality versus deterministic H6.1 and bounded
+rerank-only.
+
+## Gemma 4 12B Runtime Fix
+
+The old 12B attempt used GGUF/llama.cpp and failed the tool protocol. The new
+attempt uses MLX 4-bit:
+
+```text
+.code-diver/models/mlx-community-gemma-4-12B-it-4bit
+```
+
+Runtime findings:
+
+- `mlx-vlm 0.5.0` failed to load the model: `model_type gemma4_unified not supported`.
+- upgrading the local runtime to `mlx-vlm 0.6.2` added `gemma4_unified` support;
+- the server must be started and queried with the same local model id, otherwise
+  `mlx_vlm.server` treats the request as a model switch and reloads from HF;
+- JSON Schema smoke passed after using the local model id consistently.
+
+## Gemma 4 12B Rerank 100
+
+Fixed variables are the same as above: H6.1 EmbeddingGemma file locator,
+CodeSearchNet Python 100-case slice, top structured file candidates, local-only
+listwise rerank. 12B uses base-prior mode.
+
+| Strategy | Hit@1 | Hit@3 | Hit@5 | Hit@10 | Precision@10 | Recall@10 | MRR@10 | nDCG@10 | Mean ms | P95 ms | Duration ms | Degraded |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `h6_1_static_no_llm` | 0.8200 | 0.9300 | 0.9700 | 0.9700 | 0.1470 | 0.9700 | 0.8762 | 0.8996 | 911.2467 | 894.7714 | 91148.8577 | 0 |
+| `gemma4_12b_rerank_after_base_prior` | 0.8500 | 0.9600 | 0.9700 | 0.9800 | 0.1500 | 0.9800 | 0.9042 | 0.9233 | 36815.0337 | 42762.6600 | 3681532.2581 | 0 |
+
+Diagnostics:
+
+| Metric | Value |
+| --- | ---: |
+| Rerank calls | 100 |
+| Empty `selected_indices` | 37 |
+| Empty rate | 0.37 |
+| Total tokens | 1113990 |
+| Model ms sum | 3599636.3 |
+
+Interpretation:
+
+- 12B is the best local rerank quality measured so far on this 100-case slice:
+  Hit@1 `0.850`, MRR `0.904`, nDCG `0.923`.
+- It is not interactive: mean latency is `36.8s/query`.
+- The model frequently emits semantically empty structured selections. The
+  current base-prior/preserve-top behavior prevents catastrophic loss, but this
+  should become an explicit guard: empty rerank output must preserve the H6.1
+  order and be counted as a model-contract failure.
+- A raw 200-case 12B rerank run is in progress before applying any guard, so the
+  100/200 comparison stays honest.
