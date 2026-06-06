@@ -16,7 +16,7 @@ embedding:
 
 generation:
   provider: openai_compatible
-  model: mlx-community/gemma-4-12B-it-4bit
+  model: .code-diver/models/mlx-community-gemma-4-12B-it-4bit
   url: http://127.0.0.1:8015/v1/chat/completions
   api_key: local
   temperature: 0
