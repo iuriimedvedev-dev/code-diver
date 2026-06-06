@@ -166,6 +166,19 @@ experiments:
       generation: *gemma_e4b
       rerank_generation: *gemma_e4b
       description: "Local-only monotonic agent: seeds H6.1 baseline first, lets Gemma 4 E4B search/rerank, and preserves baseline topK in the final K."
+    - name: agent_gemma4_e4b_qat_llama_monotonic_local_rerank
+      tools: *agent_tools
+      generation: &gemma_e4b_qat_llama
+        provider: openai_compatible
+        model: gemma-4-E4B-it-qat-UD-Q4_K_XL
+        url: http://127.0.0.1:8016/v1/chat/completions
+        api_key: local
+        temperature: 0
+        max_tokens: 1536
+        response_format: json_object
+        timeout_ms: 240000
+      rerank_generation: *gemma_e4b_qat_llama
+      description: "Local-only monotonic agent: Unsloth Gemma 4 E4B QAT GGUF via llama.cpp plans/tool-calls and reranks while preserving H6.1 baseline topK."
     - name: agent_qwen35_9b_local_rerank
       tools: *agent_tools
       generation: &qwen35_9b
@@ -201,6 +214,45 @@ experiments:
       generation: *gemma_12b
       rerank_generation: *gemma_12b
       description: "Local-only monotonic agent: seeds H6.1 baseline first, lets Gemma 4 12B search/rerank, and preserves baseline topK in the final K."
+    - name: agent_gemma4_12b_qat_llama_monotonic_local_rerank
+      tools: *agent_tools
+      generation: &gemma_12b_qat_llama
+        provider: openai_compatible
+        model: gemma-4-12B-it-qat-UD-Q4_K_XL
+        url: http://127.0.0.1:8016/v1/chat/completions
+        api_key: local
+        temperature: 0
+        max_tokens: 1536
+        response_format: json_object
+        timeout_ms: 360000
+      rerank_generation: *gemma_12b_qat_llama
+      description: "Local-only monotonic agent: Unsloth Gemma 4 12B QAT GGUF via llama.cpp plans/tool-calls and reranks while preserving H6.1 baseline topK."
+    - name: agent_gemma4_26b_a4b_qat_llama_monotonic_local_rerank
+      tools: *agent_tools
+      generation: &gemma_26b_a4b_qat_llama
+        provider: openai_compatible
+        model: gemma-4-26B-A4B-it-qat-UD-Q4_K_XL
+        url: http://127.0.0.1:8016/v1/chat/completions
+        api_key: local
+        temperature: 0
+        max_tokens: 1536
+        response_format: json_object
+        timeout_ms: 480000
+      rerank_generation: *gemma_26b_a4b_qat_llama
+      description: "Local-only monotonic agent: Unsloth Gemma 4 26B-A4B QAT GGUF via llama.cpp plans/tool-calls and reranks while preserving H6.1 baseline topK."
+    - name: agent_gemma4_31b_qat_llama_monotonic_local_rerank
+      tools: *agent_tools
+      generation: &gemma_31b_qat_llama
+        provider: openai_compatible
+        model: gemma-4-31B-it-qat-UD-Q4_K_XL
+        url: http://127.0.0.1:8016/v1/chat/completions
+        api_key: local
+        temperature: 0
+        max_tokens: 1536
+        response_format: json_object
+        timeout_ms: 600000
+      rerank_generation: *gemma_31b_qat_llama
+      description: "Local-only monotonic agent: Unsloth Gemma 4 31B dense QAT GGUF via llama.cpp plans/tool-calls and reranks while preserving H6.1 baseline topK."
 
 metrics:
   enabled: false

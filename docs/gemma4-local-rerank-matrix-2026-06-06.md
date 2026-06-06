@@ -366,3 +366,86 @@ Interpretation:
   current multi-round candidate-only loop is still too slow. The next branch
   should be two-turn: search query generation, candidate-only inspection/rerank,
   final answer.
+
+## Gemma 4 QAT Agent Sweep Via llama.cpp
+
+After the E2B QAT smoke, we added the same monotonic candidate-only agent
+contract for the larger QAT GGUF models:
+
+```text
+baseline H6.1 topK
+-> Gemma 4 QAT agent may call H3/search/rerank/outline/grep/read tools
+-> file-inspection tools are restricted to the candidate bank
+-> final topK preserves baseline topK membership
+```
+
+All runs below used:
+
+| Axis | Value |
+| --- | --- |
+| Runtime | `llama-server` / llama.cpp build `9430` |
+| Endpoint | `http://127.0.0.1:8016/v1/chat/completions` |
+| Context | `16384` |
+| GPU layers | `-ngl 999` on Apple M3 Max unified memory |
+| Prompt mode | Gemma 4 chat template via `--jinja` |
+| Search generator | H6.1 EmbeddingGemma file locator |
+| Agent guard | monotonic baseline seed + candidate-only file probes |
+| API cost | `$0` external API cost |
+
+Downloaded local model artifacts:
+
+| Model | GGUF | Local size |
+| --- | --- | ---: |
+| Gemma 4 E2B QAT | `unsloth/gemma-4-E2B-it-qat-GGUF`, `UD-Q4_K_XL` | 2.4 GB |
+| Gemma 4 E4B QAT | `unsloth/gemma-4-E4B-it-qat-GGUF`, `UD-Q4_K_XL` | 3.9 GB |
+| Gemma 4 12B QAT | `unsloth/gemma-4-12B-it-qat-GGUF`, `UD-Q4_K_XL` | 6.3 GB |
+| Gemma 4 26B-A4B QAT | `unsloth/gemma-4-26B-A4B-it-qat-GGUF`, `UD-Q4_K_XL` | 13 GB |
+| Gemma 4 31B QAT | `unsloth/gemma-4-31B-it-qat-GGUF`, `UD-Q4_K_XL` | 16 GB |
+
+Results:
+
+| Model | Cases | Hit@1 | Hit@3 | Hit@5 | Hit@10 | Precision@10 | Recall@10 | MRR@10 | nDCG@10 | Mean ms | P95 ms | Degraded | Model calls | Tool calls | Tokens |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Gemma 4 E2B QAT | 10 | 0.600 | 0.900 | 1.000 | 1.000 | 0.100 | 1.000 | 0.758 | 0.819 | 46,014 | 66,312 | 0.700 | 45 | 49 | 359,106 |
+| Gemma 4 E4B QAT | 10 | 0.500 | 0.700 | 0.800 | 1.000 | 0.100 | 1.000 | 0.645 | 0.728 | 84,193 | 115,124 | 0.700 | 52 | 79 | 384,212 |
+| Gemma 4 12B QAT | 3 | 1.000 | 1.000 | 1.000 | 1.000 | 0.100 | 1.000 | 1.000 | 1.000 | 174,651 | 218,411 | 0.667 | 14 | 18 | 106,475 |
+| Gemma 4 26B-A4B QAT | 10 | 0.700 | 0.900 | 0.900 | 1.000 | 0.100 | 1.000 | 0.817 | 0.862 | 73,860 | 96,165 | 0.600 | 48 | 58 | 312,806 |
+| Gemma 4 31B QAT | 3 | 1.000 | 1.000 | 1.000 | 1.000 | 0.100 | 1.000 | 1.000 | 1.000 | 305,701 | 411,598 | 0.333 | 11 | 14 | 84,951 |
+
+Throughput observations from llama.cpp logs:
+
+| Model | Observed prompt eval | Observed generation | Practical note |
+| --- | ---: | ---: | --- |
+| E2B QAT | ~2,100-2,400 tok/s | ~115-120 tok/s | Fastest usable local agent runtime. |
+| E4B QAT | ~1,100-1,300 tok/s | ~70-80 tok/s | Slower and worse than E2B on this slice. |
+| 12B QAT | ~400 tok/s | ~36 tok/s | Quality looks good on 3 cases, but too slow for interactive agentic search. |
+| 26B-A4B QAT | ~1,000 tok/s in shorter reused prompts | ~80-85 tok/s | Best local quality/speed tradeoff in this sweep. |
+| 31B QAT | ~160-220 tok/s | ~16 tok/s | Loads successfully, but dense 31B is not interactive on this machine. |
+
+Interpretation:
+
+- The best local QAT agent in this sweep is **Gemma 4 26B-A4B QAT**: highest
+  10-case Hit@1/MRR/nDCG among the local agentic QAT runs, while still much
+  faster than dense 12B/31B in this contract.
+- The fastest usable QAT agent is **Gemma 4 E2B QAT**: it reached Hit@10 `1.000`
+  on 10 cases with the lowest mean latency among the QAT agent runs.
+- **E4B QAT is not currently justified** for this agent role. It was slower and
+  worse than E2B on the same 10-case slice.
+- **12B QAT and 31B QAT are quality-smoke candidates only**, not interactive
+  defaults. Their 3-case quality is perfect, but latency is too high for a
+  multi-round search agent.
+- The high `degraded_case_rate` shows the agent contract is still noisy. Most
+  degraded cases still returned useful candidates because monotonic baseline
+  seeding preserved H6.1 membership, but the protocol is not clean enough to
+  promote agentic mode as the default.
+
+Current decision:
+
+1. Keep H6.1 static as the default broad search path.
+2. Use Gemma 4 26B-A4B QAT as the leading fully local hard-case agent candidate.
+3. Use Gemma 4 E2B QAT as the cheap local tool-protocol baseline.
+4. Do not use dense 31B QAT for interactive search-agent loops on this M3 Max
+   setup.
+5. The next experiment should reduce the agent contract to two turns: parallel
+   query rewrite/search, then candidate-only rerank/final answer. The current
+   multi-round loop spends too many model calls for small top-k gains.

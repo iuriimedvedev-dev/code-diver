@@ -387,13 +387,19 @@ Fresh same-index agent/planner axis over that H6.1 + EmbeddingGemma generator:
 | H6.1 static, no LLM | 100 | 0.820 | 0.930 | 0.970 | 0.970 | 0.147 | 0.876 | 0.900 | 858 | current default |
 | H6.1 + Gemini 3.1 Flash Lite agent/rerank | 100 | 0.740 | 0.860 | 0.860 | 0.860 | 0.277 | 0.797 | 0.813 | 10,660 | better precision, worse recall |
 | H6.1 + Gemma 4 E2B local agent/rerank | 100 | 0.510 | 0.570 | 0.640 | 0.700 | 0.070 | 0.564 | 0.596 | 11,501 | fully local and stable, rejected for search |
-| H6.1 + Gemma 4 E2B QAT monotonic agent/rerank | 10 | 0.500 | 0.700 | 0.900 | 1.000 | 0.100 | 0.659 | 0.741 | 57,018 | valid smoke only; preserves baseline, too slow |
+| H6.1 + Gemma 4 E2B QAT monotonic agent/rerank | 10 | 0.600 | 0.900 | 1.000 | 1.000 | 0.100 | 0.758 | 0.819 | 46,014 | fastest QAT local agent smoke |
+| H6.1 + Gemma 4 E4B QAT monotonic agent/rerank | 10 | 0.500 | 0.700 | 0.800 | 1.000 | 0.100 | 0.645 | 0.728 | 84,193 | rejected versus E2B |
+| H6.1 + Gemma 4 26B-A4B QAT monotonic agent/rerank | 10 | 0.700 | 0.900 | 0.900 | 1.000 | 0.100 | 0.817 | 0.862 | 73,860 | best local QAT quality/speed tradeoff |
+| H6.1 + Gemma 4 12B QAT monotonic agent/rerank | 3 | 1.000 | 1.000 | 1.000 | 1.000 | 0.100 | 1.000 | 1.000 | 174,651 | quality smoke only; too slow |
+| H6.1 + Gemma 4 31B QAT monotonic agent/rerank | 3 | 1.000 | 1.000 | 1.000 | 1.000 | 0.100 | 1.000 | 1.000 | 305,701 | loads, but not interactive |
 
 This is the cleanest current answer to the local-model question. Fully local
-Gemma E2B can run the agent loop without degraded cases, but it harms ranking and
-is about 13x slower than the static locator. Gemini Lite is clearly the stronger
-agent/reranker, and its Precision@10 is higher because it returns a narrower,
-more opinionated set. But on this benchmark that confidence is too aggressive:
+Gemma 4 QAT models can run the bounded tool protocol through llama.cpp, but the
+agent path is still much slower than the static locator. E2B QAT is the fastest
+valid local QAT agent smoke. 26B-A4B QAT is the strongest local QAT tradeoff so
+far: better Hit@1/MRR/nDCG than E2B/E4B on the 10-case slice, without the dense
+31B latency cliff. Gemini Lite remains the best cloud baseline for cheap
+reasoning, but on this benchmark its current agent contract is too aggressive:
 it drops Hit@5/Hit@10 from `0.970` to `0.860`.
 
 So the immediate production policy is:
@@ -402,14 +408,15 @@ So the immediate production policy is:
 2. Use Gemini Lite only as a gated precision/rerank/explanation layer when the
    user wants fewer, more curated candidates or when the static score margin is
    low.
-3. Keep local Gemma E2B for explanation experiments and future hard-tail
-   offline rerank, not the default interactive search loop.
+3. Keep Gemma 4 26B-A4B QAT as the leading fully local hard-case agent
+   candidate; keep E2B QAT as the fast local protocol baseline.
 4. Treat monotonic agentic search as a research branch, not a default. Its first
-   valid QAT E2B smoke reached Hit@10 `1.000` on 10 cases, but required `50`
-   model calls, `397,911` local tokens, and `57s` mean latency.
+   valid QAT runs reach Hit@10 `1.000` on 10-case slices, but require many model
+   calls and tens of seconds per query.
 
-The older small local planner samples are now directional only. Qwen/Gemma E4B
-still need same-index 100-case reruns before they can challenge this decision.
+The older small local planner samples are now directional only. Qwen local agent
+variants still need same-index reruns before they can challenge this decision;
+Gemma 4 E4B QAT has been checked and is currently rejected for this role.
 
 The attempted 1000-case agentic slice is not valid for search-quality selection:
 
