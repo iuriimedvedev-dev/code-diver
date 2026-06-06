@@ -99,6 +99,26 @@ Hit@10 and without making the persistent index exceed the compact-index budget.
 If it only improves CodeSearchNet but hurts repo-local/e2e explanation cases,
 keep it as a benchmark-specific variant, not the default.
 
+## First Deterministic Result
+
+The first 100-case deterministic run compared H6.1 against H7.1 on the same
+CodeSearchNet local positive slice. H7.1 was also swept with lower
+`file_api_manifest` budgets/weights without rebuilding the index.
+
+| Run | Hit@1 | Hit@3 | Hit@5 | Hit@10 | Precision@10 | Recall@10 | MRR@10 | nDCG@10 | Mean ms | P95 ms |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| H6.1 summary+manifest | 0.820 | 0.930 | 0.970 | 0.970 | 0.147 | 0.970 | 0.876 | 0.900 | 861.9 | 859.4 |
+| H7.1 default | 0.790 | 0.910 | 0.970 | 0.970 | 0.216 | 0.970 | 0.861 | 0.890 | 1687.0 | 1729.9 |
+| H7.1 API low | 0.800 | 0.930 | 0.970 | 0.970 | 0.173 | 0.970 | 0.866 | 0.892 | 1678.8 | 1692.0 |
+| H7.1 API medium | 0.800 | 0.930 | 0.970 | 0.970 | 0.206 | 0.970 | 0.866 | 0.892 | 1674.4 | 1681.7 |
+| H7.1 API tie-breaker | 0.800 | 0.930 | 0.970 | 0.970 | 0.150 | 0.970 | 0.866 | 0.892 | 1672.1 | 1679.1 |
+
+Decision from the deterministic run: H7.1 is not a default replacement for
+H6.1. It keeps Hit@10 flat but lowers Hit@1/MRR and roughly doubles query
+latency because it adds a third vector lane. The next check is an agentic run
+with the best completed local agent, Gemma 4 26B-A4B QAT, to test whether the
+LLM can use the richer candidate surface better than deterministic fusion.
+
 ## Implementation
 
 Current implementation files:

@@ -181,6 +181,29 @@ current contract. It follows JSON/tool protocol, but the free agentic loop loses
 too much recall and first-rank quality versus deterministic H6.1 and bounded
 rerank-only.
 
+## Gemma 4 QAT Agentic 100-Case Sweep
+
+The next local-only agentic sweep used Unsloth Gemma 4 QAT GGUF models through
+llama.cpp with the monotonic candidate guard. All rows use the same H6.1
+EmbeddingGemma file locator and CodeSearchNet Python 100-case slice.
+
+| Setup | Hit@1 | Hit@3 | Hit@5 | Hit@10 | Precision@10 | Recall@10 | MRR@10 | nDCG@10 | Mean ms | P95 ms | Degraded |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Gemma 4 E2B QAT | 0.560 | 0.710 | 0.750 | 0.820 | 0.082 | 0.820 | 0.647 | 0.688 | 53918.7 | 76552.1 | 0.830 |
+| Gemma 4 E4B QAT | 0.580 | 0.700 | 0.760 | 0.800 | 0.080 | 0.800 | 0.653 | 0.689 | 88446.5 | 118798.3 | 0.880 |
+| Gemma 4 12B QAT | 0.590 | 0.690 | 0.740 | 0.800 | 0.080 | 0.800 | 0.653 | 0.688 | 183834.0 | 225080.5 | 0.940 |
+| Gemma 4 26B-A4B QAT | 0.710 | 0.810 | 0.840 | 0.900 | 0.090 | 0.900 | 0.768 | 0.799 | 79647.0 | 106533.1 | 0.750 |
+
+Current interpretation:
+
+- `26B-A4B QAT` is the best completed local agentic setup by quality and is
+  also faster than dense `12B QAT` in this tool loop.
+- `12B QAT` is not a useful default here: it is much slower than 26B-A4B and
+  no better than E4B on top-k quality.
+- All local agentic rows still trail deterministic H6.1 candidate generation on
+  this slice. The agent layer remains a research branch until it beats the
+  same-case deterministic baseline.
+
 ## Gemma 4 12B Runtime Fix
 
 The old 12B attempt used GGUF/llama.cpp and failed the tool protocol. The new
