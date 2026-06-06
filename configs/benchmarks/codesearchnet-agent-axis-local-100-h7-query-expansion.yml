@@ -1,0 +1,275 @@
+root: .code-diver/benchmarks/mteb-codesearchnet-python/corpus
+artifact: .code-diver/benchmarks/mteb-codesearchnet-python/index-h5-embeddinggemma-300m-quality.json
+
+storage:
+  provider: json
+
+embedding:
+  provider: sentence_transformers
+  model: google/embeddinggemma-300m
+  dimensions: 768
+  batch_size: 96
+  workers: 1
+  max_input_chars: 1200
+  query_prefix: "task: code retrieval | query: "
+  document_prefix: "title: none | text: "
+
+generation:
+  provider: openai_compatible
+  model: mlx-community/gemma-4-e2b-it-4bit
+  url: http://127.0.0.1:8012/v1/chat/completions
+  api_key: local
+  temperature: 0
+  max_tokens: 1536
+  response_format: json_schema
+  timeout_ms: 120000
+  extra_body:
+    enable_thinking: false
+
+indexing:
+  mode: scanner
+
+scanner:
+  include:
+    - "**/*.py"
+  max_file_bytes: 200000
+  line_chunks: false
+  chunk_lines: 220
+  structural_chunks: false
+  symbol_chunks: false
+  symbol_body: false
+  file_summary_chunks: true
+  file_manifest_chunks: true
+  max_symbols_per_file: 96
+
+search:
+  limit: 10
+  preview_lines: 8
+  strategy: hybrid
+
+hybrid_search:
+  candidate_limit: 280
+  lexical_candidate_limit: 900
+  vector_weight: 0.5625
+  lexical_weight: 0.1875
+  path_weight: 0.08333333333333334
+  symbol_weight: 0.04166666666666667
+  symbol_match_weight: 0.04166666666666667
+  graph_weight: 0.08333333333333334
+  file_vote_weight: 0.0
+  graph_depth: 0
+  graph_neighbor_limit: 0
+  vector_kind_limits:
+    file_summary: 170
+    file_manifest: 170
+  vector_kind_multipliers:
+    file_summary: 1.0
+    file_manifest: 1.08
+  routing_enabled: true
+  lexical_scoring: bm25
+  fusion: weighted
+  preserve_vector_top: true
+  vector_top_score_margin: 0.03
+  item_kind_weights:
+    file_summary: 1.0
+    file_manifest: 1.08
+  min_token_length: 3
+  query_expansion_enabled: true
+  query_expansion_aliases:
+    auth: [authorization, authenticate, authentication, token, permission]
+    authorization: [auth, authenticate, authentication, token, permission]
+    db: [database, sql, query, session]
+    database: [db, sql, query, session]
+    http: [url, uri, request, response, api]
+    url: [uri, http, request, api]
+    command: [cmd, handler, execute, run]
+    handler: [handle, command, dispatch]
+    init: [initialize, setup, create]
+    delete: [del, remove, drop]
+    remove: [delete, del, drop]
+    file: [path, read, write, upload, download]
+    stream: [download, upload, read, write]
+
+llm_rerank:
+  candidate_limit: 30
+  rerank_limit: 10
+  max_preview_chars: 700
+  mode: file_first
+  include_reasons: false
+  preserve_top_candidate: true
+  preserve_top_score_margin: 0.03
+  retry_attempts: 2
+  retry_base_delay_seconds: 1.0
+  retry_max_delay_seconds: 8.0
+
+graph:
+  enabled: true
+  artifact: .code-diver/benchmarks/mteb-codesearchnet-python/graph-h5-embeddinggemma-300m-quality.json
+  ast_enabled: false
+  reference_edges_enabled: false
+  call_edges_enabled: false
+  expansion_depth: 0
+  neighbor_limit: 0
+
+trace:
+  enabled: true
+  artifact: .code-diver/traces/codesearchnet-agent-axis-local-100.jsonl
+  include_prompts: true
+
+evaluation:
+  dataset: .code-diver/tmp/codesearchnet_python_100.jsonl
+  limit: 10
+  workers: 1
+
+experiments:
+  suite: codesearchnet-agent-axis-local-100-h7-query-expansion
+  strategies:
+    - hybrid
+  hypotheses:
+    - name: agent_gemma4_e2b_local_rerank
+      tools: &agent_tools
+        - code_diver_h3_search
+        - code_diver_outline
+        - code_diver_symbols
+        - code_diver_rg
+        - code_diver_grep
+        - code_diver_read
+        - code_diver_rerank
+      generation: &gemma_e2b
+        provider: openai_compatible
+        model: mlx-community/gemma-4-e2b-it-4bit
+        url: http://127.0.0.1:8012/v1/chat/completions
+        api_key: local
+        temperature: 0
+        max_tokens: 1536
+        response_format: json_schema
+        timeout_ms: 120000
+        extra_body:
+          enable_thinking: false
+      rerank_generation: *gemma_e2b
+      description: "Local-only agent: Gemma 4 E2B plans/tool-calls and reranks over H6.1 EmbeddingGemma candidates."
+    - name: agent_gemma4_e2b_qat_llama_monotonic_local_rerank
+      tools: *agent_tools
+      generation: &gemma_e2b_qat_llama
+        provider: openai_compatible
+        model: gemma-4-E2B-it-qat-UD-Q4_K_XL
+        url: http://127.0.0.1:8016/v1/chat/completions
+        api_key: local
+        temperature: 0
+        max_tokens: 1536
+        response_format: json_object
+        timeout_ms: 180000
+      rerank_generation: *gemma_e2b_qat_llama
+      description: "Local-only monotonic agent: Unsloth Gemma 4 E2B QAT GGUF via llama.cpp plans/tool-calls and reranks while preserving H6.1 baseline topK."
+    - name: agent_gemma4_e4b_local_rerank
+      tools: *agent_tools
+      generation: &gemma_e4b
+        provider: openai_compatible
+        model: mlx-community/gemma-4-e4b-it-4bit
+        url: http://127.0.0.1:8013/v1/chat/completions
+        api_key: local
+        temperature: 0
+        max_tokens: 1536
+        response_format: json_schema
+        timeout_ms: 120000
+        extra_body:
+          enable_thinking: false
+      rerank_generation: *gemma_e4b
+      description: "Local-only agent: Gemma 4 E4B plans/tool-calls and reranks over H6.1 EmbeddingGemma candidates."
+    - name: agent_gemma4_e4b_monotonic_local_rerank
+      tools: *agent_tools
+      generation: *gemma_e4b
+      rerank_generation: *gemma_e4b
+      description: "Local-only monotonic agent: seeds H6.1 baseline first, lets Gemma 4 E4B search/rerank, and preserves baseline topK in the final K."
+    - name: agent_gemma4_e4b_qat_llama_monotonic_local_rerank
+      tools: *agent_tools
+      generation: &gemma_e4b_qat_llama
+        provider: openai_compatible
+        model: gemma-4-E4B-it-qat-UD-Q4_K_XL
+        url: http://127.0.0.1:8016/v1/chat/completions
+        api_key: local
+        temperature: 0
+        max_tokens: 1536
+        response_format: json_object
+        timeout_ms: 240000
+      rerank_generation: *gemma_e4b_qat_llama
+      description: "Local-only monotonic agent: Unsloth Gemma 4 E4B QAT GGUF via llama.cpp plans/tool-calls and reranks while preserving H6.1 baseline topK."
+    - name: agent_qwen35_9b_local_rerank
+      tools: *agent_tools
+      generation: &qwen35_9b
+        provider: openai_compatible
+        model: mlx-community/Qwen3.5-9B-MLX-4bit
+        url: http://127.0.0.1:8014/v1/chat/completions
+        api_key: local
+        temperature: 0
+        max_tokens: 1536
+        response_format: json_schema
+        timeout_ms: 120000
+        extra_body:
+          enable_thinking: false
+      rerank_generation: *qwen35_9b
+      description: "Local-only agent: Qwen3.5 9B plans/tool-calls and reranks over H6.1 EmbeddingGemma candidates."
+    - name: agent_gemma4_12b_local_rerank
+      tools: *agent_tools
+      generation: &gemma_12b
+        provider: openai_compatible
+        model: .code-diver/models/mlx-community-gemma-4-12B-it-4bit
+        url: http://127.0.0.1:8015/v1/chat/completions
+        api_key: local
+        temperature: 0
+        max_tokens: 1536
+        response_format: json_schema
+        timeout_ms: 300000
+        extra_body:
+          enable_thinking: false
+      rerank_generation: *gemma_12b
+      description: "Local-only agent: Gemma 4 12B plans/tool-calls and reranks over H6.1 EmbeddingGemma candidates."
+    - name: agent_gemma4_12b_monotonic_local_rerank
+      tools: *agent_tools
+      generation: *gemma_12b
+      rerank_generation: *gemma_12b
+      description: "Local-only monotonic agent: seeds H6.1 baseline first, lets Gemma 4 12B search/rerank, and preserves baseline topK in the final K."
+    - name: agent_gemma4_12b_qat_llama_monotonic_local_rerank
+      tools: *agent_tools
+      generation: &gemma_12b_qat_llama
+        provider: openai_compatible
+        model: gemma-4-12B-it-qat-UD-Q4_K_XL
+        url: http://127.0.0.1:8016/v1/chat/completions
+        api_key: local
+        temperature: 0
+        max_tokens: 1536
+        response_format: json_object
+        timeout_ms: 360000
+      rerank_generation: *gemma_12b_qat_llama
+      description: "Local-only monotonic agent: Unsloth Gemma 4 12B QAT GGUF via llama.cpp plans/tool-calls and reranks while preserving H6.1 baseline topK."
+    - name: agent_gemma4_26b_a4b_qat_llama_monotonic_local_rerank
+      tools: *agent_tools
+      generation: &gemma_26b_a4b_qat_llama
+        provider: openai_compatible
+        model: gemma-4-26B-A4B-it-qat-UD-Q4_K_XL
+        url: http://127.0.0.1:8016/v1/chat/completions
+        api_key: local
+        temperature: 0
+        max_tokens: 1536
+        response_format: json_object
+        timeout_ms: 480000
+      rerank_generation: *gemma_26b_a4b_qat_llama
+      description: "Local-only monotonic agent: Unsloth Gemma 4 26B-A4B QAT GGUF via llama.cpp plans/tool-calls and reranks while preserving H6.1 baseline topK."
+    - name: agent_gemma4_31b_qat_llama_monotonic_local_rerank
+      tools: *agent_tools
+      generation: &gemma_31b_qat_llama
+        provider: openai_compatible
+        model: gemma-4-31B-it-qat-UD-Q4_K_XL
+        url: http://127.0.0.1:8016/v1/chat/completions
+        api_key: local
+        temperature: 0
+        max_tokens: 1536
+        response_format: json_object
+        timeout_ms: 600000
+      rerank_generation: *gemma_31b_qat_llama
+      description: "Local-only monotonic agent: Unsloth Gemma 4 31B dense QAT GGUF via llama.cpp plans/tool-calls and reranks while preserving H6.1 baseline topK."
+
+metrics:
+  enabled: false
+
+plugins: []

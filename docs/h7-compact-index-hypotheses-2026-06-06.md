@@ -19,7 +19,7 @@ So the index should stay small, hot, and cheap to rebuild.
 | ID | Change | Expected Benefit | Cost | Risk | Status |
 | --- | --- | --- | --- | --- | --- |
 | `H7.1` | Add one `file_api_manifest` vector per file with signatures, identifier terms, symbol counts, and short doc/comment hints. | Better bridge from natural-language/function-docstring queries to the file that owns the relevant API. | About +50% vectors versus H6.1 because H6.1 has two vectors/file and H7.1 has three. | Doc hints can overfit CodeSearchNet-style docstring queries; must validate on repo-local/e2e questions too. | implemented, pending eval |
-| `H7.2` | Add query-time identifier expansion: camel/snake/path splitting, exact alias variants, and configurable domain synonyms. | Helps keyword-collapse cases without increasing index size. | Near-zero persistent cost; small query CPU cost. | Synonym noise can hurt precision if global and uncalibrated. | proposed |
+| `H7.2` | Add query-time identifier/resource expansion for lexical/BM25 terms only. | Helps keyword-collapse cases without increasing index size or changing dense query embeddings. | Near-zero persistent cost; small query CPU cost. | Synonym noise can hurt precision if global and uncalibrated. | implemented, pending eval |
 | `H7.3` | Add file role metadata: controller/service/repository/model/config/test/entrypoint/plugin based on path + symbols. | Helps informal questions such as "where is auth handled?" by boosting likely architectural roles. | Metadata only, optional ranking feature. | Role heuristics are language/framework-sensitive. | proposed |
 | `H7.4` | Add dependency-neighborhood metadata: local imports, exported symbols, fan-in/fan-out counts. | Helps workflow and architecture questions where the target is connected rather than text-similar. | Metadata + graph artifact growth; no extra vectors if kept out of embeddings. | High fanout can add related-but-wrong files. | proposed |
 | `H7.5` | Add candidate-only symbol/docstring micro-index over the top 30-50 files after H6.1. | Tests whether deeper local search helps only after the locator narrows the repo. | Per-query build/query cost; no persistent growth if cached ephemerally. | Previous H2B failed when chunks displaced good locator files; must keep file candidates monotonic. | proposed |
@@ -118,6 +118,34 @@ H6.1. It keeps Hit@10 flat but lowers Hit@1/MRR and roughly doubles query
 latency because it adds a third vector lane. The next check is an agentic run
 with the best completed local agent, Gemma 4 26B-A4B QAT, to test whether the
 LLM can use the richer candidate surface better than deterministic fusion.
+
+## H7.2 Query Expansion
+
+H7.2 keeps the H6.1 index unchanged and expands only lexical query terms. The
+dense vector query remains the user's original text, so semantic retrieval does
+not get synonym noise. This targets short developer queries such as `db`,
+`auth`, `url`, `cmd`, `delete`, and `stream`, which can otherwise be filtered or
+miss exact lexical matches.
+
+Implementation:
+
+- `HybridQueryAnalyzer` keeps short tokens when they are configured alias keys;
+- `HybridQueryExpander` appends configured aliases while preserving order and
+deduping;
+- the feature is disabled by default and enabled only by config through
+  `hybrid_search.query_expansion_enabled`;
+- benchmark config:
+  `configs/benchmarks/codesearchnet-agent-axis-local-100-h7-query-expansion.yml`.
+
+The first evaluation should compare:
+
+| Run | Index | Change |
+| --- | --- | --- |
+| H6.1 control | `file_summary` + `file_manifest` | no expansion |
+| H7.2 | same H6.1 artifact | lexical-only query expansion |
+
+Promotion rule: keep H7.2 only if it improves Hit@1/MRR or recovers top-10
+misses without lowering Hit@10/precision on the same case set.
 
 ## Implementation
 

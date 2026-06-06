@@ -32,4 +32,8 @@ class HybridSearchConfig:
     vector_top_score_margin: float = Defaults.HYBRID_VECTOR_TOP_SCORE_MARGIN
     item_kind_weights: dict[str, float] = field(default_factory=lambda: dict(Defaults.HYBRID_ITEM_KIND_WEIGHTS))
     min_token_length: int = Defaults.HYBRID_MIN_TOKEN_LENGTH
+    query_expansion_enabled: bool = Defaults.HYBRID_QUERY_EXPANSION_ENABLED
+    query_expansion_aliases: dict[str, list[str]] = field(
+        default_factory=lambda: {key: list(value) for key, value in Defaults.HYBRID_QUERY_EXPANSION_ALIASES.items()}
+    )
     stop_words: list[str] = field(default_factory=lambda: list(Defaults.HYBRID_STOP_WORDS))

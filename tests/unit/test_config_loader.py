@@ -112,6 +112,9 @@ hybrid_search:
     file_summary: 1.2
     symbol: 1.1
   min_token_length: 4
+  query_expansion_enabled: true
+  query_expansion_aliases:
+    auth: [authorization, token]
   stop_words: [where, handled]
 llm_rerank:
   candidate_limit: 22
@@ -279,6 +282,8 @@ plugins:
     assert config.hybrid_search.vector_top_score_margin == 0.07
     assert config.hybrid_search.item_kind_weights == {"file_summary": 1.2, "symbol": 1.1}
     assert config.hybrid_search.min_token_length == 4
+    assert config.hybrid_search.query_expansion_enabled is True
+    assert config.hybrid_search.query_expansion_aliases == {"auth": ["authorization", "token"]}
     assert config.hybrid_search.stop_words == ["where", "handled"]
     assert config.llm_rerank.candidate_limit == 22
     assert config.llm_rerank.rerank_limit == 3

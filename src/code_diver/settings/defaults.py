@@ -130,6 +130,24 @@ class Defaults:
     HYBRID_VECTOR_TOP_SCORE_MARGIN = 0.03
     HYBRID_ITEM_KIND_WEIGHTS = {"file_summary": 1.0, "file_manifest": 1.08}
     HYBRID_MIN_TOKEN_LENGTH = 3
+    HYBRID_QUERY_EXPANSION_ENABLED = False
+    HYBRID_QUERY_EXPANSION_ALIASES = {
+        "auth": ["authorization", "authenticate", "authentication", "token", "permission"],
+        "authorization": ["auth", "authenticate", "authentication", "token", "permission"],
+        "config": ["configuration", "settings", "options", "env"],
+        "configuration": ["config", "settings", "options", "env"],
+        "db": ["database", "sql", "query", "session"],
+        "database": ["db", "sql", "query", "session"],
+        "http": ["url", "uri", "request", "response", "api"],
+        "url": ["uri", "http", "request", "api"],
+        "command": ["cmd", "handler", "execute", "run"],
+        "handler": ["handle", "command", "dispatch"],
+        "init": ["initialize", "initialise", "setup", "create"],
+        "delete": ["del", "remove", "drop"],
+        "remove": ["delete", "del", "drop"],
+        "file": ["path", "read", "write", "upload", "download"],
+        "stream": ["download", "upload", "read", "write"],
+    }
     HYBRID_STOP_WORDS = [
         "where",
         "what",

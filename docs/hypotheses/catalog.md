@@ -313,6 +313,26 @@ Status meanings:
 | Follow-ups | Compare deterministic H6.1 vs H7.1 first, then run the best bounded agent/reranker on the winner. Add repo-local/e2e explanation validation before default promotion. |
 | Links | [H7 compact index hypotheses](../h7-compact-index-hypotheses-2026-06-06.md), `configs/benchmarks/codesearchnet-agent-axis-local-100-h7-api-manifest.yml`, `src/code_diver/services/file_api_manifest_item_builder.py` |
 
+## H7.2 - Lexical Query Expansion Without Index Growth
+
+| Field | Value |
+| --- | --- |
+| ID | `H7.2` |
+| Status | active / pending eval |
+| Motivation | Short developer queries and common aliases such as `db`, `auth`, `url`, `cmd`, and `stream` can collapse dense search or get filtered before BM25 can help. |
+| Assumptions | Expanding only lexical terms can improve exact-match candidate recall without injecting synonym noise into vector embeddings. |
+| Index composition | Same H6.1 `file_summary` + `file_manifest` artifact. No new vectors and no reindex required. |
+| Search/ranking flow | Query -> original dense vector search + expanded lexical/BM25 terms -> H6.1 weighted fusion -> optional rerank/agent. |
+| Model/provider matrix | Embedding model unchanged. First run should use the same EmbeddingGemma H6.1 control and no LLM rerank. |
+| Dataset | CodeSearchNet/MTEB Python 100-case slice first, then larger slices if positive. |
+| Metrics | not measured |
+| Cost/latency/index-size | No persistent index growth; only a tiny query-time lexical-term expansion cost. |
+| Result summary | Implementation landed; evaluation pending after current H7.1 agentic run. |
+| Decision | Not default. Promote only if same-case metrics improve without lowering Hit@10/precision. |
+| Failure modes | Broad aliases can introduce false positives; aliases are global rather than route/language-specific; CodeSearchNet may not stress the same short-query pattern as real users. |
+| Follow-ups | Add route-specific aliases and learned/calibrated alias weights if the first global expansion is noisy. |
+| Links | [H7 compact index hypotheses](../h7-compact-index-hypotheses-2026-06-06.md), `configs/benchmarks/codesearchnet-agent-axis-local-100-h7-query-expansion.yml`, `src/code_diver/strategies/hybrid_query_expander.py` |
+
 ## H7 - Agent-Planned Probes With One Shared Rerank
 
 | Field | Value |

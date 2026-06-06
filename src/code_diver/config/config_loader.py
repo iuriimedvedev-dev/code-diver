@@ -393,6 +393,22 @@ class ConfigLoader:
                     base.min_token_length if base is not None else Defaults.HYBRID_MIN_TOKEN_LENGTH,
                 )
             ),
+            query_expansion_enabled=bool(
+                mapping.get(
+                    "query_expansion_enabled",
+                    base.query_expansion_enabled
+                    if base is not None
+                    else Defaults.HYBRID_QUERY_EXPANSION_ENABLED,
+                )
+            ),
+            query_expansion_aliases=self._string_list_mapping(
+                mapping.get(
+                    "query_expansion_aliases",
+                    base.query_expansion_aliases
+                    if base is not None
+                    else Defaults.HYBRID_QUERY_EXPANSION_ALIASES,
+                )
+            ),
             stop_words=self._string_list(mapping.get("stop_words"))
             or list(base.stop_words if base is not None else Defaults.HYBRID_STOP_WORDS),
         )
@@ -665,6 +681,9 @@ class ConfigLoader:
 
     def _int_mapping(self, value: Any) -> dict[str, int]:
         return {str(key): int(item) for key, item in self._mapping(value).items()}
+
+    def _string_list_mapping(self, value: Any) -> dict[str, list[str]]:
+        return {str(key): self._string_list(item) for key, item in self._mapping(value).items()}
 
     def _optional_int(self, value: Any) -> int | None:
         if value is None:
