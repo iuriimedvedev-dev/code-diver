@@ -264,3 +264,29 @@ Next required engineering fix: empty rerank output should be marked degraded and
 should explicitly preserve the H6.1 candidate order. Today base-prior behavior
 mostly prevents catastrophic quality loss, but observability does not count this
 as degraded.
+
+## Gemma 4 12B Agentic Smoke
+
+After the bounded rerank runs, we tested whether 12B can operate the full local
+search-agent loop:
+
+```text
+query
+-> Gemma 4 12B generates tool calls
+-> H6.1 search / outline / symbols / rg / grep / read / rerank tools
+-> ranked file list
+```
+
+| Setup | Cases | Hit@1 | Hit@3 | Hit@5 | Hit@10 | Precision@10 | Recall@10 | MRR@10 | nDCG@10 | Mean ms | P95 ms | Model calls | Tool calls | Tokens | Degraded |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Gemma 4 12B agentic | 10 | 0.600 | 0.700 | 0.800 | 0.800 | 0.080 | 0.800 | 0.653 | 0.689 | 89380.8 | 112154.6 | 32 | 39 | 238418 | 0 |
+
+Interpretation:
+
+- 12B can run the local tool protocol after the MLX runtime fix.
+- It is stronger than E2B/E4B agentic on the 10-case smoke by Hit@1, but still
+  loses to static H6.1 and bounded rerank-only.
+- Latency is too high for agentic search: mean `89.4s/query`, p95 `112.2s`.
+- Decision: do not run 12B as a broad search-agent by default. Keep it as an
+  offline reranker candidate or possibly a bounded code explainer/judge
+  candidate.
