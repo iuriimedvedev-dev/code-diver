@@ -72,6 +72,9 @@ class OrchestratedCodebaseScanner:
             symbol_chunks=symbol_chunks,
             symbol_body=self.config.scanner.symbol_body,
             file_summary_chunks=self.config.scanner.file_summary_chunks,
+            file_manifest_chunks=self.config.scanner.file_manifest_chunks,
+            file_api_manifest_chunks=self.config.scanner.file_api_manifest_chunks,
+            max_symbols_per_file=self.config.scanner.max_symbols_per_file,
         )
         return scanner.scan(root)
 

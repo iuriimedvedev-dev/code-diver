@@ -293,6 +293,26 @@ Status meanings:
 | Follow-ups | Compare depth 0, 1, 2, 3; add route-specific training; add pairwise/listwise loss; test whether dynamic weights are useful only on low-confidence H3 cases. |
 | Links | [local model axis experiments](../local-model-axis-experiments-2026-06-04.md), [H5 hybrid weight calibration](../h5-hybrid-weight-calibration-2026-06-04.md), `.code-diver/reports/h6-2-mlp-weights-pure-h3-qwen-fresh-codesearchnet-1000.json`, `.code-diver/reports/h6-2-mlp-weights-embeddinggemma-codesearchnet-1000.json`, `scripts/calibrate_hybrid_weights.py` |
 
+## H7.1 - Compact API Manifest File Vector
+
+| Field | Value |
+| --- | --- |
+| ID | `H7.1` |
+| Status | active / pending eval |
+| Motivation | H6.1 file summaries/manifests can dilute the specific function/API/effect that CodeSearchNet-style or informal behavior queries are asking for. Add a compact API-level file record without indexing function bodies. |
+| Assumptions | Signatures, split identifier terms, call/attribute/resource terms, effect tags, symbol counts, and short doc/comment hints are enough to improve natural-language-to-file matching while keeping the persistent index small. |
+| Index composition | H6.1 `file_summary` + `file_manifest` plus one new `file_api_manifest` item per file. No line chunks, structural chunks, symbol body chunks, or function-body vectors. |
+| Search/ranking flow | Query -> H6.1 calibrated hybrid search over three file-level item kinds -> optional monotonic LLM/agent rerank -> final file list. |
+| Model/provider matrix | First planned run keeps EmbeddingGemma-300M and the best completed local agentic setup fixed, then changes only index composition. |
+| Dataset | CodeSearchNet/MTEB Python 100-case public slice first; promote to 1,000 cases only if the 100-case delta is positive and non-degraded. |
+| Metrics | not measured |
+| Cost/latency/index-size | Expected persistent vector count is about 1.5x H6.1 because H6.1 has two file-level vectors per file and H7.1 has three. |
+| Result summary | Implementation landed; evaluation pending after the current long Gemma 4 QAT agent run finishes. |
+| Decision | Keep as an active compact-index experiment, not default. Promote only if same-run metrics improve Hit@1/MRR without lowering Hit@10 or blowing the compact-index budget. |
+| Failure modes | Doc hints may overfit CodeSearchNet docstring-shaped queries; extra vectors can add noisy near-duplicates; local agent latency can hide retrieval gains. |
+| Follow-ups | Compare deterministic H6.1 vs H7.1 first, then run the best bounded agent/reranker on the winner. Add repo-local/e2e explanation validation before default promotion. |
+| Links | [H7 compact index hypotheses](../h7-compact-index-hypotheses-2026-06-06.md), `configs/benchmarks/codesearchnet-agent-axis-local-100-h7-api-manifest.yml`, `src/code_diver/services/file_api_manifest_item_builder.py` |
+
 ## H7 - Agent-Planned Probes With One Shared Rerank
 
 | Field | Value |

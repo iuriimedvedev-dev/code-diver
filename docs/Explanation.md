@@ -51,6 +51,21 @@ H6.1 freezes the best calibrated static hybrid weights found on the CodeSearchNe
 positive slice. LLM ranking/agentic rerank remains an experiment on top of this generator
 until it beats the same-case baseline with a valid, non-degraded run.
 
+The next compact-index experiment is H7.1. It keeps the same file-locator idea
+but adds a third file-level vector per file:
+
+```text
+file_summary + file_manifest + file_api_manifest
+```
+
+`file_api_manifest` contains signatures, split identifier terms, symbol counts,
+call terms, attribute/import terms, resource terms, deterministic effect tags,
+and short doc/comment hints. It still does not embed function bodies. The point
+is to help natural-language queries map to the API and side effects that a file
+owns, especially when a whole-file summary dilutes the target function. This is
+a quality-vs-size hypothesis: roughly +50% persistent vectors over H6.1, but
+still far smaller than line/symbol body chunking.
+
 The better physical index shape is still a two-layer system:
 
 1. **Persistent locator index.** Keep a compact index hot in memory. Its job is to find likely files and entry-point symbols.

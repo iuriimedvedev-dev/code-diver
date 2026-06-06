@@ -10,6 +10,7 @@ from pathlib import Path
 
 from ..domain import CodeItem, CodeItemIndexKind, CodeItemMetadata, CodeSymbol
 from .code_symbol_extractor import CodeSymbolExtractor
+from .file_api_manifest_item_builder import FileApiManifestItemBuilder
 from .file_manifest_item_builder import FileManifestItemBuilder
 from .file_summary_item_builder import FileSummaryItemBuilder
 from .structural_code_chunker import StructuralCodeChunker
@@ -80,10 +81,12 @@ class CodebaseScanner:
         symbol_body: bool = True,
         file_summary_chunks: bool = False,
         file_manifest_chunks: bool = False,
+        file_api_manifest_chunks: bool = False,
         max_symbols_per_file: int | None = None,
         symbol_extractor: CodeSymbolExtractor | None = None,
         file_summary_builder: FileSummaryItemBuilder | None = None,
         file_manifest_builder: FileManifestItemBuilder | None = None,
+        file_api_manifest_builder: FileApiManifestItemBuilder | None = None,
         structural_chunker: StructuralCodeChunker | None = None,
         progress_callback: Callable[[int, int], None] | None = None,
     ):
@@ -97,10 +100,12 @@ class CodebaseScanner:
         self.symbol_body = symbol_body
         self.file_summary_chunks = file_summary_chunks
         self.file_manifest_chunks = file_manifest_chunks
+        self.file_api_manifest_chunks = file_api_manifest_chunks
         self.max_symbols_per_file = max_symbols_per_file
         self.symbol_extractor = symbol_extractor or CodeSymbolExtractor()
         self.file_summary_builder = file_summary_builder or FileSummaryItemBuilder()
         self.file_manifest_builder = file_manifest_builder or FileManifestItemBuilder()
+        self.file_api_manifest_builder = file_api_manifest_builder or FileApiManifestItemBuilder()
         self.structural_chunker = structural_chunker or StructuralCodeChunker(chunk_lines, self.symbol_extractor)
         self.progress_callback = progress_callback
 
@@ -167,7 +172,12 @@ class CodebaseScanner:
     def _items_for_file(self, rel_path: str, text: str) -> list[CodeItem]:
         symbols = (
             self._symbols_for_file(rel_path, text)
-            if self.symbol_chunks or self.file_summary_chunks or self.file_manifest_chunks
+            if (
+                self.symbol_chunks
+                or self.file_summary_chunks
+                or self.file_manifest_chunks
+                or self.file_api_manifest_chunks
+            )
             else []
         )
         items = self._chunk_file(rel_path, text) if self.line_chunks else []
@@ -177,6 +187,8 @@ class CodebaseScanner:
             items.append(self.file_summary_builder.build(rel_path, text, symbols))
         if self.file_manifest_chunks:
             items.append(self.file_manifest_builder.build(rel_path, text, symbols))
+        if self.file_api_manifest_chunks:
+            items.append(self.file_api_manifest_builder.build(rel_path, text, symbols))
         return items
 
     def _symbols_for_file(self, rel_path: str, text: str) -> list[CodeSymbol]:

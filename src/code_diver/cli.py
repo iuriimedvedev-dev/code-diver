@@ -853,6 +853,16 @@ def index_profile_label(config: AppConfig) -> str:
     if (
         config.scanner.file_summary_chunks
         and config.scanner.file_manifest_chunks
+        and config.scanner.file_api_manifest_chunks
+        and not config.scanner.line_chunks
+        and not config.scanner.structural_chunks
+        and not config.scanner.symbol_chunks
+    ):
+        return "H7.1 API manifest file locator"
+    if (
+        config.scanner.file_summary_chunks
+        and config.scanner.file_manifest_chunks
+        and not config.scanner.file_api_manifest_chunks
         and not config.scanner.line_chunks
         and not config.scanner.structural_chunks
         and not config.scanner.symbol_chunks
@@ -867,6 +877,8 @@ def index_content_label(config: AppConfig) -> str:
         enabled.append("file summaries")
     if config.scanner.file_manifest_chunks:
         enabled.append("file manifests")
+    if config.scanner.file_api_manifest_chunks:
+        enabled.append("API manifests")
     if config.scanner.line_chunks:
         enabled.append("line chunks")
     if config.scanner.structural_chunks:
@@ -2202,6 +2214,7 @@ def generate_local_eval_dataset(config: AppConfig, output: Path, case_count: int
         line_chunks=False,
         file_summary_chunks=True,
         file_manifest_chunks=True,
+        file_api_manifest_chunks=config.scanner.file_api_manifest_chunks,
         max_symbols_per_file=config.scanner.max_symbols_per_file,
     )
     return LocalEvalDatasetGenerator(scanner).generate(config.root, output, case_count)
@@ -2219,6 +2232,7 @@ def make_codebase_scanner(config: AppConfig):
         symbol_body=config.scanner.symbol_body,
         file_summary_chunks=config.scanner.file_summary_chunks,
         file_manifest_chunks=config.scanner.file_manifest_chunks,
+        file_api_manifest_chunks=config.scanner.file_api_manifest_chunks,
         max_symbols_per_file=config.scanner.max_symbols_per_file,
     )
     mode = config.indexing.mode

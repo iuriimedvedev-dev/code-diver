@@ -238,6 +238,44 @@ def test_file_manifest_extracts_config_keys(tmp_path: Path) -> None:
     assert "toolWindow" in manifest.content
 
 
+def test_scanner_can_add_file_api_manifest_items(tmp_path: Path) -> None:
+    (tmp_path / "users.py").write_text(
+        '''
+class UserService:
+    """Manage user lifecycle."""
+
+    def update_user(self, user_id: str):
+        """Update a user profile and authorization state."""
+        client = requests.Session()
+        client.post("https://api.example.com/users/update", json={"user_id": user_id})
+        return user_id
+'''.strip(),
+        encoding="utf-8",
+    )
+
+    items = CodebaseScanner(
+        include=["*.py"],
+        line_chunks=False,
+        file_api_manifest_chunks=True,
+    ).scan(tmp_path)
+
+    manifests = [item for item in items if item.metadata["index_kind"] == "file_api_manifest"]
+    assert len(manifests) == 1
+    assert manifests[0].path == "users.py"
+    assert "api_symbols:" in manifests[0].content
+    assert "UserService.update_user" in manifests[0].content
+    assert "identifier_terms:" in manifests[0].content
+    assert "call_terms:" in manifests[0].content
+    assert "session" in manifests[0].content.lower()
+    assert "post" in manifests[0].content.lower()
+    assert "resource_terms:" in manifests[0].content
+    assert "example" in manifests[0].content.lower()
+    assert "effect_tags:" in manifests[0].content
+    assert "auth" in manifests[0].content
+    assert "network" in manifests[0].content
+    assert "update a user profile" in manifests[0].content.lower()
+
+
 def test_scanner_can_limit_symbols_per_file(tmp_path: Path) -> None:
     (tmp_path / "app.kt").write_text(
         """
