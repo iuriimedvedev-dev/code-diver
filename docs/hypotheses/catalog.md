@@ -364,13 +364,13 @@ Status meanings:
 | Index composition | Same H6.1/H5 file-first metadata index. H8 changes only the final ranking layer over candidate file rankings. |
 | Search/ranking flow | H6/H7 candidate rankings and optional LLM/agent rankings -> candidate union -> per-candidate rank features -> calibrated meta-ranker -> final file ranking. |
 | Model/provider matrix | Offline test used saved deterministic H6/H7 rankings plus local Gemma E2B/E4B/12B/26B-A4B agentic rankings. Future tests should swap one reranker axis at a time: Gemini Lite, Qwen3-Reranker, Gemma 26B-A4B. |
-| Dataset | Saved 100-case CodeSearchNet/MTEB Python slice; 1,000-case CodeSearchNet/MTEB Python slice with 900 train / 100 held-out test; 750/150/100 sweep for validation-selected calibration. Labels are mostly single-positive files, so precision@10 is mechanically close to Hit@10 / 10. |
+| Dataset | Saved 100-case CodeSearchNet/MTEB Python slice; 1,000-case CodeSearchNet/MTEB Python slice with 900 train / 100 held-out test; 750/150/100 sweep for validation-selected calibration. The 1,000-case slice is entirely single-positive (`expected_files_distribution={"1":1000}`), so Hit@K equals Recall@K and Precision@10 has a hard useful ceiling of 0.1 for successful cases. |
 | Metrics | 100-case diverse-ranker CV: best single `h6` Hit@1 `0.820`, Hit@10 `0.970`, nDCG `0.900`; logistic stacking improved to Hit@1 `0.840`, Hit@10 `0.980`, nDCG `0.918`. 1,000-case Gemini Lite full run: Hit@1 `0.911`, Hit@3 `0.978`, Hit@5 `0.988`, Hit@10 `0.989`, MRR `0.944`, nDCG `0.956`. 900/100 held-out: single Gemini Lite Hit@1 `0.960`, Hit@10 `1.000`, nDCG `0.983`; best learned pairwise deterministic+Gemini stack Hit@1 `0.950`, Hit@10 `1.000`, nDCG `0.979`; oracle deterministic+Gemini Hit@1 `0.980`. |
 | Cost/latency/index-size | Offline analysis has no model-call cost. Live use must not run many LLM agents by default; production H8 should combine cheap deterministic rank signals and at most one optional LLM/cross-encoder signal. |
-| Result summary | The ensemble idea has headroom, but rank-position-only calibration cannot beat the current best single reranker, Gemini 3.1 Flash Lite. Equal-weight RRF, weighted RRF, pointwise stacking, pairwise stacking, and Gemini-anchor override guards all fail to improve on Gemini Lite on the held-out tail. |
+| Result summary | The ensemble idea has headroom, but rank-position-only calibration cannot beat the current best single reranker, Gemini 3.1 Flash Lite. Equal-weight RRF, weighted RRF, pointwise stacking, pairwise stacking, and Gemini-anchor override guards all fail to improve on Gemini Lite on the held-out tail. Hit@5/Hit@10 are saturated on this single-positive slice; MRR/nDCG/mean rank are the meaningful differentiators. |
 | Decision | Active research, not default. Default should remain H6.1 candidates plus one Gemini Lite rerank when quality mode is enabled. H8 needs richer score/confidence features or a true cross-encoder before promotion. |
 | Failure modes | 100-case overfitting, final-ranking-only features instead of raw score logits, correlated ranker errors, and impractical live cost if multiple LLM rankers are called per user query. |
-| Follow-ups | Train on raw candidate-level H6/H7/LLM features: LLM confidence/reason, hybrid score margins, route/query bucket, deterministic top1/top2 margin, and true cross-encoder scores. Test Qwen3-Reranker as the cheap second signal. |
+| Follow-ups | Train on raw candidate-level H6/H7/LLM features: LLM confidence/reason, hybrid score margins, route/query bucket, deterministic top1/top2 margin, and true cross-encoder scores. Test Qwen3-Reranker as the cheap second signal. Add a multi-positive/e2e explanation benchmark because this single-positive slice cannot measure product precision/recall well. |
 | Links | [reranker ensemble report](../reranker-ensemble-2026-06-07.md), `scripts/analyze_reranker_ensemble.py`, `.code-diver/reports/reranker-ensemble-all-saved-codesearchnet-100.json` |
 
 ## H8.1 - Plain RRF Reranker Ensemble
@@ -492,6 +492,25 @@ Status meanings:
 | Failure modes | Label leakage by definition. |
 | Follow-ups | Compare oracle gap before and after adding a genuinely different reranker family. |
 | Links | [reranker ensemble report](../reranker-ensemble-2026-06-07.md), `.code-diver/reports/h8-reranker-ensemble-train900-test100-deterministic.json` |
+
+## H9 - Semantic Hard-Case Evidence Layer
+
+| Field | Value |
+| --- | --- |
+| ID | `H9` |
+| Status | proposed |
+| Motivation | H8 analysis showed that repeated Hit@5/Hit@10 values come from a single-positive benchmark with saturated top-10 recall, while remaining Gemini Lite misses concentrate in semantic queries where evidence lives in comments, string literals, constants, or implementation behavior. |
+| Assumptions | H6.1/H8 file-level summaries/manifests are too compact for some CodeSearchNet-style semantic queries. Adding a compact body-evidence lane can improve candidate recall without indexing full code chunks. |
+| Index composition | Existing H6.1 `file_summary` + `file_manifest`, plus a proposed `file_body_evidence` item containing comments, string literals, key calls, return/raise expressions, exception messages, HTTP/resource strings, and docstring-derived phrases. No full method body vectors by default. |
+| Search/ranking flow | Query -> H6.1/H8 candidate generation -> if semantic/low-confidence, merge a body-evidence search lane -> Gemini Lite or cross-encoder rerank -> final files. |
+| Model/provider matrix | Keep EmbeddingGemma and Gemini Lite fixed initially. Test Qwen3-Reranker/cross-encoder as the cheap rerank feature after candidate recall improves. |
+| Dataset | CodeSearchNet/MTEB Python 1,000-case slice first, with focus on Gemini Lite miss/not-top cases; then a multi-positive/e2e explanation benchmark because single-positive CodeSearchNet cannot measure real product precision/recall well. |
+| Metrics | For CodeSearchNet: Hit@1, MRR, nDCG, rank distribution, semantic-bucket Hit@1/10, and miss count. Do not optimize on Precision@10 for this slice because its successful-case ceiling is 0.1. For e2e: context-file precision/recall, answer judge score, and token/cost metrics. |
+| Result summary | Not tested yet. Error analysis suggests candidate generation, not rank fusion, is now the main limiter for the residual misses. |
+| Decision | Proposed next research direction. Implement only as a bounded extra evidence lane, not a return to full code-body indexing. |
+| Failure modes | Extra vectors may add noisy body matches and hurt top1; comments/constants can overfit CodeSearchNet docstring-shaped queries; route gating may miss hard path/symbol cases. |
+| Follow-ups | Build `file_body_evidence` extractor; run H9.1 all-cases and H9.2 semantic-gated variants; compare against H8 Gemini Lite on the same fixed reports. |
+| Links | [reranker ensemble report](../reranker-ensemble-2026-06-07.md), `configs/benchmarks/codesearchnet-h8-gemini-lite-rerank-1000.yml` |
 
 ## LOCAL-MODEL-AXIS - Three-Axis Local Model Search
 

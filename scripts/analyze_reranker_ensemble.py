@@ -108,10 +108,11 @@ def main() -> int:
     oracle = _oracle_best_rank(runs, eval_case_ids)
 
     payload = {
-        "dataset": "saved 100-case CodeSearchNet/MTEB Python slice",
+        "dataset": f"saved {len(common_case_ids)}-case CodeSearchNet/MTEB Python slice",
         "case_count": len(common_case_ids),
         "evaluated_case_count": len(eval_case_ids),
         "split": {key: (len(value) if isinstance(value, list) else value) for key, value in split.items()},
+        "dataset_profile": _dataset_profile(runs, common_case_ids),
         "reports": {name: str(path) for name, path in _parse_report_specs(report_specs).items()},
         "single_runs": single_rows,
         "rrf_top": rrf_rows[:20],
@@ -639,9 +640,10 @@ def _metrics(
     runs: dict[str, dict[str, CaseRanking]],
     rankings: dict[str, list[str]],
     case_ids: list[str],
-) -> dict[str, float]:
+) -> dict[str, Any]:
     first_run = next(iter(runs.values()))
     rows = []
+    rank_distribution = {rank: 0 for rank in range(0, 11)}
     for case_id in case_ids:
         expected = first_run[case_id].expected
         ranking = rankings.get(case_id, [])[:10]
@@ -657,6 +659,7 @@ def _metrics(
                         relevant_at[limit] += 1
         ideal_dcg = sum(1.0 / math.log2(rank + 1) for rank in range(1, min(len(expected), 10) + 1)) or 1.0
         rows.append((first_relevant_rank, relevant_at, len(expected), dcg / ideal_dcg))
+        rank_distribution[first_relevant_rank] += 1
     count = len(rows)
     return {
         "hit@1": sum(rank == 1 for rank, _, _, _ in rows) / count,
@@ -673,6 +676,33 @@ def _metrics(
         "recall@5": sum(relevant_at[5] / expected_count for _, relevant_at, expected_count, _ in rows) / count,
         "recall@10": sum(relevant_at[10] / expected_count for _, relevant_at, expected_count, _ in rows) / count,
         "ndcg@10": sum(ndcg for _, _, _, ndcg in rows) / count,
+        "expected_files_mean": sum(expected_count for _, _, expected_count, _ in rows) / count,
+        "multi_expected_rate": sum(1.0 if expected_count > 1 else 0.0 for _, _, expected_count, _ in rows) / count,
+        "first_relevant_rank_mean_miss_as_11": sum(
+            rank if rank else 11 for rank, _, _, _ in rows
+        )
+        / count,
+        "misses@10": rank_distribution[0],
+        "rank_distribution": {str(rank): value for rank, value in rank_distribution.items() if value},
+    }
+
+
+def _dataset_profile(runs: dict[str, dict[str, CaseRanking]], case_ids: list[str]) -> dict[str, Any]:
+    first_run = next(iter(runs.values()))
+    expected_sizes = [len(first_run[case_id].expected) for case_id in case_ids]
+    distribution: dict[str, int] = {}
+    for size in expected_sizes:
+        distribution[str(size)] = distribution.get(str(size), 0) + 1
+    count = max(len(expected_sizes), 1)
+    return {
+        "expected_files_mean": sum(expected_sizes) / count,
+        "expected_files_distribution": distribution,
+        "multi_expected_rate": sum(1 for size in expected_sizes if size > 1) / count,
+        "metric_note": (
+            "When every case has one expected file, Hit@K equals Recall@K and Precision@10 has a hard "
+            "ceiling of 0.1 for successful top-10 results. Use Hit@1, MRR, nDCG, and rank_distribution "
+            "to compare rerankers on this slice."
+        ),
     }
 
 
@@ -714,12 +744,13 @@ def _print_summary(payload: dict[str, Any], output: Path) -> None:
     print(f"\nOracle best-rank coverage: {payload['oracle_best_rank']}")
 
 
-def _format_row(name: str, metrics: dict[str, float]) -> str:
+def _format_row(name: str, metrics: dict[str, Any]) -> str:
     return (
         f"{name:52s} "
         f"H1={metrics['hit@1']:.3f} H3={metrics['hit@3']:.3f} "
         f"H5={metrics['hit@5']:.3f} H10={metrics['hit@10']:.3f} "
-        f"MRR={metrics['mrr@10']:.3f} nDCG={metrics['ndcg@10']:.3f}"
+        f"MRR={metrics['mrr@10']:.3f} nDCG={metrics['ndcg@10']:.3f} "
+        f"meanRank={metrics['first_relevant_rank_mean_miss_as_11']:.2f}"
     )
 
 

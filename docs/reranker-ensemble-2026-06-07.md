@@ -199,17 +199,25 @@ Full 1,000-case single-run metrics:
 | `h7_query_expansion` | 0.857 | 0.957 | 0.980 | 0.987 | 0.987 | 0.857 | 0.909 | 0.928 | 780.2 |
 | `gemini_lite` | 0.911 | 0.978 | 0.988 | 0.989 | 0.989 | 0.911 | 0.944 | 0.956 | 3487.8 |
 
+Metric-shape warning:
+
+- This public slice is single-positive: `expected_files_distribution={"1": 1000}` and `multi_expected_rate=0.0`.
+- Therefore `Hit@K == Recall@K`; the dataset only asks whether one expected file appears in the top K.
+- `Precision@10` has a hard useful ceiling of `0.1` for a successful case, because there is only one expected file and ten returned slots.
+- `file_precision@R` is also equivalent to Hit@1 here because `R = number_of_expected_files = 1`.
+- For this slice, the useful differentiators are Hit@1, MRR, nDCG, first-relevant-rank distribution, and mean first relevant rank. Hit@5/Hit@10 are candidate-recall checks, not final quality metrics.
+
 Held-out 100-case test metrics after training on the first 900:
 
-| Hypothesis | Method | Hit@1 | Hit@3 | Hit@5 | Hit@10 | Precision@10 | Recall@10 | MRR@10 | nDCG@10 | Decision |
-| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| `H8.0` | Best single ranker: `gemini_lite` | 0.960 | 0.990 | 1.000 | 1.000 | 0.100 | 1.000 | 0.978 | 0.983 | Current winner. |
-| `H8.1` | Best plain RRF: `h6 + gemini_lite` | 0.950 | 0.980 | 1.000 | 1.000 | 0.100 | 1.000 | 0.969 | 0.977 | Reject as default; demotes Gemini. |
-| `H8.2` | Weighted RRF: deterministic plus Gemini | 0.950 | 0.990 | 1.000 | 1.000 | 0.100 | 1.000 | 0.971 | 0.978 | Reject as default; still below Gemini. |
-| `H8.3` | Pointwise logistic stack: deterministic plus Gemini | 0.940 | 0.990 | 1.000 | 1.000 | 0.100 | 1.000 | 0.967 | 0.975 | Reject for this feature set. |
-| `H8.4` | Pairwise logistic stack: deterministic plus Gemini | 0.950 | 0.990 | 1.000 | 1.000 | 0.100 | 1.000 | 0.972 | 0.979 | Active research only; below Gemini. |
-| `H8.5` | Gemini-anchor override guard | 0.960 | 0.990 | 1.000 | 1.000 | 0.100 | 1.000 | 0.978 | 0.983 | No-op is selected; useful as safety evidence. |
-| `H8-ORACLE` | Best rank across all rankers using labels | 0.980 | 0.990 | 1.000 | 1.000 | not scored | not scored | not scored | not scored | Upper bound only. |
+| Hypothesis | Method | Hit@1 | Hit@3 | Hit@5 | Hit@10 | MRR@10 | nDCG@10 | Mean rank | Rank distribution | Decision |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- |
+| `H8.0` | Best single ranker: `gemini_lite` | 0.960 | 0.990 | 1.000 | 1.000 | 0.978 | 0.983 | 1.06 | `1:96, 2:3, 4:1` | Current winner. |
+| `H8.1` | Best plain RRF: `h6 + gemini_lite` | 0.950 | 0.980 | 1.000 | 1.000 | 0.969 | 0.977 | 1.11 | saturated top-10, worse top order | Reject as default; demotes Gemini. |
+| `H8.2` | Weighted RRF: deterministic plus Gemini | 0.950 | 0.990 | 1.000 | 1.000 | 0.971 | 0.978 | 1.08 | saturated top-10, worse top order | Reject as default; still below Gemini. |
+| `H8.3` | Pointwise logistic stack: deterministic plus Gemini | 0.940 | 0.990 | 1.000 | 1.000 | 0.967 | 0.975 | 1.09 | saturated top-10, worse top order | Reject for this feature set. |
+| `H8.4` | Pairwise logistic stack: deterministic plus Gemini | 0.950 | 0.990 | 1.000 | 1.000 | 0.972 | 0.979 | 1.08 | saturated top-10, worse top order | Active research only; below Gemini. |
+| `H8.5` | Gemini-anchor override guard | 0.960 | 0.990 | 1.000 | 1.000 | 0.978 | 0.983 | 1.06 | same as Gemini Lite | No-op is selected; useful as safety evidence. |
+| `H8-ORACLE` | Best rank across all rankers using labels | 0.980 | 0.990 | 1.000 | 1.000 | not scored | not scored | not scored | label leak | Upper bound only. |
 
 Validation-split sweep:
 
@@ -230,6 +238,44 @@ Current H8 conclusion:
 - The ensemble headroom exists: oracle Hit@1 is `0.980` on the held-out 100, versus Gemini Lite Hit@1 `0.960`.
 - The missing features are not more rank-only weights. We need raw candidate-level features: Gemini confidence/reason, deterministic score margins, raw hybrid component scores, route/query bucket, and possibly a true cross-encoder score.
 - I added structured tracing for LLM rerank selections (`selected_candidates` with confidence/reason/path/base score) so the next calibration run can train on richer features instead of only final rank positions.
+- The repeated Hit@5/Hit@10 values are expected for this benchmark shape. They mean candidate recall is saturated; they do not mean the rankers are equivalent. The rank distribution shows Gemini Lite places the expected file first in 96/100 held-out cases, while the deterministic rankers place it first in 92-94/100.
+- To evaluate precision/recall honestly for product code exploration, the next dataset must include multi-file answers and evidence bundles. Otherwise precision is mostly a formatting artifact of how many slots we return.
+
+## Error Anatomy
+
+Gemini Lite full 1,000-case misses:
+
+| Bucket | Misses | Notes |
+| --- | ---: | --- |
+| `semantic` | 8 | Weakest bucket. Many queries are short or docstring fragments, and relevant evidence is often in code-body comments/constants rather than file-level path/symbol metadata. |
+| `path_symbol` | 2 | Mostly type-signature or runtime phrase queries such as `str/int->None`. |
+| `workflow` | 1 | One case had the expected file low in deterministic candidates but Gemini demoted it out of final top-10. |
+
+Examples of hard semantic misses:
+
+| Case | Query | Expected shape | Diagnosis |
+| --- | --- | --- | --- |
+| `python-69` | `Override the original one / Ugly ugly dirty hack` | comment/body clue | File-level summary did not surface the comment strongly enough. |
+| `python-123` | `Sets the log context.` | tiny wrapper function | Too little lexical/semantic context; many log/context candidates compete. |
+| `python-322` | `Source: Android mobile` | string constant in headers | Requires code-body/string-literal evidence, not just function name/path. |
+| `python-836` | `remove first and last lines to get only json` | implementation behavior | Behavior is in code operations, not path/symbol metadata. |
+
+Candidate-generation vs rerank split:
+
+- Most misses are candidate-generation/index-representation misses: the expected file is absent from all deterministic top-10 lists.
+- A smaller subset is rerank failure: the expected file appears low in deterministic results, but Gemini Lite demotes it out of final top-10.
+- Therefore H8 alone cannot solve the remaining misses. We need both:
+  - better semantic candidate generation for code-body/comment/string-literal evidence;
+  - safer rerank calibration using LLM confidence, score margins, and cross-encoder scores.
+
+Next hypotheses:
+
+| ID | Hypothesis | Expected effect | Cost risk |
+| --- | --- | --- | --- |
+| `H9.1` | Add compact body-evidence metadata: comments, string literals, key calls, returns, exception messages, and docstring-derived phrases into one extra file-level vector. | Improve semantic hard-case candidate recall without full code-body chunks. | +0.5x vector count if one extra item per file. |
+| `H9.2` | Route-specific semantic fallback: only for low-confidence semantic queries, run a second query over body-evidence metadata and merge before rerank. | Avoid slowing path/symbol/workflow buckets that already work. | Query-time overhead only on hard cases. |
+| `H9.3` | Cross-encoder/candidate judge on top-30 for cases with low Gemini confidence or small deterministic margin. | Fix rerank failures without overriding strong Gemini cases blindly. | Requires a rerank model endpoint; should be cheaper than another LLM. |
+| `H9.4` | Multi-positive/e2e benchmark for real code exploration. | Makes precision/recall meaningful and prevents optimizing only single-file CodeSearchNet lookup. | Dataset generation/review cost. |
 
 ## Hypotheses
 
