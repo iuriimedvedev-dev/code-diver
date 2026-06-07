@@ -572,7 +572,7 @@ Status meanings:
 | Follow-ups | Test Qwen3-Reranker via a real rerank endpoint over fixed H3 candidates; add validity status to all rerank reports. |
 | Links | [local model axis experiments](../local-model-axis-experiments-2026-06-04.md), [top-5 hypotheses eval](../top5-hypotheses-eval-2026-06-02.md), [final quality conclusions](../final-search-quality-conclusions-2026-06-03.md), [eval validity review](../eval-validity-review-2026-06-03.md), `configs/intellij/intellij-postrank-h3-manifest.yml` |
 
-## PUBLIC-BENCH - CodeSearchNet / MTEB Public Slice
+## PUBLIC-BENCH - Lightweight Public Retrieval Benchmarks
 
 | Field | Value |
 | --- | --- |
@@ -580,14 +580,14 @@ Status meanings:
 | Status | active internal benchmark, not official SOTA |
 | Motivation | Provide a reviewer-runnable public benchmark path instead of relying on a sibling/private repo or IntelliJ-only internal data. |
 | Assumptions | A local positive slice is useful for comparing Code Diver architectures quickly, even though it is not the official full-corpus protocol. |
-| Index composition | Materialized positive qrel files from `mteb/CodeSearchNetRetrieval` Python; current quality profile uses Qwen3-Embedding-0.6B file metadata. |
-| Search/ranking flow | Pure H3 or H5 over the generated local slice. |
-| Model/provider matrix | Pure H3 no ranker; H5 Gemini Lite; H5 local Qwen3.5 4B. |
-| Dataset | `.code-diver/benchmarks/mteb-codesearchnet-python/codesearchnet_python_1000.jsonl`, generated from `mteb/CodeSearchNetRetrieval` Python. |
-| Metrics | Pure H3 Hit@10 `0.961`; H5 Gemini Lite Hit@10 `0.982`; H5 local Qwen Hit@10 `0.967`. |
-| Cost/latency/index-size | Pure H3 mean `555 ms`; H5 Gemini Lite mean `3020 ms`; H5 local Qwen mean `7708 ms`. |
-| Result summary | Strong internal architecture signal, but not comparable to public MTEB leaderboard scores. |
+| Index composition | Materialized positive qrel files from `mteb/CodeSearchNetRetrieval` and a 100-qrel `mteb/SWEbenchCodeRetrieval` smoke slice. Current quality profile uses EmbeddingGemma-300M file metadata. |
+| Search/ranking flow | H6.1 calibrated hybrid candidate generation; optional H8/H5 reranking for Python reference rows. |
+| Model/provider matrix | H6.1 local no-ranker; H8 Gemini Lite Python reference; historical local Gemma E4B rerank comparison. |
+| Dataset | CodeSearchNet/MTEB Python 1,000 plus 100-case JavaScript/Java/Go/PHP/Ruby slices; SWEbenchCodeRetrieval 100 qrels / 71 files smoke slice. |
+| Metrics | CodeSearchNet H6 local Hit@10: Python `0.987`, JavaScript `0.960`, Java `1.000`, Go `0.990`, PHP `0.870`, Ruby `0.990`. SWEbenchCodeRetrieval H6 local: Hit@1 `0.610`, Hit@5 `0.960`, Hit@10 `0.960`, MRR `0.752`, nDCG `0.804`. Python H8 Gemini Lite reference: Hit@1 `0.911`, Hit@10 `0.989`, nDCG `0.956`. |
+| Cost/latency/index-size | New language/SWE rows are local-only and API-free. Timings are not strict performance numbers because the sweep was run in parallel and loaded local model weights multiple times. |
+| Result summary | H6.1 local generalizes well to Java/Go/Ruby and moderately to JavaScript, weakly to PHP. SWEbenchCodeRetrieval is harder at Hit@1 but has high Hit@5/10, making it a better reranker/agent benchmark than single-positive CodeSearchNet. |
 | Decision | Keep as current public comparison harness; do not use as official SOTA claim. |
-| Failure modes | No large negative pool, not official scorer, synthetic file materialization, single-positive label shape. |
-| Follow-ups | Add 20k/50k large-negative profiles and/or official-compatible scorer export. |
-| Links | [current research state](../current-research-state-2026-06-04.md), [CodeSearchNet agentic/model eval](../codesearchnet-agentic-model-eval-2026-06-04.md), [market comparison](../codesearchnet-market-comparison-2026-06-03.md), `configs/benchmarks/codesearchnet-mteb-python-h5-qwen-quality.yml` |
+| Failure modes | No large negative pool, not official scorer, synthetic file materialization, mostly single-positive label shape. SWEbench smoke uses only selected positive files for speed, so it is not full-corpus difficulty. |
+| Follow-ups | Add first-class benchmark profiles for the new slices; add 20k/50k large-negative profiles and/or official-compatible scorer export; add CoIR and CodeXGLUE/CoSQA adapters. |
+| Links | [public benchmark sweep](../public-benchmark-sweep-2026-06-07.md), [current research state](../current-research-state-2026-06-04.md), [CodeSearchNet agentic/model eval](../codesearchnet-agentic-model-eval-2026-06-04.md), [market comparison](../codesearchnet-market-comparison-2026-06-03.md), `configs/benchmarks/codesearchnet-mteb-python-h5-qwen-quality.yml` |

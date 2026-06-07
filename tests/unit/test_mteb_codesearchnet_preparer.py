@@ -59,3 +59,31 @@ def test_mteb_preparer_selects_positive_qrels_before_limit(tmp_path: Path) -> No
     assert manifest["positive_qrels"] == 2
     assert manifest["selected_qrels"] == 2
     assert manifest["qrel_selection"] == "score>0_then_first_limit"
+
+
+@pytest.mark.parametrize(
+    ("language", "extension"),
+    [
+        ("go", ".go"),
+        ("java", ".java"),
+        ("javascript", ".js"),
+        ("php", ".php"),
+        ("python", ".py"),
+        ("ruby", ".rb"),
+    ],
+)
+def test_mteb_preparer_uses_language_file_extensions(language: str, extension: str, tmp_path: Path) -> None:
+    preparation = BenchmarkPreparation(
+        kind="mteb_codesearchnet",
+        dataset_name="mteb/CodeSearchNetRetrieval",
+        language=language,
+        limit=1,
+        output_root=tmp_path / "bench",
+        estimated_download_mb=1,
+    )
+    preparer = MtebCodeSearchNetPreparer(preparation)
+
+    rel_path = preparer._rel_path(1, "corpus-id", {"title": "Example"})
+
+    assert rel_path.startswith(f"{language}/0001_example_")
+    assert rel_path.endswith(extension)

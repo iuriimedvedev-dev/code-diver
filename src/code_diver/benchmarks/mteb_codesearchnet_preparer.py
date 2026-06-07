@@ -90,7 +90,18 @@ class MtebCodeSearchNetPreparer:
         title = str(corpus.get("title") or "")
         stem = self._slug(title) or f"snippet_{index:04d}"
         digest = hashlib.sha1(corpus_id.encode("utf-8")).hexdigest()[:10]
-        return f"{self.preparation.language}/{index:04d}_{stem}_{digest}.py"
+        extension = self._extension_for_language(self.preparation.language)
+        return f"{self.preparation.language}/{index:04d}_{stem}_{digest}{extension}"
+
+    def _extension_for_language(self, language: str) -> str:
+        return {
+            "go": ".go",
+            "java": ".java",
+            "javascript": ".js",
+            "php": ".php",
+            "python": ".py",
+            "ruby": ".rb",
+        }.get(language, f".{language}")
 
     def _qrel_score(self, qrel: dict[str, Any]) -> float:
         try:
