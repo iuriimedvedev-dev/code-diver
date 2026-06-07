@@ -426,6 +426,8 @@ def test_answer_evaluator_can_rerank_merged_planned_query_pool(tmp_path: Path) -
     ]
     assert report["results"][0]["retrieved_files"][0] == "src/beta.py"
     assert report["results"][0]["query_plan"]["final_rerank"]["selected_indices"] == [2, 1]
+    assert report["results"][0]["query_plan"]["final_rerank"]["selected_candidates"][0]["path"] == "src/beta.py"
+    assert report["results"][0]["query_plan"]["final_rerank"]["selected_candidates"][0]["confidence"] == 0.9
     assert report["rerank_usage"]["model_calls"] == 1
     assert report["metrics"]["file_mrr"] == 1.0
 

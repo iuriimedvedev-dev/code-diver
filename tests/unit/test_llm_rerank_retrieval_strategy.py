@@ -90,6 +90,17 @@ def test_llm_rerank_reorders_candidates_and_preserves_fallbacks(tmp_path: Path) 
     records = [json.loads(line) for line in trace_path.read_text(encoding="utf-8").splitlines()]
     assert [record["event"] for record in records] == ["llm_rerank_prompt", "llm_rerank_response"]
     assert records[1]["payload"]["selected_indices"] == [3]
+    assert records[1]["payload"]["selected_candidates"] == [
+        {
+            "rerank_rank": 1,
+            "index": 3,
+            "confidence": 0.9,
+            "reason": "best",
+            "id": "c",
+            "path": "src/c.py",
+            "base_score": 0.7,
+        }
+    ]
     assert records[1]["payload"]["total_tokens"] == 110
 
 
@@ -133,12 +144,21 @@ def test_llm_rerank_retries_transient_generation_error(tmp_path: Path) -> None:
 
 
 def test_llm_rerank_response_parser_ignores_invalid_and_duplicate_indices() -> None:
-    indices = LlmRerankResponseParser().parse_indices(
+    parser = LlmRerankResponseParser()
+    indices = parser.parse_indices(
         '{"results":[{"index":2},{"index":2},{"index":99},{"index":"1"},{"index":"x"}]}',
         candidate_count=3,
     )
 
     assert indices == [2, 1]
+    selections = parser.parse_selections(
+        '{"results":[{"index":2,"confidence":1.5,"reason":" best "},{"index":"1","confidence":-2}]}',
+        candidate_count=3,
+    )
+    assert [selection.index for selection in selections] == [2, 1]
+    assert selections[0].confidence == 1.0
+    assert selections[0].reason == "best"
+    assert selections[1].confidence == 0.0
 
 
 def test_llm_rerank_response_parser_accepts_loose_index_lists() -> None:

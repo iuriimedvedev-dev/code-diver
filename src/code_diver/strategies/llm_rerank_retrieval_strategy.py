@@ -9,6 +9,7 @@ from ..generation import GenerationProvider
 from ..tracing import TraceLogger
 from .llm_rerank_prompt_builder import LlmRerankPromptBuilder
 from .llm_rerank_response_parser import LlmRerankResponseParser
+from .llm_rerank_selection import LlmRerankSelection
 from .retrieval_strategy import RetrievalStrategy
 
 
@@ -53,7 +54,8 @@ class LlmRerankRetrievalStrategy(RetrievalStrategy):
             try:
                 response = self.generation_provider.generate_json_result(prompt)
                 duration_ms = (perf_counter() - started) * 1000
-                selected_indices = self.response_parser.parse_indices(response.text, len(candidates))
+                selections = self.response_parser.parse_selections(response.text, len(candidates))
+                selected_indices = [selection.index for selection in selections]
                 cost = self.cost_estimator.estimate(response.model, response.input_tokens, response.output_tokens)
                 self.trace_logger.write(
                     "llm_rerank_response",
@@ -67,6 +69,7 @@ class LlmRerankRetrievalStrategy(RetrievalStrategy):
                         "total_tokens": response.total_tokens,
                         "estimated_cost": cost,
                         "selected_indices": selected_indices,
+                        "selected_candidates": self._selected_candidates(candidates, selections),
                         "mode": self.config.mode,
                         "attempt": attempt,
                         "response_chars": len(response.text),
@@ -127,3 +130,27 @@ class LlmRerankRetrievalStrategy(RetrievalStrategy):
     def _retry_delay_seconds(self, failed_attempt: int) -> float:
         delay = self.config.retry_base_delay_seconds * (2 ** max(0, failed_attempt - 1))
         return min(delay, self.config.retry_max_delay_seconds)
+
+    def _selected_candidates(
+        self,
+        candidates: list[SearchResult],
+        selections: list[LlmRerankSelection],
+    ) -> list[dict[str, object]]:
+        selected = []
+        for rank, selection in enumerate(selections, start=1):
+            position = selection.index - 1
+            if position < 0 or position >= len(candidates):
+                continue
+            candidate = candidates[position]
+            selected.append(
+                {
+                    "rerank_rank": rank,
+                    "index": selection.index,
+                    "confidence": selection.confidence,
+                    "reason": selection.reason,
+                    "id": candidate.item.id,
+                    "path": candidate.item.path,
+                    "base_score": candidate.score,
+                }
+            )
+        return selected

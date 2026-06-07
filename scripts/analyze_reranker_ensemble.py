@@ -91,6 +91,20 @@ def main() -> int:
         for name, names in selected_sets.items()
         if all(item in runs for item in names)
     ]
+    pairwise_rows = [
+        _pairwise_meta_ranker_row(
+            name,
+            names,
+            runs,
+            split,
+            args.folds,
+            epochs=args.epochs,
+            learning_rate=args.learning_rate,
+            l2=args.l2,
+        )
+        for name, names in selected_sets.items()
+        if all(item in runs for item in names)
+    ]
     oracle = _oracle_best_rank(runs, eval_case_ids)
 
     payload = {
@@ -103,6 +117,7 @@ def main() -> int:
         "rrf_top": rrf_rows[:20],
         "weighted_rrf": weighted_rrf_rows,
         "meta_rankers": meta_rows,
+        "pairwise_meta_rankers": pairwise_rows,
         "oracle_best_rank": oracle,
         "interpretation": {
             "rrf": "Unweighted RRF does not beat H6.1 top-rank quality; agentic rankings add recall but also demote strong H6.1 candidates.",
@@ -200,28 +215,33 @@ def _rrf_rows(
 
 
 def _selected_meta_sets(runs: dict[str, dict[str, CaseRanking]]) -> dict[str, list[str]]:
-    deterministic = [name for name in runs if "agent" not in name]
+    deterministic = [
+        name
+        for name in runs
+        if name.startswith(("h6", "h7")) and "agent" not in name
+    ]
+    non_agent = [name for name in runs if "agent" not in name]
+    api_rankers = [
+        name
+        for name in runs
+        if any(marker in name for marker in ("gemini", "vertex", "openai", "claude"))
+    ]
     strong_agents = [name for name in runs if name.startswith("gemma26")]
     all_agents = [name for name in runs if "agent" in name]
-    return {
-        "deterministic_only": deterministic,
-        **(
-            {
-                "h6_plus_26b_agents": [name for name in ["h6", *strong_agents] if name in runs],
-                "deterministic_plus_26b_agents": [*deterministic, *strong_agents],
-            }
-            if strong_agents
-            else {}
-        ),
-        **(
-            {
-                "h6_plus_all_agents": [name for name in ["h6", *all_agents] if name in runs],
-                "deterministic_plus_all_agents": [*deterministic, *all_agents],
-            }
-            if all_agents
-            else {}
-        ),
-    }
+    selected: dict[str, list[str]] = {}
+    if deterministic:
+        selected["deterministic_only"] = deterministic
+    if api_rankers:
+        selected["api_rankers_only"] = api_rankers
+    if len(non_agent) > len(deterministic):
+        selected["deterministic_plus_api"] = non_agent
+    if strong_agents:
+        selected["h6_plus_26b_agents"] = [name for name in ["h6", *strong_agents] if name in runs]
+        selected["deterministic_plus_26b_agents"] = [*deterministic, *strong_agents]
+    if all_agents:
+        selected["h6_plus_all_agents"] = [name for name in ["h6", *all_agents] if name in runs]
+        selected["deterministic_plus_all_agents"] = [*deterministic, *all_agents]
+    return selected
 
 
 def _meta_ranker_row(
@@ -363,6 +383,142 @@ def _train_logistic_ranker(
     return weights
 
 
+def _pairwise_meta_ranker_row(
+    name: str,
+    run_names: list[str],
+    runs: dict[str, dict[str, CaseRanking]],
+    split: dict[str, Any],
+    folds: int,
+    *,
+    epochs: int,
+    learning_rate: float,
+    l2: float,
+) -> dict[str, Any]:
+    if split["mode"] == "train_test":
+        rankings = _train_test_pairwise_rankings(
+            run_names,
+            runs,
+            split["train"],
+            split["test"],
+            epochs=epochs,
+            learning_rate=learning_rate,
+            l2=l2,
+        )
+        metrics = _metrics(runs, rankings, split["test"])
+        method = "train/test pairwise logistic ranking over per-run rank features"
+    else:
+        rankings = _cross_validated_pairwise_rankings(
+            run_names,
+            runs,
+            split["test"],
+            folds,
+            epochs=epochs,
+            learning_rate=learning_rate,
+            l2=l2,
+        )
+        metrics = _metrics(runs, rankings, split["test"])
+        method = f"{folds}-fold pairwise logistic ranking over per-run rank features"
+    return {
+        "name": name,
+        "runs": run_names,
+        "method": method,
+        "metrics": metrics,
+    }
+
+
+def _cross_validated_pairwise_rankings(
+    run_names: list[str],
+    runs: dict[str, dict[str, CaseRanking]],
+    case_ids: list[str],
+    folds: int,
+    *,
+    epochs: int,
+    learning_rate: float,
+    l2: float,
+) -> dict[str, list[str]]:
+    if not run_names:
+        return {case_id: [] for case_id in case_ids}
+    folds = max(2, min(folds, len(case_ids)))
+    rankings: dict[str, list[str]] = {}
+    for fold in range(folds):
+        test_ids = [case_id for index, case_id in enumerate(case_ids) if index % folds == fold]
+        train_ids = [case_id for case_id in case_ids if case_id not in set(test_ids)]
+        weights = _train_pairwise_ranker(
+            run_names,
+            runs,
+            train_ids,
+            epochs=epochs,
+            learning_rate=learning_rate,
+            l2=l2,
+        )
+        for case_id in test_ids:
+            rankings[case_id] = _score_meta_case(run_names, runs, case_id, weights)
+    return rankings
+
+
+def _train_test_pairwise_rankings(
+    run_names: list[str],
+    runs: dict[str, dict[str, CaseRanking]],
+    train_ids: list[str],
+    test_ids: list[str],
+    *,
+    epochs: int,
+    learning_rate: float,
+    l2: float,
+) -> dict[str, list[str]]:
+    weights = _train_pairwise_ranker(
+        run_names,
+        runs,
+        train_ids,
+        epochs=epochs,
+        learning_rate=learning_rate,
+        l2=l2,
+    )
+    return {case_id: _score_meta_case(run_names, runs, case_id, weights) for case_id in test_ids}
+
+
+def _train_pairwise_ranker(
+    run_names: list[str],
+    runs: dict[str, dict[str, CaseRanking]],
+    train_ids: list[str],
+    *,
+    epochs: int,
+    learning_rate: float,
+    l2: float,
+) -> np.ndarray:
+    x_rows: list[list[float]] = []
+    first_run = next(iter(runs.values()))
+    for case_id in train_ids:
+        expected = first_run[case_id].expected
+        candidates = _candidate_union(run_names, runs, case_id)
+        positive_features = [
+            _rank_features(run_names, runs, case_id, path)
+            for path in candidates
+            if path in expected
+        ]
+        negative_features = [
+            _rank_features(run_names, runs, case_id, path)
+            for path in candidates
+            if path not in expected
+        ]
+        if not positive_features or not negative_features:
+            continue
+        for positive in positive_features:
+            for negative in negative_features:
+                x_rows.append([p - n for p, n in zip(positive, negative)])
+    if not x_rows:
+        return np.zeros(len(_rank_features(run_names, runs, train_ids[0], runs[run_names[0]][train_ids[0]].ranking[0])))
+    x = np.asarray(x_rows, dtype=float)
+    weights = np.zeros(x.shape[1], dtype=float)
+    for _ in range(epochs):
+        margins = np.clip(x @ weights, -30, 30)
+        probabilities = 1.0 / (1.0 + np.exp(margins))
+        gradient = -(x.T @ probabilities) / len(x) + l2 * weights
+        gradient[0] -= l2 * weights[0]
+        weights -= learning_rate * gradient
+    return weights
+
+
 def _weighted_rrf_row(
     name: str,
     run_names: list[str],
@@ -490,15 +646,17 @@ def _metrics(
         expected = first_run[case_id].expected
         ranking = rankings.get(case_id, [])[:10]
         first_relevant_rank = 0
-        relevant_count = 0
+        relevant_at = {1: 0, 3: 0, 5: 0, 10: 0}
         dcg = 0.0
         for rank, path in enumerate(ranking, start=1):
             if path in expected:
-                relevant_count += 1
                 first_relevant_rank = first_relevant_rank or rank
                 dcg += 1.0 / math.log2(rank + 1)
+                for limit in relevant_at:
+                    if rank <= limit:
+                        relevant_at[limit] += 1
         ideal_dcg = sum(1.0 / math.log2(rank + 1) for rank in range(1, min(len(expected), 10) + 1)) or 1.0
-        rows.append((first_relevant_rank, relevant_count / 10.0, relevant_count / len(expected), dcg / ideal_dcg))
+        rows.append((first_relevant_rank, relevant_at, len(expected), dcg / ideal_dcg))
     count = len(rows)
     return {
         "hit@1": sum(rank == 1 for rank, _, _, _ in rows) / count,
@@ -506,8 +664,14 @@ def _metrics(
         "hit@5": sum(bool(rank and rank <= 5) for rank, _, _, _ in rows) / count,
         "hit@10": sum(bool(rank and rank <= 10) for rank, _, _, _ in rows) / count,
         "mrr@10": sum((1.0 / rank if rank else 0.0) for rank, _, _, _ in rows) / count,
-        "precision@10": sum(precision for _, precision, _, _ in rows) / count,
-        "recall@10": sum(recall for _, _, recall, _ in rows) / count,
+        "precision@1": sum(relevant_at[1] / 1.0 for _, relevant_at, _, _ in rows) / count,
+        "precision@3": sum(relevant_at[3] / 3.0 for _, relevant_at, _, _ in rows) / count,
+        "precision@5": sum(relevant_at[5] / 5.0 for _, relevant_at, _, _ in rows) / count,
+        "precision@10": sum(relevant_at[10] / 10.0 for _, relevant_at, _, _ in rows) / count,
+        "recall@1": sum(relevant_at[1] / expected_count for _, relevant_at, expected_count, _ in rows) / count,
+        "recall@3": sum(relevant_at[3] / expected_count for _, relevant_at, expected_count, _ in rows) / count,
+        "recall@5": sum(relevant_at[5] / expected_count for _, relevant_at, expected_count, _ in rows) / count,
+        "recall@10": sum(relevant_at[10] / expected_count for _, relevant_at, expected_count, _ in rows) / count,
         "ndcg@10": sum(ndcg for _, _, _, ndcg in rows) / count,
     }
 
@@ -543,6 +707,9 @@ def _print_summary(payload: dict[str, Any], output: Path) -> None:
         print(_format_row(" + ".join(row["names"]), row["metrics"]))
     print("\nMeta-rankers")
     for row in payload["meta_rankers"]:
+        print(_format_row(row["name"], row["metrics"]))
+    print("\nPairwise meta-rankers")
+    for row in payload.get("pairwise_meta_rankers", []):
         print(_format_row(row["name"], row["metrics"]))
     print(f"\nOracle best-rank coverage: {payload['oracle_best_rank']}")
 

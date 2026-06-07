@@ -177,6 +177,60 @@ Interpretation:
 - The earlier 100-case ensemble gain came from adding diverse agentic rankers. Without those extra ranker families, the meta-ranker mostly learns a reshuffle of the same signal.
 - The next useful H8 test needs 1,000-case rankings from at least one genuinely different reranker family: Gemini Lite, Qwen3-Reranker cross-encoder, or a bounded local Gemma/Qwen listwise ranker. Deterministic variants alone are not enough.
 
+## Gemini Lite Reranker Follow-Up
+
+I added the first genuinely different 1,000-case ranker family to the H8 comparison: Gemini 3.1 Flash Lite listwise rerank over the same H6.1/EmbeddingGemma candidate index.
+
+Generated reports:
+
+| Report | Rows | Notes |
+| --- | ---: | --- |
+| `.code-diver/reports/h8-train1k-gemini-lite-rerank-1000.json` | 1,000 | H6.1/EmbeddingGemma candidates plus Gemini 3.1 Flash Lite rerank. |
+| `.code-diver/reports/h8-reranker-ensemble-train900-test100-gemini-lite.json` | 100 test cases | H8 ensemble analysis with H6/H7 deterministic plus Gemini Lite. |
+| `.code-diver/reports/h8-calibration-sweep-train750-val150-test100-gemini-lite.json` | 100 test cases | Hyperparameter sweep selected on a 150-case validation split. |
+| `.code-diver/reports/h8-gemini-anchor-override-guard-train750-val150-test100.json` | 100 test cases | Gemini-anchor deterministic override guard sweep. |
+
+Full 1,000-case single-run metrics:
+
+| Run | Hit@1 | Hit@3 | Hit@5 | Hit@10 | Recall@10 | Precision@R | MRR@10 | nDCG@10 | Mean ms |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `h6` | 0.856 | 0.960 | 0.982 | 0.987 | 0.987 | 0.856 | 0.909 | 0.929 | 3145.7 |
+| `h7_tiebreak` | 0.858 | 0.961 | 0.979 | 0.987 | 0.987 | 0.858 | 0.911 | 0.930 | 1609.7 |
+| `h7_query_expansion` | 0.857 | 0.957 | 0.980 | 0.987 | 0.987 | 0.857 | 0.909 | 0.928 | 780.2 |
+| `gemini_lite` | 0.911 | 0.978 | 0.988 | 0.989 | 0.989 | 0.911 | 0.944 | 0.956 | 3487.8 |
+
+Held-out 100-case test metrics after training on the first 900:
+
+| Hypothesis | Method | Hit@1 | Hit@3 | Hit@5 | Hit@10 | Precision@10 | Recall@10 | MRR@10 | nDCG@10 | Decision |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| `H8.0` | Best single ranker: `gemini_lite` | 0.960 | 0.990 | 1.000 | 1.000 | 0.100 | 1.000 | 0.978 | 0.983 | Current winner. |
+| `H8.1` | Best plain RRF: `h6 + gemini_lite` | 0.950 | 0.980 | 1.000 | 1.000 | 0.100 | 1.000 | 0.969 | 0.977 | Reject as default; demotes Gemini. |
+| `H8.2` | Weighted RRF: deterministic plus Gemini | 0.950 | 0.990 | 1.000 | 1.000 | 0.100 | 1.000 | 0.971 | 0.978 | Reject as default; still below Gemini. |
+| `H8.3` | Pointwise logistic stack: deterministic plus Gemini | 0.940 | 0.990 | 1.000 | 1.000 | 0.100 | 1.000 | 0.967 | 0.975 | Reject for this feature set. |
+| `H8.4` | Pairwise logistic stack: deterministic plus Gemini | 0.950 | 0.990 | 1.000 | 1.000 | 0.100 | 1.000 | 0.972 | 0.979 | Active research only; below Gemini. |
+| `H8.5` | Gemini-anchor override guard | 0.960 | 0.990 | 1.000 | 1.000 | 0.100 | 1.000 | 0.978 | 0.983 | No-op is selected; useful as safety evidence. |
+| `H8-ORACLE` | Best rank across all rankers using labels | 0.980 | 0.990 | 1.000 | 1.000 | not scored | not scored | not scored | not scored | Upper bound only. |
+
+Validation-split sweep:
+
+- Split: 750 train / 150 validation / 100 final test.
+- Best validation model: pointwise logistic stack, `epochs=1000`, `learning_rate=0.08`, `l2=0.0`.
+- Validation matched Gemini Lite Hit@1/3/5/10, but slightly lost MRR/nDCG.
+- Final test scored Hit@1 `0.950`, MRR `0.972`, nDCG `0.979`, still below single Gemini Lite.
+
+Gemini-anchor override guard:
+
+- The guard tries to keep Gemini's ranking as the anchor and promote a deterministic top file only when deterministic agreement/rank-margin rules say it is safe.
+- The best validation-selected guard is effectively a no-op. Aggressive overrides fixed a few cases but broke more on train/validation.
+- This means current rank-position features are not enough to safely identify the rare cases where deterministic rankers should override Gemini.
+
+Current H8 conclusion:
+
+- Weighted calibration does not yet beat the best single Gemini Lite reranker on the 1,000-case slice.
+- The ensemble headroom exists: oracle Hit@1 is `0.980` on the held-out 100, versus Gemini Lite Hit@1 `0.960`.
+- The missing features are not more rank-only weights. We need raw candidate-level features: Gemini confidence/reason, deterministic score margins, raw hybrid component scores, route/query bucket, and possibly a true cross-encoder score.
+- I added structured tracing for LLM rerank selections (`selected_candidates` with confidence/reason/path/base score) so the next calibration run can train on richer features instead of only final rank positions.
+
 ## Hypotheses
 
 ### H8.1 - Plain RRF Reranker Ensemble
@@ -196,8 +250,9 @@ Interpretation:
 | Status | rejected as default |
 | Search/ranking flow | Candidate file rankings -> grid-search RRF weights on train split -> apply fixed weights to held-out test split. |
 | 900/100 learned weights | `h6=0.25`, `h7_tiebreak=0.50`, `h7_query_expansion=0.25`. |
-| 900/100 result | Hit@1 `0.920`, Hit@10 `1.000`, nDCG `0.962`. |
-| Decision | Worse than both plain RRF and best single on this split. |
+| 900/100 deterministic-only result | Hit@1 `0.920`, Hit@10 `1.000`, nDCG `0.962`. |
+| 900/100 deterministic + Gemini result | Hit@1 `0.950`, Hit@10 `1.000`, nDCG `0.978`, below single Gemini Lite Hit@1 `0.960`, nDCG `0.983`. |
+| Decision | Worse than the best single reranker on both tested splits. |
 
 ### H8.3 - Logistic Stacking Meta-Ranker
 
@@ -208,7 +263,28 @@ Interpretation:
 | Features | Per-ranker reciprocal rank, normalized rank, top-1 flag, agreement count, best-rank signal, average reciprocal-rank signal. |
 | 100-case result | With deterministic + agentic saved outputs: Hit@1 `0.840`, Hit@10 `0.980`, nDCG `0.918`, beating best single Hit@1 `0.820`, Hit@10 `0.970`, nDCG `0.900`. |
 | 900/100 deterministic-only result | Hit@1 `0.930`, Hit@10 `1.000`, nDCG `0.967`, below best single `h7_query_expansion` Hit@1 `0.940`, nDCG `0.969`. |
-| Decision | Keep only if the input rankers are diverse. Deterministic-only stacking is not enough. |
+| 900/100 deterministic + Gemini result | Hit@1 `0.940`, Hit@10 `1.000`, nDCG `0.975`, below single Gemini Lite. |
+| Decision | Keep only for richer feature experiments. Rank-position-only stacking is not enough. |
+
+### H8.4 - Pairwise Logistic Meta-Ranker
+
+| Field | Value |
+| --- | --- |
+| Status | active research, rejected as current default |
+| Search/ranking flow | Candidate union -> per-candidate rank features -> positive-vs-negative pairwise logistic training -> final top 10 files. |
+| Features | Same rank-position features as H8.3, optimized with a pairwise ranking loss instead of binary pointwise classification. |
+| 900/100 deterministic-only result | Hit@1 `0.930`, Hit@10 `1.000`, nDCG `0.967`. |
+| 900/100 deterministic + Gemini result | Hit@1 `0.950`, Hit@10 `1.000`, MRR `0.972`, nDCG `0.979`, still below single Gemini Lite Hit@1 `0.960`, MRR `0.978`, nDCG `0.983`. |
+| Decision | Pairwise loss is the best learned H8 variant so far, but it still cannot beat Gemini Lite using only final rank positions. Next step requires score/confidence features. |
+
+### H8.5 - Gemini-Anchor Override Guard
+
+| Field | Value |
+| --- | --- |
+| Status | rejected as active override; keep as safety diagnostic |
+| Search/ranking flow | Use Gemini Lite as the base ranking -> optionally promote deterministic top file when learned agreement/rank-margin rules say it is safe. |
+| 750/150/100 result | Best validation-selected rule is effectively a no-op: final Hit@1 `0.960`, Hit@10 `1.000`, MRR `0.978`, nDCG `0.983`, identical to Gemini Lite. |
+| Decision | Do not override Gemini Lite from rank positions alone. Deterministic overrides fix some misses but break more cases overall. |
 
 ### H8-ORACLE - Best-Rank Upper Bound
 
@@ -218,4 +294,5 @@ Interpretation:
 | Search/ranking flow | For each case, inspect all ranker outputs and select the best position of a known relevant file. |
 | 100-case result | Across deterministic + agentic outputs: Hit@1 `0.940`, Hit@10 `0.990`. |
 | 900/100 deterministic-only result | Hit@1 `0.940`, Hit@5 `0.990`, Hit@10 `1.000`. |
+| 900/100 deterministic + Gemini result | Hit@1 `0.980`, Hit@3 `0.990`, Hit@5 `1.000`, Hit@10 `1.000`. |
 | Decision | Not deployable and not trainable, because it uses labels. Use only to estimate remaining headroom. |

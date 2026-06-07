@@ -364,13 +364,13 @@ Status meanings:
 | Index composition | Same H6.1/H5 file-first metadata index. H8 changes only the final ranking layer over candidate file rankings. |
 | Search/ranking flow | H6/H7 candidate rankings and optional LLM/agent rankings -> candidate union -> per-candidate rank features -> calibrated meta-ranker -> final file ranking. |
 | Model/provider matrix | Offline test used saved deterministic H6/H7 rankings plus local Gemma E2B/E4B/12B/26B-A4B agentic rankings. Future tests should swap one reranker axis at a time: Gemini Lite, Qwen3-Reranker, Gemma 26B-A4B. |
-| Dataset | Saved 100-case CodeSearchNet/MTEB Python slice. Labels are single-positive files, so precision@10 is mechanically close to Hit@10 / 10. |
-| Metrics | Best single run `h6`: Hit@1 `0.820`, Hit@3 `0.930`, Hit@5 `0.970`, Hit@10 `0.970`, MRR `0.876`, nDCG `0.900`. Plain RRF did not improve it. 5-fold logistic stacking best row `deterministic_plus_all_agents`: Hit@1 `0.840`, Hit@3 `0.960`, Hit@5 `0.970`, Hit@10 `0.980`, MRR `0.897`, nDCG `0.918`. Oracle best-rank coverage across all saved rankings: Hit@1 `0.940`, Hit@10 `0.990`. |
+| Dataset | Saved 100-case CodeSearchNet/MTEB Python slice; 1,000-case CodeSearchNet/MTEB Python slice with 900 train / 100 held-out test; 750/150/100 sweep for validation-selected calibration. Labels are mostly single-positive files, so precision@10 is mechanically close to Hit@10 / 10. |
+| Metrics | 100-case diverse-ranker CV: best single `h6` Hit@1 `0.820`, Hit@10 `0.970`, nDCG `0.900`; logistic stacking improved to Hit@1 `0.840`, Hit@10 `0.980`, nDCG `0.918`. 1,000-case Gemini Lite full run: Hit@1 `0.911`, Hit@3 `0.978`, Hit@5 `0.988`, Hit@10 `0.989`, MRR `0.944`, nDCG `0.956`. 900/100 held-out: single Gemini Lite Hit@1 `0.960`, Hit@10 `1.000`, nDCG `0.983`; best learned pairwise deterministic+Gemini stack Hit@1 `0.950`, Hit@10 `1.000`, nDCG `0.979`; oracle deterministic+Gemini Hit@1 `0.980`. |
 | Cost/latency/index-size | Offline analysis has no model-call cost. Live use must not run many LLM agents by default; production H8 should combine cheap deterministic rank signals and at most one optional LLM/cross-encoder signal. |
-| Result summary | The ensemble idea is real, but only with calibration. Equal-weight RRF degraded or matched H6.1. A small supervised meta-ranker found useful complementary signal and improved top-k metrics on the 100-case slice. |
-| Decision | Active research, not default. Promote only after 1,000+ case train/validation/test evaluation with raw candidate features and no same-split tuning. |
-| Failure modes | 100-case overfitting, final-ranking-only features instead of raw score logits, correlated agentic failures, and impractical live cost if multiple LLM rankers are called per user query. |
-| Follow-ups | Add a first-class meta-ranker experiment that stores raw candidate-level H6/H7/LLM rank features; run 700/150/150 split on the 1,000-case benchmark; test Qwen3-Reranker as the cheap second signal. |
+| Result summary | The ensemble idea has headroom, but rank-position-only calibration cannot beat the current best single reranker, Gemini 3.1 Flash Lite. Equal-weight RRF, weighted RRF, pointwise stacking, pairwise stacking, and Gemini-anchor override guards all fail to improve on Gemini Lite on the held-out tail. |
+| Decision | Active research, not default. Default should remain H6.1 candidates plus one Gemini Lite rerank when quality mode is enabled. H8 needs richer score/confidence features or a true cross-encoder before promotion. |
+| Failure modes | 100-case overfitting, final-ranking-only features instead of raw score logits, correlated ranker errors, and impractical live cost if multiple LLM rankers are called per user query. |
+| Follow-ups | Train on raw candidate-level H6/H7/LLM features: LLM confidence/reason, hybrid score margins, route/query bucket, deterministic top1/top2 margin, and true cross-encoder scores. Test Qwen3-Reranker as the cheap second signal. |
 | Links | [reranker ensemble report](../reranker-ensemble-2026-06-07.md), `scripts/analyze_reranker_ensemble.py`, `.code-diver/reports/reranker-ensemble-all-saved-codesearchnet-100.json` |
 
 ## H8.1 - Plain RRF Reranker Ensemble
@@ -385,7 +385,7 @@ Status meanings:
 | Search/ranking flow | Multiple saved file rankings -> equal-weight RRF -> final file ranking. |
 | Model/provider matrix | Tested deterministic H6/H7 rankings, plus the 100-case saved local Gemma agent rankings in the first offline run. |
 | Dataset | CodeSearchNet/MTEB Python 100-case offline run; 1,000-case deterministic reports with 900 train / 100 test. |
-| Metrics | 100-case best RRF matched H6.1 Hit@1 `0.820`, Hit@10 `0.970`, nDCG `0.900`. 900/100 deterministic-only RRF Hit@1 `0.930`, Hit@10 `1.000`, nDCG `0.967`, below best single `h7_query_expansion` Hit@1 `0.940`, nDCG `0.969`. |
+| Metrics | 100-case best RRF matched H6.1 Hit@1 `0.820`, Hit@10 `0.970`, nDCG `0.900`. 900/100 deterministic-only RRF Hit@1 `0.930`, Hit@10 `1.000`, nDCG `0.967`, below best single `h7_query_expansion` Hit@1 `0.940`, nDCG `0.969`. 900/100 deterministic+Gemini best RRF Hit@1 `0.950`, Hit@10 `1.000`, nDCG `0.977`, below single Gemini Lite Hit@1 `0.960`, nDCG `0.983`. |
 | Cost/latency/index-size | Essentially free offline/live after input rankings exist. |
 | Result summary | RRF is a useful sanity baseline but not a quality improvement here. |
 | Decision | Reject as default. |
@@ -405,7 +405,7 @@ Status meanings:
 | Search/ranking flow | Multiple saved file rankings -> train RRF weights on labeled cases -> apply weighted RRF on held-out cases. |
 | Model/provider matrix | Tested deterministic H6/H7 reports on the 1,000-case slice. |
 | Dataset | CodeSearchNet/MTEB Python 1,000-case deterministic reports; first 900 train, next 100 test. |
-| Metrics | Learned weights `h6=0.25`, `h7_tiebreak=0.50`, `h7_query_expansion=0.25`; held-out Hit@1 `0.920`, Hit@10 `1.000`, nDCG `0.962`, below best single. |
+| Metrics | Deterministic-only learned weights `h6=0.25`, `h7_tiebreak=0.50`, `h7_query_expansion=0.25`; held-out Hit@1 `0.920`, Hit@10 `1.000`, nDCG `0.962`, below best single. Deterministic+Gemini weighted RRF Hit@1 `0.950`, Hit@10 `1.000`, nDCG `0.978`, below single Gemini Lite. |
 | Cost/latency/index-size | Free after input rankings exist; training is a small grid search. |
 | Result summary | Global weighted RRF overfit/demoted the best single ranker on the held-out tail. |
 | Decision | Reject as default. |
@@ -423,15 +423,55 @@ Status meanings:
 | Assumptions | Rank positions, agreement, and top-1 flags expose enough signal for a tiny supervised model to choose better candidates. |
 | Index composition | Same H6.1/H5 file-first metadata index; no new persistent index. |
 | Search/ranking flow | Candidate union -> reciprocal-rank / normalized-rank / top-1 / agreement features -> logistic scoring model -> final file ranking. |
-| Model/provider matrix | 100-case run used deterministic H6/H7 plus Gemma E2B/E4B/12B/26B-A4B agent outputs. 1,000-case follow-up used deterministic H6/H7 only. |
-| Dataset | CodeSearchNet/MTEB Python 100-case 5-fold CV; 1,000-case deterministic reports with 900 train / 100 test. |
-| Metrics | 100-case diverse-ranker CV improved best single Hit@1 `0.820` -> `0.840`, Hit@10 `0.970` -> `0.980`, nDCG `0.900` -> `0.918`. 900/100 deterministic-only test scored Hit@1 `0.930`, Hit@10 `1.000`, nDCG `0.967`, below best single `h7_query_expansion`. |
+| Model/provider matrix | 100-case run used deterministic H6/H7 plus Gemma E2B/E4B/12B/26B-A4B agent outputs. 1,000-case follow-up used deterministic H6/H7, then deterministic H6/H7 plus Gemini Lite. |
+| Dataset | CodeSearchNet/MTEB Python 100-case 5-fold CV; 1,000-case reports with 900 train / 100 test; 750/150/100 validation-selected sweep. |
+| Metrics | 100-case diverse-ranker CV improved best single Hit@1 `0.820` -> `0.840`, Hit@10 `0.970` -> `0.980`, nDCG `0.900` -> `0.918`. 900/100 deterministic-only test scored Hit@1 `0.930`, Hit@10 `1.000`, nDCG `0.967`, below best single `h7_query_expansion`. 900/100 deterministic+Gemini pointwise stack scored Hit@1 `0.940`, Hit@10 `1.000`, nDCG `0.975`, below single Gemini Lite. 750/150/100 validation-selected pointwise stack scored test Hit@1 `0.950`, Hit@10 `1.000`, nDCG `0.979`, still below Gemini Lite. |
 | Cost/latency/index-size | Training is cheap; live cost depends entirely on how many input rankers are executed. |
-| Result summary | Works only when input rankers are genuinely diverse. Deterministic-only stacking does not beat the best deterministic ranker. |
-| Decision | Active research. Do not promote until a 1,000-case train/test run includes a real second ranker family such as Gemini Lite, Qwen3-Reranker, or bounded local Gemma/Qwen. |
+| Result summary | Works on the small diverse 100-case slice, but fails to beat the best single Gemini Lite reranker on the larger held-out split. |
+| Decision | Active research. Do not promote rank-position-only H8.3. |
 | Failure modes | Overfitting on small splits, correlated ranker errors, final-rank-only features instead of raw scores/logits. |
-| Follow-ups | Generate 1,000-case rankings from one cheap diverse reranker and rerun H8.3. |
+| Follow-ups | Add raw score, confidence, margin, and route features; compare against H8.4 pairwise and Qwen3-Reranker. |
 | Links | [reranker ensemble report](../reranker-ensemble-2026-06-07.md), `scripts/analyze_reranker_ensemble.py` |
+
+## H8.4 - Pairwise Logistic Meta-Ranker
+
+| Field | Value |
+| --- | --- |
+| ID | `H8.4` |
+| Status | active research; rejected as current default |
+| Motivation | Optimize ranking order directly with positive-vs-negative candidate pairs instead of binary pointwise labels. |
+| Assumptions | Pairwise loss should better align with Hit@K/MRR than candidate-level classification. |
+| Index composition | Same H6.1/H5 file-first metadata index; no new persistent index. |
+| Search/ranking flow | Candidate union -> rank-position features -> pairwise logistic training -> final file ranking. |
+| Model/provider matrix | Tested deterministic H6/H7 plus Gemini 3.1 Flash Lite. |
+| Dataset | CodeSearchNet/MTEB Python 1,000-case reports, first 900 train / next 100 test. |
+| Metrics | Deterministic-only Hit@1 `0.930`, Hit@10 `1.000`, nDCG `0.967`. Deterministic+Gemini Hit@1 `0.950`, Hit@3 `0.990`, Hit@5 `1.000`, Hit@10 `1.000`, MRR `0.972`, nDCG `0.979`. Single Gemini Lite on the same test scored Hit@1 `0.960`, MRR `0.978`, nDCG `0.983`. |
+| Cost/latency/index-size | Offline training is local and cheap. Live cost is unchanged versus the input rankers. |
+| Result summary | Best learned H8 variant so far, but still below single Gemini Lite with rank-position-only features. |
+| Decision | Do not use as default. Keep as the next calibration baseline after richer features are added. |
+| Failure modes | Pairwise model cannot infer when Gemini is wrong without confidence/raw-score features; correlated deterministic runs add little new evidence. |
+| Follow-ups | Add LLM confidence/reason, raw hybrid score margins, and true cross-encoder scores. |
+| Links | [reranker ensemble report](../reranker-ensemble-2026-06-07.md), `.code-diver/reports/h8-reranker-ensemble-train900-test100-gemini-lite.json` |
+
+## H8.5 - Gemini-Anchor Override Guard
+
+| Field | Value |
+| --- | --- |
+| ID | `H8.5` |
+| Status | rejected as active override; keep as safety diagnostic |
+| Motivation | Preserve the strong Gemini Lite ordering and only let deterministic rankers override it when agreement/margin rules suggest a safe fix. |
+| Assumptions | A small rule guard can capture the rare cases where deterministic rankers are right and Gemini demotes the expected file. |
+| Index composition | Same H6.1/H5 file-first metadata index; no new persistent index. |
+| Search/ranking flow | Gemini Lite ranking -> optional deterministic top-file promotion based on validation-selected rules. |
+| Model/provider matrix | Gemini 3.1 Flash Lite plus deterministic H6/H7 rankers. |
+| Dataset | CodeSearchNet/MTEB Python 1,000-case reports, 750 train / 150 validation / 100 test. |
+| Metrics | Best validation-selected rule was effectively a no-op: final test Hit@1 `0.960`, Hit@10 `1.000`, MRR `0.978`, nDCG `0.983`, identical to Gemini Lite. More aggressive overrides fixed some cases but broke more on train/validation. |
+| Cost/latency/index-size | Free after input rankings exist. |
+| Result summary | Rank-position-only deterministic override is not safe. |
+| Decision | Do not enable active overrides. Use the no-op outcome as evidence that Gemini Lite should remain the anchor until richer confidence features exist. |
+| Failure modes | Deterministic agreement is not a reliable confidence estimate; rules overfit rare misses. |
+| Follow-ups | Retry only with Gemini confidence, deterministic score margins, and query route/bucket features. |
+| Links | [reranker ensemble report](../reranker-ensemble-2026-06-07.md), `.code-diver/reports/h8-gemini-anchor-override-guard-train750-val150-test100.json` |
 
 ## H8-ORACLE - Best-Rank Upper Bound
 
@@ -445,9 +485,9 @@ Status meanings:
 | Search/ranking flow | For each case, inspect all ranker outputs and choose the best rank of a known relevant file. |
 | Model/provider matrix | Same as the input ranker reports. |
 | Dataset | CodeSearchNet/MTEB Python saved reports. |
-| Metrics | 100-case deterministic + agentic oracle: Hit@1 `0.940`, Hit@10 `0.990`. 900/100 deterministic-only oracle: Hit@1 `0.940`, Hit@5 `0.990`, Hit@10 `1.000`. |
+| Metrics | 100-case deterministic + agentic oracle: Hit@1 `0.940`, Hit@10 `0.990`. 900/100 deterministic-only oracle: Hit@1 `0.940`, Hit@5 `0.990`, Hit@10 `1.000`. 900/100 deterministic+Gemini oracle: Hit@1 `0.980`, Hit@3 `0.990`, Hit@5 `1.000`, Hit@10 `1.000`. |
 | Cost/latency/index-size | Not applicable; cannot run without labels. |
-| Result summary | There is theoretical headroom, but the 1,000-case deterministic-only holdout already has little Hit@10 headroom. |
+| Result summary | There is theoretical Hit@1 headroom after adding Gemini, but the production model needs richer features to identify the two held-out cases where deterministic rankers beat Gemini. |
 | Decision | Use only as upper-bound evidence. Never report as product quality. |
 | Failure modes | Label leakage by definition. |
 | Follow-ups | Compare oracle gap before and after adding a genuinely different reranker family. |

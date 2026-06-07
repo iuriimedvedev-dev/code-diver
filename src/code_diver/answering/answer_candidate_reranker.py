@@ -9,6 +9,7 @@ from ..domain import SearchResult
 from ..generation import GenerationProvider, GenerationResult
 from ..strategies.llm_rerank_prompt_builder import LlmRerankPromptBuilder
 from ..strategies.llm_rerank_response_parser import LlmRerankResponseParser
+from ..strategies.llm_rerank_selection import LlmRerankSelection
 
 
 class AnswerCandidateReranker:
@@ -36,9 +37,18 @@ class AnswerCandidateReranker:
             try:
                 result = self.provider.generate_json_result(prompt)
                 duration_ms = (perf_counter() - started) * 1000
-                selected_indices = self.response_parser.parse_indices(result.text, len(rerank_candidates))
+                selections = self.response_parser.parse_selections(result.text, len(rerank_candidates))
+                selected_indices = [selection.index for selection in selections]
                 ranked = self._reranked(rerank_candidates, selected_indices[:rerank_limit], limit)
-                return ranked, self._payload(query, result, duration_ms, selected_indices, len(rerank_candidates), attempt)
+                return ranked, self._payload(
+                    query,
+                    result,
+                    duration_ms,
+                    selected_indices,
+                    self._selected_candidates(rerank_candidates, selections),
+                    len(rerank_candidates),
+                    attempt,
+                )
             except Exception as exc:
                 last_error = str(exc)
                 if attempt >= attempts:
@@ -81,6 +91,7 @@ class AnswerCandidateReranker:
         result: GenerationResult,
         duration_ms: float,
         selected_indices: list[int],
+        selected_candidates: list[dict[str, Any]],
         candidate_count: int,
         attempt: int,
     ) -> dict[str, Any]:
@@ -92,6 +103,7 @@ class AnswerCandidateReranker:
             "duration_ms": duration_ms,
             "candidate_count": candidate_count,
             "selected_indices": selected_indices,
+            "selected_candidates": selected_candidates,
             "attempt": attempt,
             "input_tokens": result.input_tokens,
             "output_tokens": result.output_tokens,
@@ -108,6 +120,7 @@ class AnswerCandidateReranker:
             "duration_ms": 0.0,
             "candidate_count": candidate_count,
             "selected_indices": [],
+            "selected_candidates": [],
             "input_tokens": 0,
             "output_tokens": 0,
             "total_tokens": 0,
@@ -117,3 +130,27 @@ class AnswerCandidateReranker:
     def _retry_delay_seconds(self, failed_attempt: int) -> float:
         delay = self.config.retry_base_delay_seconds * (2 ** max(0, failed_attempt - 1))
         return min(delay, self.config.retry_max_delay_seconds)
+
+    def _selected_candidates(
+        self,
+        candidates: list[SearchResult],
+        selections: list[LlmRerankSelection],
+    ) -> list[dict[str, Any]]:
+        selected = []
+        for rank, selection in enumerate(selections, start=1):
+            position = selection.index - 1
+            if position < 0 or position >= len(candidates):
+                continue
+            candidate = candidates[position]
+            selected.append(
+                {
+                    "rerank_rank": rank,
+                    "index": selection.index,
+                    "confidence": selection.confidence,
+                    "reason": selection.reason,
+                    "id": candidate.item.id,
+                    "path": candidate.item.path,
+                    "base_score": candidate.score,
+                }
+            )
+        return selected
