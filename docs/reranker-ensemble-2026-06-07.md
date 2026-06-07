@@ -376,3 +376,9 @@ Decision: reject H9 as an always-on default. Keep it as a gated fallback
 hypothesis and move the ensemble work from final-rank-only features to raw
 scores, margins, LLM confidence, and cross-encoder scores. Full details:
 [H9 body evidence report](./h9-body-evidence-ensemble-2026-06-07.md).
+
+Cost/latency note: Gemini Lite remains the quality winner, but the current trace
+shows about `$2.93 / 1,000` rerank queries and `3.49s` mean end-to-end search
+latency. H7 query expansion remains the fast local baseline at `780 ms` mean and
+`$0` API cost. See
+[quality latency cost tradeoff](./quality-latency-cost-tradeoff-2026-06-08.md).

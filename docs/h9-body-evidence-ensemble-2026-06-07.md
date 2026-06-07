@@ -105,6 +105,11 @@ not globally fuse H9. It should be gated:
 - train on raw hybrid scores, LLM confidence, and cross-encoder scores, not only
   final rank positions.
 
+Cost/latency conclusion: H9.2 adds about `+820 ms/query` versus the fast H7
+query-expansion baseline while gaining only `+0.003` Hit@1 and losing `-0.001`
+Hit@10. See the broader tradeoff report:
+[quality latency cost tradeoff](./quality-latency-cost-tradeoff-2026-06-08.md).
+
 ## Artifacts
 
 | Artifact | Purpose |
