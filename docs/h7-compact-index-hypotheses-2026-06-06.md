@@ -119,6 +119,22 @@ latency because it adds a third vector lane. The next check is an agentic run
 with the best completed local agent, Gemma 4 26B-A4B QAT, to test whether the
 LLM can use the richer candidate surface better than deterministic fusion.
 
+## H7.1 Agentic Result
+
+The 100-case agentic comparison used the same Gemma 4 26B-A4B QAT llama.cpp
+runtime and monotonic guard on both rows.
+
+| Run | Hit@1 | Hit@3 | Hit@5 | Hit@10 | Precision@10 | Recall@10 | MRR@10 | nDCG@10 | Mean ms | P95 ms | Degraded |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| H6.1 + 26B-A4B agentic | 0.710 | 0.810 | 0.840 | 0.900 | 0.090 | 0.900 | 0.768 | 0.799 | 79647.0 | 106533.1 | 0.750 |
+| H7.1 tie-breaker + 26B-A4B agentic | 0.760 | 0.820 | 0.860 | 0.900 | 0.090 | 0.900 | 0.805 | 0.828 | 76502.6 | 102409.1 | 0.740 |
+
+Interpretation: the raw deterministic fusion could not use the API manifest
+lane well, but the agent/reranker could. H7.1 did not improve top-10 recall, so
+it does not solve candidate coverage. It did improve head ordering under the
+LLM agent, which makes it a viable ranking-context feature rather than a
+standalone retrieval replacement.
+
 ## H7.2 Query Expansion
 
 H7.2 keeps the H6.1 index unchanged and expands only lexical query terms. The
@@ -146,6 +162,45 @@ The first evaluation should compare:
 
 Promotion rule: keep H7.2 only if it improves Hit@1/MRR or recovers top-10
 misses without lowering Hit@10/precision on the same case set.
+
+First deterministic result:
+
+| Run | Hit@1 | Hit@3 | Hit@5 | Hit@10 | Precision@10 | Recall@10 | MRR@10 | nDCG@10 | Mean ms | P95 ms |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| H6.1 control | 0.820 | 0.930 | 0.970 | 0.970 | 0.147 | 0.970 | 0.876 | 0.900 | 861.9 | 859.4 |
+| H7.2 query expansion | 0.810 | 0.910 | 0.970 | 0.970 | 0.144 | 0.970 | 0.867 | 0.893 | 854.7 | 843.3 |
+
+Decision so far: global lexical aliases are not a deterministic win on this
+slice. The next check is the same 26B-A4B agentic run, because H7.1 showed that
+the agent can sometimes use a signal that deterministic fusion mishandles.
+
+## H7.2 Agentic Result
+
+The H7.2 agentic run used the same Gemma 4 26B-A4B QAT runtime and monotonic
+guard as H7.1.
+
+| Run | Hit@1 | Hit@3 | Hit@5 | Hit@10 | Precision@10 | Recall@10 | MRR@10 | nDCG@10 | Mean ms | P95 ms | Degraded |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| H6.1 + 26B-A4B agentic | 0.710 | 0.810 | 0.840 | 0.900 | 0.090 | 0.900 | 0.768 | 0.799 | 79647.0 | 106533.1 | 0.750 |
+| H7.1 + 26B-A4B agentic | 0.760 | 0.820 | 0.860 | 0.900 | 0.090 | 0.900 | 0.805 | 0.828 | 76502.6 | 102409.1 | 0.740 |
+| H7.2 + 26B-A4B agentic | 0.730 | 0.840 | 0.850 | 0.900 | 0.090 | 0.900 | 0.788 | 0.815 | 74280.0 | 105370.1 | 0.680 |
+
+Decision: H7.2 is not the quality winner. It lowers degraded rate and mean
+latency versus H6.1/H7.1 agentic, but H7.1 has better Hit@1, MRR, and nDCG.
+Global aliases should not become the default. The next useful version would be
+route-specific or LLM-planned query expansion rather than a global alias table.
+
+## Current Decision
+
+For the next search-quality branch:
+
+- Keep H6.1 as the deterministic default.
+- Keep H7.1 API manifest as an agent/reranker context feature, not as a
+  deterministic replacement.
+- Do not promote H7.2 global lexical aliases as-is.
+- Next hypothesis should combine H6.1 + H7.1 candidate surface with a cheaper
+  gated agent/reranker: only invoke the local/API LLM when deterministic H6.1
+  confidence is low or when the query is short/ambiguous.
 
 ## Implementation
 

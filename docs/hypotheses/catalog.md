@@ -105,7 +105,7 @@ Status meanings:
 | Search/ranking flow | Query -> hybrid file/symbol locator -> candidate file aggregation -> probes/rerank. |
 | Model/provider matrix | Not fully measured; estimates in docs assume 768d vectors. |
 | Dataset | IntelliJ scan estimate; quality run not documented. |
-| Metrics | not measured |
+| Metrics | Deterministic best 100-case variant: Hit@1 `0.800`, Hit@10 `0.970`, MRR `0.866`, nDCG `0.892`, mean `1672 ms`, worse than H6.1 deterministic Hit@1 `0.820`, MRR `0.876`. Agentic 26B-A4B 100-case: Hit@1 `0.760`, Hit@10 `0.900`, MRR `0.805`, nDCG `0.828`, beating H6.1 agentic Hit@1 `0.710`, MRR `0.768`. |
 | Cost/latency/index-size | Footprint plausibly inside 1-3 GB, but build cost and vector RAM are much higher than H1. |
 | Result summary | Plausible quality-vs-footprint extension, but not accepted without quality evidence. |
 | Decision | Proposed. Do not make default until measured against H1/H3 on answer-set and public slices. |
@@ -307,8 +307,8 @@ Status meanings:
 | Dataset | CodeSearchNet/MTEB Python 100-case public slice first; promote to 1,000 cases only if the 100-case delta is positive and non-degraded. |
 | Metrics | not measured |
 | Cost/latency/index-size | Expected persistent vector count is about 1.5x H6.1 because H6.1 has two file-level vectors per file and H7.1 has three. |
-| Result summary | Implementation landed; evaluation pending after the current long Gemma 4 QAT agent run finishes. |
-| Decision | Keep as an active compact-index experiment, not default. Promote only if same-run metrics improve Hit@1/MRR without lowering Hit@10 or blowing the compact-index budget. |
+| Result summary | Deterministic fusion mishandles the extra API lane, but the 26B-A4B local agent/reranker uses it to improve head ordering without improving top-10 recall. |
+| Decision | Keep as an agent/reranker context feature, not the deterministic default. |
 | Failure modes | Doc hints may overfit CodeSearchNet docstring-shaped queries; extra vectors can add noisy near-duplicates; local agent latency can hide retrieval gains. |
 | Follow-ups | Compare deterministic H6.1 vs H7.1 first, then run the best bounded agent/reranker on the winner. Add repo-local/e2e explanation validation before default promotion. |
 | Links | [H7 compact index hypotheses](../h7-compact-index-hypotheses-2026-06-06.md), `configs/benchmarks/codesearchnet-agent-axis-local-100-h7-api-manifest.yml`, `src/code_diver/services/file_api_manifest_item_builder.py` |
@@ -325,10 +325,10 @@ Status meanings:
 | Search/ranking flow | Query -> original dense vector search + expanded lexical/BM25 terms -> H6.1 weighted fusion -> optional rerank/agent. |
 | Model/provider matrix | Embedding model unchanged. First run should use the same EmbeddingGemma H6.1 control and no LLM rerank. |
 | Dataset | CodeSearchNet/MTEB Python 100-case slice first, then larger slices if positive. |
-| Metrics | not measured |
+| Metrics | Deterministic 100-case: Hit@1 `0.810`, Hit@10 `0.970`, MRR `0.867`, below H6.1 control Hit@1 `0.820`, MRR `0.876`. Agentic 26B-A4B 100-case: Hit@1 `0.730`, Hit@10 `0.900`, MRR `0.788`, below H7.1 agentic Hit@1 `0.760`, MRR `0.805`. |
 | Cost/latency/index-size | No persistent index growth; only a tiny query-time lexical-term expansion cost. |
-| Result summary | Implementation landed; evaluation pending after current H7.1 agentic run. |
-| Decision | Not default. Promote only if same-case metrics improve without lowering Hit@10/precision. |
+| Result summary | Global aliases reduce degraded rate in the agentic run but do not beat H7.1 on quality. |
+| Decision | Do not promote as-is. Revisit only as route-specific or LLM-planned expansion. |
 | Failure modes | Broad aliases can introduce false positives; aliases are global rather than route/language-specific; CodeSearchNet may not stress the same short-query pattern as real users. |
 | Follow-ups | Add route-specific aliases and learned/calibrated alias weights if the first global expansion is noisy. |
 | Links | [H7 compact index hypotheses](../h7-compact-index-hypotheses-2026-06-06.md), `configs/benchmarks/codesearchnet-agent-axis-local-100-h7-query-expansion.yml`, `src/code_diver/strategies/hybrid_query_expander.py` |
