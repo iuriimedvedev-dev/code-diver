@@ -8,4 +8,5 @@ class CodeItemIndexKind:
     FILE_SUMMARY = "file_summary"
     FILE_MANIFEST = "file_manifest"
     FILE_API_MANIFEST = "file_api_manifest"
+    FILE_BODY_EVIDENCE = "file_body_evidence"
     UNKNOWN = "unknown"

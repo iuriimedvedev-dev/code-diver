@@ -33,7 +33,9 @@ class UserService:
         encoding="utf-8",
     )
 
-    items = CodebaseScanner(include=["*.py"], line_chunks=False, file_summary_chunks=True).scan(tmp_path)
+    items = CodebaseScanner(
+        include=["*.py"], line_chunks=False, file_summary_chunks=True
+    ).scan(tmp_path)
 
     assert [item.metadata["index_kind"] for item in items] == ["file_summary"]
     assert items[0].path == "app.py"
@@ -47,7 +49,9 @@ def test_scanner_skips_binary_and_excluded_paths(tmp_path: Path) -> None:
     nested.parent.mkdir()
     nested.write_text("print('generated')\n", encoding="utf-8")
 
-    items = CodebaseScanner(include=["*.py"], exclude=["skip.py", "generated/**"]).scan(tmp_path)
+    items = CodebaseScanner(include=["*.py"], exclude=["skip.py", "generated/**"]).scan(
+        tmp_path
+    )
 
     assert [item.path for item in items] == ["keep.py"]
 
@@ -103,7 +107,9 @@ class UserService:
         encoding="utf-8",
     )
 
-    items = CodebaseScanner(include=["*.py"], line_chunks=False, symbol_chunks=True, symbol_body=False).scan(tmp_path)
+    items = CodebaseScanner(
+        include=["*.py"], line_chunks=False, symbol_chunks=True, symbol_body=False
+    ).scan(tmp_path)
 
     symbol_items = [item for item in items if item.metadata["index_kind"] == "symbol"]
     assert symbol_items
@@ -128,33 +134,43 @@ def build_app():
         encoding="utf-8",
     )
 
-    items = CodebaseScanner(include=["*.py"], chunk_lines=20, structural_chunks=True).scan(tmp_path)
+    items = CodebaseScanner(
+        include=["*.py"], chunk_lines=20, structural_chunks=True
+    ).scan(tmp_path)
 
-    structural = [item for item in items if item.metadata["index_kind"] == "structural_chunk"]
+    structural = [
+        item for item in items if item.metadata["index_kind"] == "structural_chunk"
+    ]
     assert [item.title for item in structural] == [
         "app.py::module preamble",
         "app.py::UserService",
         "app.py::build_app",
     ]
-    assert [(item.start_line, item.end_line) for item in structural] == [(1, 3), (4, 6), (9, 10)]
+    assert [(item.start_line, item.end_line) for item in structural] == [
+        (1, 3),
+        (4, 6),
+        (9, 10),
+    ]
 
 
 def test_scanner_suppresses_python_invalid_escape_warnings(tmp_path: Path) -> None:
     (tmp_path / "regexes.py").write_text(
-        'PATTERN = "\\("\n\n'
-        "def parse_regex():\n"
-        "    return PATTERN\n",
+        'PATTERN = "\\("\n\ndef parse_regex():\n    return PATTERN\n',
         encoding="utf-8",
     )
 
-    scanner = CodebaseScanner(include=["*.py"], structural_chunks=True, symbol_chunks=True)
+    scanner = CodebaseScanner(
+        include=["*.py"], structural_chunks=True, symbol_chunks=True
+    )
 
     with warnings.catch_warnings(record=True) as captured:
         warnings.simplefilter("always")
         items = scanner.scan(tmp_path)
 
     assert items
-    assert not [warning for warning in captured if issubclass(warning.category, SyntaxWarning)]
+    assert not [
+        warning for warning in captured if issubclass(warning.category, SyntaxWarning)
+    ]
 
 
 def test_scanner_can_add_file_summary_items(tmp_path: Path) -> None:
@@ -169,9 +185,13 @@ class UserService:
         encoding="utf-8",
     )
 
-    items = CodebaseScanner(include=["*.py"], symbol_chunks=True, file_summary_chunks=True).scan(tmp_path)
+    items = CodebaseScanner(
+        include=["*.py"], symbol_chunks=True, file_summary_chunks=True
+    ).scan(tmp_path)
 
-    summaries = [item for item in items if item.metadata["index_kind"] == "file_summary"]
+    summaries = [
+        item for item in items if item.metadata["index_kind"] == "file_summary"
+    ]
     assert len(summaries) == 1
     assert summaries[0].path == "app.py"
     assert "imports:" in summaries[0].content
@@ -201,7 +221,9 @@ class UserService {
         file_manifest_chunks=True,
     ).scan(tmp_path)
 
-    manifests = [item for item in items if item.metadata["index_kind"] == "file_manifest"]
+    manifests = [
+        item for item in items if item.metadata["index_kind"] == "file_manifest"
+    ]
     assert len(manifests) == 1
     assert manifests[0].path == "src/main/kotlin/com/example/UserService.kt"
     assert "path_tokens:" in manifests[0].content
@@ -231,7 +253,9 @@ def test_file_manifest_extracts_config_keys(tmp_path: Path) -> None:
         file_manifest_chunks=True,
     ).scan(tmp_path)
 
-    manifest = next(item for item in items if item.metadata["index_kind"] == "file_manifest")
+    manifest = next(
+        item for item in items if item.metadata["index_kind"] == "file_manifest"
+    )
     assert "config_keys:" in manifest.content
     assert "idea-plugin" in manifest.content
     assert "extensions" in manifest.content
@@ -259,7 +283,9 @@ class UserService:
         file_api_manifest_chunks=True,
     ).scan(tmp_path)
 
-    manifests = [item for item in items if item.metadata["index_kind"] == "file_api_manifest"]
+    manifests = [
+        item for item in items if item.metadata["index_kind"] == "file_api_manifest"
+    ]
     assert len(manifests) == 1
     assert manifests[0].path == "users.py"
     assert "api_symbols:" in manifests[0].content
@@ -276,6 +302,44 @@ class UserService:
     assert "update a user profile" in manifests[0].content.lower()
 
 
+def test_scanner_can_add_file_body_evidence_items(tmp_path: Path) -> None:
+    (tmp_path / "users.py").write_text(
+        """
+class UserService:
+    # Keep authorization state in sync with the profile update.
+    def update_user(self, token: str):
+        if not token:
+            raise ValueError("missing auth token")
+        audit_event = "user profile updated"
+        return audit_event
+""".strip(),
+        encoding="utf-8",
+    )
+
+    items = CodebaseScanner(
+        include=["*.py"],
+        line_chunks=False,
+        file_body_evidence_chunks=True,
+    ).scan(tmp_path)
+
+    evidence_items = [
+        item for item in items if item.metadata["index_kind"] == "file_body_evidence"
+    ]
+    assert len(evidence_items) == 1
+    evidence = evidence_items[0]
+    assert evidence.path == "users.py"
+    assert "body_terms:" in evidence.content
+    assert "authorization" in evidence.content
+    assert "comments:" in evidence.content
+    assert "Keep authorization state" in evidence.content
+    assert "strings:" in evidence.content
+    assert "missing auth token" in evidence.content
+    assert "behavior_lines:" in evidence.content
+    assert "raise ValueError" in evidence.content
+    assert "effect_lines:" in evidence.content
+    assert "class UserService:" not in evidence.content
+
+
 def test_scanner_can_limit_symbols_per_file(tmp_path: Path) -> None:
     (tmp_path / "app.kt").write_text(
         """
@@ -286,7 +350,12 @@ fun deleteUser() = Unit
         encoding="utf-8",
     )
 
-    items = CodebaseScanner(include=["*.kt"], symbol_chunks=True, max_symbols_per_file=2).scan(tmp_path)
+    items = CodebaseScanner(
+        include=["*.kt"], symbol_chunks=True, max_symbols_per_file=2
+    ).scan(tmp_path)
 
     symbol_items = [item for item in items if item.metadata["index_kind"] == "symbol"]
-    assert [item.metadata["symbol"] for item in symbol_items] == ["UserService", "createUser"]
+    assert [item.metadata["symbol"] for item in symbol_items] == [
+        "UserService",
+        "createUser",
+    ]

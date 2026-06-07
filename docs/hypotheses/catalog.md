@@ -591,3 +591,23 @@ Status meanings:
 | Failure modes | No large negative pool, not official scorer, synthetic file materialization, mostly single-positive label shape. SWEbench smoke uses only selected positive files for speed, so it is not full-corpus difficulty. |
 | Follow-ups | Add first-class benchmark profiles for the new slices; add 20k/50k large-negative profiles and/or official-compatible scorer export; add CoIR and CodeXGLUE/CoSQA adapters. |
 | Links | [public benchmark sweep](../public-benchmark-sweep-2026-06-07.md), [current research state](../current-research-state-2026-06-04.md), [CodeSearchNet agentic/model eval](../codesearchnet-agentic-model-eval-2026-06-04.md), [market comparison](../codesearchnet-market-comparison-2026-06-03.md), `configs/benchmarks/codesearchnet-mteb-python-h5-qwen-quality.yml` |
+
+## H9 - Body-Evidence File Lane And Reranker Ensemble
+
+| Field | Value |
+| --- | --- |
+| ID | `H9` |
+| Status | rejected as always-on default; keep as gated research lane |
+| Motivation | Test whether a third compact file-level index over body evidence can add complementary signal to H6/H7 and improve weighted/meta reranker ensembles. |
+| Assumptions | Comments, string literals, return/raise/control lines, and effect-heavy lines can bridge natural-language queries that file summaries/manifests miss, without embedding full code bodies. |
+| Index composition | H6.1 `file_summary` + `file_manifest` plus one `file_body_evidence` item per file. No line chunks, full code-body vectors, or symbol body chunks. |
+| Search/ranking flow | H9 direct hybrid search; H9 bounded hybrid search; offline RRF/weighted/meta-ranker over H6/H7/H9; repeated with saved Gemini Lite ranker. |
+| Model/provider matrix | Local EmbeddingGemma-300M embeddings. Gemini Lite appears only as a saved ranker report in the ensemble analysis; no new API calls. |
+| Dataset | CodeSearchNet/MTEB Python 1,000 with train 900 / held-out 100 ensemble split; SWEbenchCodeRetrieval 100 smoke. |
+| Metrics | CodeSearchNet H9.1 Hit@1 `0.853`, Hit@10 `0.985`, nDCG `0.927`; H9.2 bounded Hit@1 `0.860`, Hit@10 `0.986`, nDCG `0.930`. H9.2 improves 34 cases, worsens 23, same 943 versus H7 query expansion. Held-out ensemble with H9 scores Hit@1 `0.920`, below best single H7 query expansion `0.940`; with Gemini Lite, meta-ranker scores Hit@1 `0.950`, below single Gemini Lite `0.960`. SWEbench H9 Hit@1 `0.610`, Hit@10 `0.940`, below H6 Hit@10 `0.960`. |
+| Cost/latency/index-size | Adds one item per file: 3,000 records for 1,000 CodeSearchNet files. Direct H9 search mean is about `1.6s/query` in the local run. |
+| Result summary | Body evidence has sparse complementary signal but current global fusion and rank-position-only meta-rankers cannot exploit it safely. It improves some individual cases but degrades enough others to lose aggregate top-k quality. |
+| Decision | Do not promote. Keep `file_body_evidence_chunks` and H9 configs for gated fallback experiments. |
+| Failure modes | Extra lane introduces noisy lexical/body hints; rank-only ensemble lacks score/confidence/margin features; direct fusion executes the third lane for every query even when H6/H7 is already confident. |
+| Follow-ups | Gate body-evidence by route and low confidence; add raw hybrid score margins, item-kind margins, LLM confidence, and cross-encoder scores to the learned reranker. |
+| Links | [H9 body evidence report](../h9-body-evidence-ensemble-2026-06-07.md), `src/code_diver/services/file_body_evidence_item_builder.py`, `configs/benchmarks/codesearchnet-h9-body-evidence-bounded-embeddinggemma-1000.yml` |

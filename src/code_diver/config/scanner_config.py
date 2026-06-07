@@ -18,4 +18,5 @@ class ScannerConfig:
     file_summary_chunks: bool = Defaults.FILE_SUMMARY_CHUNKS
     file_manifest_chunks: bool = Defaults.FILE_MANIFEST_CHUNKS
     file_api_manifest_chunks: bool = Defaults.FILE_API_MANIFEST_CHUNKS
+    file_body_evidence_chunks: bool = Defaults.FILE_BODY_EVIDENCE_CHUNKS
     max_symbols_per_file: int | None = Defaults.MAX_SYMBOLS_PER_FILE

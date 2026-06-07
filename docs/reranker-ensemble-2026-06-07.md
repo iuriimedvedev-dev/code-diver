@@ -342,3 +342,37 @@ Next hypotheses:
 | 900/100 deterministic-only result | Hit@1 `0.940`, Hit@5 `0.990`, Hit@10 `1.000`. |
 | 900/100 deterministic + Gemini result | Hit@1 `0.980`, Hit@3 `0.990`, Hit@5 `1.000`, Hit@10 `1.000`. |
 | Decision | Not deployable and not trainable, because it uses labels. Use only to estimate remaining headroom. |
+
+## H9 Body-Evidence Follow-Up
+
+I implemented `file_body_evidence` as a third compact file-level retrieval lane
+and tested it as both a direct hybrid signal and a reranker-ensemble input.
+
+Full 1,000-case CodeSearchNet Python rows:
+
+| Run | Hit@1 | Hit@3 | Hit@5 | Hit@10 | MRR@10 | nDCG@10 | Mean ms |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| H6 baseline | 0.856 | 0.960 | 0.982 | 0.987 | 0.909 | 0.929 | 3145.7 |
+| H7 query expansion | 0.857 | 0.957 | 0.980 | 0.987 | 0.909 | 0.928 | 780.2 |
+| H9.1 body evidence | 0.853 | 0.947 | 0.974 | 0.985 | 0.907 | 0.927 | 1609.1 |
+| H9.2 bounded body evidence | 0.860 | 0.956 | 0.977 | 0.986 | 0.912 | 0.930 | 1600.7 |
+| Gemini Lite rerank | 0.911 | 0.978 | 0.988 | 0.989 | 0.944 | 0.956 | 3487.8 |
+
+The body-evidence lane is not dead: H9.2 improves 34 cases and worsens 23 cases
+against H7 query expansion, with 943 unchanged. But the aggregate improvement is
+not robust enough.
+
+Held-out 900/100 ensemble:
+
+| Ensemble | Hit@1 | Hit@3 | Hit@5 | Hit@10 | MRR@10 | nDCG@10 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Best single deterministic: H7 query expansion | 0.940 | 0.980 | 0.980 | 1.000 | 0.959 | 0.969 |
+| Best RRF including H9 | 0.930 | 0.980 | 0.990 | 1.000 | 0.956 | 0.967 |
+| Meta-ranker including H9 | 0.920 | 0.980 | 0.990 | 1.000 | 0.951 | 0.963 |
+| Single Gemini Lite | 0.960 | 0.990 | 1.000 | 1.000 | 0.978 | 0.983 |
+| Meta-ranker with Gemini + H9 | 0.950 | 0.990 | 1.000 | 1.000 | 0.970 | 0.978 |
+
+Decision: reject H9 as an always-on default. Keep it as a gated fallback
+hypothesis and move the ensemble work from final-rank-only features to raw
+scores, margins, LLM confidence, and cross-encoder scores. Full details:
+[H9 body evidence report](./h9-body-evidence-ensemble-2026-06-07.md).

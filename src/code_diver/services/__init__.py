@@ -9,6 +9,7 @@ from .ephemeral_deep_index_service import EphemeralDeepIndexService
 from .ephemeral_deep_search_result import EphemeralDeepSearchResult
 from .evaluation_statistics import EvaluationStatistics
 from .file_api_manifest_item_builder import FileApiManifestItemBuilder
+from .file_body_evidence_item_builder import FileBodyEvidenceItemBuilder
 from .file_manifest_item_builder import FileManifestItemBuilder
 from .graph_indexing_service import GraphIndexingService
 from .identifier_alias_locator import IdentifierAliasLocator
@@ -34,6 +35,7 @@ __all__ = [
     "EphemeralDeepSearchResult",
     "EvaluationStatistics",
     "FileApiManifestItemBuilder",
+    "FileBodyEvidenceItemBuilder",
     "FileManifestItemBuilder",
     "GraphIndexingService",
     "IdentifierAliasLocator",

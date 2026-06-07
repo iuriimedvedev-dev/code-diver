@@ -48,7 +48,12 @@ def main() -> int:
     parser.add_argument("--folds", type=int, default=5)
     parser.add_argument("--rrf-k", type=int, default=60)
     parser.add_argument("--max-ensemble-size", type=int, default=4)
-    parser.add_argument("--train-size", type=int, default=0, help="Use the first N common cases for training.")
+    parser.add_argument(
+        "--train-size",
+        type=int,
+        default=0,
+        help="Use the first N common cases for training.",
+    )
     parser.add_argument(
         "--test-size",
         type=int,
@@ -111,9 +116,14 @@ def main() -> int:
         "dataset": f"saved {len(common_case_ids)}-case CodeSearchNet/MTEB Python slice",
         "case_count": len(common_case_ids),
         "evaluated_case_count": len(eval_case_ids),
-        "split": {key: (len(value) if isinstance(value, list) else value) for key, value in split.items()},
+        "split": {
+            key: (len(value) if isinstance(value, list) else value)
+            for key, value in split.items()
+        },
         "dataset_profile": _dataset_profile(runs, common_case_ids),
-        "reports": {name: str(path) for name, path in _parse_report_specs(report_specs).items()},
+        "reports": {
+            name: str(path) for name, path in _parse_report_specs(report_specs).items()
+        },
         "single_runs": single_rows,
         "rrf_top": rrf_rows[:20],
         "weighted_rrf": weighted_rrf_rows,
@@ -154,7 +164,9 @@ def _load_runs(specs: list[str] | tuple[str, ...]) -> dict[str, dict[str, CaseRa
         runs[name] = {
             str(row["case_id"]): CaseRanking(
                 expected=set(row.get("expected") or []),
-                ranking=_dedupe([str(item) for item in row.get("retrieved_files") or []])[:10],
+                ranking=_dedupe(
+                    [str(item) for item in row.get("retrieved_files") or []]
+                )[:10],
                 bucket=str(row.get("bucket") or "unknown"),
             )
             for row in rows
@@ -167,7 +179,11 @@ def _report_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
     if isinstance(payload.get("metrics"), dict):
         return [row for row in payload.get("results") or [] if isinstance(row, dict)]
     results = payload.get("results") or []
-    if results and isinstance(results[0], dict) and isinstance(results[0].get("results"), list):
+    if (
+        results
+        and isinstance(results[0], dict)
+        and isinstance(results[0].get("results"), list)
+    ):
         return [row for row in results[0]["results"] if isinstance(row, dict)]
     return [row for row in results if isinstance(row, dict)]
 
@@ -178,7 +194,9 @@ def _common_case_ids(runs: dict[str, dict[str, CaseRanking]]) -> list[str]:
     return sorted(set.intersection(*(set(run) for run in runs.values())))
 
 
-def _single_rows(runs: dict[str, dict[str, CaseRanking]], case_ids: list[str]) -> list[dict[str, Any]]:
+def _single_rows(
+    runs: dict[str, dict[str, CaseRanking]], case_ids: list[str]
+) -> list[dict[str, Any]]:
     rows = []
     for name, run in runs.items():
         rankings = {case_id: run[case_id].ranking for case_id in case_ids}
@@ -186,11 +204,20 @@ def _single_rows(runs: dict[str, dict[str, CaseRanking]], case_ids: list[str]) -
     return sorted(rows, key=lambda row: _metric_sort_key(row["metrics"]), reverse=True)
 
 
-def _split_case_ids(case_ids: list[str], train_size: int, test_size: int) -> dict[str, Any]:
+def _split_case_ids(
+    case_ids: list[str], train_size: int, test_size: int
+) -> dict[str, Any]:
     if train_size <= 0:
-        return {"mode": "cross_validation", "all": case_ids, "train": [], "test": case_ids}
+        return {
+            "mode": "cross_validation",
+            "all": case_ids,
+            "train": [],
+            "test": case_ids,
+        }
     if len(case_ids) <= train_size:
-        raise RuntimeError(f"Need more than {train_size} common cases for train/test split, got {len(case_ids)}.")
+        raise RuntimeError(
+            f"Need more than {train_size} common cases for train/test split, got {len(case_ids)}."
+        )
     train = case_ids[:train_size]
     remaining = case_ids[train_size:]
     test = remaining if test_size <= 0 else remaining[:test_size]
@@ -210,16 +237,22 @@ def _rrf_rows(
     max_size = min(max_ensemble_size, len(names))
     for size in range(2, max_size + 1):
         for ensemble in itertools.combinations(names, size):
-            ranking = _rrf_ranking(runs, case_ids, ensemble, {name: 1.0 for name in ensemble}, rrf_k)
-            rows.append({"names": list(ensemble), "metrics": _metrics(runs, ranking, case_ids)})
+            ranking = _rrf_ranking(
+                runs, case_ids, ensemble, {name: 1.0 for name in ensemble}, rrf_k
+            )
+            rows.append(
+                {"names": list(ensemble), "metrics": _metrics(runs, ranking, case_ids)}
+            )
     return sorted(rows, key=lambda row: _metric_sort_key(row["metrics"]), reverse=True)
 
 
-def _selected_meta_sets(runs: dict[str, dict[str, CaseRanking]]) -> dict[str, list[str]]:
+def _selected_meta_sets(
+    runs: dict[str, dict[str, CaseRanking]],
+) -> dict[str, list[str]]:
     deterministic = [
         name
         for name in runs
-        if name.startswith(("h6", "h7")) and "agent" not in name
+        if name.startswith(("h6", "h7", "h8", "h9", "h10")) and "agent" not in name
     ]
     non_agent = [name for name in runs if "agent" not in name]
     api_rankers = [
@@ -237,10 +270,14 @@ def _selected_meta_sets(runs: dict[str, dict[str, CaseRanking]]) -> dict[str, li
     if len(non_agent) > len(deterministic):
         selected["deterministic_plus_api"] = non_agent
     if strong_agents:
-        selected["h6_plus_26b_agents"] = [name for name in ["h6", *strong_agents] if name in runs]
+        selected["h6_plus_26b_agents"] = [
+            name for name in ["h6", *strong_agents] if name in runs
+        ]
         selected["deterministic_plus_26b_agents"] = [*deterministic, *strong_agents]
     if all_agents:
-        selected["h6_plus_all_agents"] = [name for name in ["h6", *all_agents] if name in runs]
+        selected["h6_plus_all_agents"] = [
+            name for name in ["h6", *all_agents] if name in runs
+        ]
         selected["deterministic_plus_all_agents"] = [*deterministic, *all_agents]
     return selected
 
@@ -303,7 +340,9 @@ def _cross_validated_meta_rankings(
     folds = max(2, min(folds, len(case_ids)))
     rankings: dict[str, list[str]] = {}
     for fold in range(folds):
-        test_ids = [case_id for index, case_id in enumerate(case_ids) if index % folds == fold]
+        test_ids = [
+            case_id for index, case_id in enumerate(case_ids) if index % folds == fold
+        ]
         train_ids = [case_id for case_id in case_ids if case_id not in set(test_ids)]
         weights = _train_logistic_ranker(
             run_names,
@@ -336,7 +375,10 @@ def _train_test_meta_rankings(
         learning_rate=learning_rate,
         l2=l2,
     )
-    return {case_id: _score_meta_case(run_names, runs, case_id, weights) for case_id in test_ids}
+    return {
+        case_id: _score_meta_case(run_names, runs, case_id, weights)
+        for case_id in test_ids
+    }
 
 
 def _score_meta_case(
@@ -442,7 +484,9 @@ def _cross_validated_pairwise_rankings(
     folds = max(2, min(folds, len(case_ids)))
     rankings: dict[str, list[str]] = {}
     for fold in range(folds):
-        test_ids = [case_id for index, case_id in enumerate(case_ids) if index % folds == fold]
+        test_ids = [
+            case_id for index, case_id in enumerate(case_ids) if index % folds == fold
+        ]
         train_ids = [case_id for case_id in case_ids if case_id not in set(test_ids)]
         weights = _train_pairwise_ranker(
             run_names,
@@ -475,7 +519,10 @@ def _train_test_pairwise_rankings(
         learning_rate=learning_rate,
         l2=l2,
     )
-    return {case_id: _score_meta_case(run_names, runs, case_id, weights) for case_id in test_ids}
+    return {
+        case_id: _score_meta_case(run_names, runs, case_id, weights)
+        for case_id in test_ids
+    }
 
 
 def _train_pairwise_ranker(
@@ -508,7 +555,16 @@ def _train_pairwise_ranker(
             for negative in negative_features:
                 x_rows.append([p - n for p, n in zip(positive, negative)])
     if not x_rows:
-        return np.zeros(len(_rank_features(run_names, runs, train_ids[0], runs[run_names[0]][train_ids[0]].ranking[0])))
+        return np.zeros(
+            len(
+                _rank_features(
+                    run_names,
+                    runs,
+                    train_ids[0],
+                    runs[run_names[0]][train_ids[0]].ranking[0],
+                )
+            )
+        )
     x = np.asarray(x_rows, dtype=float)
     weights = np.zeros(x.shape[1], dtype=float)
     for _ in range(epochs):
@@ -528,7 +584,13 @@ def _weighted_rrf_row(
     rrf_k: int,
 ) -> dict[str, Any]:
     if not run_names:
-        return {"name": name, "runs": [], "method": "weighted RRF grid", "weights": {}, "metrics": {}}
+        return {
+            "name": name,
+            "runs": [],
+            "method": "weighted RRF grid",
+            "weights": {},
+            "metrics": {},
+        }
     # Keep the grid bounded. Weighted RRF is a cheap baseline, not a neural optimizer.
     train_ids = split["train"] if split["mode"] == "train_test" else split["test"]
     test_ids = split["test"]
@@ -608,7 +670,10 @@ def _rrf_ranking(
                 scores[path] = scores.get(path, 0.0) + weight / (rrf_k + rank)
                 best_rank[path] = min(best_rank.get(path, 1_000_000), rank)
         rankings[case_id] = [
-            path for path, _ in sorted(scores.items(), key=lambda item: (-item[1], best_rank[item[0]], item[0]))[:10]
+            path
+            for path, _ in sorted(
+                scores.items(), key=lambda item: (-item[1], best_rank[item[0]], item[0])
+            )[:10]
         ]
     return rankings
 
@@ -621,7 +686,9 @@ def _candidate_union(
     return sorted({path for name in run_names for path in runs[name][case_id].ranking})
 
 
-def _oracle_best_rank(runs: dict[str, dict[str, CaseRanking]], case_ids: list[str]) -> dict[str, float]:
+def _oracle_best_rank(
+    runs: dict[str, dict[str, CaseRanking]], case_ids: list[str]
+) -> dict[str, float]:
     counts = {1: 0, 3: 0, 5: 0, 10: 0}
     first_run = next(iter(runs.values()))
     for case_id in case_ids:
@@ -657,7 +724,13 @@ def _metrics(
                 for limit in relevant_at:
                     if rank <= limit:
                         relevant_at[limit] += 1
-        ideal_dcg = sum(1.0 / math.log2(rank + 1) for rank in range(1, min(len(expected), 10) + 1)) or 1.0
+        ideal_dcg = (
+            sum(
+                1.0 / math.log2(rank + 1)
+                for rank in range(1, min(len(expected), 10) + 1)
+            )
+            or 1.0
+        )
         rows.append((first_relevant_rank, relevant_at, len(expected), dcg / ideal_dcg))
         rank_distribution[first_relevant_rank] += 1
     count = len(rows)
@@ -667,27 +740,55 @@ def _metrics(
         "hit@5": sum(bool(rank and rank <= 5) for rank, _, _, _ in rows) / count,
         "hit@10": sum(bool(rank and rank <= 10) for rank, _, _, _ in rows) / count,
         "mrr@10": sum((1.0 / rank if rank else 0.0) for rank, _, _, _ in rows) / count,
-        "precision@1": sum(relevant_at[1] / 1.0 for _, relevant_at, _, _ in rows) / count,
-        "precision@3": sum(relevant_at[3] / 3.0 for _, relevant_at, _, _ in rows) / count,
-        "precision@5": sum(relevant_at[5] / 5.0 for _, relevant_at, _, _ in rows) / count,
-        "precision@10": sum(relevant_at[10] / 10.0 for _, relevant_at, _, _ in rows) / count,
-        "recall@1": sum(relevant_at[1] / expected_count for _, relevant_at, expected_count, _ in rows) / count,
-        "recall@3": sum(relevant_at[3] / expected_count for _, relevant_at, expected_count, _ in rows) / count,
-        "recall@5": sum(relevant_at[5] / expected_count for _, relevant_at, expected_count, _ in rows) / count,
-        "recall@10": sum(relevant_at[10] / expected_count for _, relevant_at, expected_count, _ in rows) / count,
+        "precision@1": sum(relevant_at[1] / 1.0 for _, relevant_at, _, _ in rows)
+        / count,
+        "precision@3": sum(relevant_at[3] / 3.0 for _, relevant_at, _, _ in rows)
+        / count,
+        "precision@5": sum(relevant_at[5] / 5.0 for _, relevant_at, _, _ in rows)
+        / count,
+        "precision@10": sum(relevant_at[10] / 10.0 for _, relevant_at, _, _ in rows)
+        / count,
+        "recall@1": sum(
+            relevant_at[1] / expected_count
+            for _, relevant_at, expected_count, _ in rows
+        )
+        / count,
+        "recall@3": sum(
+            relevant_at[3] / expected_count
+            for _, relevant_at, expected_count, _ in rows
+        )
+        / count,
+        "recall@5": sum(
+            relevant_at[5] / expected_count
+            for _, relevant_at, expected_count, _ in rows
+        )
+        / count,
+        "recall@10": sum(
+            relevant_at[10] / expected_count
+            for _, relevant_at, expected_count, _ in rows
+        )
+        / count,
         "ndcg@10": sum(ndcg for _, _, _, ndcg in rows) / count,
-        "expected_files_mean": sum(expected_count for _, _, expected_count, _ in rows) / count,
-        "multi_expected_rate": sum(1.0 if expected_count > 1 else 0.0 for _, _, expected_count, _ in rows) / count,
+        "expected_files_mean": sum(expected_count for _, _, expected_count, _ in rows)
+        / count,
+        "multi_expected_rate": sum(
+            1.0 if expected_count > 1 else 0.0 for _, _, expected_count, _ in rows
+        )
+        / count,
         "first_relevant_rank_mean_miss_as_11": sum(
             rank if rank else 11 for rank, _, _, _ in rows
         )
         / count,
         "misses@10": rank_distribution[0],
-        "rank_distribution": {str(rank): value for rank, value in rank_distribution.items() if value},
+        "rank_distribution": {
+            str(rank): value for rank, value in rank_distribution.items() if value
+        },
     }
 
 
-def _dataset_profile(runs: dict[str, dict[str, CaseRanking]], case_ids: list[str]) -> dict[str, Any]:
+def _dataset_profile(
+    runs: dict[str, dict[str, CaseRanking]], case_ids: list[str]
+) -> dict[str, Any]:
     first_run = next(iter(runs.values()))
     expected_sizes = [len(first_run[case_id].expected) for case_id in case_ids]
     distribution: dict[str, int] = {}

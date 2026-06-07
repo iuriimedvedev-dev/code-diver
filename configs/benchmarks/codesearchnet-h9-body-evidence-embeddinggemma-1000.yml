@@ -1,0 +1,101 @@
+root: .code-diver/benchmarks/mteb-codesearchnet-python/corpus
+artifact: .code-diver/benchmarks/mteb-codesearchnet-python/index-h9-body-evidence-embeddinggemma-300m.json
+
+storage:
+  provider: json
+
+embedding:
+  provider: sentence_transformers
+  model: google/embeddinggemma-300m
+  dimensions: 768
+  batch_size: 96
+  workers: 1
+  max_input_chars: 1200
+  query_prefix: "task: code retrieval | query: "
+  document_prefix: "title: none | text: "
+
+indexing:
+  mode: scanner
+
+scanner:
+  include:
+    - "**/*.py"
+  max_file_bytes: 200000
+  line_chunks: false
+  chunk_lines: 220
+  structural_chunks: false
+  symbol_chunks: false
+  symbol_body: false
+  file_summary_chunks: true
+  file_manifest_chunks: true
+  file_body_evidence_chunks: true
+  max_symbols_per_file: 96
+
+search:
+  limit: 10
+  preview_lines: 8
+  strategy: hybrid
+
+hybrid_search:
+  candidate_limit: 320
+  lexical_candidate_limit: 900
+  vector_weight: 0.52
+  lexical_weight: 0.18
+  path_weight: 0.08
+  symbol_weight: 0.04
+  symbol_match_weight: 0.04
+  graph_weight: 0.08
+  file_vote_weight: 0.06
+  graph_depth: 0
+  graph_neighbor_limit: 0
+  vector_kind_limits:
+    file_summary: 150
+    file_manifest: 150
+    file_body_evidence: 150
+  vector_kind_multipliers:
+    file_summary: 1.0
+    file_manifest: 1.08
+    file_body_evidence: 1.06
+  routing_enabled: true
+  lexical_scoring: bm25
+  fusion: weighted
+  preserve_vector_top: true
+  vector_top_score_margin: 0.03
+  item_kind_weights:
+    file_summary: 1.0
+    file_manifest: 1.08
+    file_body_evidence: 1.06
+  min_token_length: 3
+
+graph:
+  enabled: true
+  artifact: .code-diver/benchmarks/mteb-codesearchnet-python/graph-h9-body-evidence-embeddinggemma-300m.json
+  ast_enabled: false
+  reference_edges_enabled: false
+  call_edges_enabled: false
+  expansion_depth: 0
+  neighbor_limit: 0
+
+trace:
+  enabled: true
+  artifact: .code-diver/traces/codesearchnet-h9-body-evidence-embeddinggemma-1000.jsonl
+  include_prompts: false
+
+evaluation:
+  dataset: .code-diver/benchmarks/mteb-codesearchnet-python/codesearchnet_python_1000.jsonl
+  limit: 10
+  workers: 1
+
+experiments:
+  suite: codesearchnet-h9-body-evidence-embeddinggemma-1000
+  strategies:
+    - hybrid
+  hypotheses:
+    - name: h9_body_evidence_embeddinggemma
+      strategy: hybrid
+      description: "H6.1 file locator plus compact body-evidence lane for comments, strings, return/raise/control, and effect lines."
+
+metrics:
+  enabled: false
+
+plugins: []

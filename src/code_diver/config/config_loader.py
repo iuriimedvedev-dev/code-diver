@@ -262,6 +262,9 @@ class ConfigLoader:
             file_api_manifest_chunks=bool(
                 mapping.get("file_api_manifest_chunks", Defaults.FILE_API_MANIFEST_CHUNKS)
             ),
+            file_body_evidence_chunks=bool(
+                mapping.get("file_body_evidence_chunks", Defaults.FILE_BODY_EVIDENCE_CHUNKS)
+            ),
             max_symbols_per_file=self._optional_int(mapping.get("max_symbols_per_file")),
         )
 

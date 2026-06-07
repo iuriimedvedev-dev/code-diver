@@ -612,6 +612,8 @@ def apply_builtin_h5(config: AppConfig) -> AppConfig:
         symbol_body=False,
         file_summary_chunks=True,
         file_manifest_chunks=True,
+        file_api_manifest_chunks=False,
+        file_body_evidence_chunks=False,
         max_symbols_per_file=96,
     )
     search = replace(config.search, strategy="hybrid", limit=10, preview_lines=10)
@@ -854,6 +856,7 @@ def index_profile_label(config: AppConfig) -> str:
         config.scanner.file_summary_chunks
         and config.scanner.file_manifest_chunks
         and config.scanner.file_api_manifest_chunks
+        and not config.scanner.file_body_evidence_chunks
         and not config.scanner.line_chunks
         and not config.scanner.structural_chunks
         and not config.scanner.symbol_chunks
@@ -863,6 +866,17 @@ def index_profile_label(config: AppConfig) -> str:
         config.scanner.file_summary_chunks
         and config.scanner.file_manifest_chunks
         and not config.scanner.file_api_manifest_chunks
+        and config.scanner.file_body_evidence_chunks
+        and not config.scanner.line_chunks
+        and not config.scanner.structural_chunks
+        and not config.scanner.symbol_chunks
+    ):
+        return "H9 body-evidence file locator"
+    if (
+        config.scanner.file_summary_chunks
+        and config.scanner.file_manifest_chunks
+        and not config.scanner.file_api_manifest_chunks
+        and not config.scanner.file_body_evidence_chunks
         and not config.scanner.line_chunks
         and not config.scanner.structural_chunks
         and not config.scanner.symbol_chunks
@@ -879,6 +893,8 @@ def index_content_label(config: AppConfig) -> str:
         enabled.append("file manifests")
     if config.scanner.file_api_manifest_chunks:
         enabled.append("API manifests")
+    if config.scanner.file_body_evidence_chunks:
+        enabled.append("body evidence")
     if config.scanner.line_chunks:
         enabled.append("line chunks")
     if config.scanner.structural_chunks:
@@ -2215,6 +2231,7 @@ def generate_local_eval_dataset(config: AppConfig, output: Path, case_count: int
         file_summary_chunks=True,
         file_manifest_chunks=True,
         file_api_manifest_chunks=config.scanner.file_api_manifest_chunks,
+        file_body_evidence_chunks=config.scanner.file_body_evidence_chunks,
         max_symbols_per_file=config.scanner.max_symbols_per_file,
     )
     return LocalEvalDatasetGenerator(scanner).generate(config.root, output, case_count)
@@ -2233,6 +2250,7 @@ def make_codebase_scanner(config: AppConfig):
         file_summary_chunks=config.scanner.file_summary_chunks,
         file_manifest_chunks=config.scanner.file_manifest_chunks,
         file_api_manifest_chunks=config.scanner.file_api_manifest_chunks,
+        file_body_evidence_chunks=config.scanner.file_body_evidence_chunks,
         max_symbols_per_file=config.scanner.max_symbols_per_file,
     )
     mode = config.indexing.mode
@@ -2504,6 +2522,9 @@ def make_ephemeral_search_tool_handler(config: AppConfig):
         symbol_chunks=True,
         symbol_body=True,
         file_summary_chunks=False,
+        file_manifest_chunks=False,
+        file_api_manifest_chunks=False,
+        file_body_evidence_chunks=False,
         max_symbols_per_file=config.scanner.max_symbols_per_file,
     )
     service = EphemeralDeepIndexService(
