@@ -121,3 +121,101 @@ Run `H8` on the 1,000-case slice with:
 4. A held-out calibration split: train weights on 700 cases, validate on 150, report once on 150 test cases.
 
 Do not use the same 100 cases both to invent and to claim the final metric.
+
+## 1k Train/Test Follow-Up
+
+The 5k run was deferred because the prepared public slice currently has 1,000 cases. I generated fresh 1,000-case per-case rankings for three deterministic rankers and ran a strict train/test split:
+
+- train: first 900 common cases
+- test: next 100 common cases
+- no LLM/API calls
+- no test labels used for training, except the oracle diagnostic
+
+Generated local reports:
+
+| Report | Rows | Notes |
+| --- | ---: | --- |
+| `.code-diver/reports/h8-train1k-h6-deterministic-1000.json` | 1,000 | H6.1 deterministic hybrid. |
+| `.code-diver/reports/h8-train1k-h7-api-manifest-deterministic-1000.json` | 1,000 | H7 API-manifest deterministic hybrid. |
+| `.code-diver/reports/h8-train1k-h7-query-expansion-deterministic-1000.json` | 1,000 | H7 query-expansion deterministic hybrid. |
+| `.code-diver/reports/h8-reranker-ensemble-train900-test100-deterministic.json` | 100 test cases | H8 ensemble analysis. |
+
+Command:
+
+```bash
+uv run python scripts/analyze_reranker_ensemble.py \
+  --report h6=.code-diver/reports/h8-train1k-h6-deterministic-1000.json \
+  --report h7_tiebreak=.code-diver/reports/h8-train1k-h7-api-manifest-deterministic-1000.json \
+  --report h7_query_expansion=.code-diver/reports/h8-train1k-h7-query-expansion-deterministic-1000.json \
+  --train-size 900 \
+  --test-size 100 \
+  --output .code-diver/reports/h8-reranker-ensemble-train900-test100-deterministic.json
+```
+
+Full 1,000-case single-run metrics:
+
+| Run | Hit@1 | Hit@3 | Hit@5 | Hit@10 | MRR@10 | nDCG@10 | Mean ms |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `h6` | 0.856 | 0.960 | 0.982 | 0.987 | 0.909 | 0.929 | 3145.7 |
+| `h7_tiebreak` | 0.858 | 0.956 | 0.977 | 0.987 | 0.910 | 0.930 | 1609.7 |
+| `h7_query_expansion` | 0.857 | 0.957 | 0.980 | 0.987 | 0.909 | 0.928 | 780.2 |
+
+Held-out 100-case test metrics after training on the first 900:
+
+| Hypothesis | Method | Hit@1 | Hit@3 | Hit@5 | Hit@10 | MRR@10 | nDCG@10 | Decision |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| `H8.0` | Best single ranker: `h7_query_expansion` | 0.940 | 0.980 | 0.980 | 1.000 | 0.959 | 0.969 | Baseline winner on this holdout. |
+| `H8.1` | Plain RRF: `h6 + h7_tiebreak + h7_query_expansion` | 0.930 | 0.980 | 0.980 | 1.000 | 0.956 | 0.967 | Reject as default; no gain. |
+| `H8.2` | Weighted RRF grid, trained on 900 | 0.920 | 0.980 | 0.980 | 1.000 | 0.949 | 0.962 | Reject; tuned weights overfit/demote top result. |
+| `H8.3` | Logistic stacking meta-ranker, trained on 900 | 0.930 | 0.980 | 0.980 | 1.000 | 0.956 | 0.967 | Active only with more diverse rankers; deterministic-only stack does not beat best single. |
+| `H8-ORACLE` | Best rank across all rankers using labels | 0.940 | 0.980 | 0.990 | 1.000 | not scored | not scored | Upper bound only, not deployable. |
+
+Interpretation:
+
+- On this held-out 100-case tail, the three deterministic rankers are too correlated. The best single ranker already reaches Hit@10 `1.000`, so there is almost no recall headroom.
+- The trainable ensemble does not beat `h7_query_expansion` on Hit@1/MRR/nDCG.
+- The earlier 100-case ensemble gain came from adding diverse agentic rankers. Without those extra ranker families, the meta-ranker mostly learns a reshuffle of the same signal.
+- The next useful H8 test needs 1,000-case rankings from at least one genuinely different reranker family: Gemini Lite, Qwen3-Reranker cross-encoder, or a bounded local Gemma/Qwen listwise ranker. Deterministic variants alone are not enough.
+
+## Hypotheses
+
+### H8.1 - Plain RRF Reranker Ensemble
+
+| Field | Value |
+| --- | --- |
+| Status | rejected as default |
+| Search/ranking flow | Candidate file rankings from multiple rankers -> equal-weight Reciprocal Rank Fusion -> top 10 files. |
+| 100-case result | Matched best H6.1 at Hit@1 `0.820`, Hit@10 `0.970`, nDCG `0.900`; adding agentic rankings degraded. |
+| 900/100 result | Hit@1 `0.930`, Hit@10 `1.000`, nDCG `0.967`, below best single `h7_query_expansion`. |
+| Decision | Keep as cheap diagnostic baseline only. |
+
+### H8.2 - Weighted RRF Reranker Ensemble
+
+| Field | Value |
+| --- | --- |
+| Status | rejected as default |
+| Search/ranking flow | Candidate file rankings -> grid-search RRF weights on train split -> apply fixed weights to held-out test split. |
+| 900/100 learned weights | `h6=0.25`, `h7_tiebreak=0.50`, `h7_query_expansion=0.25`. |
+| 900/100 result | Hit@1 `0.920`, Hit@10 `1.000`, nDCG `0.962`. |
+| Decision | Worse than both plain RRF and best single on this split. |
+
+### H8.3 - Logistic Stacking Meta-Ranker
+
+| Field | Value |
+| --- | --- |
+| Status | active research |
+| Search/ranking flow | Candidate union -> rank features per candidate -> small logistic model -> final top 10 files. |
+| Features | Per-ranker reciprocal rank, normalized rank, top-1 flag, agreement count, best-rank signal, average reciprocal-rank signal. |
+| 100-case result | With deterministic + agentic saved outputs: Hit@1 `0.840`, Hit@10 `0.980`, nDCG `0.918`, beating best single Hit@1 `0.820`, Hit@10 `0.970`, nDCG `0.900`. |
+| 900/100 deterministic-only result | Hit@1 `0.930`, Hit@10 `1.000`, nDCG `0.967`, below best single `h7_query_expansion` Hit@1 `0.940`, nDCG `0.969`. |
+| Decision | Keep only if the input rankers are diverse. Deterministic-only stacking is not enough. |
+
+### H8-ORACLE - Best-Rank Upper Bound
+
+| Field | Value |
+| --- | --- |
+| Status | oracle / diagnostic only |
+| Search/ranking flow | For each case, inspect all ranker outputs and select the best position of a known relevant file. |
+| 100-case result | Across deterministic + agentic outputs: Hit@1 `0.940`, Hit@10 `0.990`. |
+| 900/100 deterministic-only result | Hit@1 `0.940`, Hit@5 `0.990`, Hit@10 `1.000`. |
+| Decision | Not deployable and not trainable, because it uses labels. Use only to estimate remaining headroom. |

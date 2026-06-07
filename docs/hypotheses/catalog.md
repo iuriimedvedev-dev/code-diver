@@ -373,6 +373,86 @@ Status meanings:
 | Follow-ups | Add a first-class meta-ranker experiment that stores raw candidate-level H6/H7/LLM rank features; run 700/150/150 split on the 1,000-case benchmark; test Qwen3-Reranker as the cheap second signal. |
 | Links | [reranker ensemble report](../reranker-ensemble-2026-06-07.md), `scripts/analyze_reranker_ensemble.py`, `.code-diver/reports/reranker-ensemble-all-saved-codesearchnet-100.json` |
 
+## H8.1 - Plain RRF Reranker Ensemble
+
+| Field | Value |
+| --- | --- |
+| ID | `H8.1` |
+| Status | rejected as default |
+| Motivation | Check whether rankers can be combined with the standard no-training Reciprocal Rank Fusion baseline. |
+| Assumptions | Rankers are complementary and equal confidence is good enough. |
+| Index composition | Same H6.1/H5 file-first metadata index; no new persistent index. |
+| Search/ranking flow | Multiple saved file rankings -> equal-weight RRF -> final file ranking. |
+| Model/provider matrix | Tested deterministic H6/H7 rankings, plus the 100-case saved local Gemma agent rankings in the first offline run. |
+| Dataset | CodeSearchNet/MTEB Python 100-case offline run; 1,000-case deterministic reports with 900 train / 100 test. |
+| Metrics | 100-case best RRF matched H6.1 Hit@1 `0.820`, Hit@10 `0.970`, nDCG `0.900`. 900/100 deterministic-only RRF Hit@1 `0.930`, Hit@10 `1.000`, nDCG `0.967`, below best single `h7_query_expansion` Hit@1 `0.940`, nDCG `0.969`. |
+| Cost/latency/index-size | Essentially free offline/live after input rankings exist. |
+| Result summary | RRF is a useful sanity baseline but not a quality improvement here. |
+| Decision | Reject as default. |
+| Failure modes | Equal weights let weaker/noisier rankers demote strong deterministic top hits. |
+| Follow-ups | Keep only as a baseline row in H8 experiments. |
+| Links | [reranker ensemble report](../reranker-ensemble-2026-06-07.md), `scripts/analyze_reranker_ensemble.py` |
+
+## H8.2 - Weighted RRF Reranker Ensemble
+
+| Field | Value |
+| --- | --- |
+| ID | `H8.2` |
+| Status | rejected as default |
+| Motivation | Test whether a calibrated weight vector over rankers is enough, without a learned candidate-level model. |
+| Assumptions | One global ranker-weight vector generalizes across queries. |
+| Index composition | Same H6.1/H5 file-first metadata index; no new persistent index. |
+| Search/ranking flow | Multiple saved file rankings -> train RRF weights on labeled cases -> apply weighted RRF on held-out cases. |
+| Model/provider matrix | Tested deterministic H6/H7 reports on the 1,000-case slice. |
+| Dataset | CodeSearchNet/MTEB Python 1,000-case deterministic reports; first 900 train, next 100 test. |
+| Metrics | Learned weights `h6=0.25`, `h7_tiebreak=0.50`, `h7_query_expansion=0.25`; held-out Hit@1 `0.920`, Hit@10 `1.000`, nDCG `0.962`, below best single. |
+| Cost/latency/index-size | Free after input rankings exist; training is a small grid search. |
+| Result summary | Global weighted RRF overfit/demoted the best single ranker on the held-out tail. |
+| Decision | Reject as default. |
+| Failure modes | A single global weight vector cannot adapt to query buckets or confidence margins. |
+| Follow-ups | If revisited, use per-query route/bucket features rather than one global vector. |
+| Links | [reranker ensemble report](../reranker-ensemble-2026-06-07.md), `.code-diver/reports/h8-reranker-ensemble-train900-test100-deterministic.json` |
+
+## H8.3 - Logistic Stacking Meta-Ranker
+
+| Field | Value |
+| --- | --- |
+| ID | `H8.3` |
+| Status | active research |
+| Motivation | Learn when to trust each ranker using candidate-level rank features, not just a global ranker weight. |
+| Assumptions | Rank positions, agreement, and top-1 flags expose enough signal for a tiny supervised model to choose better candidates. |
+| Index composition | Same H6.1/H5 file-first metadata index; no new persistent index. |
+| Search/ranking flow | Candidate union -> reciprocal-rank / normalized-rank / top-1 / agreement features -> logistic scoring model -> final file ranking. |
+| Model/provider matrix | 100-case run used deterministic H6/H7 plus Gemma E2B/E4B/12B/26B-A4B agent outputs. 1,000-case follow-up used deterministic H6/H7 only. |
+| Dataset | CodeSearchNet/MTEB Python 100-case 5-fold CV; 1,000-case deterministic reports with 900 train / 100 test. |
+| Metrics | 100-case diverse-ranker CV improved best single Hit@1 `0.820` -> `0.840`, Hit@10 `0.970` -> `0.980`, nDCG `0.900` -> `0.918`. 900/100 deterministic-only test scored Hit@1 `0.930`, Hit@10 `1.000`, nDCG `0.967`, below best single `h7_query_expansion`. |
+| Cost/latency/index-size | Training is cheap; live cost depends entirely on how many input rankers are executed. |
+| Result summary | Works only when input rankers are genuinely diverse. Deterministic-only stacking does not beat the best deterministic ranker. |
+| Decision | Active research. Do not promote until a 1,000-case train/test run includes a real second ranker family such as Gemini Lite, Qwen3-Reranker, or bounded local Gemma/Qwen. |
+| Failure modes | Overfitting on small splits, correlated ranker errors, final-rank-only features instead of raw scores/logits. |
+| Follow-ups | Generate 1,000-case rankings from one cheap diverse reranker and rerun H8.3. |
+| Links | [reranker ensemble report](../reranker-ensemble-2026-06-07.md), `scripts/analyze_reranker_ensemble.py` |
+
+## H8-ORACLE - Best-Rank Upper Bound
+
+| Field | Value |
+| --- | --- |
+| ID | `H8-ORACLE` |
+| Status | oracle / diagnostic only |
+| Motivation | Estimate the maximum possible quality if a perfect meta-ranker could always pick the best available ranker output. |
+| Assumptions | None for production; this intentionally uses labels and is therefore not deployable. |
+| Index composition | Same as the input ranker reports. |
+| Search/ranking flow | For each case, inspect all ranker outputs and choose the best rank of a known relevant file. |
+| Model/provider matrix | Same as the input ranker reports. |
+| Dataset | CodeSearchNet/MTEB Python saved reports. |
+| Metrics | 100-case deterministic + agentic oracle: Hit@1 `0.940`, Hit@10 `0.990`. 900/100 deterministic-only oracle: Hit@1 `0.940`, Hit@5 `0.990`, Hit@10 `1.000`. |
+| Cost/latency/index-size | Not applicable; cannot run without labels. |
+| Result summary | There is theoretical headroom, but the 1,000-case deterministic-only holdout already has little Hit@10 headroom. |
+| Decision | Use only as upper-bound evidence. Never report as product quality. |
+| Failure modes | Label leakage by definition. |
+| Follow-ups | Compare oracle gap before and after adding a genuinely different reranker family. |
+| Links | [reranker ensemble report](../reranker-ensemble-2026-06-07.md), `.code-diver/reports/h8-reranker-ensemble-train900-test100-deterministic.json` |
+
 ## LOCAL-MODEL-AXIS - Three-Axis Local Model Search
 
 | Field | Value |

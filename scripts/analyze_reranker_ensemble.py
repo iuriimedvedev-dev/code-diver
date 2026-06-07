@@ -48,6 +48,16 @@ def main() -> int:
     parser.add_argument("--folds", type=int, default=5)
     parser.add_argument("--rrf-k", type=int, default=60)
     parser.add_argument("--max-ensemble-size", type=int, default=4)
+    parser.add_argument("--train-size", type=int, default=0, help="Use the first N common cases for training.")
+    parser.add_argument(
+        "--test-size",
+        type=int,
+        default=0,
+        help="When --train-size is set, evaluate on the next N common cases. 0 means all remaining cases.",
+    )
+    parser.add_argument("--epochs", type=int, default=1500)
+    parser.add_argument("--learning-rate", type=float, default=0.08)
+    parser.add_argument("--l2", type=float, default=0.01)
     args = parser.parse_args()
 
     report_specs = args.report or list(DEFAULT_REPORTS)
@@ -56,22 +66,42 @@ def main() -> int:
     if not common_case_ids:
         raise RuntimeError("No common case IDs across reports.")
 
-    single_rows = _single_rows(runs, common_case_ids)
-    rrf_rows = _rrf_rows(runs, common_case_ids, args.rrf_k, args.max_ensemble_size)
+    split = _split_case_ids(common_case_ids, args.train_size, args.test_size)
+    eval_case_ids = split["test"] if split["mode"] == "train_test" else common_case_ids
+
+    single_rows = _single_rows(runs, eval_case_ids)
+    rrf_rows = _rrf_rows(runs, eval_case_ids, args.rrf_k, args.max_ensemble_size)
     selected_sets = _selected_meta_sets(runs)
-    meta_rows = [
-        _meta_ranker_row(name, names, runs, common_case_ids, args.folds)
+    weighted_rrf_rows = [
+        _weighted_rrf_row(name, names, runs, split, args.rrf_k)
         for name, names in selected_sets.items()
         if all(item in runs for item in names)
     ]
-    oracle = _oracle_best_rank(runs, common_case_ids)
+    meta_rows = [
+        _meta_ranker_row(
+            name,
+            names,
+            runs,
+            split,
+            args.folds,
+            epochs=args.epochs,
+            learning_rate=args.learning_rate,
+            l2=args.l2,
+        )
+        for name, names in selected_sets.items()
+        if all(item in runs for item in names)
+    ]
+    oracle = _oracle_best_rank(runs, eval_case_ids)
 
     payload = {
         "dataset": "saved 100-case CodeSearchNet/MTEB Python slice",
         "case_count": len(common_case_ids),
+        "evaluated_case_count": len(eval_case_ids),
+        "split": {key: (len(value) if isinstance(value, list) else value) for key, value in split.items()},
         "reports": {name: str(path) for name, path in _parse_report_specs(report_specs).items()},
         "single_runs": single_rows,
         "rrf_top": rrf_rows[:20],
+        "weighted_rrf": weighted_rrf_rows,
         "meta_rankers": meta_rows,
         "oracle_best_rank": oracle,
         "interpretation": {
@@ -140,6 +170,19 @@ def _single_rows(runs: dict[str, dict[str, CaseRanking]], case_ids: list[str]) -
     return sorted(rows, key=lambda row: _metric_sort_key(row["metrics"]), reverse=True)
 
 
+def _split_case_ids(case_ids: list[str], train_size: int, test_size: int) -> dict[str, Any]:
+    if train_size <= 0:
+        return {"mode": "cross_validation", "all": case_ids, "train": [], "test": case_ids}
+    if len(case_ids) <= train_size:
+        raise RuntimeError(f"Need more than {train_size} common cases for train/test split, got {len(case_ids)}.")
+    train = case_ids[:train_size]
+    remaining = case_ids[train_size:]
+    test = remaining if test_size <= 0 else remaining[:test_size]
+    if not test:
+        raise RuntimeError("Train/test split produced an empty test set.")
+    return {"mode": "train_test", "all": case_ids, "train": train, "test": test}
+
+
 def _rrf_rows(
     runs: dict[str, dict[str, CaseRanking]],
     case_ids: list[str],
@@ -162,10 +205,22 @@ def _selected_meta_sets(runs: dict[str, dict[str, CaseRanking]]) -> dict[str, li
     all_agents = [name for name in runs if "agent" in name]
     return {
         "deterministic_only": deterministic,
-        "h6_plus_26b_agents": [name for name in ["h6", *strong_agents] if name in runs],
-        "deterministic_plus_26b_agents": [*deterministic, *strong_agents],
-        "h6_plus_all_agents": [name for name in ["h6", *all_agents] if name in runs],
-        "deterministic_plus_all_agents": [*deterministic, *all_agents],
+        **(
+            {
+                "h6_plus_26b_agents": [name for name in ["h6", *strong_agents] if name in runs],
+                "deterministic_plus_26b_agents": [*deterministic, *strong_agents],
+            }
+            if strong_agents
+            else {}
+        ),
+        **(
+            {
+                "h6_plus_all_agents": [name for name in ["h6", *all_agents] if name in runs],
+                "deterministic_plus_all_agents": [*deterministic, *all_agents],
+            }
+            if all_agents
+            else {}
+        ),
     }
 
 
@@ -173,15 +228,42 @@ def _meta_ranker_row(
     name: str,
     run_names: list[str],
     runs: dict[str, dict[str, CaseRanking]],
-    case_ids: list[str],
+    split: dict[str, Any],
     folds: int,
+    *,
+    epochs: int,
+    learning_rate: float,
+    l2: float,
 ) -> dict[str, Any]:
-    rankings = _cross_validated_meta_rankings(run_names, runs, case_ids, folds)
+    if split["mode"] == "train_test":
+        rankings = _train_test_meta_rankings(
+            run_names,
+            runs,
+            split["train"],
+            split["test"],
+            epochs=epochs,
+            learning_rate=learning_rate,
+            l2=l2,
+        )
+        metrics = _metrics(runs, rankings, split["test"])
+        method = "train/test logistic stacking over per-run rank features"
+    else:
+        rankings = _cross_validated_meta_rankings(
+            run_names,
+            runs,
+            split["test"],
+            folds,
+            epochs=epochs,
+            learning_rate=learning_rate,
+            l2=l2,
+        )
+        metrics = _metrics(runs, rankings, split["test"])
+        method = f"{folds}-fold logistic stacking over per-run rank features"
     return {
         "name": name,
         "runs": run_names,
-        "method": "5-fold logistic stacking over per-run rank features",
-        "metrics": _metrics(runs, rankings, case_ids),
+        "method": method,
+        "metrics": metrics,
     }
 
 
@@ -190,6 +272,10 @@ def _cross_validated_meta_rankings(
     runs: dict[str, dict[str, CaseRanking]],
     case_ids: list[str],
     folds: int,
+    *,
+    epochs: int,
+    learning_rate: float,
+    l2: float,
 ) -> dict[str, list[str]]:
     if not run_names:
         return {case_id: [] for case_id in case_ids}
@@ -198,24 +284,61 @@ def _cross_validated_meta_rankings(
     for fold in range(folds):
         test_ids = [case_id for index, case_id in enumerate(case_ids) if index % folds == fold]
         train_ids = [case_id for case_id in case_ids if case_id not in set(test_ids)]
-        weights = _train_logistic_ranker(run_names, runs, train_ids)
+        weights = _train_logistic_ranker(
+            run_names,
+            runs,
+            train_ids,
+            epochs=epochs,
+            learning_rate=learning_rate,
+            l2=l2,
+        )
         for case_id in test_ids:
-            candidates = _candidate_union(run_names, runs, case_id)
-            scored = [
-                (float(np.dot(_rank_features(run_names, runs, case_id, path), weights)), path)
-                for path in candidates
-            ]
-            rankings[case_id] = [path for _, path in sorted(scored, reverse=True)[:10]]
+            rankings[case_id] = _score_meta_case(run_names, runs, case_id, weights)
     return rankings
+
+
+def _train_test_meta_rankings(
+    run_names: list[str],
+    runs: dict[str, dict[str, CaseRanking]],
+    train_ids: list[str],
+    test_ids: list[str],
+    *,
+    epochs: int,
+    learning_rate: float,
+    l2: float,
+) -> dict[str, list[str]]:
+    weights = _train_logistic_ranker(
+        run_names,
+        runs,
+        train_ids,
+        epochs=epochs,
+        learning_rate=learning_rate,
+        l2=l2,
+    )
+    return {case_id: _score_meta_case(run_names, runs, case_id, weights) for case_id in test_ids}
+
+
+def _score_meta_case(
+    run_names: list[str],
+    runs: dict[str, dict[str, CaseRanking]],
+    case_id: str,
+    weights: np.ndarray,
+) -> list[str]:
+    candidates = _candidate_union(run_names, runs, case_id)
+    scored = [
+        (float(np.dot(_rank_features(run_names, runs, case_id, path), weights)), path)
+        for path in candidates
+    ]
+    return [path for _, path in sorted(scored, reverse=True)[:10]]
 
 
 def _train_logistic_ranker(
     run_names: list[str],
     runs: dict[str, dict[str, CaseRanking]],
     train_ids: list[str],
-    epochs: int = 1500,
-    learning_rate: float = 0.08,
-    l2: float = 0.01,
+    epochs: int,
+    learning_rate: float,
+    l2: float,
 ) -> np.ndarray:
     x_rows: list[list[float]] = []
     y_rows: list[float] = []
@@ -238,6 +361,45 @@ def _train_logistic_ranker(
         gradient[0] -= l2 * weights[0]
         weights -= learning_rate * gradient
     return weights
+
+
+def _weighted_rrf_row(
+    name: str,
+    run_names: list[str],
+    runs: dict[str, dict[str, CaseRanking]],
+    split: dict[str, Any],
+    rrf_k: int,
+) -> dict[str, Any]:
+    if not run_names:
+        return {"name": name, "runs": [], "method": "weighted RRF grid", "weights": {}, "metrics": {}}
+    # Keep the grid bounded. Weighted RRF is a cheap baseline, not a neural optimizer.
+    train_ids = split["train"] if split["mode"] == "train_test" else split["test"]
+    test_ids = split["test"]
+    trimmed = run_names[:6]
+    values = [0.0, 0.25, 0.5, 1.0, 2.0]
+    best_weights: dict[str, float] = {}
+    best_metrics: dict[str, float] | None = None
+    best_key: tuple[float, ...] | None = None
+    for weights_tuple in itertools.product(values, repeat=len(trimmed)):
+        if sum(weights_tuple) <= 0.0:
+            continue
+        weights = dict(zip(trimmed, weights_tuple))
+        train_ranking = _rrf_ranking(runs, train_ids, tuple(trimmed), weights, rrf_k)
+        metrics = _metrics(runs, train_ranking, train_ids)
+        key = _metric_sort_key(metrics)
+        if best_key is None or key > best_key:
+            best_key = key
+            best_weights = weights
+            best_metrics = metrics
+    test_ranking = _rrf_ranking(runs, test_ids, tuple(trimmed), best_weights, rrf_k)
+    return {
+        "name": name,
+        "runs": trimmed,
+        "method": "weighted RRF grid over rank positions",
+        "weights": best_weights,
+        "train_metrics": best_metrics or {},
+        "metrics": _metrics(runs, test_ranking, test_ids),
+    }
 
 
 def _rank_features(
