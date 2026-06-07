@@ -353,6 +353,26 @@ Status meanings:
 | Follow-ups | Add diversity constraints to query planning; compare `hybrid` probe search against `hybrid_rerank` probe search; test one final rerank versus no final rerank; add a full Branch A inspector with outline/symbol/rg/read tools after candidate selection. |
 | Links | [E2E answer evaluation](../e2e-answer-eval-2026-06-05.md), `uv run code-diver --help-all evaluate-answers --agentic-queries --agentic-query-search-strategy hybrid --agentic-query-rerank` |
 
+## H8 - Calibrated Reranker Ensemble
+
+| Field | Value |
+| --- | --- |
+| ID | `H8` |
+| Status | active research |
+| Motivation | Test whether several rankers can be combined like hybrid retrieval signals, with a learned meta-ranker deciding when to trust deterministic H6/H7 outputs versus LLM/agentic reranker outputs. |
+| Assumptions | Different rankers make different errors; saved per-candidate rank positions contain enough signal for a small calibrated model to improve top-k quality without reading code bodies or increasing persistent index size. |
+| Index composition | Same H6.1/H5 file-first metadata index. H8 changes only the final ranking layer over candidate file rankings. |
+| Search/ranking flow | H6/H7 candidate rankings and optional LLM/agent rankings -> candidate union -> per-candidate rank features -> calibrated meta-ranker -> final file ranking. |
+| Model/provider matrix | Offline test used saved deterministic H6/H7 rankings plus local Gemma E2B/E4B/12B/26B-A4B agentic rankings. Future tests should swap one reranker axis at a time: Gemini Lite, Qwen3-Reranker, Gemma 26B-A4B. |
+| Dataset | Saved 100-case CodeSearchNet/MTEB Python slice. Labels are single-positive files, so precision@10 is mechanically close to Hit@10 / 10. |
+| Metrics | Best single run `h6`: Hit@1 `0.820`, Hit@3 `0.930`, Hit@5 `0.970`, Hit@10 `0.970`, MRR `0.876`, nDCG `0.900`. Plain RRF did not improve it. 5-fold logistic stacking best row `deterministic_plus_all_agents`: Hit@1 `0.840`, Hit@3 `0.960`, Hit@5 `0.970`, Hit@10 `0.980`, MRR `0.897`, nDCG `0.918`. Oracle best-rank coverage across all saved rankings: Hit@1 `0.940`, Hit@10 `0.990`. |
+| Cost/latency/index-size | Offline analysis has no model-call cost. Live use must not run many LLM agents by default; production H8 should combine cheap deterministic rank signals and at most one optional LLM/cross-encoder signal. |
+| Result summary | The ensemble idea is real, but only with calibration. Equal-weight RRF degraded or matched H6.1. A small supervised meta-ranker found useful complementary signal and improved top-k metrics on the 100-case slice. |
+| Decision | Active research, not default. Promote only after 1,000+ case train/validation/test evaluation with raw candidate features and no same-split tuning. |
+| Failure modes | 100-case overfitting, final-ranking-only features instead of raw score logits, correlated agentic failures, and impractical live cost if multiple LLM rankers are called per user query. |
+| Follow-ups | Add a first-class meta-ranker experiment that stores raw candidate-level H6/H7/LLM rank features; run 700/150/150 split on the 1,000-case benchmark; test Qwen3-Reranker as the cheap second signal. |
+| Links | [reranker ensemble report](../reranker-ensemble-2026-06-07.md), `scripts/analyze_reranker_ensemble.py`, `.code-diver/reports/reranker-ensemble-all-saved-codesearchnet-100.json` |
+
 ## LOCAL-MODEL-AXIS - Three-Axis Local Model Search
 
 | Field | Value |
