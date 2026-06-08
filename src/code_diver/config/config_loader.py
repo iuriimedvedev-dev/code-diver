@@ -332,6 +332,9 @@ class ConfigLoader:
                     base.file_vote_weight if base is not None else Defaults.HYBRID_FILE_VOTE_WEIGHT,
                 )
             ),
+            graph_scope=str(
+                mapping.get("graph_scope", base.graph_scope if base is not None else Defaults.HYBRID_GRAPH_SCOPE)
+            ),
             vector_kind_limits=self._int_mapping(
                 mapping.get(
                     "vector_kind_limits",

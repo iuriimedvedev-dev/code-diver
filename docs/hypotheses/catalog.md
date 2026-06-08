@@ -553,6 +553,26 @@ Status meanings:
 | Follow-ups | Compare oracle gap before and after adding a genuinely different reranker family. |
 | Links | [reranker ensemble report](../reranker-ensemble-2026-06-07.md), `.code-diver/reports/h8-reranker-ensemble-train900-test100-deterministic.json` |
 
+## H8-FILE-GRAPHRAG - File-Level Graph Expansion
+
+| Field | Value |
+| --- | --- |
+| ID | `H8-FILE-GRAPHRAG` |
+| Status | implemented, not promoted |
+| Motivation | Test the intuitive "files are graph nodes" idea: use graph expansion to find related files, then keep code-body inspection separate. |
+| Assumptions | File-to-file relationships can improve candidate recall for workflow and ownership queries without indexing full source bodies. |
+| Index composition | Same H7 compact local file locator: `file_summary` + `file_manifest` with EmbeddingGemma-300M. Graph artifact enables reference edges and projects item-level edges into file->file expansion. |
+| Search/ranking flow | H7 vector/lexical/path/symbol candidates -> project item graph into file graph -> bounded depth-1 file expansion -> assign graph scores to file-level representatives -> hybrid rank. |
+| Model/provider matrix | Local EmbeddingGemma-300M only; no LLM/API rerank. |
+| Dataset | CodeSearchNet/MTEB Python 1,000 local positive slice. |
+| Metrics | H7 baseline Hit@1/3/5/10 `0.857`/`0.957`/`0.980`/`0.987`, nDCG `0.928`, mean `792 ms`. H8 file GraphRAG Hit@1/3/5/10 `0.855`/`0.958`/`0.980`/`0.986`, nDCG `0.927`, mean `796 ms`. |
+| Cost/latency/index-size | Adds graph reference edges and a separate graph artifact; search latency is roughly unchanged on the 1,000-file slice after caching file graph projection. |
+| Result summary | File GraphRAG did not beat H7 on this slice. It slightly improves Hit@3 but slightly hurts Hit@1, Hit@10, precision, and nDCG. |
+| Decision | Keep as a bounded experiment/tool. Do not promote as default ranking until typed real-repo edges show a measurable win. |
+| Failure modes | CodeSearchNet snippets have weak real repository structure; reference edges mostly encode shared terms rather than true dependencies; global graph expansion can add plausible but wrong neighbors. |
+| Follow-ups | Test on real repos with typed edges: imports, routes, service registration, DI wiring, tests-for, and config-declares. Use file graph only after H7 seeds and only for low-confidence/workflow routes. |
+| Links | `configs/benchmarks/codesearchnet-h8-file-graphrag-embeddinggemma-1000.yml`, `src/code_diver/strategies/file_graph_candidate_expander.py` |
+
 ## H9 - Semantic Hard-Case Evidence Layer
 
 | Field | Value |

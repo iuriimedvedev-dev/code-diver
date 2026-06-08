@@ -2,17 +2,6 @@
 
 This document is the plain-language map of what Code Diver is doing, why we test several search strategies, and where the current weak spots are.
 
-## 2026-06-08 Interview Defense Snapshot
-
-If you need one sentence for the interview:
-
-```text
-Code Diver is a code-exploration agent built on a compact local file-locator
-index: it finds likely files with hybrid retrieval, optionally applies a gated
-reranker, then lets the assistant read/grep only the short candidate set to
-answer code questions with evidence.
-```
-
 The current best production hypothesis is **H7 local file locator**:
 
 ```text
@@ -98,6 +87,7 @@ the explanation agent should not have to read ten files for every question.
 | H6.2 MLP weights | Tiny learned model predicts hybrid weights | CodeSearchNet Python validation 300 | Hit@1 `0.843`, Hit@5 `0.957`, Hit@10 `0.980`, MRR `0.894` | Rejected; did not beat static weights |
 | Qwen3-Reranker 0.6B always-on | Local cross-encoder reranks every query | CodeSearchNet Python 100 | Hit@1 dropped `0.810 -> 0.780`, Hit@10 rose `0.970 -> 0.990`, latency `867ms -> 2881ms` | Not default; useful only gated |
 | H7.5L gated cross-encoder | Call Qwen3-Reranker only when H7 top margin is weak | Offline split over 100 saved cases | Oracle gate improved tail cases at `0-5%` call rate | Implemented; pending live sweep |
+| H8 file GraphRAG | Project item graph into file->file expansion, then keep file-level retrieval | CodeSearchNet Python 1000 final run | Hit@1 `0.855`, Hit@3 `0.958`, Hit@5 `0.980`, Hit@10 `0.986`, nDCG `0.927`, mean `796ms` | Implemented, not default; did not beat H7 |
 | Local Gemma/Qwen generative agent rerank | Let local LLM act as search/rerank agent | 100-case slices | Generally lower Hit@1/Hit@10 and much slower than static H7 | Not default; keep for explanation/hard cases |
 | Gemini 3.5 Flash rerank | API quality ceiling | IntelliJ answer-set 1000 historical | Hit@10 `0.976`, high cost | Oracle/upper bound only |
 | SWE-bench code retrieval H7 | Harder public-ish cross-check | SWE-bench 100 | Hit@1 `0.610`, Hit@5 `0.920`, Hit@10 `0.960` | Shows benchmark difficulty matters |
@@ -108,6 +98,45 @@ The important conclusion is not "LLMs are bad at ranking." The conclusion is:
 Always-on generative reranking is not reliable enough to replace a calibrated
 hybrid candidate generator. Specialized rerankers are promising, but must be
 gated and monotonic so they cannot demote confident correct top results.
+```
+
+### File GraphRAG Result
+
+We implemented the natural "files are graph nodes" idea as H8:
+
+```text
+H7 file candidates
+-> project item-level graph edges into file->file edges
+-> expand around seed files with bounded depth/fanout
+-> add graph_score to file_summary/file_manifest representatives
+-> rank with the same hybrid scorer
+```
+
+This uses the graph to find neighboring files. It still keeps the persistent
+index compact and leaves code-body reading to the Search agent or deterministic
+read/grep tools.
+
+First 1000-case result:
+
+| Setup | Hit@1 | Hit@3 | Hit@5 | Hit@10 | nDCG@10 | Mean ms |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| H7 local file locator | 0.857 | 0.957 | 0.980 | 0.987 | 0.928 | 792 |
+| H8 file GraphRAG | 0.855 | 0.958 | 0.980 | 0.986 | 0.927 | 796 |
+
+Conclusion: file GraphRAG is implemented and cheap enough on this slice, but it
+does **not** beat H7 yet. It slightly improves Hit@3 by `+0.001`, while
+slightly hurting Hit@1, Hit@10, precision, and nDCG. The likely reason is that
+CodeSearchNet snippet files have weak real repository structure; reference
+edges mostly capture shared terms rather than meaningful ownership/dependency
+relations.
+
+The idea is still worth keeping for real repositories, especially with typed
+edges such as imports, service registration, routes, dependency injection,
+tests-for, and config-declares. But the production policy stays:
+
+```text
+Use H7 as default.
+Use file GraphRAG as a bounded experiment/tool, not as global default ranking.
 ```
 
 ### Metric Glossary

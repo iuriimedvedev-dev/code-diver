@@ -93,6 +93,7 @@ hybrid_search:
   symbol_match_weight: 0.08
   graph_weight: 0.09
   file_vote_weight: 0.04
+  graph_scope: file
   vector_kind_limits:
     chunk: 20
     symbol: 10
@@ -269,6 +270,7 @@ plugins:
     assert config.hybrid_search.symbol_match_weight == 0.08
     assert config.hybrid_search.graph_weight == 0.09
     assert config.hybrid_search.file_vote_weight == 0.04
+    assert config.hybrid_search.graph_scope == "file"
     assert config.hybrid_search.vector_kind_limits == {"chunk": 20, "symbol": 10}
     assert config.hybrid_search.vector_kind_multipliers == {"file_summary": 0.25}
     assert config.hybrid_search.graph_depth == 2

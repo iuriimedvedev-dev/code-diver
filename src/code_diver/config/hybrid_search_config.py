@@ -16,6 +16,7 @@ class HybridSearchConfig:
     symbol_match_weight: float = Defaults.HYBRID_SYMBOL_MATCH_WEIGHT
     graph_weight: float = Defaults.HYBRID_GRAPH_WEIGHT
     file_vote_weight: float = Defaults.HYBRID_FILE_VOTE_WEIGHT
+    graph_scope: str = Defaults.HYBRID_GRAPH_SCOPE
     vector_kind_limits: dict[str, int] = field(default_factory=lambda: dict(Defaults.HYBRID_VECTOR_KIND_LIMITS))
     vector_kind_multipliers: dict[str, float] = field(
         default_factory=lambda: dict(Defaults.HYBRID_VECTOR_KIND_MULTIPLIERS)

@@ -11,6 +11,7 @@ from .graph_candidate_expander import GraphCandidateExpander
 from .graph_expansion_profile import GraphExpansionProfile
 from .graph_expansion_profile_factory import GraphExpansionProfileFactory
 from .graph_neighbor_index import GraphNeighborIndex
+from .file_graph_candidate_expander import FileGraphCandidateExpander
 from .hybrid_candidate_score import HybridCandidateScore
 from .hybrid_candidate_scorer import HybridCandidateScorer
 from .hybrid_item_profile import HybridItemProfile
@@ -30,6 +31,7 @@ _SHARED_CACHE_LOCK = RLock()
 _SHARED_GRAPHS: dict[str, CodeGraph | None] = {}
 _SHARED_LEXICAL_INDEXES: dict[str, tuple[HybridLexicalIndex, dict[str, HybridItemProfile]]] = {}
 _SHARED_NEIGHBOR_INDEXES: dict[str, GraphNeighborIndex] = {}
+_SHARED_FILE_GRAPH_EXPANDERS: dict[str, FileGraphCandidateExpander] = {}
 
 
 class HybridRetrievalStrategy(RetrievalStrategy):
@@ -53,6 +55,7 @@ class HybridRetrievalStrategy(RetrievalStrategy):
         self._lexical_index: HybridLexicalIndex | None = None
         self._graph: CodeGraph | None = None
         self._neighbor_index: GraphNeighborIndex | None = None
+        self._file_graph_expander: FileGraphCandidateExpander | None = None
         self._cache_lock = RLock()
 
     def search(self, query: str, limit: int) -> list[SearchResult]:
@@ -108,7 +111,7 @@ class HybridRetrievalStrategy(RetrievalStrategy):
             depth=active_config.graph_depth,
             neighbor_limit=active_config.graph_neighbor_limit,
         )
-        graph_scores = self._graph_scores(vector_results, graph_profile)
+        graph_scores = self._graph_scores(vector_results, graph, graph_profile, active_config)
         for item_id, graph_score in graph_scores.items():
             item = graph.items.get(item_id)
             if item is None:
@@ -181,10 +184,30 @@ class HybridRetrievalStrategy(RetrievalStrategy):
     def _graph_scores(
         self,
         vector_results: list[SearchResult],
+        graph: CodeGraph,
         profile: GraphExpansionProfile,
+        config: HybridSearchConfig,
     ) -> dict[str, float]:
         seed_scores = self._normalize({result.item.id: result.score for result in vector_results})
+        if config.graph_scope == "file":
+            return self._normalize(self._file_expander(graph).expand(seed_scores, profile))
         return self._normalize(GraphCandidateExpander(self._neighbors()).expand(seed_scores, profile))
+
+    def _file_expander(self, graph: CodeGraph) -> FileGraphCandidateExpander:
+        if self._file_graph_expander is None:
+            with self._cache_lock:
+                if self._file_graph_expander is None:
+                    key = self._cache_key()
+                    if key:
+                        with _SHARED_CACHE_LOCK:
+                            cached = _SHARED_FILE_GRAPH_EXPANDERS.get(key)
+                            if cached is None:
+                                cached = FileGraphCandidateExpander(graph)
+                                _SHARED_FILE_GRAPH_EXPANDERS[key] = cached
+                        self._file_graph_expander = cached
+                    else:
+                        self._file_graph_expander = FileGraphCandidateExpander(graph)
+        return self._file_graph_expander
 
     def _load_lexical_index(self, graph: CodeGraph) -> HybridLexicalIndex:
         if self._lexical_index is None:
@@ -446,6 +469,7 @@ class HybridRetrievalStrategy(RetrievalStrategy):
                     "symbol_match": config.symbol_match_weight,
                     "graph": config.graph_weight,
                     "file_vote": config.file_vote_weight,
+                    "graph_scope": config.graph_scope,
                 },
                 "candidates": self._trace_candidates(scores, vector_results, final_results, config),
             },

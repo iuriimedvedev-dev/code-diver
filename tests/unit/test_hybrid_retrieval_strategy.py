@@ -101,6 +101,63 @@ def test_hybrid_strategy_adds_graph_neighbors(tmp_path: Path) -> None:
     assert [result.item.path for result in results] == ["src/commands.py", "src/strategies.py"]
 
 
+def test_hybrid_strategy_can_expand_graph_by_file(tmp_path: Path) -> None:
+    api_summary = CodeItem(
+        id="api-summary",
+        path="src/api.py",
+        title="src/api.py",
+        content="user api endpoint",
+        metadata={"index_kind": "file_summary"},
+    )
+    api_symbol = CodeItem(
+        id="api-symbol",
+        path="src/api.py",
+        title="src/api.py::create_user",
+        content="create user calls service",
+        metadata={"index_kind": "symbol", "symbol": "create_user"},
+    )
+    service_summary = CodeItem(
+        id="service-summary",
+        path="src/service.py",
+        title="src/service.py",
+        content="user service implementation",
+        metadata={"index_kind": "file_summary"},
+    )
+    service_symbol = CodeItem(
+        id="service-symbol",
+        path="src/service.py",
+        title="src/service.py::save_user",
+        content="save user",
+        metadata={"index_kind": "symbol", "symbol": "save_user"},
+    )
+    graph_store = _graph_store(
+        tmp_path,
+        [api_summary, api_symbol, service_summary, service_symbol],
+        [GraphEdge(source=api_symbol.id, target=service_symbol.id, kind="calls", weight=0.9)],
+    )
+    strategy = HybridRetrievalStrategy(
+        FakeRetrievalStrategy([SearchResult(api_summary, 0.9)]),
+        graph_store,
+        HybridSearchConfig(
+            candidate_limit=5,
+            lexical_candidate_limit=5,
+            vector_weight=0.4,
+            lexical_weight=0.0,
+            path_weight=0.0,
+            symbol_weight=0.0,
+            graph_weight=0.6,
+            graph_depth=1,
+            graph_neighbor_limit=5,
+            graph_scope="file",
+            preserve_vector_top=False,
+        ),
+    )
+
+    results = strategy.search("where does the api save user", limit=2)
+
+    assert [result.item.path for result in results] == ["src/api.py", "src/service.py"]
+
+
 def test_hybrid_strategy_applies_routed_graph_depth(tmp_path: Path) -> None:
     seed_item = CodeItem(
         id="src/commands.py#1",
