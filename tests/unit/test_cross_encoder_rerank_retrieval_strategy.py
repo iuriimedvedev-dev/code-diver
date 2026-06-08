@@ -9,7 +9,9 @@ from code_diver.config.cross_encoder_rerank_config import CrossEncoderRerankConf
 from code_diver.config.trace_config import TraceConfig
 from code_diver.domain import CodeItem, SearchResult
 from code_diver.reranking import RerankScore
-from code_diver.strategies.cross_encoder_rerank_retrieval_strategy import CrossEncoderRerankRetrievalStrategy
+from code_diver.strategies.cross_encoder_rerank_retrieval_strategy import (
+    CrossEncoderRerankRetrievalStrategy,
+)
 from code_diver.tracing import TraceLogger
 
 
@@ -39,14 +41,26 @@ class FakeRerankProvider:
         return self.scores
 
 
-def test_cross_encoder_rerank_reorders_candidates_and_logs_documents(tmp_path: Path) -> None:
+def test_cross_encoder_rerank_reorders_candidates_and_logs_documents(
+    tmp_path: Path,
+) -> None:
     trace_path = tmp_path / "trace.jsonl"
-    provider = FakeRerankProvider([RerankScore(index=2, score=0.99), RerankScore(index=0, score=0.5)])
+    provider = FakeRerankProvider(
+        [RerankScore(index=2, score=0.99), RerankScore(index=0, score=0.5)]
+    )
     strategy = CrossEncoderRerankRetrievalStrategy(
-        FakeStrategy([_result("a", "src/a.py", 0.9), _result("b", "src/b.py", 0.8), _result("c", "src/c.py", 0.7)]),
+        FakeStrategy(
+            [
+                _result("a", "src/a.py", 0.9),
+                _result("b", "src/b.py", 0.8),
+                _result("c", "src/c.py", 0.7),
+            ]
+        ),
         provider,
         CrossEncoderRerankConfig(candidate_limit=3, max_document_chars=40),
-        trace_logger=TraceLogger(TraceConfig(enabled=True, artifact=trace_path, include_prompts=True)),
+        trace_logger=TraceLogger(
+            TraceConfig(enabled=True, artifact=trace_path, include_prompts=True)
+        ),
     )
 
     reranked = strategy.search("where is auth handled", 2)
@@ -54,7 +68,9 @@ def test_cross_encoder_rerank_reorders_candidates_and_logs_documents(tmp_path: P
     assert [result.item.path for result in reranked] == ["src/c.py", "src/a.py"]
     assert provider.calls[0][2] == 2
     assert "path: src/a.py" in provider.calls[0][1][0]
-    records = [json.loads(line) for line in trace_path.read_text(encoding="utf-8").splitlines()]
+    records = [
+        json.loads(line) for line in trace_path.read_text(encoding="utf-8").splitlines()
+    ]
     assert [record["event"] for record in records] == [
         "cross_encoder_rerank_request",
         "cross_encoder_rerank_response",
@@ -65,7 +81,9 @@ def test_cross_encoder_rerank_reorders_candidates_and_logs_documents(tmp_path: P
 
 def test_cross_encoder_rerank_falls_back_to_base_order_on_error() -> None:
     class FailingProvider(FakeRerankProvider):
-        def rerank(self, query: str, documents: list[str], top_n: int) -> list[RerankScore]:
+        def rerank(
+            self, query: str, documents: list[str], top_n: int
+        ) -> list[RerankScore]:
             raise RuntimeError("rerank down")
 
     results = [_result("a", "src/a.py", 0.9), _result("b", "src/b.py", 0.8)]
@@ -96,11 +114,46 @@ def test_cross_encoder_rerank_limits_documents_without_discarding_tail() -> None
 
     assert len(provider.calls[0][1]) == 2
     assert provider.calls[0][2] == 2
-    assert [result.item.path for result in reranked] == ["src/b.py", "src/a.py", "src/c.py", "src/d.py"]
+    assert [result.item.path for result in reranked] == [
+        "src/b.py",
+        "src/a.py",
+        "src/c.py",
+        "src/d.py",
+    ]
+
+
+def test_cross_encoder_rerank_preserves_confident_top_candidate() -> None:
+    results = [
+        _result("a", "src/a.py", 0.95),
+        _result("b", "src/b.py", 0.80),
+        _result("c", "src/c.py", 0.70),
+    ]
+    provider = FakeRerankProvider(
+        [RerankScore(index=1, score=0.99), RerankScore(index=0, score=0.2)]
+    )
+    strategy = CrossEncoderRerankRetrievalStrategy(
+        FakeStrategy(results),
+        provider,
+        CrossEncoderRerankConfig(
+            candidate_limit=3,
+            preserve_top_candidate=True,
+            preserve_top_score_margin=0.1,
+        ),
+    )
+
+    reranked = strategy.search("query", 3)
+
+    assert [result.item.path for result in reranked] == [
+        "src/a.py",
+        "src/b.py",
+        "src/c.py",
+    ]
 
 
 def _result(item_id: str, path: str, score: float) -> SearchResult:
     return SearchResult(
-        item=CodeItem(id=item_id, path=path, title=path, content=f"{path} handles auth commands"),
+        item=CodeItem(
+            id=item_id, path=path, title=path, content=f"{path} handles auth commands"
+        ),
         score=score,
     )

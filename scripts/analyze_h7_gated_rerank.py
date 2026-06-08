@@ -36,6 +36,11 @@ def main() -> int:
     parser.add_argument("--rerank-mean-ms", type=float)
     parser.add_argument("--rerank-cost-per-call-usd", type=float, default=0.0)
     parser.add_argument("--rerank-tokens-per-call", type=float, default=0.0)
+    parser.add_argument(
+        "--rerank-preserve-top-margin",
+        type=float,
+        help="Simulate preserving the base top-1 when the base score margin is at least this value.",
+    )
     parser.add_argument("--train-size", type=int, default=700)
     parser.add_argument("--validation-size", type=int, default=150)
     parser.add_argument("--test-size", type=int, default=150)
@@ -49,6 +54,7 @@ def main() -> int:
         args.trace,
         base_strategy=args.base_strategy,
         rerank_strategy=args.rerank_strategy,
+        rerank_preserve_top_margin=args.rerank_preserve_top_margin,
     )
     random.Random(args.seed).shuffle(rows)
     train = rows[: args.train_size]
@@ -157,6 +163,7 @@ def main() -> int:
         "base_strategy": args.base_strategy,
         "rerank_strategy": args.rerank_strategy,
         "reranker_name": args.reranker_name,
+        "rerank_preserve_top_margin": args.rerank_preserve_top_margin,
         "trace": str(args.trace),
         "split": {
             "seed": args.seed,
@@ -193,6 +200,7 @@ def _load_rows(
     *,
     base_strategy: str | None,
     rerank_strategy: str | None,
+    rerank_preserve_top_margin: float | None,
 ) -> list[CaseRow]:
     base_rows = {
         str(row["case_id"]): row
@@ -210,17 +218,41 @@ def _load_rows(
         trace_features = features.get(query)
         if rerank is None or trace_features is None:
             continue
+        base_ranking = [str(path) for path in base.get("retrieved_files") or []]
+        rerank_ranking = [str(path) for path in rerank.get("retrieved_files") or []]
+        if rerank_preserve_top_margin is not None:
+            rerank_ranking = _preserve_top_when_confident(
+                base_ranking,
+                rerank_ranking,
+                margin=float(trace_features.get("margin") or 0.0),
+                threshold=rerank_preserve_top_margin,
+            )
         rows.append(
             CaseRow(
                 case_id=str(base["case_id"]),
                 query=query,
                 expected=set(base.get("expected") or []),
-                base=[str(path) for path in base.get("retrieved_files") or []],
-                rerank=[str(path) for path in rerank.get("retrieved_files") or []],
+                base=base_ranking,
+                rerank=rerank_ranking,
                 features=trace_features,
             )
         )
     return sorted(rows, key=lambda row: row.case_id)
+
+
+def _preserve_top_when_confident(
+    base_ranking: list[str],
+    rerank_ranking: list[str],
+    *,
+    margin: float,
+    threshold: float,
+) -> list[str]:
+    if not base_ranking or not rerank_ranking or margin < threshold:
+        return rerank_ranking
+    top = base_ranking[0]
+    if rerank_ranking[0] == top:
+        return rerank_ranking
+    return [top, *[path for path in rerank_ranking if path != top]]
 
 
 def _read_json(path: Path) -> dict[str, Any]:
