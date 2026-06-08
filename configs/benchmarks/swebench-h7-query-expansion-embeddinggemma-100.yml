@@ -1,0 +1,103 @@
+root: .code-diver/benchmarks/mteb-swebench-code-retrieval-100/corpus
+artifact: .code-diver/benchmarks/mteb-swebench-code-retrieval-100/index-h6-embeddinggemma-100.json
+
+storage:
+  provider: json
+
+embedding:
+  provider: sentence_transformers
+  model: google/embeddinggemma-300m
+  dimensions: 768
+  batch_size: 96
+  workers: 1
+  max_input_chars: 1200
+  query_prefix: "task: code retrieval | query: "
+  document_prefix: "title: none | text: "
+
+indexing:
+  mode: scanner
+
+scanner:
+  include:
+    - "**/*.py"
+  max_file_bytes: 200000
+  line_chunks: false
+  chunk_lines: 220
+  structural_chunks: false
+  symbol_chunks: false
+  symbol_body: false
+  file_summary_chunks: true
+  file_manifest_chunks: true
+  max_symbols_per_file: 96
+
+search:
+  limit: 10
+  preview_lines: 8
+  strategy: hybrid
+
+hybrid_search:
+  candidate_limit: 280
+  lexical_candidate_limit: 900
+  vector_weight: 0.5625
+  lexical_weight: 0.1875
+  path_weight: 0.08333333333333334
+  symbol_weight: 0.04166666666666667
+  symbol_match_weight: 0.04166666666666667
+  graph_weight: 0.08333333333333334
+  file_vote_weight: 0.0
+  graph_depth: 0
+  graph_neighbor_limit: 0
+  vector_kind_limits:
+    file_summary: 170
+    file_manifest: 170
+  vector_kind_multipliers:
+    file_summary: 1.0
+    file_manifest: 1.08
+  routing_enabled: true
+  lexical_scoring: bm25
+  fusion: weighted
+  preserve_vector_top: true
+  vector_top_score_margin: 0.03
+  item_kind_weights:
+    file_summary: 1.0
+    file_manifest: 1.08
+  min_token_length: 3
+  query_expansion_enabled: true
+  query_expansion_aliases:
+    auth: [authorization, authenticate, authentication, token, permission]
+    authorization: [auth, authenticate, authentication, token, permission]
+    db: [database, sql, query, session]
+    database: [db, sql, query, session]
+    http: [url, uri, request, response, api]
+    url: [uri, http, request, api]
+    command: [cmd, handler, execute, run]
+    handler: [handle, command, dispatch]
+    init: [initialize, setup, create]
+    delete: [del, remove, drop]
+    remove: [delete, del, drop]
+    file: [path, read, write, upload, download]
+    stream: [download, upload, read, write]
+
+graph:
+  enabled: true
+  artifact: .code-diver/benchmarks/mteb-swebench-code-retrieval-100/graph-h6-embeddinggemma-100.json
+  ast_enabled: false
+  reference_edges_enabled: false
+  call_edges_enabled: false
+  expansion_depth: 0
+  neighbor_limit: 0
+
+trace:
+  enabled: true
+  artifact: .code-diver/traces/swebench-h7-query-expansion-embeddinggemma-100.jsonl
+  include_prompts: false
+
+evaluation:
+  dataset: .code-diver/benchmarks/mteb-swebench-code-retrieval-100/swebench_code_retrieval_100.jsonl
+  limit: 10
+  workers: 1
+
+metrics:
+  enabled: false
+
+plugins: []
