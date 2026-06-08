@@ -168,11 +168,11 @@ class GraphFileRetrievalStrategy(RetrievalStrategy):
 
     def _representative_rank(self, item: CodeItem) -> int:
         index_kind = str(item.metadata.get("index_kind") or "")
-        if index_kind == "file_manifest":
+        if index_kind == "file_summary":
             return 0
         if index_kind == "file_api_manifest":
             return 1
-        if index_kind == "file_summary":
+        if index_kind == "file_manifest":
             return 2
         return 3
 

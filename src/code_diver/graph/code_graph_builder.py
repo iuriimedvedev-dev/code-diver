@@ -17,6 +17,10 @@ IDENTIFIER_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 REFERENCE_EDGE_FACTOR = 5
 REFERENCE_EDGES_PER_SOURCE = 3
 REFERENCE_TOKEN_LIMIT = 256
+NON_SYMBOL_INDEX_KINDS = {
+    CodeItemIndexKind.FILE_SUMMARY,
+    CodeItemIndexKind.FILE_MANIFEST,
+}
 
 
 class CodeGraphBuilder:
@@ -167,6 +171,8 @@ class CodeGraphBuilder:
         metadata_symbol = item.metadata.get("symbol") if isinstance(item.metadata, dict) else None
         if metadata_symbol:
             return str(metadata_symbol).split(".")[-1]
+        if self.index_kind_resolver.resolve(item) in NON_SYMBOL_INDEX_KINDS:
+            return ""
         if "::" in item.title:
             return item.title.rsplit("::", 1)[-1].split(".")[-1]
         return ""

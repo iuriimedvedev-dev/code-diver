@@ -13,6 +13,12 @@ Status meanings:
 | rejected | Do not use as the default without new evidence. |
 | invalid | Saved run should not be used for quality selection. |
 
+## Latest Active GraphRAG Check
+
+| ID | Status | Decision | Evidence |
+| --- | --- | --- | --- |
+| `H10` | active, not default | Graph-first file retrieval is viable after fixing false reference hubs and summary evidence selection, but it is not promoted over calibrated hybrid yet because the 100-case CodeSearchNet slice only shows a small quality gain with higher latency. | See [H10 - Graph-First FileRAG](h10-graph-file-rag.md). |
+
 ## BASE-VECTOR - Vector / Line-Chunk Retrieval
 
 | Field | Value |

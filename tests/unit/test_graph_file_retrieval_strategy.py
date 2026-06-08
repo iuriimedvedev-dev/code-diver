@@ -98,6 +98,33 @@ def test_graph_file_strategy_uses_lexical_seed_without_vector_hit(tmp_path: Path
     assert [result.item.path for result in results] == ["src/auth/token.py"]
 
 
+def test_graph_file_strategy_prefers_file_summary_as_rerank_evidence(tmp_path: Path) -> None:
+    summary = CodeItem(
+        id="summary",
+        path="src/users/service.py",
+        title="src/users/service.py::file_summary",
+        content="file: src/users/service.py\nhead:\n- def update_user():\n-     validate_user()",
+        metadata={"index_kind": "file_summary"},
+    )
+    manifest = CodeItem(
+        id="manifest",
+        path="src/users/service.py",
+        title="src/users/service.py::file_manifest",
+        content="file: src/users/service.py\nsymbols:\n- function update_user",
+        metadata={"index_kind": "file_manifest"},
+    )
+    store = _graph_store(tmp_path, [summary, manifest], [])
+    strategy = GraphFileRetrievalStrategy(
+        FakeRetrievalStrategy([SearchResult(manifest, 0.9)]),
+        store,
+        GraphFileSearchConfig(seed_limit=5, lexical_seed_limit=5),
+    )
+
+    results = strategy.search("where do we update user?", limit=1)
+
+    assert results[0].item.id == "summary"
+
+
 def _graph_store(tmp_path: Path, items: list[CodeItem], edges: list[GraphEdge]) -> CodeGraphStore:
     store = CodeGraphStore(tmp_path / "graph.json")
     store.save(CodeGraph(items={item.id: item for item in items}, edges=edges))

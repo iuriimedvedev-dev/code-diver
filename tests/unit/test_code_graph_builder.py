@@ -147,6 +147,27 @@ def test_code_graph_builder_links_file_summary_to_file_items(tmp_path: Path) -> 
     )
 
 
+def test_code_graph_builder_does_not_treat_file_metadata_kinds_as_symbols(tmp_path: Path) -> None:
+    source = CodeItem(
+        "source",
+        "source.py",
+        "source.py::file_summary",
+        "file: source.py\nsymbols:\n- function run",
+        metadata={"index_kind": "file_summary"},
+    )
+    target = CodeItem(
+        "target",
+        "target.py",
+        "target.py::file_summary",
+        "file: target.py\nsymbols:\n- function save",
+        metadata={"index_kind": "file_summary"},
+    )
+
+    graph = CodeGraphBuilder(ast_enabled=False).build(tmp_path, [source, target])
+
+    assert not any(edge.kind == EdgeKind.REFERENCES.value for edge in graph.edges)
+
+
 def test_code_graph_builder_limits_reference_edges_per_source(tmp_path: Path) -> None:
     source = CodeItem(
         "source",
