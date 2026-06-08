@@ -37,7 +37,7 @@ def test_pi_runner_tries_fallback_models(monkeypatch) -> None:
 
 
 def test_pi_runner_writes_json_mode_log(monkeypatch, tmp_path: Path) -> None:
-    config = AppConfig(root=Path("/repo"), pi=PiConfig(binary="pi", model="google/gemini-3.5-flash"))
+    config = AppConfig(root=Path("/repo"), pi=PiConfig(binary="pi", provider="google", model="google/gemini-3.5-flash"))
     commands: list[list[str]] = []
 
     def fake_run(

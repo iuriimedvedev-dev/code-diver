@@ -27,7 +27,7 @@ class GeminiGenerationProvider:
         except ImportError as exc:  # pragma: no cover - depends on environment
             raise RuntimeError("Install dependencies with `uv sync` before using Gemini generation.") from exc
 
-        self.name = Defaults.GENERATION_PROVIDER
+        self.name = "gemini"
         self.model = model
         self.fallback_models = fallback_models or []
         self.temperature = temperature

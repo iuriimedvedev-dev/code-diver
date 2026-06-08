@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import subprocess
 from pathlib import Path
 
 from ..config import AppConfig
@@ -65,7 +67,40 @@ class PiCommandBuilder:
         if hypothesis:
             env["CODE_DIVER_HYPOTHESIS"] = hypothesis
         env.update(config.pi.env)
+        self._add_vertex_env(config, env)
         return env
+
+    def _add_vertex_env(self, config: AppConfig, env: dict[str, str]) -> None:
+        if config.pi.provider != "google-vertex":
+            return
+        env.setdefault(
+            EnvironmentVariable.GOOGLE_CLOUD_LOCATION.value,
+            os.environ.get(EnvironmentVariable.GOOGLE_CLOUD_LOCATION.value) or Defaults.VERTEX_LOCATION,
+        )
+        project_key = EnvironmentVariable.GOOGLE_CLOUD_PROJECT.value
+        if env.get(project_key):
+            return
+        project = os.environ.get(project_key) or self._gcloud_project()
+        if project:
+            env[project_key] = project
+
+    def _gcloud_project(self) -> str | None:
+        try:
+            result = subprocess.run(
+                ["gcloud", "config", "get-value", "project"],
+                capture_output=True,
+                text=True,
+                timeout=2,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return None
+        if result.returncode != 0:
+            return None
+        project = result.stdout.strip()
+        if not project or project == "(unset)":
+            return None
+        return project
 
     def _tools(self, config: AppConfig, toolset: str | None, hypothesis: str | None) -> list[str]:
         pi_config = config.pi

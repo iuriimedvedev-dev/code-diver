@@ -6,23 +6,28 @@
 
 ```bash
 uv sync
-export GEMINI_API_KEY="..."
+gcloud auth application-default login
+gcloud config set project <your-gcp-project>
 uv run code-diver init --platform apple-metal --embedding embeddinggemma-300m --yes --start
 ```
 
 The default quality profile is H6.1: local EmbeddingGemma-300M file-metadata
-embeddings plus calibrated hybrid retrieval and Gemini 3.1 Flash Lite reranking.
+embeddings plus calibrated hybrid retrieval and Vertex AI Gemini 3.1 Flash Lite reranking.
 The fast local fallback is the same H6.1 hybrid locator without LLM rerank.
-For the Gemini side, provide one of:
-
-```bash
-export GEMINI_API_KEY="..."
-```
-
-or Google ADC credentials:
+For the Gemini side, the default is Vertex AI through Google Application Default
+Credentials:
 
 ```bash
 gcloud auth application-default login
+gcloud config set project <your-gcp-project>
+```
+
+Set `GOOGLE_CLOUD_LOCATION` only when you need a non-default Vertex location; Code
+Diver defaults to `global`. To use the standalone Gemini Developer API instead,
+override `generation.provider: gemini` and set:
+
+```bash
+export GEMINI_API_KEY="..."
 ```
 
 Secrets can live in `.env`; the CLI loads it before creating providers. `.env` is ignored by git. Advanced research commands, visible with `--help-all`, can still integrate optional orchestration backends.
@@ -60,7 +65,8 @@ The public CLI intentionally exposes the assignment surface: `index`, `search`, 
 
 ```bash
 uv sync
-export GEMINI_API_KEY="..."
+gcloud auth application-default login
+gcloud config set project <your-gcp-project>
 uv run code-diver init --platform apple-metal --embedding embeddinggemma-300m --yes --start
 uv run code-diver index .
 uv run code-diver search "how does indexing work?"
@@ -133,9 +139,9 @@ uv run code-diver evaluate \
 
 This benchmark profile uses the EmbeddingGemma-backed H6.1 quality config. Run
 `uv run code-diver init --platform apple-metal --embedding embeddinggemma-300m --yes --start`
-first for the default local embedding setup and set `GEMINI_API_KEY` or Google
-ADC credentials for Gemini Lite reranking. For a no-key smoke check only, use
-`--benchmark codesearchnet-mteb-python-hash-smoke`.
+first for the default local embedding setup and authenticate with Google ADC for
+Vertex AI Gemini Lite reranking. For a no-key smoke check only, use `--benchmark
+codesearchnet-mteb-python-hash-smoke`.
 
 Without `--yes`, the CLI asks before downloading missing benchmark assets.
 
@@ -259,7 +265,8 @@ The default indexing profile is file-first. It stores compact `file_summary` and
 For model-orchestrated indexing, use `indexing.mode: orchestrated`. The generation model sees repository structure, file names, aggregate stats, config constraints, and index metadata. It does not receive source code contents. Local scanners still build the final trusted index items.
 
 ```bash
-export GEMINI_API_KEY="..."
+gcloud auth application-default login
+gcloud config set project <your-gcp-project>
 uv run code-diver --config configs/protogen-ai.yml index
 uv run code-diver --config configs/protogen-ai.yml experiment
 ```
@@ -270,8 +277,9 @@ Provider selection is config-driven:
 
 ```yaml
 generation:
-  provider: gemini # or openai
+  provider: vertex # or gemini/openai/openai_compatible
   model: gemini-3.1-flash-lite
+  location: global
   timeout_ms: 30000
 
 embedding:
@@ -283,7 +291,10 @@ embedding:
   max_input_chars: 400
 ```
 
-For OpenAI, set `OPENAI_API_KEY` and use `generation.provider: openai` plus `embedding.provider: openai`. Defaults are `gpt-5.1` and `text-embedding-3-large`.
+For standalone Gemini API, set `GEMINI_API_KEY` and use `generation.provider:
+gemini`. For OpenAI, set `OPENAI_API_KEY` and use `generation.provider: openai`
+plus `embedding.provider: openai`. Defaults are `gpt-5.1` and
+`text-embedding-3-large`.
 
 Gemini Embedding 2 is not wire-compatible with `gemini-embedding-001`: existing Gemini embedding artifacts must be rebuilt after switching models.
 
@@ -493,10 +504,10 @@ pi:
     - pi
   extension: .pi/extensions/code-diver-rag.ts
   prompt_template: .pi/prompts/code-diver-rag.md
-  provider: google
-  model: google/gemini-3.1-flash-lite
+  provider: google-vertex
+  model: gemini-3.1-flash-lite
   fallback_models:
-    - google/gemini-2.5-flash
+    - gemini-2.5-flash
   session_dir: .code-diver/pi-sessions
   env:
     PI_SKIP_VERSION_CHECK: "1"

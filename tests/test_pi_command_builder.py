@@ -109,6 +109,37 @@ def test_pi_command_builder_exports_qdrant_collection() -> None:
     assert env["PI_SKIP_VERSION_CHECK"] == "1"
 
 
+def test_pi_command_builder_adds_vertex_adc_environment(monkeypatch) -> None:
+    config = AppConfig(
+        root=Path("/repo"),
+        pi=PiConfig(provider="google-vertex", env={}),
+    )
+    monkeypatch.delenv("GOOGLE_CLOUD_PROJECT", raising=False)
+    monkeypatch.delenv("GOOGLE_CLOUD_LOCATION", raising=False)
+    monkeypatch.setattr(PiCommandBuilder, "_gcloud_project", lambda self: "project-from-gcloud")
+
+    env = PiCommandBuilder().env(config, Path("code-diver.yml"))
+
+    assert env["GOOGLE_CLOUD_PROJECT"] == "project-from-gcloud"
+    assert env["GOOGLE_CLOUD_LOCATION"] == "global"
+
+
+def test_pi_command_builder_keeps_explicit_vertex_environment(monkeypatch) -> None:
+    config = AppConfig(
+        root=Path("/repo"),
+        pi=PiConfig(
+            provider="google-vertex",
+            env={"GOOGLE_CLOUD_PROJECT": "project-from-config", "GOOGLE_CLOUD_LOCATION": "europe-west4"},
+        ),
+    )
+    monkeypatch.setattr(PiCommandBuilder, "_gcloud_project", lambda self: "project-from-gcloud")
+
+    env = PiCommandBuilder().env(config, Path("code-diver.yml"))
+
+    assert env["GOOGLE_CLOUD_PROJECT"] == "project-from-config"
+    assert env["GOOGLE_CLOUD_LOCATION"] == "europe-west4"
+
+
 def test_pi_command_builder_adds_project_scoped_session_options() -> None:
     config = AppConfig(
         root=Path("/repo"),

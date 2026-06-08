@@ -22,7 +22,7 @@ embedding:
   document_prefix: "Represent this code file metadata for retrieval: "
 
 generation:
-  provider: gemini
+  provider: vertex
   model: gemini-3.1-flash-lite
   fallback_models: []
   temperature: 0
@@ -41,10 +41,10 @@ pi:
     - pi
   extension: .pi/extensions/code-diver-rag.ts
   prompt_template: .pi/prompts/code-diver-rag.md
-  provider: google
-  model: google/gemini-3.1-flash-lite
+  provider: google-vertex
+  model: gemini-3.1-flash-lite
   fallback_models:
-    - google/gemini-2.5-flash
+    - gemini-2.5-flash
   timeout_seconds: 180
   session_dir: .code-diver/pi-sessions
   tools:

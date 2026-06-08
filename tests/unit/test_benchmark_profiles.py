@@ -328,7 +328,7 @@ def test_builtin_h5_profile_sets_manifest_hybrid_rerank_defaults() -> None:
     assert config.hybrid_search.graph_weight == 0.08333333333333334
     assert config.llm_rerank.rerank_limit == 10
     assert config.llm_rerank.mode == "precision"
-    assert config.generation.provider == "gemini"
+    assert config.generation.provider == "vertex"
     assert config.generation.model == "gemini-3.1-flash-lite"
 
 

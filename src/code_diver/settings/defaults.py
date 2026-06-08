@@ -40,12 +40,12 @@ class Defaults:
     PI_LAUNCHER_ARGS = ["exec", "--", "pi"]
     PI_EXTENSION = Path(".pi/extensions/code-diver-rag.ts")
     PI_PROMPT_TEMPLATE = Path(".pi/prompts/code-diver-rag.md")
-    PI_PROVIDER = "google"
-    PI_MODEL = "google/gemini-3.1-flash-lite"
+    PI_PROVIDER = "google-vertex"
+    PI_MODEL = "gemini-3.1-flash-lite"
     PI_TIMEOUT_SECONDS = 180
     PI_SESSION_DIR = Path(".code-diver/pi-sessions")
 
-    GENERATION_PROVIDER = "gemini"
+    GENERATION_PROVIDER = "vertex"
     GENERATION_MODEL = "gemini-3.1-flash-lite"
     GENERATION_FALLBACK_MODELS = ["gemini-2.5-flash"]
     GENERATION_TEMPERATURE = 0.0

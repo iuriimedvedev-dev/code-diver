@@ -11,7 +11,7 @@ from .vertex_generation_provider import VertexGenerationProvider
 
 def create_generation_provider(config: AppConfig) -> GenerationProvider:
     generation = config.generation
-    if generation.provider == Defaults.GENERATION_PROVIDER:
+    if generation.provider == "gemini":
         return GeminiGenerationProvider(
             model=generation.model,
             fallback_models=generation.fallback_models,
