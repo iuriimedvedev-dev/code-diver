@@ -797,6 +797,33 @@ llama-server \
 `-c 8192` is too small for the current agent prompt plus structured H3
 observations. It caused context overflow and fallback on every tested case.
 
+For the current Gemma 4 26B-A4B chat/explanation server, the cache-sensitive
+llama.cpp command is:
+
+```bash
+llama-server \
+  -m .code-diver/models/gemma-4-26b-a4b-it-qat-GGUF/gemma-4-26B-A4B-it-qat-UD-Q4_K_XL.gguf \
+  --host 127.0.0.1 \
+  --port 8016 \
+  --api-key local \
+  -c 32768 \
+  -np 1 \
+  --cache-prompt \
+  --cache-reuse 1024 \
+  --swa-full \
+  -no-kvu \
+  --ctx-checkpoints 512 \
+  --checkpoint-min-step 64 \
+  --cache-ram -1 \
+  --jinja \
+  --slots
+```
+
+The measured H11 cache benchmark showed `-np 1 --swa-full -no-kvu` reuses the
+stable repository-context prefix: second prompt eval fell to `65 ms / 17 tokens`
+with zero forced reprocess warnings. The earlier `-np 2` command invalidated
+checkpoints and repeatedly reprocessed the long prompt.
+
 Correct config shape for structured local Gemma tasks:
 
 ```yaml

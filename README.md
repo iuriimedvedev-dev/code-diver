@@ -13,8 +13,14 @@ llama-server \
   --port 8016 \
   --api-key local \
   -c 32768 \
-  -np 2 \
+  -np 1 \
   --cache-prompt \
+  --cache-reuse 1024 \
+  --swa-full \
+  -no-kvu \
+  --ctx-checkpoints 512 \
+  --checkpoint-min-step 64 \
+  --cache-ram -1 \
   --jinja \
   --slots
 ```
@@ -412,8 +418,14 @@ llama-server \
   --port 8016 \
   --api-key local \
   -c 32768 \
-  -np 2 \
+  -np 1 \
   --cache-prompt \
+  --cache-reuse 1024 \
+  --swa-full \
+  -no-kvu \
+  --ctx-checkpoints 512 \
+  --checkpoint-min-step 64 \
+  --cache-ram -1 \
   --jinja \
   --slots
 ```
@@ -421,6 +433,16 @@ llama-server \
 Code Diver passes repository context to the Search agent as an appended system
 prompt before chat/non-JSON search. Keep the prompt order stable to let the
 runtime reuse prompt cache/context checkpoints across repeated sessions.
+For Gemma 4 26B-A4B on the tested llama.cpp build, cache reuse required
+single-slot serving plus full SWA cache and disabled unified KV. The local cache
+benchmark is reproducible:
+
+```bash
+uv run python scripts/benchmark_llama_cache.py \
+  --model .code-diver/models/gemma-4-26b-a4b-it-qat-GGUF/gemma-4-26B-A4B-it-qat-UD-Q4_K_XL.gguf \
+  --context ../protogen/.code-diver/context/repository-context.md \
+  --output .code-diver/reports/llama-cache-benchmark-gemma26.json
+```
 
 For dedicated cross-encoder reranking, use llama.cpp with a reranker model:
 
