@@ -17,3 +17,44 @@
 | Failure modes | Bad graph edges create hub effects; file-level graph collapse can hide useful summary text if manifest is selected as the representative; graph propagation can add related-but-wrong files when topology is weak. |
 | Follow-ups | Add graph edge quality metrics, gate graph propagation when graph density/topology is weak, test H10 on Protogen/IntelliJ answer-set cases, and compare graph-first with hybrid-plus-graph-signal under identical reranker/candidate limits. |
 | Links | `configs/benchmarks/codesearchnet-h10-graph-file-qwen-quality-100.yml`, `.code-diver/traces/codesearchnet-h10-graph-file-qwen-quality-100.jsonl`, `src/code_diver/strategies/graph_file_retrieval_strategy.py`, `src/code_diver/graph/code_graph_builder.py` |
+
+## IntelliJ Answer-Set Check - 2026-06-08
+
+The first IntelliJ H10 runs exposed a wiring bug: `graph_file` and
+`graph_file_rerank` were seeded by the vector-only multi-index strategy instead
+of the full calibrated hybrid strategy. That made H10 look worse than H7 for the
+wrong reason. The factory now builds graph-file strategies on top of the same
+`HybridRetrievalStrategy` used by H7/H6.1.
+
+All rows below use the same IntelliJ file-locator index:
+
+- Repository: `../intellij-community`
+- Dataset: `datasets/intellij_eval_1000.answer_sets.jsonl`
+- Index: file summaries + file manifests
+- Embeddings: local `mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ`
+- Reranker: none
+- Limit: 10
+
+| Setup | Hit@1 | Hit@3 | Hit@5 | Hit@10 | Recall@10 | Precision@10 | File recall@10 | NDCG@10 | MAP@10 | Mean ms | P95 ms |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| H7/H6.1 calibrated hybrid | 0.746 | 0.882 | 0.912 | 0.933 | 0.9141 | 0.1847 | 0.9019 | 0.8306 | 0.7975 | 84.1 | 155.2 |
+| H8 hybrid with graph signal | 0.746 | 0.882 | 0.912 | 0.933 | 0.9141 | 0.1847 | 0.9019 | 0.8306 | 0.7975 | 85.6 | 162.0 |
+| H10 graph-file wrapper, true graph expansion | 0.747 | 0.885 | 0.915 | 0.935 | 0.9149 | 0.1205 | 0.9044 | 0.8320 | 0.7986 | 336.9 | 447.6 |
+
+Result: current containment-only file graph is not strong enough to replace the
+calibrated hybrid file locator. H10 gives a small quality lift on IntelliJ
+answer-set cases, but the latency cost is about 4x. The next useful GraphRAG
+step is not more weight tuning; it is better topology: module/package ownership,
+imports, extension declarations, call/reference edges, and edge-quality gates.
+
+Gemini 3.1 Flash Lite rerank was also checked on the 100-case IntelliJ slice:
+
+| Setup | Cases | Hit@1 | Hit@3 | Hit@5 | Hit@10 | Recall@10 | Precision@10 | File recall@10 | NDCG@10 | MAP@10 | Mean ms |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| H7/H6.1 hybrid + Gemini Lite rerank | 100 | 0.810 | 0.940 | 0.960 | 0.990 | 0.9395 | 0.2290 | 0.9069 | 0.8516 | 0.8046 | 1188.2 |
+| H10 graph-file + Gemini Lite rerank | 100 | 0.810 | 0.930 | 0.960 | 0.990 | 0.9330 | 0.1580 | 0.9090 | 0.8546 | 0.8077 | 1364.6 |
+
+Rerank conclusion: the large gain comes from LLM reranking, not from the current
+GraphRAG candidate wrapper. H10 rerank slightly improves NDCG/MAP over hybrid
+rerank on this small slice, but loses Hit@3, recall, precision, and latency. Do
+not promote H10 over H7/H6.1 + LLM rerank until graph topology improves.

@@ -84,12 +84,10 @@ class GraphFileRetrievalStrategy(RetrievalStrategy):
         limit: int,
     ) -> dict[str, FileScore]:
         scores: dict[str, FileScore] = {}
-        vector_scores = self._normalize(
-            {
-                result.item.path: result.score
-                for result in self.base_strategy.search(query, max(limit, self.config.seed_limit))
-            }
-        )
+        base_scores: dict[str, float] = {}
+        for result in self.base_strategy.search(query, max(limit, self.config.seed_limit)):
+            base_scores[result.item.path] = max(base_scores.get(result.item.path, 0.0), result.score)
+        vector_scores = self._normalize(base_scores)
         for path, vector_score in vector_scores.items():
             item = self._item_for_path(catalog, path)
             if item is None:
@@ -99,22 +97,23 @@ class GraphFileRetrievalStrategy(RetrievalStrategy):
         query_model = HybridQuery(text=query, terms=self._query_terms(query))
         scorer = HybridCandidateScorer(query_model, self.profiler)
         lexical_candidates: list[FileScore] = []
-        for item in catalog.items_by_id.values():
-            candidate = scorer.score(item)
-            lexical_score = candidate.lexical_score
-            path_score = candidate.path_score
-            symbol_score = max(candidate.symbol_score, candidate.symbol_match_score)
-            if lexical_score <= 0 and path_score <= 0 and symbol_score <= 0:
-                continue
-            lexical_candidates.append(
-                FileScore(
-                    path=item.path,
-                    item=item,
-                    lexical_score=lexical_score,
-                    path_score=path_score,
-                    symbol_score=symbol_score,
+        if self.config.lexical_seed_limit > 0:
+            for item in catalog.items_by_id.values():
+                candidate = scorer.score(item)
+                lexical_score = candidate.lexical_score
+                path_score = candidate.path_score
+                symbol_score = max(candidate.symbol_score, candidate.symbol_match_score)
+                if lexical_score <= 0 and path_score <= 0 and symbol_score <= 0:
+                    continue
+                lexical_candidates.append(
+                    FileScore(
+                        path=item.path,
+                        item=item,
+                        lexical_score=lexical_score,
+                        path_score=path_score,
+                        symbol_score=symbol_score,
+                    )
                 )
-            )
         lexical_candidates.sort(
             key=lambda score: (score.lexical_score, score.path_score, score.symbol_score, score.path),
             reverse=True,

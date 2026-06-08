@@ -58,13 +58,13 @@ class RetrievalStrategyFactory:
             )
         if strategy_id is RetrievalStrategyId.GRAPH_FILE:
             return GraphFileRetrievalStrategy(
-                self._hybrid_vector_strategy(config, provider, vector_store),
+                self._hybrid_strategy(config, provider, vector_store),
                 CodeGraphStore(config.graph.artifact),
                 config.graph_file_search,
             )
         if strategy_id is RetrievalStrategyId.GRAPH_FILE_RERANK:
             graph_file = GraphFileRetrievalStrategy(
-                self._hybrid_vector_strategy(config, provider, vector_store),
+                self._hybrid_strategy(config, provider, vector_store),
                 CodeGraphStore(config.graph.artifact),
                 config.graph_file_search,
             )
@@ -75,19 +75,9 @@ class RetrievalStrategyFactory:
                 trace_logger=TraceLogger(config.trace),
             )
         if strategy_id is RetrievalStrategyId.HYBRID:
-            return HybridRetrievalStrategy(
-                self._hybrid_vector_strategy(config, provider, vector_store),
-                CodeGraphStore(config.graph.artifact),
-                config.hybrid_search,
-                trace_logger=TraceLogger(config.trace),
-            )
+            return self._hybrid_strategy(config, provider, vector_store)
         if strategy_id is RetrievalStrategyId.HYBRID_RERANK:
-            hybrid = HybridRetrievalStrategy(
-                self._hybrid_vector_strategy(config, provider, vector_store),
-                CodeGraphStore(config.graph.artifact),
-                config.hybrid_search,
-                trace_logger=TraceLogger(config.trace),
-            )
+            hybrid = self._hybrid_strategy(config, provider, vector_store)
             return LlmRerankRetrievalStrategy(
                 hybrid,
                 create_generation_provider(config),
@@ -123,3 +113,16 @@ class RetrievalStrategyFactory:
                 config.hybrid_search.vector_kind_multipliers,
             )
         return VectorRetrievalStrategy(provider, vector_store)
+
+    def _hybrid_strategy(
+        self,
+        config: AppConfig,
+        provider: EmbeddingProvider,
+        vector_store: VectorStore,
+    ) -> RetrievalStrategy:
+        return HybridRetrievalStrategy(
+            self._hybrid_vector_strategy(config, provider, vector_store),
+            CodeGraphStore(config.graph.artifact),
+            config.hybrid_search,
+            trace_logger=TraceLogger(config.trace),
+        )

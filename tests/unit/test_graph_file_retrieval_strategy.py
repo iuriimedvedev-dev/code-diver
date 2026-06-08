@@ -125,6 +125,54 @@ def test_graph_file_strategy_prefers_file_summary_as_rerank_evidence(tmp_path: P
     assert results[0].item.id == "summary"
 
 
+def test_graph_file_strategy_keeps_best_base_score_when_file_has_duplicate_items(tmp_path: Path) -> None:
+    target_summary = CodeItem(
+        id="target-summary",
+        path="src/target.py",
+        title="src/target.py::file_summary",
+        content="file: src/target.py\nhead:\n- def target(): pass",
+        metadata={"index_kind": "file_summary"},
+    )
+    target_manifest = CodeItem(
+        id="target-manifest",
+        path="src/target.py",
+        title="src/target.py::file_manifest",
+        content="file: src/target.py\nsymbols:\n- function target",
+        metadata={"index_kind": "file_manifest"},
+    )
+    other = CodeItem(
+        id="other",
+        path="src/other.py",
+        title="src/other.py::file_summary",
+        content="file: src/other.py",
+        metadata={"index_kind": "file_summary"},
+    )
+    store = _graph_store(tmp_path, [target_summary, target_manifest, other], [])
+    strategy = GraphFileRetrievalStrategy(
+        FakeRetrievalStrategy(
+            [
+                SearchResult(target_summary, 0.9),
+                SearchResult(other, 0.8),
+                SearchResult(target_manifest, 0.1),
+            ]
+        ),
+        store,
+        GraphFileSearchConfig(
+            seed_limit=5,
+            lexical_seed_limit=0,
+            vector_weight=1.0,
+            lexical_weight=0.0,
+            path_weight=0.0,
+            symbol_weight=0.0,
+            graph_weight=0.0,
+        ),
+    )
+
+    results = strategy.search("target", limit=2)
+
+    assert [result.item.path for result in results] == ["src/target.py", "src/other.py"]
+
+
 def _graph_store(tmp_path: Path, items: list[CodeItem], edges: list[GraphEdge]) -> CodeGraphStore:
     store = CodeGraphStore(tmp_path / "graph.json")
     store.save(CodeGraph(items={item.id: item for item in items}, edges=edges))
