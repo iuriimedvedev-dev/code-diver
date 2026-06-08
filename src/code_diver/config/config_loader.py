@@ -15,6 +15,7 @@ from .experiment_hypothesis_config import ExperimentHypothesisConfig
 from .evaluation_config import EvaluationConfig
 from .experiments_config import ExperimentsConfig
 from .generation_config import GenerationConfig
+from .graph_file_search_config import GraphFileSearchConfig
 from .graph_config import GraphConfig
 from .ai_index_config import AiIndexConfig
 from .hybrid_search_config import HybridSearchConfig
@@ -36,6 +37,7 @@ class ConfigLoader:
         config_path = path or Defaults.CONFIG_PATH
         data = self._load_yaml(config_path)
         generation = self._generation(data.get("generation"))
+        graph_file_search = self._graph_file_search(data.get("graph_file_search"))
         hybrid_search = self._hybrid_search(data.get("hybrid_search"))
         llm_rerank = self._llm_rerank(data.get("llm_rerank"))
         cross_encoder_rerank = self._cross_encoder_rerank(data.get("cross_encoder_rerank"))
@@ -51,6 +53,7 @@ class ConfigLoader:
             scanner=self._scanner(data.get("scanner")),
             search=self._search(data.get("search")),
             recursive_search=self._recursive_search(data.get("recursive_search")),
+            graph_file_search=graph_file_search,
             hybrid_search=hybrid_search,
             llm_rerank=llm_rerank,
             cross_encoder_rerank=cross_encoder_rerank,
@@ -61,6 +64,7 @@ class ConfigLoader:
             experiments=self._experiments(
                 data.get("experiments"),
                 generation=generation,
+                graph_file_search=graph_file_search,
                 hybrid_search=hybrid_search,
                 llm_rerank=llm_rerank,
                 cross_encoder_rerank=cross_encoder_rerank,
@@ -419,6 +423,52 @@ class ConfigLoader:
             or list(base.stop_words if base is not None else Defaults.HYBRID_STOP_WORDS),
         )
 
+    def _graph_file_search(self, data: Any, base: GraphFileSearchConfig | None = None) -> GraphFileSearchConfig:
+        mapping = self._mapping(data)
+        return GraphFileSearchConfig(
+            seed_limit=int(mapping.get("seed_limit", base.seed_limit if base is not None else Defaults.GRAPH_FILE_SEED_LIMIT)),
+            lexical_seed_limit=int(
+                mapping.get(
+                    "lexical_seed_limit",
+                    base.lexical_seed_limit if base is not None else Defaults.GRAPH_FILE_LEXICAL_SEED_LIMIT,
+                )
+            ),
+            vector_weight=float(
+                mapping.get("vector_weight", base.vector_weight if base is not None else Defaults.GRAPH_FILE_VECTOR_WEIGHT)
+            ),
+            lexical_weight=float(
+                mapping.get(
+                    "lexical_weight",
+                    base.lexical_weight if base is not None else Defaults.GRAPH_FILE_LEXICAL_WEIGHT,
+                )
+            ),
+            path_weight=float(
+                mapping.get("path_weight", base.path_weight if base is not None else Defaults.GRAPH_FILE_PATH_WEIGHT)
+            ),
+            symbol_weight=float(
+                mapping.get(
+                    "symbol_weight",
+                    base.symbol_weight if base is not None else Defaults.GRAPH_FILE_SYMBOL_WEIGHT,
+                )
+            ),
+            graph_weight=float(
+                mapping.get("graph_weight", base.graph_weight if base is not None else Defaults.GRAPH_FILE_GRAPH_WEIGHT)
+            ),
+            depth=int(mapping.get("depth", base.depth if base is not None else Defaults.GRAPH_FILE_DEPTH)),
+            neighbor_limit=int(
+                mapping.get("neighbor_limit", base.neighbor_limit if base is not None else Defaults.GRAPH_FILE_NEIGHBOR_LIMIT)
+            ),
+            decay=float(mapping.get("decay", base.decay if base is not None else Defaults.GRAPH_FILE_DECAY)),
+            min_token_length=int(
+                mapping.get(
+                    "min_token_length",
+                    base.min_token_length if base is not None else Defaults.GRAPH_FILE_MIN_TOKEN_LENGTH,
+                )
+            ),
+            stop_words=self._string_list(mapping.get("stop_words"))
+            or list(base.stop_words if base is not None else Defaults.GRAPH_FILE_STOP_WORDS),
+        )
+
     def _llm_rerank(self, data: Any, base: LlmRerankConfig | None = None) -> LlmRerankConfig:
         mapping = self._mapping(data)
         return LlmRerankConfig(
@@ -596,6 +646,7 @@ class ConfigLoader:
         data: Any,
         *,
         generation: GenerationConfig,
+        graph_file_search: GraphFileSearchConfig,
         hybrid_search: HybridSearchConfig,
         llm_rerank: LlmRerankConfig,
         cross_encoder_rerank: CrossEncoderRerankConfig,
@@ -607,6 +658,7 @@ class ConfigLoader:
             hypotheses=self._experiment_hypotheses(
                 mapping.get("hypotheses"),
                 generation=generation,
+                graph_file_search=graph_file_search,
                 hybrid_search=hybrid_search,
                 llm_rerank=llm_rerank,
                 cross_encoder_rerank=cross_encoder_rerank,
@@ -618,6 +670,7 @@ class ConfigLoader:
         data: Any,
         *,
         generation: GenerationConfig,
+        graph_file_search: GraphFileSearchConfig,
         hybrid_search: HybridSearchConfig,
         llm_rerank: LlmRerankConfig,
         cross_encoder_rerank: CrossEncoderRerankConfig,
@@ -643,6 +696,12 @@ class ConfigLoader:
                     else None,
                     rerank_generation=self._generation(mapping.get("rerank_generation"), base=generation)
                     if mapping.get("rerank_generation") is not None
+                    else None,
+                    graph_file_search=self._graph_file_search(
+                        mapping.get("graph_file_search"),
+                        base=graph_file_search,
+                    )
+                    if mapping.get("graph_file_search") is not None
                     else None,
                     hybrid_search=self._hybrid_search(mapping.get("hybrid_search"), base=hybrid_search)
                     if mapping.get("hybrid_search") is not None

@@ -582,6 +582,7 @@ def apply_runtime_config(args: argparse.Namespace, config: AppConfig) -> AppConf
         config = apply_builtin_h5(config)
     if root is not None:
         config = replace(config, root=root)
+        config = scope_relative_repo_artifacts(config)
     embedding_profile = getattr(args, "embedding", None)
     if embedding_profile:
         config = apply_embedding_profile(config, embedding_profile, announce=False)
@@ -590,6 +591,19 @@ def apply_runtime_config(args: argparse.Namespace, config: AppConfig) -> AppConf
     if getattr(args, "command", None) != CommandName.INIT.value:
         config = IndexCollectionResolver().resolve(config)
     return config
+
+
+def scope_relative_repo_artifacts(config: AppConfig) -> AppConfig:
+    return replace(
+        config,
+        artifact=repo_path(config.root, config.artifact),
+        graph=replace(config.graph, artifact=repo_path(config.root, config.graph.artifact)),
+        trace=replace(config.trace, artifact=repo_path(config.root, config.trace.artifact)),
+    )
+
+
+def repo_path(root: Path, path: Path) -> Path:
+    return path if path.is_absolute() else root / path
 
 
 def apply_embedding_profile(config: AppConfig, profile_key: str, announce: bool = True) -> AppConfig:
@@ -1433,8 +1447,8 @@ def evaluation_settings(config: AppConfig, dataset: Path, limit: int, config_pat
         "embedding endpoint": config.embedding.url or config.embedding.location or "provider default",
         "embedding batch/workers": f"{config.embedding.batch_size}/{config.embedding.workers}",
         "embedding max chars": config.embedding.max_input_chars or "provider default",
-        "ranker provider": config.generation.provider if config.search.strategy == "hybrid_rerank" else "none",
-        "ranker model": config.generation.model if config.search.strategy == "hybrid_rerank" else "none",
+        "ranker provider": config.generation.provider if search_uses_llm_rerank(config) else "none",
+        "ranker model": config.generation.model if search_uses_llm_rerank(config) else "none",
         "rerank candidates/top": f"{config.llm_rerank.candidate_limit}/{config.llm_rerank.rerank_limit}",
         "rerank mode": config.llm_rerank.mode,
         "hybrid candidates": config.hybrid_search.candidate_limit,
@@ -1444,7 +1458,30 @@ def evaluation_settings(config: AppConfig, dataset: Path, limit: int, config_pat
             f"symbol_match={config.hybrid_search.symbol_match_weight}, graph={config.hybrid_search.graph_weight}, "
             f"file_vote={config.hybrid_search.file_vote_weight}"
         ),
+        "graph-file": graph_file_settings_label(config),
         "graph": graph_label(config),
+    }
+
+
+def graph_file_settings_label(config: AppConfig) -> str:
+    if config.search.strategy not in {
+        RetrievalStrategyId.GRAPH_FILE.value,
+        RetrievalStrategyId.GRAPH_FILE_RERANK.value,
+    }:
+        return "disabled"
+    graph_file = config.graph_file_search
+    return (
+        f"seeds={graph_file.seed_limit}, lexical={graph_file.lexical_seed_limit}, "
+        f"depth={graph_file.depth}, neighbors={graph_file.neighbor_limit}, decay={graph_file.decay}, "
+        f"weights=vector:{graph_file.vector_weight}/lexical:{graph_file.lexical_weight}/"
+        f"path:{graph_file.path_weight}/symbol:{graph_file.symbol_weight}/graph:{graph_file.graph_weight}"
+    )
+
+
+def search_uses_llm_rerank(config: AppConfig) -> bool:
+    return config.search.strategy in {
+        RetrievalStrategyId.HYBRID_RERANK.value,
+        RetrievalStrategyId.GRAPH_FILE_RERANK.value,
     }
 
 
@@ -2157,7 +2194,7 @@ def render_answer_metrics_table(metrics: dict[str, Any]) -> None:
 
 
 def default_answer_context_files(config: AppConfig) -> int:
-    return 4 if config.search.strategy == "hybrid_rerank" else 8
+    return 4 if search_uses_llm_rerank(config) else 8
 
 
 def cmd_experiment(args: argparse.Namespace, config: AppConfig) -> int:
@@ -2466,6 +2503,8 @@ def config_for_search_hypothesis(config: AppConfig, hypothesis: Any) -> AppConfi
         search_config = replace(search_config, search=replace(search_config.search, strategy=hypothesis.strategy))
     if getattr(hypothesis, "generation", None) is not None:
         search_config = replace(search_config, generation=hypothesis.generation)
+    if getattr(hypothesis, "graph_file_search", None) is not None:
+        search_config = replace(search_config, graph_file_search=hypothesis.graph_file_search)
     if getattr(hypothesis, "hybrid_search", None) is not None:
         search_config = replace(search_config, hybrid_search=hypothesis.hybrid_search)
     if getattr(hypothesis, "llm_rerank", None) is not None:

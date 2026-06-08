@@ -10,6 +10,7 @@ from ..settings import RetrievalStrategyId
 from ..store import VectorStore
 from ..tracing import TraceLogger
 from .cross_encoder_rerank_retrieval_strategy import CrossEncoderRerankRetrievalStrategy
+from .graph_file_retrieval_strategy import GraphFileRetrievalStrategy
 from .graph_retrieval_strategy import GraphRetrievalStrategy
 from .hybrid_retrieval_strategy import HybridRetrievalStrategy
 from .llm_rerank_retrieval_strategy import LlmRerankRetrievalStrategy
@@ -54,6 +55,24 @@ class RetrievalStrategyFactory:
                 CodeGraphStore(graph.artifact),
                 expansion_depth=graph.expansion_depth,
                 neighbor_limit=graph.neighbor_limit,
+            )
+        if strategy_id is RetrievalStrategyId.GRAPH_FILE:
+            return GraphFileRetrievalStrategy(
+                self._hybrid_vector_strategy(config, provider, vector_store),
+                CodeGraphStore(config.graph.artifact),
+                config.graph_file_search,
+            )
+        if strategy_id is RetrievalStrategyId.GRAPH_FILE_RERANK:
+            graph_file = GraphFileRetrievalStrategy(
+                self._hybrid_vector_strategy(config, provider, vector_store),
+                CodeGraphStore(config.graph.artifact),
+                config.graph_file_search,
+            )
+            return LlmRerankRetrievalStrategy(
+                graph_file,
+                create_generation_provider(config),
+                config.llm_rerank,
+                trace_logger=TraceLogger(config.trace),
             )
         if strategy_id is RetrievalStrategyId.HYBRID:
             return HybridRetrievalStrategy(

@@ -104,7 +104,20 @@ scanner:
 search:
   limit: 10
   preview_lines: 8
-  strategy: hybrid_rerank
+  strategy: graph_file_rerank
+
+graph_file_search:
+  seed_limit: 120
+  lexical_seed_limit: 240
+  vector_weight: 0.25
+  lexical_weight: 0.25
+  path_weight: 0.20
+  symbol_weight: 0.10
+  graph_weight: 0.45
+  depth: 2
+  neighbor_limit: 40
+  decay: 0.65
+  min_token_length: 3
 
 hybrid_search:
   candidate_limit: 280
@@ -154,7 +167,7 @@ graph:
   enabled: true
   artifact: .code-diver/graph.json
   ast_enabled: false
-  reference_edges_enabled: false
+  reference_edges_enabled: true
   call_edges_enabled: false
   expansion_depth: 0
   neighbor_limit: 0

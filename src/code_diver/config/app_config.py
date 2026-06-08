@@ -10,6 +10,7 @@ from .env_file_config import EnvFileConfig
 from .evaluation_config import EvaluationConfig
 from .experiments_config import ExperimentsConfig
 from .generation_config import GenerationConfig
+from .graph_file_search_config import GraphFileSearchConfig
 from .graph_config import GraphConfig
 from .hybrid_search_config import HybridSearchConfig
 from .indexing_config import IndexingConfig
@@ -37,6 +38,7 @@ class AppConfig:
     scanner: ScannerConfig = field(default_factory=ScannerConfig)
     search: SearchConfig = field(default_factory=SearchConfig)
     recursive_search: RecursiveSearchConfig = field(default_factory=RecursiveSearchConfig)
+    graph_file_search: GraphFileSearchConfig = field(default_factory=GraphFileSearchConfig)
     hybrid_search: HybridSearchConfig = field(default_factory=HybridSearchConfig)
     llm_rerank: LlmRerankConfig = field(default_factory=LlmRerankConfig)
     cross_encoder_rerank: CrossEncoderRerankConfig = field(default_factory=CrossEncoderRerankConfig)

@@ -15,7 +15,9 @@ from code_diver.cli import (
     resolve_benchmark_profile,
 )
 from code_diver.config import AppConfig
+from code_diver.config.graph_config import GraphConfig
 from code_diver.config.storage_config import StorageConfig
+from code_diver.config.trace_config import TraceConfig
 from code_diver.runtime import RuntimeConfig
 
 
@@ -285,6 +287,31 @@ def test_global_root_can_be_parsed_before_subcommand() -> None:
 
 def test_normalize_argv_moves_root_before_subcommand() -> None:
     assert normalize_argv(["index", "--root", "/tmp/repo"]) == ["--root", "/tmp/repo", "index"]
+
+
+def test_root_override_rebases_repo_local_artifacts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    class EmptyRuntimeConfigStore:
+        def exists(self) -> bool:
+            return False
+
+    monkeypatch.setattr("code_diver.cli.RuntimeConfigStore", EmptyRuntimeConfigStore)
+    repo = tmp_path / "repo"
+    args = Namespace(config=Path("code-diver.yml"), command="search", root=repo, index_root=None, embedding=None)
+
+    config = apply_runtime_config(
+        args,
+        AppConfig(
+            artifact=Path(".code-diver/index.json"),
+            graph=GraphConfig(artifact=Path(".code-diver/graph.json")),
+            trace=TraceConfig(artifact=Path(".code-diver/traces/indexing.jsonl")),
+            storage=StorageConfig(provider="qdrant"),
+        ),
+    )
+
+    assert config.root == repo
+    assert config.artifact == repo / ".code-diver/index.json"
+    assert config.graph.artifact == repo / ".code-diver/graph.json"
+    assert config.trace.artifact == repo / ".code-diver/traces/indexing.jsonl"
 
 
 def test_builtin_h5_profile_sets_manifest_hybrid_rerank_defaults() -> None:
