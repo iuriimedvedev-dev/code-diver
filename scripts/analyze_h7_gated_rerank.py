@@ -24,12 +24,18 @@ class CaseRow:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Simulate cost-aware gated rerank policies over saved H7/Gemini runs."
+        description="Simulate cost-aware gated rerank policies over saved H7 and reranker runs."
     )
     parser.add_argument("--base-report", type=Path, required=True)
     parser.add_argument("--rerank-report", type=Path, required=True)
     parser.add_argument("--trace", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--base-strategy")
+    parser.add_argument("--rerank-strategy")
+    parser.add_argument("--reranker-name", default="reranker")
+    parser.add_argument("--rerank-mean-ms", type=float)
+    parser.add_argument("--rerank-cost-per-call-usd", type=float, default=0.0)
+    parser.add_argument("--rerank-tokens-per-call", type=float, default=0.0)
     parser.add_argument("--train-size", type=int, default=700)
     parser.add_argument("--validation-size", type=int, default=150)
     parser.add_argument("--test-size", type=int, default=150)
@@ -37,7 +43,13 @@ def main() -> int:
     parser.add_argument("--base-mean-ms", type=float, default=780.1964113758877)
     args = parser.parse_args()
 
-    rows = _load_rows(args.base_report, args.rerank_report, args.trace)
+    rows = _load_rows(
+        args.base_report,
+        args.rerank_report,
+        args.trace,
+        base_strategy=args.base_strategy,
+        rerank_strategy=args.rerank_strategy,
+    )
     random.Random(args.seed).shuffle(rows)
     train = rows[: args.train_size]
     validation = rows[args.train_size : args.train_size + args.validation_size]
@@ -48,9 +60,18 @@ def main() -> int:
     ]
     if not train or not validation or not test:
         raise RuntimeError("Train/validation/test split must be non-empty.")
-    llm_usage = _llm_usage(args.trace)
+    llm_usage = _llm_usage(
+        args.trace,
+        base_mean_ms=args.base_mean_ms,
+        rerank_mean_ms=args.rerank_mean_ms,
+        rerank_cost_per_call_usd=args.rerank_cost_per_call_usd,
+        rerank_tokens_per_call=args.rerank_tokens_per_call,
+    )
 
-    candidates = [*_threshold_policies(), *_route_threshold_policies()]
+    candidates = [
+        *_threshold_policies(args.reranker_name),
+        *_route_threshold_policies(),
+    ]
     validation_rows = [
         _policy_row(policy, validation, llm_usage, args.base_mean_ms)
         for policy in candidates
@@ -83,7 +104,7 @@ def main() -> int:
             args.base_mean_ms,
         ),
         _policy_row(
-            {"name": "always_gemini_lite", "type": "always_rerank"},
+            {"name": f"always_{args.reranker_name}", "type": "always_rerank"},
             test,
             llm_usage,
             args.base_mean_ms,
@@ -133,6 +154,9 @@ def main() -> int:
     payload = {
         "base_report": str(args.base_report),
         "rerank_report": str(args.rerank_report),
+        "base_strategy": args.base_strategy,
+        "rerank_strategy": args.rerank_strategy,
+        "reranker_name": args.reranker_name,
         "trace": str(args.trace),
         "split": {
             "seed": args.seed,
@@ -162,12 +186,21 @@ def main() -> int:
     return 0
 
 
-def _load_rows(base_report: Path, rerank_report: Path, trace: Path) -> list[CaseRow]:
+def _load_rows(
+    base_report: Path,
+    rerank_report: Path,
+    trace: Path,
+    *,
+    base_strategy: str | None,
+    rerank_strategy: str | None,
+) -> list[CaseRow]:
     base_rows = {
-        str(row["case_id"]): row for row in _report_rows(_read_json(base_report))
+        str(row["case_id"]): row
+        for row in _report_rows(_read_json(base_report), strategy=base_strategy)
     }
     rerank_rows = {
-        str(row["case_id"]): row for row in _report_rows(_read_json(rerank_report))
+        str(row["case_id"]): row
+        for row in _report_rows(_read_json(rerank_report), strategy=rerank_strategy)
     }
     features = _trace_features(trace)
     rows: list[CaseRow] = []
@@ -195,7 +228,9 @@ def _read_json(path: Path) -> dict[str, Any]:
     return json.loads(text[text.find("{") :])
 
 
-def _report_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
+def _report_rows(
+    payload: dict[str, Any], *, strategy: str | None = None
+) -> list[dict[str, Any]]:
     if isinstance(payload.get("metrics"), dict):
         return [row for row in payload.get("results") or [] if isinstance(row, dict)]
     results = payload.get("results") or []
@@ -204,8 +239,32 @@ def _report_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
         and isinstance(results[0], dict)
         and isinstance(results[0].get("results"), list)
     ):
-        return [row for row in results[0]["results"] if isinstance(row, dict)]
+        selected = _select_strategy(results, strategy)
+        return [row for row in selected.get("results") or [] if isinstance(row, dict)]
+    strategies = payload.get("strategies") or []
+    if strategies and isinstance(strategies[0], dict):
+        selected = _select_strategy(strategies, strategy)
+        return [row for row in selected.get("results") or [] if isinstance(row, dict)]
     return [row for row in results if isinstance(row, dict)]
+
+
+def _select_strategy(
+    strategies: list[dict[str, Any]], strategy: str | None
+) -> dict[str, Any]:
+    if strategy is None:
+        return strategies[0]
+    for row in strategies:
+        if (
+            row.get("strategy") == strategy
+            or row.get("name") == strategy
+            or row.get("hypothesis") == strategy
+        ):
+            return row
+    available = [
+        str(row.get("strategy") or row.get("name") or row.get("hypothesis"))
+        for row in strategies
+    ]
+    raise RuntimeError(f"Strategy {strategy!r} not found. Available: {available}")
 
 
 def _trace_features(path: Path) -> dict[str, dict[str, float | str]]:
@@ -318,7 +377,26 @@ def _rank_at_most(value: Any, limit: int) -> bool:
         return False
 
 
-def _llm_usage(path: Path) -> dict[str, float]:
+def _llm_usage(
+    path: Path,
+    *,
+    base_mean_ms: float,
+    rerank_mean_ms: float | None,
+    rerank_cost_per_call_usd: float,
+    rerank_tokens_per_call: float,
+) -> dict[str, float]:
+    if rerank_mean_ms is not None:
+        return {
+            "calls": 1.0,
+            "input_tokens": 0.0,
+            "output_tokens": 0.0,
+            "total_tokens": rerank_tokens_per_call,
+            "cost": rerank_cost_per_call_usd,
+            "duration_ms": max(rerank_mean_ms - base_mean_ms, 0.0),
+            "cost_per_call": rerank_cost_per_call_usd,
+            "tokens_per_call": rerank_tokens_per_call,
+            "duration_ms_per_call": max(rerank_mean_ms - base_mean_ms, 0.0),
+        }
     usage = {
         "calls": 0.0,
         "input_tokens": 0.0,
@@ -350,10 +428,10 @@ def _llm_usage(path: Path) -> dict[str, float]:
     }
 
 
-def _threshold_policies() -> list[dict[str, Any]]:
+def _threshold_policies(reranker_name: str) -> list[dict[str, Any]]:
     policies: list[dict[str, Any]] = [
         {"name": "always_h7", "type": "always_base"},
-        {"name": "always_gemini_lite", "type": "always_rerank"},
+        {"name": f"always_{reranker_name}", "type": "always_rerank"},
     ]
     for threshold in [0.01, 0.015, 0.02, 0.03, 0.04, 0.05, 0.075, 0.1, 0.15, 0.2]:
         policies.append(

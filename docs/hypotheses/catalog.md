@@ -343,7 +343,7 @@ Status meanings:
 | Assumptions | Hybrid-search confidence features can predict when LLM rerank is worth paying for. |
 | Index composition | Same H7.2/H6.1 EmbeddingGemma file-level index: `file_summary` + `file_manifest`, no code-body vectors. |
 | Search/ranking flow | H7 deterministic candidate ranking -> confidence gate -> optional Gemini Lite rerank -> final file list. |
-| Model/provider matrix | Gate is local NumPy logistic/MLP over trace-derived features; reranker reference is Gemini 3.1 Flash Lite. |
+| Model/provider matrix | Gate is local NumPy logistic/MLP over trace-derived features; reranker references include Gemini 3.1 Flash Lite and local Gemma 4 E2B/E4B/12B. |
 | Dataset | CodeSearchNet/MTEB Python 1,000 saved H7 and Gemini Lite reports, evaluated with 700/150/150 random splits for seeds `17`, `23`, and `42`; SWEbenchCodeRetrieval 100 used as transfer check for H7.2 aliases. |
 | Metrics | CodeSearchNet seed 17 test: H7 Hit@1/nDCG `0.827`/`0.921`, route-threshold gate `0.873`/`0.947` with `$0.860/1k`, Gemini always `0.907`/`0.958`, MLP gate `0.913`/`0.962` with `26%` rerank calls and `$0.763/1k`, oracle gate `0.920`/`0.965` with `10.7%` calls. Seed 23: logistic/MLP gate Hit@1 `0.947` vs H7 `0.887`, oracle `0.953`; route threshold `0.913` with `$0.313/1k`. Seed 42: MLP gate Hit@1 `0.900` vs H7 `0.880`, oracle `0.920`; route threshold `0.893`. SWE H7.2 aliases were flat versus H6.1 at Hit@1/10 `0.610`/`0.960`. |
 | Cost/latency/index-size | No index-size change. Gate adds negligible local CPU. Rerank call rate in measured gates was `26-48.7%` versus `100%` for always-Gemini; estimated API cost was `$0.763-$1.428/1k` versus `$2.933/1k`. |
@@ -352,6 +352,26 @@ Status meanings:
 | Failure modes | Trace-derived features can drift from live features; random split results vary; oracle is label-leaking; single-positive CodeSearchNet does not measure multi-file explanation quality. |
 | Follow-ups | Add live raw-score features, route-specific gates, Qwen3-Reranker/local reranker as the gated model, and cross-dataset validation. |
 | Links | [H7 adaptive gated rerank](../h7-adaptive-gated-rerank-2026-06-08.md), `scripts/analyze_h7_gated_rerank.py`, `.code-diver/reports/h7-gated-gemini-lite-seed17-train700-val150-test150.json` |
+
+## H7.4L - Local-Only Gated Rerank
+
+| Field | Value |
+| --- | --- |
+| ID | `H7.4L` |
+| Status | active local research |
+| Motivation | Validate H7 gated rerank with local models instead of API rerankers. |
+| Assumptions | Local generative rerankers may provide enough sparse head-ordering corrections if called only on low-confidence cases. |
+| Index composition | Same H7/H6.1 EmbeddingGemma file-level index: `file_summary` + `file_manifest`, no code-body vectors. |
+| Search/ranking flow | H7 deterministic candidate ranking -> local confidence gate -> optional local Gemma rerank -> final file list. |
+| Model/provider matrix | Gemma 4 E2B, E4B, and 12B base-prior rerank reports; all local, zero API cost. |
+| Dataset | CodeSearchNet/MTEB Python 200 saved local matrix, evaluated as 120/40/40 splits for seeds `17`, `23`, and `42`. |
+| Metrics | Full 200-case: H7 Hit@1/nDCG `0.800`/`0.896`; E2B `0.795`/`0.894` at `3946 ms`; E4B `0.810`/`0.901` at `8819 ms`; 12B `0.815`/`0.910` at `36791 ms`. Gated oracle call rates are usually `0-5%`; 12B oracle gate reaches seed 23 Hit@1/nDCG `0.875`/`0.922` at `2652 ms`, versus H7 `0.825`/`0.899`. |
+| Cost/latency/index-size | No index-size or API-cost change. Latency dominates: E4B always-on is about `10x` H7; 12B always-on is about `43x` H7. |
+| Result summary | Local rerank signal exists but is sparse. E2B is not useful for H7 rerank. E4B and 12B should only be gated; 12B is too slow for always-on interactive search. |
+| Decision | Keep local gated rerank active, but do not promote generative local rerank as default. Next local priority is Qwen3-Reranker/cross-encoder through a true rerank endpoint. |
+| Failure modes | Small 200-case slice; saved rerank reports, not live integrated gate; generative local rankers may demote good H7 candidates unless monotonic preservation is enforced. |
+| Follow-ups | Test Qwen3-Reranker, add monotonic top-k preservation to local rerank, and distill 12B corrections into a cheaper local gate/ranker. |
+| Links | [H7 local gated rerank](../h7-local-gated-rerank-2026-06-08.md), `scripts/analyze_h7_gated_rerank.py`, `.code-diver/reports/h7-local-gate-gemma4-12b-seed23-train120-val40-test40.json` |
 
 ## H7 - Agent-Planned Probes With One Shared Rerank
 
