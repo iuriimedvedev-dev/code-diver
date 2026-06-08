@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | ID | `H11` |
-| Status | active / pending eval |
+| Status | active / smoke-tested / pending A-B eval |
 | Motivation | Test whether a code-explanation agent gets better search probes and better final answers when it starts every session with compact repository orientation: layout, README facts, and markdown documentation map. |
 | Assumptions | Repository context helps the LLM choose better search terms and avoid wrong architecture assumptions, while tool-verified file reads remain the source of truth for implementation claims. A stable prefix should also benefit from llama.cpp prompt cache/context checkpoints across repeated chat/search turns. |
 | Index composition | No index-size change. Persistent retrieval still uses compact file-level items (`file_summary`, `file_manifest`) and the configured file graph. H11 changes only the agent system prompt prefix. |
@@ -12,7 +12,7 @@
 | Dataset | Not measured yet. Compare on repo-local generated QA, CodeSearchNet/SWE retrieval slices for search-only effects, and an end-to-end explanation/judge dataset for answer effects. |
 | Metrics | Required: Hit@1/3/5/10, Recall@3/5/10, Precision@k for retrieval; answer judge score, citation correctness, unsupported-claim count for explanation; first-turn latency, follow-up latency, prompt-eval tokens/sec, generation tokens/sec, tool calls/query, degraded count. |
 | Cost/latency/index-size | Index size unchanged. Local model cost is hardware time only. Initial naive `-np 2` smoke with the repo context prefix reprocessed the long prompt on later turns. Cache benchmark showed the tuned Gemma/SWA config (`-np 1 --swa-full -no-kvu --cache-reuse 1024`) reduced the second stable-prefix prompt eval to `65 ms / 17 tokens` with `forced_reprocess_count=0`. |
-| Result summary | Implemented. The CLI now builds `.code-diver/context/repository-context.md` before `chat` and non-JSON `search`, and Pi receives it through `--append-system-prompt`. |
+| Result summary | Implemented. The CLI now builds `.code-diver/context/repository-context.md` before `chat` and non-JSON `search`, and Pi receives it through `--append-system-prompt`. Local Gemma 4 26B-A4B smoke on `../protogen` correctly answered where team builder is managed (`src/team_builder/`, `src/api/routes/team_builder.py`, `frontend/src/app/features/team-builder/`). This is a health check, not a quality benchmark. |
 | Decision | Keep active. Do not promote until full README vs summarized README are compared against no-context on the same cases. |
 | Failure modes | The agent may trust README/docs over code; README can be stale; a too-large prefix can hurt first-turn latency; context may bias search away from exact evidence; prompt cache benefits depend on runtime slot reuse and stable prompt ordering. |
 | Follow-ups | Run three-way eval: `repo_context.enabled=false`, `mode=readme_summary`, `mode=full_readme`. Record cache/prompt-eval metrics from llama.cpp logs. Add a compact technology manifest extracted from package files and build configs. Test parallelism with multiple single-slot llama-server workers instead of `-np > 1` inside one Gemma/SWA server. |
@@ -78,3 +78,24 @@ The practical default keeps `-no-kvu` because it avoids the Gemma/SWA unified-KV
 failure mode seen in the earlier long prompt logs. The tradeoff is lower
 in-process parallelism; concurrency should come from several single-slot workers
 or a separate serving backend, not `-np 2+` for this model.
+
+## Current Evidence
+
+What is tested:
+
+- repository-context construction before `chat`/non-JSON `search`;
+- local Gemma 4 26B-A4B llama.cpp runtime with prompt cache enabled;
+- one live `../protogen` smoke query through the user-facing CLI;
+- stable-prefix cache reuse on synthetic repeated prompts.
+
+What is not tested yet:
+
+- no-context vs README-summary vs full-README A-B answer quality;
+- AI-judge explanation scores;
+- citation correctness / unsupported-claim rate;
+- whether context improves retrieval metrics rather than only final answer
+  phrasing.
+
+Decision: H11 is usable as the local chat default, but it is not yet promoted as
+a measured quality improvement. The next eval must compare the three context
+variants on the same question set and judge answers with file/line evidence.
