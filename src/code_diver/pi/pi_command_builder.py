@@ -30,6 +30,13 @@ class PiCommandBuilder:
         if pi_config.prompt_template:
             command.extend([OptionName.PROMPT_TEMPLATE.value, str(pi_config.prompt_template)])
             command.extend([OptionName.APPEND_SYSTEM_PROMPT.value, str(pi_config.prompt_template)])
+        if pi_config.repo_context.enabled:
+            command.extend(
+                [
+                    OptionName.APPEND_SYSTEM_PROMPT.value,
+                    str(self._project_path(config, pi_config.repo_context.output)),
+                ]
+            )
 
         if pi_config.provider:
             command.extend([OptionName.PROVIDER.value, pi_config.provider])

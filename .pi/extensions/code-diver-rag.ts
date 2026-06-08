@@ -71,6 +71,7 @@ type SuccessFeedback = {
 };
 
 export default function (pi: ExtensionAPI) {
+  registerLocalModelProvider(pi);
   registerCodeDiverWelcome(pi);
 
   pi.registerTool({
@@ -482,6 +483,34 @@ export default function (pi: ExtensionAPI) {
       const path = await recordSuccess(ctx.cwd, params);
       return textResult(`Recorded success feedback: ${path}`);
     },
+  });
+}
+
+function registerLocalModelProvider(pi: ExtensionAPI) {
+  const provider = process.env.CODE_DIVER_LOCAL_LLM_PROVIDER || "code-diver-local";
+  const model = process.env.CODE_DIVER_LOCAL_LLM_MODEL || "gemma-4-26B-A4B-it-qat-UD-Q4_K_XL";
+  const baseUrl = process.env.CODE_DIVER_LOCAL_LLM_BASE_URL || "http://127.0.0.1:8016/v1";
+  const apiKey = process.env.CODE_DIVER_LOCAL_LLM_API_KEY || "local";
+  pi.registerProvider(provider, {
+    name: "Code Diver Local",
+    baseUrl,
+    apiKey,
+    api: "openai-completions",
+    compat: {
+      supportsDeveloperRole: false,
+      supportsReasoningEffort: false,
+    },
+    models: [
+      {
+        id: model,
+        name: "Gemma 4 26B-A4B local",
+        reasoning: false,
+        input: ["text"],
+        contextWindow: 32768,
+        maxTokens: 4096,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      },
+    ],
   });
 }
 

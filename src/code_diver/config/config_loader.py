@@ -23,6 +23,7 @@ from .indexing_config import IndexingConfig
 from .llm_rerank_config import LlmRerankConfig
 from .metrics_config import MetricsConfig
 from .pi_config import PiConfig
+from .pi_repo_context_config import PiRepoContextConfig
 from .qdrant_config import QdrantConfig
 from .recursive_search_config import RecursiveSearchConfig
 from .scanner_config import ScannerConfig
@@ -248,6 +249,18 @@ class ConfigLoader:
             },
             extra_args=self._string_list(mapping.get("extra_args")),
             env={str(key): str(value) for key, value in self._mapping(mapping.get("env")).items()},
+            repo_context=self._pi_repo_context(mapping.get("repo_context")),
+        )
+
+    def _pi_repo_context(self, data: Any) -> PiRepoContextConfig:
+        mapping = self._mapping(data)
+        return PiRepoContextConfig(
+            enabled=bool(mapping.get("enabled", Defaults.PI_REPO_CONTEXT_ENABLED)),
+            mode=str(mapping.get("mode", Defaults.PI_REPO_CONTEXT_MODE)),
+            output=Path(mapping.get("output", Defaults.PI_REPO_CONTEXT_OUTPUT)),
+            include_docs=bool(mapping.get("include_docs", Defaults.PI_REPO_CONTEXT_INCLUDE_DOCS)),
+            max_chars=int(mapping.get("max_chars", Defaults.PI_REPO_CONTEXT_MAX_CHARS)),
+            docs_limit=int(mapping.get("docs_limit", Defaults.PI_REPO_CONTEXT_DOCS_LIMIT)),
         )
 
     def _scanner(self, data: Any) -> ScannerConfig:

@@ -40,19 +40,25 @@ class Defaults:
     PI_LAUNCHER_ARGS = ["exec", "--", "pi"]
     PI_EXTENSION = Path(".pi/extensions/code-diver-rag.ts")
     PI_PROMPT_TEMPLATE = Path(".pi/prompts/code-diver-rag.md")
-    PI_PROVIDER = "google-vertex"
-    PI_MODEL = "gemini-3.1-flash-lite"
+    PI_PROVIDER = "code-diver-local"
+    PI_MODEL = "gemma-4-26B-A4B-it-qat-UD-Q4_K_XL"
     PI_TIMEOUT_SECONDS = 180
     PI_SESSION_DIR = Path(".code-diver/pi-sessions")
+    PI_REPO_CONTEXT_ENABLED = True
+    PI_REPO_CONTEXT_MODE = "readme_summary"
+    PI_REPO_CONTEXT_OUTPUT = Path(".code-diver/context/repository-context.md")
+    PI_REPO_CONTEXT_INCLUDE_DOCS = True
+    PI_REPO_CONTEXT_MAX_CHARS = 16_000
+    PI_REPO_CONTEXT_DOCS_LIMIT = 8
 
-    GENERATION_PROVIDER = "vertex"
-    GENERATION_MODEL = "gemini-3.1-flash-lite"
-    GENERATION_FALLBACK_MODELS = ["gemini-2.5-flash"]
+    GENERATION_PROVIDER = "openai_compatible"
+    GENERATION_MODEL = "gemma-4-26B-A4B-it-qat-UD-Q4_K_XL"
+    GENERATION_FALLBACK_MODELS = []
     GENERATION_TEMPERATURE = 0.0
-    GENERATION_THINKING_BUDGET = 256
-    GENERATION_API_VERSION = "v1"
-    GENERATION_TIMEOUT_MS = 30_000
-    GENERATION_MAX_TOKENS = None
+    GENERATION_THINKING_BUDGET = None
+    GENERATION_API_VERSION = None
+    GENERATION_TIMEOUT_MS = 480_000
+    GENERATION_MAX_TOKENS = 2048
     GENERATION_RETRY_ATTEMPTS = 5
     GENERATION_RETRY_BASE_DELAY_SECONDS = 2.0
     GENERATION_RETRY_MAX_DELAY_SECONDS = 45.0
@@ -62,7 +68,7 @@ class Defaults:
     OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
     OPENAI_CHAT_COMPLETIONS_URL = "https://api.openai.com/v1/chat/completions"
     OPENAI_EMBEDDINGS_URL = "https://api.openai.com/v1/embeddings"
-    LOCAL_OPENAI_BASE_URL = "http://127.0.0.1:1234/v1"
+    LOCAL_OPENAI_BASE_URL = "http://127.0.0.1:8016/v1"
     OPENAI_TIMEOUT_SECONDS = 60.0
 
     INDEXING_MODE = "scanner"

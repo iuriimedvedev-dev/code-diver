@@ -8,6 +8,7 @@ from code_diver.config.app_config import AppConfig
 from code_diver.config.experiment_hypothesis_config import ExperimentHypothesisConfig
 from code_diver.config.experiments_config import ExperimentsConfig
 from code_diver.config.pi_config import PiConfig
+from code_diver.config.pi_repo_context_config import PiRepoContextConfig
 from code_diver.config.qdrant_config import QdrantConfig
 from code_diver.config.storage_config import StorageConfig
 from code_diver.pi import PiCommandBuilder, PiSessionOptions
@@ -28,6 +29,7 @@ def test_pi_command_builder_uses_configured_extension_prompt_and_tools() -> None
             model="google/gemini-3.5-flash",
             tools=["read", "code_diver_search"],
             extra_args=["--no-session"],
+            repo_context=PiRepoContextConfig(enabled=False),
         ),
     )
 
@@ -95,6 +97,31 @@ def test_pi_command_builder_uses_configured_toolset() -> None:
 
     assert command[command.index("--tools") + 1] == "code_diver_tree,code_diver_index_selected"
     assert env["CODE_DIVER_TOOLSET"] == "indexing"
+
+
+def test_pi_command_builder_appends_repository_context_prompt() -> None:
+    config = AppConfig(
+        root=Path("/repo"),
+        pi=PiConfig(
+            prompt_template=Path(".pi/prompts/code-diver-rag.md"),
+            repo_context=PiRepoContextConfig(
+                enabled=True,
+                output=Path(".code-diver/context/repository-context.md"),
+            ),
+        ),
+    )
+
+    command = PiCommandBuilder().build(config)
+
+    append_values = [
+        command[index + 1]
+        for index, value in enumerate(command)
+        if value == "--append-system-prompt"
+    ]
+    assert append_values == [
+        ".pi/prompts/code-diver-rag.md",
+        "/repo/.code-diver/context/repository-context.md",
+    ]
 
 
 def test_pi_command_builder_exports_qdrant_collection() -> None:

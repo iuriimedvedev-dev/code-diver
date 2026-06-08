@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from ..settings import Defaults
+from .pi_repo_context_config import PiRepoContextConfig
 
 
 @dataclass(slots=True)
@@ -21,3 +22,4 @@ class PiConfig:
     toolsets: dict[str, list[str]] = field(default_factory=dict)
     extra_args: list[str] = field(default_factory=list)
     env: dict[str, str] = field(default_factory=dict)
+    repo_context: PiRepoContextConfig = field(default_factory=PiRepoContextConfig)

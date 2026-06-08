@@ -22,13 +22,17 @@ embedding:
   document_prefix: "Represent this code file metadata for retrieval: "
 
 generation:
-  provider: vertex
-  model: gemini-3.1-flash-lite
+  provider: openai_compatible
+  model: gemma-4-26B-A4B-it-qat-UD-Q4_K_XL
+  url: http://127.0.0.1:8016/v1/chat/completions
+  api_key: local
   fallback_models: []
   temperature: 0
-  thinking_budget: 256
-  api_version: v1
-  timeout_ms: 30000
+  thinking_budget:
+  api_version:
+  timeout_ms: 480000
+  max_tokens: 2048
+  response_format: json_object
 
 indexing:
   mode: scanner
@@ -41,12 +45,25 @@ pi:
     - pi
   extension: .pi/extensions/code-diver-rag.ts
   prompt_template: .pi/prompts/code-diver-rag.md
-  provider: google-vertex
-  model: gemini-3.1-flash-lite
-  fallback_models:
-    - gemini-2.5-flash
+  provider: code-diver-local
+  model: gemma-4-26B-A4B-it-qat-UD-Q4_K_XL
+  fallback_models: []
   timeout_seconds: 180
   session_dir: .code-diver/pi-sessions
+  repo_context:
+    enabled: true
+    mode: readme_summary
+    output: .code-diver/context/repository-context.md
+    include_docs: true
+    max_chars: 16000
+    docs_limit: 8
+  env:
+    CODE_DIVER_LOCAL_LLM_PROVIDER: code-diver-local
+    CODE_DIVER_LOCAL_LLM_MODEL: gemma-4-26B-A4B-it-qat-UD-Q4_K_XL
+    CODE_DIVER_LOCAL_LLM_BASE_URL: http://127.0.0.1:8016/v1
+    CODE_DIVER_LOCAL_LLM_API_KEY: local
+    PI_SKIP_VERSION_CHECK: "1"
+    PI_CACHE_RETENTION: long
   tools:
     - code_diver_search
     - code_diver_inspect
@@ -83,9 +100,6 @@ pi:
       - code_diver_read
       - code_diver_record_failure
       - code_diver_record_success
-  env:
-    PI_SKIP_VERSION_CHECK: "1"
-    PI_CACHE_RETENTION: long
   extra_args: []
 
 scanner:
@@ -199,7 +213,7 @@ experiments:
     - name: h5_default
       strategy: hybrid_rerank
       toolset: vector_search
-      description: "H5 default: Qwen file-metadata index, hybrid candidates, Gemini Lite top-10 rerank."
+      description: "H5 baseline: Qwen file-metadata index, hybrid candidates, local LLM top-10 rerank."
     - name: ai_grep_only
       toolset: grep_search
       description: Pi agent searches with tree, symbols, grep, rg, read, and no vector search.

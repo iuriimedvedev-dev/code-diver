@@ -56,7 +56,7 @@ from .graph import CodeGraphBuilder, CodeGraphStore
 from .inspection import GrepService, ReadExcerptService, RgService, SymbolsService, TreeService
 from .metrics import ClickHouseClient, ClickHouseDockerClient, ClickHouseMetricsRepository, ExperimentMetricsMapper
 from .orchestration import OrchestratedCodebaseScanner
-from .pi import PiRunner, PiRuntimeManager, PiSessionOptions
+from .pi import PiRunner, PiRuntimeManager, PiSessionOptions, RepositoryContextBuilder
 from .plugins import PluginManager
 from .providers import create_embedding_provider
 from .runtime import EmbeddingRuntimeManager, QdrantRuntimeManager, RuntimeConfigStore, RuntimeSetupWizard
@@ -711,13 +711,14 @@ def apply_builtin_h5(config: AppConfig) -> AppConfig:
     generation = replace(
         config.generation,
         provider=Defaults.GENERATION_PROVIDER,
-        model="gemini-3.1-flash-lite",
+        model=Defaults.GENERATION_MODEL,
         fallback_models=[],
         location="global",
         temperature=0.0,
-        thinking_budget=256,
-        api_version="v1",
-        timeout_ms=30_000,
+        thinking_budget=Defaults.GENERATION_THINKING_BUDGET,
+        api_version=Defaults.GENERATION_API_VERSION,
+        timeout_ms=Defaults.GENERATION_TIMEOUT_MS,
+        max_tokens=Defaults.GENERATION_MAX_TOKENS,
     )
     graph = replace(
         config.graph,
@@ -1275,6 +1276,7 @@ def cmd_open(args: argparse.Namespace, config: AppConfig) -> int:
 
 
 def cmd_ask(args: argparse.Namespace, config: AppConfig) -> int:
+    RepositoryContextBuilder().build(config)
     return PiRunner().run_print(
         config,
         args.config,
@@ -1285,6 +1287,7 @@ def cmd_ask(args: argparse.Namespace, config: AppConfig) -> int:
 
 
 def cmd_chat(args: argparse.Namespace, config: AppConfig) -> int:
+    RepositoryContextBuilder().build(config)
     prompt, session = chat_prompt_and_session(args, config)
     return PiRunner().run_interactive(
         config,
