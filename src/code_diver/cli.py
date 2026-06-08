@@ -169,6 +169,10 @@ def make_vector_store(config: AppConfig, progress: bool = False):
 
 def main(argv: list[str] | None = None) -> int:
     normalized = normalize_argv(argv)
+    index_maintenance_help = index_maintenance_help_command(normalized)
+    if index_maintenance_help is not None:
+        build_index_maintenance_help_parser(index_maintenance_help).print_help()
+        return 0
     include_advanced = bool(
         normalized
         and (OptionName.HELP_ALL.value in normalized or any(token in ADVANCED_COMMANDS for token in normalized))
@@ -230,7 +234,14 @@ def build_parser(include_advanced: bool = False) -> argparse.ArgumentParser:
     init.set_defaults(func=cmd_init)
 
     index = subparsers.add_parser(CommandName.INDEX.value, help="Index repository code into the configured artifact.")
-    index.add_argument("index_root", nargs="?", type=Path, default=None)
+    index.add_argument(
+        "index_root",
+        nargs="?",
+        type=Path,
+        default=None,
+        metavar="index_root|clear",
+        help="Repository root to index, or `clear`/`prune`/`reset` to delete Qdrant index collections.",
+    )
     index_mode = index.add_mutually_exclusive_group()
     index_mode.add_argument(
         "--update-index",
@@ -511,6 +522,21 @@ def add_advanced_parsers(subparsers: argparse._SubParsersAction[argparse.Argumen
     monitor.set_defaults(func=cmd_monitor)
 
 
+def build_index_maintenance_help_parser(command: str) -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog=f"code-diver index {command}",
+        description="Delete Code Diver Qdrant index collections.",
+    )
+    parser.add_argument(
+        "--all",
+        action="store_true",
+        help="Delete all Code Diver index collections instead of only the current repository collections.",
+    )
+    parser.add_argument("--no-progress", action="store_true", help="Disable progress output.")
+    parser.add_argument("-q", "--quiet", action="store_true", help="Only print the final deletion summary.")
+    return parser
+
+
 def normalize_argv(argv: list[str] | None) -> list[str] | None:
     if argv is None:
         raw = list(sys.argv[1:])
@@ -532,6 +558,22 @@ def normalize_argv(argv: list[str] | None) -> list[str] | None:
         normalized.append(token)
         index += 1
     return [*config_tokens, *normalized]
+
+
+def index_maintenance_help_command(argv: list[str] | None) -> str | None:
+    if not argv:
+        return None
+    for index, token in enumerate(argv):
+        if token != CommandName.INDEX.value:
+            continue
+        if index + 1 >= len(argv):
+            return None
+        command = argv[index + 1]
+        if command not in INDEX_MAINTENANCE_COMMANDS:
+            return None
+        if any(token in {"-h", "--help"} for token in argv[index + 2 :]):
+            return command
+    return None
 
 
 def apply_runtime_config(args: argparse.Namespace, config: AppConfig) -> AppConfig:

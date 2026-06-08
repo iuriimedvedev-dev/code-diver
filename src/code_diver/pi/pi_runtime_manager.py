@@ -29,6 +29,12 @@ class PiRuntimeManager:
         suffix = ".cmd" if self._is_windows() else ""
         return self.package_root / "node_modules" / ".bin" / f"pi{suffix}"
 
+    def command_for_execution(self, command: list[str]) -> list[str]:
+        prepared = list(command)
+        if self._uses_local_npm_exec(prepared):
+            prepared = [str(self.local_binary()), *prepared[4:]]
+        return self._resolve_package_asset_flags(prepared)
+
     def cwd_for_command(self, command: list[str]) -> Path | None:
         if self._uses_local_npm_exec(command):
             return self.package_root
@@ -44,6 +50,20 @@ class PiRuntimeManager:
 
     def _uses_local_npm_exec(self, command: list[str]) -> bool:
         return len(command) >= 4 and command[:3] == ["npm", "exec", "--"] and command[3] == "pi"
+
+    def _resolve_package_asset_flags(self, command: list[str]) -> list[str]:
+        resolved = list(command)
+        for flag in ("--extension", "--prompt-template", "--append-system-prompt"):
+            try:
+                index = resolved.index(flag)
+            except ValueError:
+                continue
+            if index + 1 >= len(resolved):
+                continue
+            path = Path(resolved[index + 1])
+            if not path.is_absolute():
+                resolved[index + 1] = str((self.package_root / path).resolve())
+        return resolved
 
     def _is_windows(self) -> bool:
         return os.name == "nt"

@@ -676,6 +676,7 @@ async function labelResult(label: string, resultPromise: Promise<CommandResult>)
 function runCodeDiver(cwd: string, args: string[], signal?: AbortSignal, input?: string): Promise<CommandResult> {
   const config = process.env.CODE_DIVER_CONFIG || "code-diver.yml";
   const root = process.env.CODE_DIVER_ROOT;
+  const packageRoot = process.env.CODE_DIVER_PACKAGE_ROOT || cwd;
   const childArgs = ["run", "code-diver", "--config", config];
   if (root) {
     childArgs.push("--root", root);
@@ -683,7 +684,7 @@ function runCodeDiver(cwd: string, args: string[], signal?: AbortSignal, input?:
   childArgs.push(...args);
   return new Promise((resolve, reject) => {
     const child = spawn("uv", childArgs, {
-      cwd,
+      cwd: packageRoot,
       env: process.env,
       stdio: ["pipe", "pipe", "pipe"],
       signal,

@@ -133,6 +133,7 @@ class PiRunner:
     ) -> dict[str, str]:
         env = os.environ.copy()
         env.update(self.command_builder.env(config, config_path, toolset, hypothesis))
+        env["CODE_DIVER_PACKAGE_ROOT"] = str(self.runtime_manager.package_root.resolve())
         return env
 
     def _run_with_fallbacks(
@@ -148,10 +149,9 @@ class PiRunner:
         for index, model in enumerate(self._models(config)):
             if index:
                 print(f"Search agent model fallback: {model}", file=sys.stderr, flush=True)
-            command = command_factory(model)
-            self._ensure_runtime(command)
-            self._print_launch_status(command, model, toolset, hypothesis)
-            last_code = subprocess.call(command, env=env, **self._subprocess_kwargs(command))
+            command = self._prepare_command(command_factory(model))
+            self._print_launch_status(config, command, model, toolset, hypothesis)
+            last_code = subprocess.call(command, env=env, **self._subprocess_kwargs(config))
             if last_code == 0:
                 return 0
         return last_code
@@ -170,9 +170,8 @@ class PiRunner:
         for index, model in enumerate(self._models(config)):
             if index:
                 print(f"Search agent model fallback: {model}", file=sys.stderr, flush=True)
-            command = command_factory(model)
-            self._ensure_runtime(command)
-            self._print_launch_status(command, model, toolset, hypothesis)
+            command = self._prepare_command(command_factory(model))
+            self._print_launch_status(config, command, model, toolset, hypothesis)
             try:
                 completed = subprocess.run(
                     command,
@@ -180,7 +179,7 @@ class PiRunner:
                     capture_output=True,
                     text=True,
                     timeout=config.pi.timeout_seconds,
-                    **self._subprocess_kwargs(command),
+                    **self._subprocess_kwargs(config),
                 )
             except subprocess.TimeoutExpired as exc:
                 self._write_captured_stderr(self._text(exc.stderr))
@@ -201,6 +200,7 @@ class PiRunner:
 
     def _print_launch_status(
         self,
+        config: AppConfig,
         command: list[str],
         model: str | None,
         toolset: str | None,
@@ -211,6 +211,7 @@ class PiRunner:
         table.add_column(style="bold cyan", no_wrap=True)
         table.add_column()
         table.add_row("model", model or "default")
+        table.add_row("repo", str(config.root.resolve()))
         if toolset:
             table.add_row("toolset", toolset)
         if hypothesis:
@@ -231,13 +232,13 @@ class PiRunner:
             return None
         return command[index + 1]
 
-    def _ensure_runtime(self, command: list[str]) -> None:
+    def _prepare_command(self, command: list[str]) -> list[str]:
         if self.runtime_manager.cwd_for_command(command) is not None:
             self.runtime_manager.ensure_available()
+        return self.runtime_manager.command_for_execution(command)
 
-    def _subprocess_kwargs(self, command: list[str]) -> dict[str, str]:
-        cwd = self.runtime_manager.cwd_for_command(command)
-        return {"cwd": str(cwd)} if cwd is not None else {}
+    def _subprocess_kwargs(self, config: AppConfig) -> dict[str, str]:
+        return {"cwd": str(config.root.resolve())}
 
     def _write_captured_stderr(self, text: str) -> None:
         if not text:
@@ -263,8 +264,7 @@ class PiRunner:
         for index, model in enumerate(self._models(config)):
             if index:
                 self._write_log_event(log_path, {"type": "runner_fallback", "model": model})
-            command = command_factory(model)
-            self._ensure_runtime(command)
+            command = self._prepare_command(command_factory(model))
             self._write_log_event(
                 log_path,
                 {
@@ -281,7 +281,7 @@ class PiRunner:
                     capture_output=True,
                     text=True,
                     timeout=config.pi.timeout_seconds,
-                    **self._subprocess_kwargs(command),
+                    **self._subprocess_kwargs(config),
                 )
             except subprocess.TimeoutExpired as exc:
                 self._append_stdout(log_path, self._text(exc.stdout))

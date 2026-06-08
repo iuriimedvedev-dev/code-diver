@@ -325,6 +325,41 @@ plugins: []
     assert "explain indexing" in calls[0]
 
 
+def test_chat_uses_cli_root_override(tmp_path: Path, monkeypatch) -> None:
+    configured_repo = tmp_path / "configured"
+    configured_repo.mkdir()
+    cli_repo = tmp_path / "cli-root"
+    cli_repo.mkdir()
+    config = tmp_path / "code-diver.yml"
+    config.write_text(
+        f"""
+root: {configured_repo}
+embedding:
+  provider: hash
+  dimensions: 64
+pi:
+  binary: pi
+  session_dir: .code-diver/pi-sessions
+  tools:
+    - code_diver_search
+plugins: []
+""".strip(),
+        encoding="utf-8",
+    )
+    calls: list[tuple[Path, Path | None]] = []
+
+    class FakePiRunner:
+        def run_interactive(self, config, config_path: Path | None, prompt=None, **kwargs) -> int:
+            calls.append((config.root, kwargs["session"].session_dir))
+            return 0
+
+    monkeypatch.setattr("code_diver.cli.PiRunner", FakePiRunner)
+
+    assert main(["--config", str(config), "--root", str(cli_repo), "chat"]) == 0
+
+    assert calls == [(cli_repo, Path(".code-diver/pi-sessions"))]
+
+
 class _StringInput:
     def __init__(self, text: str):
         self.text = text

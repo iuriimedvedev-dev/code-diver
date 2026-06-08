@@ -24,8 +24,9 @@ def test_pi_runner_tries_fallback_models(monkeypatch) -> None:
     )
     commands: list[list[str]] = []
 
-    def fake_call(command: list[str], env: dict[str, str]) -> int:
+    def fake_call(command: list[str], env: dict[str, str], cwd: str) -> int:
         commands.append(command)
+        assert cwd == str(config.root.resolve())
         return 1 if len(commands) == 1 else 0
 
     monkeypatch.setattr("subprocess.call", fake_call)
@@ -39,8 +40,16 @@ def test_pi_runner_writes_json_mode_log(monkeypatch, tmp_path: Path) -> None:
     config = AppConfig(root=Path("/repo"), pi=PiConfig(binary="pi", model="google/gemini-3.5-flash"))
     commands: list[list[str]] = []
 
-    def fake_run(command: list[str], env: dict[str, str], capture_output: bool, text: bool, timeout: int):
+    def fake_run(
+        command: list[str],
+        env: dict[str, str],
+        capture_output: bool,
+        text: bool,
+        timeout: int,
+        cwd: str,
+    ):
         commands.append(command)
+        assert cwd == str(config.root.resolve())
         return SimpleNamespace(returncode=0, stdout='{"type":"agent_end"}\n', stderr="warn\n")
 
     monkeypatch.setattr("subprocess.run", fake_run)
@@ -58,6 +67,7 @@ def test_pi_runner_writes_json_mode_log(monkeypatch, tmp_path: Path) -> None:
 
 def test_pi_runner_launch_status_hides_raw_command_and_empty_hypothesis(capsys) -> None:
     PiRunner()._print_launch_status(
+        AppConfig(root=Path("/repo")),
         [
             "npx",
             "-y",
@@ -91,14 +101,20 @@ def test_pi_runner_uses_project_cwd_for_local_npm_runtime(monkeypatch, tmp_path:
     captured: dict[str, object] = {}
 
     class FakeRuntimeManager:
+        package_root = tmp_path
+
         def cwd_for_command(self, command: list[str]) -> Path | None:
             return tmp_path if command[:4] == ["npm", "exec", "--", "pi"] else None
 
         def ensure_available(self) -> None:
             captured["ensured"] = True
 
+        def command_for_execution(self, command: list[str]) -> list[str]:
+            return [str(tmp_path / "node_modules" / ".bin" / "pi"), *command[4:]]
+
     def fake_call(command: list[str], **kwargs) -> int:
         captured["command"] = command
+        captured["env"] = kwargs.get("env")
         captured["cwd"] = kwargs.get("cwd")
         return 0
 
@@ -108,4 +124,6 @@ def test_pi_runner_uses_project_cwd_for_local_npm_runtime(monkeypatch, tmp_path:
 
     assert runner.run_print(config, Path("code-diver.yml"), "hello") == 0
     assert captured["ensured"] is True
-    assert captured["cwd"] == str(tmp_path)
+    assert captured["cwd"] == str((tmp_path / "repo").resolve())
+    assert captured["command"][0] == str(tmp_path / "node_modules" / ".bin" / "pi")
+    assert captured["env"]["CODE_DIVER_PACKAGE_ROOT"] == str(tmp_path.resolve())
