@@ -9,9 +9,17 @@ from .answer_query_plan import AnswerQueryPlan
 
 
 class AnswerQueryPlanner:
-    def __init__(self, provider: GenerationProvider, *, max_queries: int = 4, parser: JsonishParser | None = None):
+    def __init__(
+        self,
+        provider: GenerationProvider,
+        *,
+        max_queries: int = 4,
+        repository_context: str = "",
+        parser: JsonishParser | None = None,
+    ):
         self.provider = provider
         self.max_queries = max(1, int(max_queries or 1))
+        self.repository_context = repository_context.strip()
         self.parser = parser or JsonishParser()
 
     def plan_result(self, case: AnswerCase) -> tuple[AnswerQueryPlan, GenerationResult]:
@@ -39,6 +47,12 @@ class AnswerQueryPlanner:
         )
 
     def _prompt(self, case: AnswerCase) -> str:
+        context_section = ""
+        if self.repository_context:
+            context_section = f"""
+Repository orientation:
+{self.repository_context}
+"""
         return f"""Generate targeted code search queries for a repository code exploration agent.
 
 The agent will run these queries against a hybrid code index. Your job is to
@@ -63,6 +77,7 @@ Return shape:
 Question:
 {case.question}
 
+{context_section}
 Case metadata:
 {json.dumps(case.metadata, ensure_ascii=False)}
 """

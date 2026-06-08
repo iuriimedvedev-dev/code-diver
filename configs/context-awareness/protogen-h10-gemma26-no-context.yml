@@ -1,0 +1,108 @@
+root: ../protogen
+
+storage:
+  provider: qdrant
+  qdrant:
+    url: http://localhost:6333
+    collection: code_diver
+    batch_size: 256
+
+embedding:
+  provider: openai_compatible
+  model: mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ
+  dimensions:
+  url: http://127.0.0.1:8001/v1/embeddings
+  api_key: local
+  batch_size: 128
+  workers: 1
+  max_input_chars: 400
+  query_prefix: "Represent this code search query for retrieving relevant files: "
+  document_prefix: "Represent this code file metadata for retrieval: "
+
+generation:
+  provider: openai_compatible
+  model: gemma-4-26B-A4B-it-qat-UD-Q4_K_XL
+  url: http://127.0.0.1:8016/v1/chat/completions
+  api_key: local
+  temperature: 0
+  timeout_ms: 480000
+  max_tokens: 1024
+  response_format: json_schema
+  extra_body:
+    chat_template_kwargs:
+      enable_thinking: false
+
+pi:
+  repo_context:
+    enabled: false
+
+search:
+  limit: 10
+  preview_lines: 8
+  strategy: graph_file_rerank
+
+hybrid_search:
+  candidate_limit: 280
+  lexical_candidate_limit: 900
+  vector_weight: 0.42
+  lexical_weight: 0.26
+  path_weight: 0.12
+  symbol_weight: 0.10
+  symbol_match_weight: 0.10
+  graph_weight: 0.0
+  file_vote_weight: 0.06
+  graph_depth: 0
+  graph_neighbor_limit: 0
+  vector_kind_limits:
+    file_summary: 170
+    file_manifest: 170
+  vector_kind_multipliers:
+    file_summary: 1.0
+    file_manifest: 1.08
+  routing_enabled: true
+  lexical_scoring: bm25
+  fusion: weighted
+  preserve_vector_top: true
+  vector_top_score_margin: 0.03
+  item_kind_weights:
+    file_summary: 1.0
+    file_manifest: 1.08
+  min_token_length: 3
+
+graph_file_search:
+  seed_limit: 120
+  lexical_seed_limit: 240
+  vector_weight: 0.25
+  lexical_weight: 0.25
+  path_weight: 0.20
+  symbol_weight: 0.10
+  graph_weight: 0.45
+  depth: 2
+  neighbor_limit: 40
+  decay: 0.65
+  min_token_length: 3
+
+llm_rerank:
+  candidate_limit: 30
+  rerank_limit: 10
+  max_preview_chars: 700
+  mode: precision
+  include_reasons: false
+  preserve_top_candidate: false
+  retry_attempts: 3
+
+graph:
+  enabled: true
+  artifact: .code-diver/protogen-graph.json
+  ast_enabled: false
+  reference_edges_enabled: true
+  call_edges_enabled: false
+  expansion_depth: 2
+  neighbor_limit: 40
+
+evaluation:
+  limit: 10
+  workers: 1
+
+metrics:
+  enabled: false

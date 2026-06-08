@@ -329,6 +329,83 @@ def test_answer_evaluator_uses_llm_generated_search_queries(tmp_path: Path) -> N
     ]
 
 
+def test_answer_query_planner_includes_repository_context() -> None:
+    planner_provider = FakeGenerationProvider(
+        [
+            json.dumps(
+                {
+                    "queries": [{"query": "auth route token validation"}],
+                    "rationale": "Use repo layout.",
+                }
+            )
+        ]
+    )
+    case = AnswerCase(
+        id="auth",
+        question="Where is auth?",
+        reference="src/auth.py handles auth.",
+        expected_paths=["src/auth.py"],
+    )
+
+    AnswerQueryPlanner(
+        planner_provider,
+        repository_context="# Repository Context\n- src/api routes live here",
+    ).plan_result(case)
+
+    assert "Repository orientation" in planner_provider.prompts[0]
+    assert "src/api routes live here" in planner_provider.prompts[0]
+
+
+def test_answer_evaluator_includes_repository_context_in_answer_prompt(tmp_path: Path) -> None:
+    source = tmp_path / "src" / "auth.py"
+    source.parent.mkdir()
+    source.write_text("def login(user):\n    return user.token is not None\n", encoding="utf-8")
+    retrieval = FakeRetrievalStrategy(
+        [
+            SearchResult(
+                CodeItem(
+                    id="src/auth.py",
+                    path="src/auth.py",
+                    title="auth",
+                    content="Checks whether a user has a token.",
+                    start_line=1,
+                ),
+                0.91,
+            )
+        ]
+    )
+    answer_provider = FakeGenerationProvider(
+        [
+            json.dumps(
+                {
+                    "answer": "Authentication is checked in src/auth.py.",
+                    "citations": [{"path": "src/auth.py", "lines": "1-2", "reason": "token check"}],
+                }
+            )
+        ]
+    )
+
+    AnswerEvaluator(
+        retrieval,
+        answer_provider,
+        AnswerContextBuilder(tmp_path, max_files=1, lines_per_file=40),
+        repository_context="# Repository Context\n- src contains app code",
+        limit=5,
+    ).evaluate(
+        [
+            AnswerCase(
+                id="auth",
+                question="Where is authentication checked?",
+                reference="src/auth.py checks user tokens.",
+                expected_paths=["src/auth.py"],
+            )
+        ]
+    )
+
+    assert "Repository orientation" in answer_provider.prompts[0]
+    assert "src contains app code" in answer_provider.prompts[0]
+
+
 def test_answer_evaluator_can_rerank_merged_planned_query_pool(tmp_path: Path) -> None:
     src = tmp_path / "src"
     src.mkdir()

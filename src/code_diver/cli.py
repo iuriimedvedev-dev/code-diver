@@ -470,7 +470,13 @@ def add_advanced_parsers(subparsers: argparse._SubParsersAction[argparse.Argumen
     evaluate_answers.add_argument("--query-workers", type=int, default=4, help="Parallel retrieval workers for planned queries.")
     evaluate_answers.add_argument(
         "--agentic-query-search-strategy",
-        choices=[RetrievalStrategyId.VECTOR.value, RetrievalStrategyId.HYBRID.value, RetrievalStrategyId.HYBRID_RERANK.value],
+        choices=[
+            RetrievalStrategyId.VECTOR.value,
+            RetrievalStrategyId.HYBRID.value,
+            RetrievalStrategyId.HYBRID_RERANK.value,
+            RetrievalStrategyId.GRAPH_FILE.value,
+            RetrievalStrategyId.GRAPH_FILE_RERANK.value,
+        ],
         default=None,
         help="Retrieval strategy used for LLM-planned probe queries. Defaults to the configured search strategy.",
     )
@@ -1947,7 +1953,19 @@ def cmd_evaluate_answers(args: argparse.Namespace, config: AppConfig) -> int:
     provider = make_embedding_provider(config, vector_store.metadata())
     strategy = make_retrieval_strategy(config, provider, vector_store)
     answer_provider = create_generation_provider(config)
-    query_planner = AnswerQueryPlanner(answer_provider, max_queries=args.query_count) if args.agentic_queries else None
+    repository_context_result = RepositoryContextBuilder().build(config)
+    repository_context = ""
+    if repository_context_result is not None:
+        repository_context = repository_context_result.path.read_text(encoding="utf-8", errors="replace")
+    query_planner = (
+        AnswerQueryPlanner(
+            answer_provider,
+            max_queries=args.query_count,
+            repository_context=repository_context,
+        )
+        if args.agentic_queries
+        else None
+    )
     query_retrieval_strategy = None
     if args.agentic_queries and args.agentic_query_search_strategy:
         query_config = replace(config, search=replace(config.search, strategy=args.agentic_query_search_strategy))
@@ -1983,6 +2001,12 @@ def cmd_evaluate_answers(args: argparse.Namespace, config: AppConfig) -> int:
                 ("query count", args.query_count if args.agentic_queries else 1),
                 ("query search", args.agentic_query_search_strategy or config.search.strategy),
                 ("query final rerank", bool(query_result_reranker)),
+                (
+                    "repo context",
+                    f"{repository_context_result.mode} ({repository_context_result.chars} chars)"
+                    if repository_context_result is not None
+                    else "disabled",
+                ),
                 ("answer model", f"{config.generation.provider}:{config.generation.model}"),
                 ("judge", args.judge),
                 ("workers", worker_count),
@@ -2038,6 +2062,7 @@ def cmd_evaluate_answers(args: argparse.Namespace, config: AppConfig) -> int:
                 exclude=inspection_exclude_patterns(config),
                 max_file_bytes=config.scanner.max_file_bytes,
             ),
+            repository_context=repository_context,
             judge=judge,
             query_planner=query_planner,
             query_retrieval_strategy=query_retrieval_strategy,
@@ -2068,6 +2093,9 @@ def cmd_evaluate_answers(args: argparse.Namespace, config: AppConfig) -> int:
             "query_workers": args.query_workers,
             "agentic_query_search_strategy": args.agentic_query_search_strategy or config.search.strategy,
             "agentic_query_rerank": bool(args.agentic_query_rerank),
+            "repo_context_enabled": repository_context_result is not None,
+            "repo_context_mode": repository_context_result.mode if repository_context_result is not None else None,
+            "repo_context_chars": repository_context_result.chars if repository_context_result is not None else 0,
             "embedding_provider": config.embedding.provider,
             "embedding_model": config.embedding.model,
             "answer_provider": config.generation.provider,

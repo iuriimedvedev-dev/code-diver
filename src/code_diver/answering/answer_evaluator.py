@@ -28,6 +28,7 @@ class AnswerEvaluator:
     query_planner: AnswerQueryPlanner | None = None
     query_retrieval_strategy: RetrievalStrategy | None = None
     query_result_reranker: AnswerCandidateReranker | None = None
+    repository_context: str = ""
     limit: int = 10
     query_workers: int = 4
     workers: int = 1
@@ -325,6 +326,14 @@ class AnswerEvaluator:
         return sorted(best_by_file.values(), key=lambda item: item.score, reverse=True)[:limit]
 
     def _answer_prompt(self, case: AnswerCase, context: str) -> str:
+        repository_context = self.repository_context.strip()
+        context_section = ""
+        if repository_context:
+            context_section = f"""
+Repository orientation:
+{repository_context}
+
+"""
         return f"""Answer the developer's repository question using only the provided retrieval context.
 
 Requirements:
@@ -333,6 +342,7 @@ Requirements:
 - If the context is insufficient, say what is missing instead of inventing behavior.
 - Return JSON only: {{"answer":"...","citations":[{{"path":"...","lines":"...","reason":"..."}}],"confidence":0.0}}
 
+{context_section}
 Question:
 {case.question}
 
