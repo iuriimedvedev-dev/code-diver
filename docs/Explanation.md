@@ -2,6 +2,253 @@
 
 This document is the plain-language map of what Code Diver is doing, why we test several search strategies, and where the current weak spots are.
 
+## 2026-06-08 Interview Defense Snapshot
+
+If you need one sentence for the interview:
+
+```text
+Code Diver is a code-exploration agent built on a compact local file-locator
+index: it finds likely files with hybrid retrieval, optionally applies a gated
+reranker, then lets the assistant read/grep only the short candidate set to
+answer code questions with evidence.
+```
+
+The current best production hypothesis is **H7 local file locator**:
+
+```text
+file_summary + file_manifest embeddings
+-> EmbeddingGemma-300M local embeddings
+-> calibrated hybrid ranking: vector + BM25 + path + symbol + graph signals
+-> query expansion for common code-navigation language
+-> no always-on LLM rerank
+-> optional gated local cross-encoder only for low-confidence tail cases
+-> Search agent reads/greps final candidate files to explain the code
+```
+
+This is the strongest default because it gives high retrieval quality without
+API cost, keeps the index compact, and does not depend on a fragile multi-turn
+agent loop for every query. LLMs are still important, but their main product
+role is **query planning, evidence inspection, explanation, and gated
+reranking**, not brute-force retrieval.
+
+### Final Public Benchmark Run
+
+Command used for the final 1000-case local/no-API run:
+
+```bash
+uv run code-diver \
+  --config configs/benchmarks/codesearchnet-h7-query-expansion-embeddinggemma-1000.yml \
+  evaluate \
+  --details
+```
+
+Settings:
+
+| Setting | Value |
+| --- | --- |
+| Dataset | CodeSearchNet/MTEB Python local positive slice, 1000 cases |
+| Index profile | H6.1 compact file locator |
+| Hypothesis layer | H7 query expansion over the compact locator |
+| Indexed items | `file_summary`, `file_manifest` |
+| Embedding model | `google/embeddinggemma-300m` |
+| Embedding provider | local `sentence_transformers` |
+| Persistent index artifact | `.code-diver/benchmarks/mteb-codesearchnet-python/index-h5-embeddinggemma-300m-quality.json` |
+| Index size | about `46 MB` for this 1000-file public slice |
+| Search strategy | hybrid |
+| LLM/API ranker | none |
+| Degraded cases | `0` |
+
+Result:
+
+| Metric | Value |
+| --- | ---: |
+| Cases | 1000 |
+| Hit@1 | 0.857 |
+| Hit@3 | 0.957 |
+| Hit@5 | 0.980 |
+| Hit@10 | 0.987 |
+| Recall@10 | 0.987 |
+| Precision@10 | 0.1519 |
+| nDCG@10 | 0.9284 |
+| MAP@10 | 0.9088 |
+| Mean latency | 792 ms/query |
+| P95 latency | 867 ms/query |
+| API cost | $0 |
+
+Approximate sampling uncertainty on this 1000-case run:
+
+| Metric | Value | Rough 95% confidence interval |
+| --- | ---: | ---: |
+| Hit@1 | 0.857 | +/- 0.022 |
+| Hit@3 | 0.957 | +/- 0.013 |
+| Hit@5 | 0.980 | +/- 0.009 |
+| Hit@10 | 0.987 | +/- 0.007 |
+
+Interpretation: the run is strong as a **candidate generator**. It usually puts
+the right file into the first 3-5 results without any LLM call. Hit@10 is above
+the original `0.95` target, but the real product target is Hit@3/Hit@5 because
+the explanation agent should not have to read ten files for every question.
+
+### Current Hypothesis Matrix
+
+| Hypothesis | What changed | Dataset | Key result | Decision |
+| --- | --- | --- | --- | --- |
+| H6.1 static EmbeddingGemma | Compact file summaries/manifests + calibrated hybrid weights | CodeSearchNet Python validation 300 | Hit@1 `0.853`, Hit@5 `0.963`, Hit@10 `0.983`, MRR `0.902` | Accepted as stable base |
+| H7 local query expansion | H6.1 plus code-navigation synonym expansion | CodeSearchNet Python 1000 final run | Hit@1 `0.857`, Hit@5 `0.980`, Hit@10 `0.987`, nDCG `0.928`, mean `792ms` | Best current default |
+| H6.2 MLP weights | Tiny learned model predicts hybrid weights | CodeSearchNet Python validation 300 | Hit@1 `0.843`, Hit@5 `0.957`, Hit@10 `0.980`, MRR `0.894` | Rejected; did not beat static weights |
+| Qwen3-Reranker 0.6B always-on | Local cross-encoder reranks every query | CodeSearchNet Python 100 | Hit@1 dropped `0.810 -> 0.780`, Hit@10 rose `0.970 -> 0.990`, latency `867ms -> 2881ms` | Not default; useful only gated |
+| H7.5L gated cross-encoder | Call Qwen3-Reranker only when H7 top margin is weak | Offline split over 100 saved cases | Oracle gate improved tail cases at `0-5%` call rate | Implemented; pending live sweep |
+| Local Gemma/Qwen generative agent rerank | Let local LLM act as search/rerank agent | 100-case slices | Generally lower Hit@1/Hit@10 and much slower than static H7 | Not default; keep for explanation/hard cases |
+| Gemini 3.5 Flash rerank | API quality ceiling | IntelliJ answer-set 1000 historical | Hit@10 `0.976`, high cost | Oracle/upper bound only |
+| SWE-bench code retrieval H7 | Harder public-ish cross-check | SWE-bench 100 | Hit@1 `0.610`, Hit@5 `0.920`, Hit@10 `0.960` | Shows benchmark difficulty matters |
+
+The important conclusion is not "LLMs are bad at ranking." The conclusion is:
+
+```text
+Always-on generative reranking is not reliable enough to replace a calibrated
+hybrid candidate generator. Specialized rerankers are promising, but must be
+gated and monotonic so they cannot demote confident correct top results.
+```
+
+### Metric Glossary
+
+| Metric | What high value means | What low value means | How to defend it |
+| --- | --- | --- | --- |
+| `cases` | Enough examples to trust the estimate. | Small slices can lie. | Use 1000-case runs for claims; 10/100-case runs are smoke/calibration only. |
+| `Hit@1` | The first result is the expected file. | The user or agent must inspect more candidates. | Best single measure of "does search feel right immediately?" |
+| `Hit@3` | The answer is in a very small candidate set. | The assistant needs too many reads or may miss. | This is the practical interactive target. |
+| `Hit@5` | The answer is in a realistic inspection budget. | Candidate generation is still too noisy. | Strong for code exploration because an LLM can inspect 3-5 files cheaply. |
+| `Hit@10` | The system did not miss the neighborhood. | Retrieval recall is broken; reranking cannot recover absent files. | This is candidate-recall, not final UX quality. |
+| `Recall@10` | Most expected files are present in top 10. | The candidate set omits relevant files. | With one expected file per case it is close to Hit@10; multi-file tasks make it more meaningful. |
+| `Precision@10` | Many returned files are relevant. | Top 10 contains many distractors. | Low precision is expected on single-positive evals; use multi-answer datasets to judge this fairly. |
+| `MRR@10` | Relevant files appear near the top. | The system finds answers but buries them. | More sensitive than Hit@10 because rank 1 is rewarded much more than rank 9. |
+| `MAP@10` | Ranking quality across all relevant files is good. | Multi-relevant answers are poorly ordered. | Important once queries can have several correct files. |
+| `nDCG@10` | Good ranking with graded/position-aware reward. | Correct files are late or mixed with noise. | Useful for comparing ranking changes when Hit@K is tied. |
+| `Mean latency` | Average query is fast. | Expensive default path. | Pair it with P95; mean alone hides tail latency. |
+| `P95 latency` | 95% of queries finish under this time. | Some queries are painfully slow. | Product-facing latency metric. |
+| `degraded` / `degraded_cases` | `false` / `0` means the run is trustworthy. | Model/API/tool failures contaminated metrics. | Never compare quality using degraded runs. |
+| `cost` | API usage is affordable. | A quality gain may not be worth it. | Local H7 costs $0 per query after setup; API rerank is optional. |
+
+### Why Precision Looks Low
+
+On the CodeSearchNet positive-slice benchmark, most cases have exactly one
+expected file. If the system returns 10 files and exactly one is relevant,
+`Precision@10` is `0.1` even when Hit@10 is perfect. That is why `0.1519`
+precision is not a disaster here. It means the top 10 often includes one or two
+items from the expected file, but the benchmark is not designed to reward
+multiple useful supporting files.
+
+For product quality, we need multi-answer cases like:
+
+```text
+where do we edit a user?
+```
+
+where controllers, services, repositories, validation, and tests may all be
+legitimate. That is why Code Diver also tracks answer-set and explanation evals.
+
+### What We Learned The Hard Way
+
+| Problem | What happened | Current answer |
+| --- | --- | --- |
+| Dense-only search misses exact names | Embeddings can over-semanticize short queries like `auth token` or method names. | Hybrid search mixes dense vectors with BM25, path, symbol, and graph signals. |
+| Chunking code bodies is expensive/noisy | Full code chunk indexes are bigger and produce near-duplicate candidates. | Default index stores file-level summaries/manifests; code is read after candidate selection. |
+| Open-ended agents are not monotonic | An agent can use H7 internally but still drop or demote correct candidates. | Agentic search is bounded and treated as hard-case/explanation layer, not default ranking. |
+| Local generative rerankers are unstable | Gemma/Qwen local agents often worsened search quality while adding latency. | Prefer deterministic H7 plus specialized cross-encoder rerankers behind a confidence gate. |
+| API models can be excellent but costly | Gemini 3.5 Flash gave strong oracle-quality results but is expensive for sweeps. | Use API rankers as optional quality mode or oracle, not as required default. |
+| Some evals were too easy or narrow | Internal/protogen-style cases overstated quality compared with public benchmarks. | Use CodeSearchNet/MTEB and SWE-bench-style public slices for defensible claims. |
+| Degraded runs pollute conclusions | Auth/model failures were counted as misses in older runs. | Reports must expose `degraded`, `degraded_cases`, and failure details; invalid runs are not evidence. |
+
+### Demo Commands
+
+These are the commands to show in a live demo. They are CLI commands, not shell
+scripts.
+
+Initialize local embeddings on Apple Silicon:
+
+```bash
+uv run code-diver init \
+  --embedding embeddinggemma-300m \
+  --platform apple-metal \
+  --runtime host-uv \
+  --start
+```
+
+Index a repository:
+
+```bash
+uv run code-diver --root ../protogen index --update-index
+```
+
+Run deterministic JSON search against the indexed repository:
+
+```bash
+uv run code-diver --root ../protogen search -j --limit 5 "where is authentication handled?"
+```
+
+Open the interactive Search agent:
+
+```bash
+uv run code-diver --root ../protogen search -i
+```
+
+Run the public 1000-case benchmark with the current local H7 profile:
+
+```bash
+uv run code-diver \
+  --config configs/benchmarks/codesearchnet-h7-query-expansion-embeddinggemma-1000.yml \
+  evaluate \
+  --details
+```
+
+Run the default benchmark profile, letting the CLI prepare assets if needed:
+
+```bash
+uv run code-diver evaluate \
+  --benchmark codesearchnet-mteb-python-1000 \
+  --yes
+```
+
+Run the same benchmark and rebuild the index from scratch:
+
+```bash
+uv run code-diver evaluate \
+  --benchmark codesearchnet-mteb-python-1000 \
+  --yes \
+  --reindex
+```
+
+### Best Short Defense
+
+If challenged on "why not just agentic LLM search?", answer:
+
+```text
+Because a large repository punishes broad tool calls. We use deterministic
+hybrid retrieval to cheaply create a high-recall candidate set, then use the
+LLM where it has leverage: generating alternate query intents, inspecting
+bounded evidence, and explaining the code. The LLM is the code explainer and
+reasoning layer, not the vector database.
+```
+
+If challenged on "are we SOTA?", answer:
+
+```text
+No official SOTA claim. We ran reproducible public slices, not the full official
+leaderboard protocol. The important result is architectural: a compact local
+file-level hybrid index reached Hit@10 0.987 and Hit@5 0.980 on a 1000-case
+public slice at zero API cost, which is strong enough to justify the design.
+```
+
+If challenged on "what would you improve next?", answer:
+
+```text
+First, run the live H7.5L gated Qwen3-Reranker sweep and only promote it if it
+improves Hit@3/Hit@5 without hurting Hit@1. Second, build a multi-answer
+repo-local benchmark because real code questions often have several correct
+files. Third, evaluate explanation quality with an AI judge rubric, because
+search accuracy and answer quality are related but not the same task.
+```
+
 ## Big Picture
 
 We have two separate phases:
