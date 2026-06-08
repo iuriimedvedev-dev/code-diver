@@ -137,6 +137,7 @@ cross_encoder_rerank:
   timeout_ms: 12345
   preserve_top_candidate: true
   preserve_top_score_margin: 0.3
+  skip_when_top_margin_at_least: 0.05
 graph:
   artifact: {tmp_path}/graph.json
   expansion_depth: 2
@@ -304,6 +305,7 @@ plugins:
     assert config.cross_encoder_rerank.timeout_ms == 12345
     assert config.cross_encoder_rerank.preserve_top_candidate is True
     assert config.cross_encoder_rerank.preserve_top_score_margin == 0.3
+    assert config.cross_encoder_rerank.skip_when_top_margin_at_least == 0.05
     assert config.graph.artifact == tmp_path / "graph.json"
     assert config.graph.expansion_depth == 2
     assert config.graph.ast_enabled is False

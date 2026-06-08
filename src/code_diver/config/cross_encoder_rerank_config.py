@@ -16,3 +16,4 @@ class CrossEncoderRerankConfig:
     timeout_ms: int = Defaults.CROSS_ENCODER_RERANK_TIMEOUT_MS
     preserve_top_candidate: bool = Defaults.CROSS_ENCODER_RERANK_PRESERVE_TOP_CANDIDATE
     preserve_top_score_margin: float = Defaults.CROSS_ENCODER_RERANK_PRESERVE_TOP_SCORE_MARGIN
+    skip_when_top_margin_at_least: float | None = Defaults.CROSS_ENCODER_RERANK_SKIP_WHEN_TOP_MARGIN_AT_LEAST

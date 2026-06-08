@@ -28,6 +28,25 @@ class CrossEncoderRerankRetrievalStrategy(RetrievalStrategy):
         tail_candidates = candidates[len(rerank_candidates) :]
         if len(rerank_candidates) <= 1:
             return candidates[:limit]
+        skip_margin = self._skip_rerank_margin(rerank_candidates)
+        if skip_margin is not None:
+            self.trace_logger.write(
+                "cross_encoder_rerank_skipped",
+                {
+                    "provider": self.rerank_provider.name,
+                    "model": self.rerank_provider.model,
+                    "query": query,
+                    "reason": "confident_base_top",
+                    "margin": skip_margin,
+                    "threshold": self.config.skip_when_top_margin_at_least,
+                    "candidate_count": len(rerank_candidates),
+                    "base_candidate_count": len(candidates),
+                    "limit": limit,
+                    "top_item_id": rerank_candidates[0].item.id,
+                    "top_path": rerank_candidates[0].item.path,
+                },
+            )
+            return candidates[:limit]
         documents = [self._document(candidate) for candidate in rerank_candidates]
         self.trace_logger.write(
             "cross_encoder_rerank_request",
@@ -121,3 +140,12 @@ class CrossEncoderRerankRetrievalStrategy(RetrievalStrategy):
             return True
         margin = candidates[0].score - candidates[1].score
         return margin >= self.config.preserve_top_score_margin
+
+    def _skip_rerank_margin(self, candidates: list[SearchResult]) -> float | None:
+        threshold = self.config.skip_when_top_margin_at_least
+        if threshold is None or len(candidates) < 2:
+            return None
+        margin = candidates[0].score - candidates[1].score
+        if margin < threshold:
+            return None
+        return margin

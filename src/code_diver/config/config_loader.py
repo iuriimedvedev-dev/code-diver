@@ -532,6 +532,14 @@ class ConfigLoader:
                     else Defaults.CROSS_ENCODER_RERANK_PRESERVE_TOP_SCORE_MARGIN,
                 )
             ),
+            skip_when_top_margin_at_least=self._optional_float(
+                mapping.get(
+                    "skip_when_top_margin_at_least",
+                    base.skip_when_top_margin_at_least
+                    if base is not None
+                    else Defaults.CROSS_ENCODER_RERANK_SKIP_WHEN_TOP_MARGIN_AT_LEAST,
+                )
+            ),
         )
 
     def _graph(self, data: Any) -> GraphConfig:
@@ -692,6 +700,11 @@ class ConfigLoader:
         if value is None:
             return None
         return int(value)
+
+    def _optional_float(self, value: Any) -> float | None:
+        if value is None:
+            return None
+        return float(value)
 
     def _optional_string(self, value: Any) -> str | None:
         if value is None:

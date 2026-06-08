@@ -358,7 +358,7 @@ Status meanings:
 | Field | Value |
 | --- | --- |
 | ID | `H7.4L` |
-| Status | active local research |
+| Status | implemented, pending live reranker sweep |
 | Motivation | Validate H7 gated rerank with local models instead of API rerankers. |
 | Assumptions | Local generative rerankers may provide enough sparse head-ordering corrections if called only on low-confidence cases. |
 | Index composition | Same H7/H6.1 EmbeddingGemma file-level index: `file_summary` + `file_manifest`, no code-body vectors. |
@@ -382,15 +382,15 @@ Status meanings:
 | Motivation | Replace slow generative local rerank prompts with a purpose-trained local reranker. |
 | Assumptions | Qwen3-Reranker can fix top-5/top-10 tail cases cheaply, but must be gated and monotonic to avoid demoting strong H7 top-1 hits. |
 | Index composition | Same H7/H6.1 EmbeddingGemma file-level index: `file_summary` + `file_manifest`, no code-body vectors. |
-| Search/ranking flow | H7 deterministic candidates -> optional Qwen3-Reranker cross-encoder via llama.cpp `/v1/rerank` -> preserve confident H7 top-1 -> final file list. |
+| Search/ranking flow | H7 deterministic candidates -> skip reranker when top-1 margin is confident -> optional Qwen3-Reranker cross-encoder via llama.cpp `/v1/rerank` -> preserve confident H7 top-1 -> final file list. |
 | Model/provider matrix | Qwen3-Reranker 0.6B Q4_K_M via llama.cpp. Qwen3-Reranker 4B is the next candidate. |
 | Dataset | CodeSearchNet/MTEB Python saved 100-case cross-encoder run, with 60/20/20 gate splits for seeds `17`, `23`, and `42`. |
 | Metrics | Full 100-case: H7 Hit@1/5/10 `0.810`/`0.960`/`0.970`, nDCG `0.899`, mean `867 ms`; Qwen 0.6B always-on Hit@1/5/10 `0.780`/`0.980`/`0.990`, nDCG `0.896`, mean `2881 ms`. Gate simulation: oracle call rate `0-5%`; seed 17 improves Hit@5/10 `0.900`/`0.900` -> `0.950`/`0.950` at `968 ms`; seed 23 improves Hit@3 `0.950` -> `1.000` while preserving Hit@1 `0.850`. |
 | Cost/latency/index-size | No API cost or index-size change. Always-on Qwen 0.6B is about `3.3x` H7 latency; gated oracle is about `1.1x` on useful splits. |
 | Result summary | Qwen3-Reranker 0.6B is a tail fixer, not an always-on ranker. Preserve-top helps but is not enough alone; gate plus monotonic guard is the correct shape. |
-| Decision | Keep active. Add live gated cross-encoder strategy before promoting. |
+| Decision | Keep active. Live skip-gate and monotonic preserve-top guard are implemented; promote only after live candidate-limit and model sweeps. |
 | Failure modes | Small 100-case slice; preserve-top evaluated partly by simulation over saved rankings; 0.6B capacity may be too weak for head ordering. |
-| Follow-ups | Run live preserve-top config, sweep candidate limits `3/5/10/30`, then test Qwen3-Reranker 4B with the same gate. |
+| Follow-ups | Run live gate config, sweep candidate limits `3/5/10/30`, then test Qwen3-Reranker 4B with the same gate. |
 | Links | [H7 local cross-encoder rerank](../h7-local-cross-encoder-rerank-2026-06-08.md), `configs/benchmarks/codesearchnet-h7-qwen3-reranker-0_6b-preserve-100.yml`, `.code-diver/reports/h7-local-gate-qwen3-reranker-0_6b-preserve003-seed17-train60-val20-test20.json` |
 
 ## H7 - Agent-Planned Probes With One Shared Rerank

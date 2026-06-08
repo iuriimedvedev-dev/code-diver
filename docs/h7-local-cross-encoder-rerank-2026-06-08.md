@@ -90,6 +90,21 @@ It uses:
 - `Qwen3-Reranker-0.6B-Q4_K_M.gguf`;
 - `preserve_top_candidate: true`;
 - `preserve_top_score_margin: 0.03`.
+- `skip_when_top_margin_at_least: 0.03`.
+
+## Live Gate
+
+Implemented in `CrossEncoderRerankRetrievalStrategy`:
+
+- if H7 top-1 margin is at least `skip_when_top_margin_at_least`, return the
+  H7 order without calling the reranker;
+- emit `cross_encoder_rerank_skipped` with the margin, threshold, candidate
+  count, and preserved top path;
+- otherwise call the local cross-encoder and still apply `preserve_top_candidate`
+  as a monotonic guard after rerank.
+
+This is the production shape from the offline analysis: cheap H7 for confident
+queries, local cross-encoder only for low-confidence/tail cases.
 
 ## Decision
 
@@ -98,9 +113,8 @@ behind a gate. Do not use it always-on.
 
 Next:
 
-1. Run the new preserve-top config live when the llama.cpp rerank server is up.
+1. Run the new live gate config when the llama.cpp rerank server is up.
 2. Test candidate limits `3`, `5`, `10`, and `30`.
 3. Test Qwen3-Reranker 4B with the same protocol.
-4. Add a live H7 gate strategy that calls the cross-encoder only when the gate
-   triggers, instead of only simulating from saved reports.
-
+4. Promote the best gate/candidate-limit pair into the default quality config
+   only if it improves Hit@3/Hit@5 without hurting Hit@1.

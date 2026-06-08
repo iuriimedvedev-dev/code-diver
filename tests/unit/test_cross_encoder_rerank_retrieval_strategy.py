@@ -150,6 +150,42 @@ def test_cross_encoder_rerank_preserves_confident_top_candidate() -> None:
     ]
 
 
+def test_cross_encoder_rerank_skips_provider_for_confident_base_top(
+    tmp_path: Path,
+) -> None:
+    trace_path = tmp_path / "trace.jsonl"
+    results = [
+        _result("a", "src/a.py", 0.95),
+        _result("b", "src/b.py", 0.80),
+        _result("c", "src/c.py", 0.70),
+    ]
+    provider = FakeRerankProvider([RerankScore(index=1, score=0.99)])
+    strategy = CrossEncoderRerankRetrievalStrategy(
+        FakeStrategy(results),
+        provider,
+        CrossEncoderRerankConfig(
+            candidate_limit=3,
+            skip_when_top_margin_at_least=0.1,
+        ),
+        trace_logger=TraceLogger(TraceConfig(enabled=True, artifact=trace_path)),
+    )
+
+    reranked = strategy.search("query", 3)
+
+    assert [result.item.path for result in reranked] == [
+        "src/a.py",
+        "src/b.py",
+        "src/c.py",
+    ]
+    assert provider.calls == []
+    records = [
+        json.loads(line) for line in trace_path.read_text(encoding="utf-8").splitlines()
+    ]
+    assert records[0]["event"] == "cross_encoder_rerank_skipped"
+    assert records[0]["payload"]["reason"] == "confident_base_top"
+    assert records[0]["payload"]["margin"] == pytest.approx(0.15)
+
+
 def _result(item_id: str, path: str, score: float) -> SearchResult:
     return SearchResult(
         item=CodeItem(
