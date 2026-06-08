@@ -2,7 +2,7 @@
 
 This document is the plain-language map of what Code Diver is doing, why we test several search strategies, and where the current weak spots are.
 
-The current best production hypothesis is **H7 local file locator**:
+The current best measured candidate-generator hypothesis is **H7 local file locator**:
 
 ```text
 file_summary + file_manifest embeddings
@@ -19,6 +19,22 @@ API cost, keeps the index compact, and does not depend on a fragile multi-turn
 agent loop for every query. LLMs are still important, but their main product
 role is **query planning, evidence inspection, explanation, and gated
 reranking**, not brute-force retrieval.
+
+The current local product wiring is now:
+
+```text
+Search agent
+-> generated repository context prefix (layout + README/docs summary)
+-> GraphRAG file candidate search over compact file metadata
+-> local Gemma 4 26B-A4B QAT rerank/explanation through llama.cpp
+-> bounded grep/symbol/read verification
+-> cited answer
+```
+
+This is intentionally separated from the metric winner. H7 remains the strongest
+measured no-API retrieval baseline. GraphRAG plus repo context is the active
+product hypothesis we are testing next, because the actual assignment is a code
+exploration assistant, not just a vector-search CLI.
 
 ### Final Public Benchmark Run
 
@@ -138,6 +154,39 @@ tests-for, and config-declares. But the production policy stays:
 Use H7 as default.
 Use file GraphRAG as a bounded experiment/tool, not as global default ranking.
 ```
+
+### Repository Context Agent Hypothesis
+
+H11 tests whether the local Search agent should start every session with a
+stable repository context:
+
+```text
+top-level layout
++ README facts
++ markdown documentation map
++ explicit instruction: verify implementation claims with tools
+```
+
+The point is not to let README text replace code evidence. The point is to help
+the LLM choose better search probes, recognize the project shape faster, and
+avoid wasting tool calls on irrelevant terminology. The agent must still cite
+bounded reads, symbols, grep, or search results for implementation claims.
+
+We now generate `.code-diver/context/repository-context.md` before `chat` and
+non-JSON `search`, then pass it to Pi with `--append-system-prompt`. There are
+three variants to measure:
+
+| Variant | What changes | What we expect |
+| --- | --- | --- |
+| No context | Base Search agent prompt only. | Fastest first turn, weaker orientation. |
+| README summary | Layout + fact-preserving README summary + docs map. | Best likely default. |
+| Full README | Layout + full README + docs map. | More facts, but more stale/noisy prompt tokens. |
+
+On the first local smoke, Gemma 4 26B-A4B processed a roughly 5.2k-token agent
+prompt in about 4.8s and generated at about 82 tokens/sec on M3 Max. The next
+eval should record first-turn latency, follow-up latency, prompt-eval tokens/sec,
+tool calls/query, answer judge score, unsupported-claim count, and retrieval
+Hit@3/5/10.
 
 ### Metric Glossary
 
@@ -410,8 +459,8 @@ After H1/H1b returns candidate files, we have a fork:
 
 | Branch | Flow | When it should win |
 | --- | --- | --- |
-| Grep/read branch | locator -> `rg`/read -> API LLM rank | Exact terms, config keys, class names, unique strings. |
-| Ephemeral index branch | locator -> build temporary chunks over 20-50 files -> local vector search -> API LLM rank | Vague semantic queries where grep does not know what to search. |
+| Grep/read branch | locator -> `rg`/read -> configured LLM rank | Exact terms, config keys, class names, unique strings. |
+| Ephemeral index branch | locator -> build temporary chunks over 20-50 files -> local vector search -> configured LLM rank | Vague semantic queries where grep does not know what to search. |
 
 The temporary index only makes sense with a hot local embedding model. API embeddings are too slow and too expensive for per-query indexing.
 
@@ -454,7 +503,9 @@ Embeddings should be local in the target system. We need them for:
 - temporary per-candidate-file indexing;
 - cheap repeated experiments.
 
-The API LLM should not be the embedder. Its job is orchestration and ranking:
+The generation LLM should not be the embedder. In the local-first product path
+this is Gemma 4 26B-A4B through llama.cpp; API LLMs are optional baselines. Its
+job is orchestration and ranking:
 
 1. Read the user query.
 2. Generate several search intents.
@@ -532,7 +583,7 @@ The later answer-set evaluation changed the dataset, not the branch winner. Howe
 compact persistent file/manifest locator
 -> hybrid profile union
 -> structured probes when useful
--> Gemini rerank
+-> configured local LLM rerank/explanation, with Gemini only as an API control
 -> answer-set-aware evaluation
 ```
 
@@ -623,12 +674,13 @@ Qwen3.5 4B local is a useful counterpoint: it beat bounded Gemini Lite on the 10
 The current research slice is closed for architecture direction. The saved metrics say:
 
 ```text
-H6.1 EmbeddingGemma static hybrid is the product default.
-Pure H3/Qwen is a historical fast deterministic candidate generator and no-API fallback.
+H7/H6.1 local file-locator retrieval is the measured default candidate generator.
+Gemma 4 26B-A4B through llama.cpp is the current local chat/explanation/rerank path.
+Pure H3/Qwen is a historical fast deterministic candidate generator and compatible demo fallback.
 Agentic H3 is currently worse, more expensive, and slower.
 Gemini 3.5 Flash is the quality ceiling but not a routine model because of cost.
 Gemini 3.1 Flash Lite is the best historical API quality/cost reranker, but not the default path.
-Qwen3.5 4B local is viable as a local candidate, but too slow in the current agentic loop.
+Qwen3.5 4B local is viable as a local comparison candidate, but too slow in the current agentic loop.
 ```
 
 The strongest valid full result is the non-agentic H3 manifest answer-set run:
@@ -675,7 +727,7 @@ Fresh same-index agent/planner axis over that H6.1 + EmbeddingGemma generator:
 
 | Setup | Cases | Hit@1 | Hit@3 | Hit@5 | Hit@10 | Precision@10 | MRR@10 | nDCG@10 | Mean ms | Status |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| H6.1 static, no LLM | 100 | 0.820 | 0.930 | 0.970 | 0.970 | 0.147 | 0.876 | 0.900 | 858 | current default |
+| H6.1 static, no LLM | 100 | 0.820 | 0.930 | 0.970 | 0.970 | 0.147 | 0.876 | 0.900 | 858 | candidate-generator baseline |
 | H6.1 + Gemini 3.1 Flash Lite agent/rerank | 100 | 0.740 | 0.860 | 0.860 | 0.860 | 0.277 | 0.797 | 0.813 | 10,660 | better precision, worse recall |
 | H6.1 + Gemma 4 E2B local agent/rerank | 100 | 0.510 | 0.570 | 0.640 | 0.700 | 0.070 | 0.564 | 0.596 | 11,501 | fully local and stable, rejected for search |
 | H6.1 + Gemma 4 E2B QAT monotonic agent/rerank | 10 | 0.600 | 0.900 | 1.000 | 1.000 | 0.100 | 0.758 | 0.819 | 46,014 | fastest QAT local agent smoke |
@@ -689,19 +741,20 @@ Gemma 4 QAT models can run the bounded tool protocol through llama.cpp, but the
 agent path is still much slower than the static locator. E2B QAT is the fastest
 valid local QAT agent smoke. 26B-A4B QAT is the strongest local QAT tradeoff so
 far: better Hit@1/MRR/nDCG than E2B/E4B on the 10-case slice, without the dense
-31B latency cliff. Gemini Lite remains the best cloud baseline for cheap
-reasoning, but on this benchmark its current agent contract is too aggressive:
-it drops Hit@5/Hit@10 from `0.970` to `0.860`.
+31B latency cliff. Gemini Lite remains a strong cloud baseline for cheap
+comparison runs, but on this benchmark its current agent contract is too
+aggressive: it drops Hit@5/Hit@10 from `0.970` to `0.860`. The current local
+product path uses Gemma 4 26B-A4B first and keeps Gemini as an explicit API
+control, not as the default.
 
 So the immediate production policy is:
 
-1. Use H6.1 static for broad search and default CLI results.
-2. Use Gemini Lite only as a gated precision/rerank/explanation layer when the
-   user wants fewer, more curated candidates or when the static score margin is
-   low.
-3. Keep Gemma 4 26B-A4B QAT as the leading fully local hard-case agent
-   candidate; keep E2B QAT as the fast local protocol baseline.
-4. Treat monotonic agentic search as a research branch, not a default. Its first
+1. Use H7/H6.1 static retrieval for broad search and default candidate generation.
+2. Use Gemma 4 26B-A4B QAT through llama.cpp as the local chat/explanation and
+   rerank experiment path.
+3. Keep Gemini Lite only as an optional API comparison/gated quality baseline.
+4. Keep E2B/E4B QAT as fast local protocol baselines, not default quality paths.
+5. Treat monotonic agentic search as a research branch, not a default. Its first
    valid QAT runs reach Hit@10 `1.000` on 10-case slices, but require many model
    calls and tens of seconds per query.
 
@@ -856,7 +909,9 @@ A generic text reranker can hurt code search. If a reranker was trained mostly o
 Mitigation: rerank only after measuring rank deltas, and prefer code-oriented rerankers or prompts that preserve strong exact evidence. Treat rerank as conditional:
 
 - use no rerank when rank 1 has a strong exact/path/symbol margin;
-- use Gemini/Vertex rerank for ambiguous semantic queries;
+- use the configured local reranker first: Gemma 4 26B-A4B listwise via chat or
+  a dedicated Qwen3-Reranker via llama.cpp;
+- use Gemini/Vertex only for explicit API baselines or quality-ceiling checks;
 - use llama.cpp `/v1/rerank` only with dedicated code/rerank models and small candidate limits;
 - always log before/after gold rank.
 

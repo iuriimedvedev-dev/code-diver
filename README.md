@@ -6,16 +6,29 @@
 
 ```bash
 uv sync
-gcloud auth application-default login
-gcloud config set project <your-gcp-project>
-uv run code-diver init --platform apple-metal --embedding embeddinggemma-300m --yes --start
+uv run code-diver init --platform apple-metal --embedding qwen3-0.6b --yes --start
+llama-server \
+  -m .code-diver/models/gemma-4-26b-a4b-it-qat-GGUF/gemma-4-26B-A4B-it-qat-UD-Q4_K_XL.gguf \
+  --host 127.0.0.1 \
+  --port 8016 \
+  --api-key local \
+  -c 32768 \
+  -np 2 \
+  --cache-prompt \
+  --jinja \
+  --slots
 ```
 
-The default quality profile is H6.1: local EmbeddingGemma-300M file-metadata
-embeddings plus calibrated hybrid retrieval and Vertex AI Gemini 3.1 Flash Lite reranking.
-The fast local fallback is the same H6.1 hybrid locator without LLM rerank.
-For the Gemini side, the default is Vertex AI through Google Application Default
-Credentials:
+The default profile is local-first:
+
+- retrieval/indexing: compact file locator over file summaries/manifests with calibrated hybrid ranking;
+- checked-in local demo embedding: Qwen3-Embedding-0.6B 4-bit through an OpenAI-compatible local server;
+- best measured local quality embedding in research configs: EmbeddingGemma-300M;
+- chat/explanation/rerank experiments: local Gemma 4 26B-A4B QAT through an OpenAI-compatible llama.cpp server;
+- repository context: generated automatically before chat/search and appended as a stable system prompt prefix.
+
+Gemini/Vertex and OpenAI providers are still supported for comparison runs, but
+they are optional. Use them only when you explicitly want an API baseline:
 
 ```bash
 gcloud auth application-default login
@@ -34,10 +47,12 @@ Secrets can live in `.env`; the CLI loads it before creating providers. `.env` i
 
 The no-config indexing path is intentionally local-first:
 
-- indexing default: H6.1 file-first artifacts over file summaries/manifests;
-- quality benchmark default: H6.1 hybrid retrieval plus Gemini 3.1 Flash Lite rerank;
-- fast/local search fallback: H6.1 hybrid retrieval without LLM rerank;
-- local embedding default for quality runs: EmbeddingGemma-300M through an OpenAI-compatible local server;
+- indexing default: file-first artifacts over file summaries/manifests;
+- quality benchmark default: local H7/H6.1 calibrated hybrid retrieval;
+- local chat/search agent default: Gemma 4 26B-A4B QAT via llama.cpp;
+- local embedding default in `code-diver.yml`: Qwen3-Embedding-0.6B 4-bit through an OpenAI-compatible local server;
+- local quality benchmark configs: EmbeddingGemma-300M through an OpenAI-compatible local server;
+- optional quality mode: LLM rerank or agentic search over the same local file-locator candidates;
 - no-key smoke checks are explicit and use the separate hash benchmark profile.
 
 Configuration lives in `code-diver.yml`. For no-key smoke tests only, set:
@@ -65,9 +80,7 @@ The public CLI intentionally exposes the assignment surface: `index`, `search`, 
 
 ```bash
 uv sync
-gcloud auth application-default login
-gcloud config set project <your-gcp-project>
-uv run code-diver init --platform apple-metal --embedding embeddinggemma-300m --yes --start
+uv run code-diver init --platform apple-metal --embedding qwen3-0.6b --yes --start
 uv run code-diver index .
 uv run code-diver search "how does indexing work?"
 uv run code-diver evaluate --benchmark sample --json
@@ -76,8 +89,8 @@ uv run code-diver evaluate --benchmark sample --json
 `code-diver init` installs Search agent npm dependencies and configures the
 embedding runtime. Use `--skip-install` only when dependencies are already present
 or when you are running a docs/config dry run. For local embeddings, pick a local
-profile instead, for example `uv run code-diver init --platform apple-metal --embedding embeddinggemma-300m --yes --start`.
-`qwen3-0.6b` remains a fast control profile.
+profile instead, for example `uv run code-diver init --platform apple-metal --embedding qwen3-0.6b --yes --start`.
+`embeddinggemma-300m` is the best measured local quality profile, but it requires Hugging Face access to the gated model.
 
 `index` shows a compact progress UI by default: index profile, what is embedded, file
 discovery, scan, embedding batches, save, and graph build. Long operations without their own
@@ -139,9 +152,9 @@ uv run code-diver evaluate \
 
 This benchmark profile uses the EmbeddingGemma-backed H6.1 quality config. Run
 `uv run code-diver init --platform apple-metal --embedding embeddinggemma-300m --yes --start`
-first for the default local embedding setup and authenticate with Google ADC for
-Vertex AI Gemini Lite reranking. For a no-key smoke check only, use `--benchmark
-codesearchnet-mteb-python-hash-smoke`.
+first for the local quality embedding setup. It does not require Gemini/Vertex
+unless you explicitly enable an API rerank profile. For a no-key smoke check
+only, use `--benchmark codesearchnet-mteb-python-hash-smoke`.
 
 Without `--yes`, the CLI asks before downloading missing benchmark assets.
 
@@ -213,11 +226,16 @@ storage:
   provider: qdrant
 
 search:
-  strategy: hybrid_rerank # quality default: H6.1 candidates + Gemini Lite rerank
+  strategy: graph_file_rerank # GraphRAG file candidates + local LLM rerank
 
 embedding:
   provider: openai_compatible
-  model: google/embeddinggemma-300m
+  model: mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ
+
+generation:
+  provider: openai_compatible
+  model: gemma-4-26B-A4B-it-qat-UD-Q4_K_XL
+  url: http://127.0.0.1:8016/v1/chat/completions
 ```
 
 See [docs/assignment-plan-progress.md](docs/assignment-plan-progress.md) for the assignment plan, estimates, progress log, and deliverable map. See [docs/current-research-state-2026-06-04.md](docs/current-research-state-2026-06-04.md) for the current research conclusion, [docs/final-report-2026-06-03.md](docs/final-report-2026-06-03.md) for the compact final report, [docs/metrics.md](docs/metrics.md) for metric definitions, and [docs/Explanation.md](docs/Explanation.md) for a plain-language explanation of the retrieval strategies.
@@ -256,17 +274,15 @@ uv run code-diver --config configs/protogen.yml experiment
 ```
 
 Some legacy experiment configs intentionally use deterministic hash embeddings for
-repeatable plumbing tests. They are not quality configs. The product quality default is
-H6.1 with local EmbeddingGemma embeddings, calibrated hybrid retrieval, and Gemini Lite
-reranking. The fast local fallback uses the same H6.1 index without LLM rerank.
+repeatable plumbing tests. They are not quality configs. The product quality path is
+local compact file metadata retrieval with calibrated hybrid ranking; API reranking is
+an optional experiment, not a required default.
 
 The default indexing profile is file-first. It stores compact `file_summary` and `file_manifest` items for each source file, then returns ranked files for targeted code exploration. It does not permanently embed full source chunks by default; the agent can inspect candidate files later with grep, symbol, read, and optional localized deep-index tools.
 
 For model-orchestrated indexing, use `indexing.mode: orchestrated`. The generation model sees repository structure, file names, aggregate stats, config constraints, and index metadata. It does not receive source code contents. Local scanners still build the final trusted index items.
 
 ```bash
-gcloud auth application-default login
-gcloud config set project <your-gcp-project>
 uv run code-diver --config configs/protogen-ai.yml index
 uv run code-diver --config configs/protogen-ai.yml experiment
 ```
@@ -277,10 +293,11 @@ Provider selection is config-driven:
 
 ```yaml
 generation:
-  provider: vertex # or gemini/openai/openai_compatible
-  model: gemini-3.1-flash-lite
-  location: global
-  timeout_ms: 30000
+  provider: openai_compatible # or gemini/vertex/openai for API baselines
+  model: gemma-4-26B-A4B-it-qat-UD-Q4_K_XL
+  url: http://127.0.0.1:8016/v1/chat/completions
+  api_key: local
+  timeout_ms: 480000
 
 embedding:
   provider: openai_compatible # gemini, openai, or hash also supported
@@ -300,8 +317,8 @@ Gemini Embedding 2 is not wire-compatible with `gemini-embedding-001`: existing 
 
 For local embeddings on Apple Silicon, use an OpenAI-compatible embedding server backed by
 vLLM-Metal. The current preferred path is vLLM pooling on
-`http://127.0.0.1:8001/v1/embeddings`, with Gemini or Vertex kept for
-orchestration/reranking experiments. `configs/protogen-local.yml` is kept for fully local
+`http://127.0.0.1:8001/v1/embeddings`, with Gemini or Vertex kept only for
+explicit comparison experiments. `configs/protogen-local.yml` is kept for fully local
 OpenAI-compatible experiments on `http://localhost:1234/v1`.
 
 Gemini embeddings are not available as a local downloadable model in this project. The local embedding profiles are Qwen/MLX/vLLM-compatible models; Gemini Embedding 2 is API/Vertex only and requires `GEMINI_API_KEY` or gcloud ADC.
@@ -385,7 +402,27 @@ uv run code-diver --config configs/protogen-local.yml index
 uv run code-diver --config configs/protogen-local.yml experiment
 ```
 
-For local reranking, use llama.cpp with a dedicated reranker model:
+For local chat/explanation and listwise rerank experiments, run Gemma 4 26B-A4B
+through llama.cpp's OpenAI-compatible chat endpoint:
+
+```bash
+llama-server \
+  -m .code-diver/models/gemma-4-26b-a4b-it-qat-GGUF/gemma-4-26B-A4B-it-qat-UD-Q4_K_XL.gguf \
+  --host 127.0.0.1 \
+  --port 8016 \
+  --api-key local \
+  -c 32768 \
+  -np 2 \
+  --cache-prompt \
+  --jinja \
+  --slots
+```
+
+Code Diver passes repository context to the Search agent as an appended system
+prompt before chat/non-JSON search. Keep the prompt order stable to let the
+runtime reuse prompt cache/context checkpoints across repeated sessions.
+
+For dedicated cross-encoder reranking, use llama.cpp with a reranker model:
 
 ```bash
 llama-server \
@@ -442,6 +479,7 @@ Default local ports:
 Local Metal model runtimes stay on the host, not in Docker:
 
 - vLLM/MLX embeddings: `http://127.0.0.1:8001/v1/embeddings`
+- llama.cpp chat/explanation: `http://127.0.0.1:8016/v1/chat/completions`
 - llama.cpp rerank: `http://127.0.0.1:8080/v1/rerank`
 
 The older metrics-only stack is still available if Qdrant is not needed:
@@ -504,12 +542,17 @@ pi:
     - pi
   extension: .pi/extensions/code-diver-rag.ts
   prompt_template: .pi/prompts/code-diver-rag.md
-  provider: google-vertex
-  model: gemini-3.1-flash-lite
-  fallback_models:
-    - gemini-2.5-flash
+  provider: code-diver-local
+  model: gemma-4-26B-A4B-it-qat-UD-Q4_K_XL
+  fallback_models: []
   session_dir: .code-diver/pi-sessions
+  repo_context:
+    enabled: true
+    mode: readme_summary
+    output: .code-diver/context/repository-context.md
   env:
+    CODE_DIVER_LOCAL_LLM_BASE_URL: http://127.0.0.1:8016/v1
+    CODE_DIVER_LOCAL_LLM_API_KEY: local
     PI_SKIP_VERSION_CHECK: "1"
     PI_CACHE_RETENTION: long
   tools:

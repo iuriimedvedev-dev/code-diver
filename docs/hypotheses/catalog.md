@@ -18,6 +18,7 @@ Status meanings:
 | ID | Status | Decision | Evidence |
 | --- | --- | --- | --- |
 | `H10` | active, not default | Graph-first file retrieval is viable after fixing false reference hubs and summary evidence selection, but it is not promoted over calibrated hybrid yet because the 100-case CodeSearchNet slice only shows a small quality gain with higher latency. | See [H10 - Graph-First FileRAG](h10-graph-file-rag.md). |
+| `H11` | active, pending eval | Local Gemma 4 26B-A4B chat now receives generated repository context as a stable system-prompt prefix. The next comparison is no-context vs README summary vs full README. | See [H11 - Local Repo-Context Agent](h11-local-repo-context-agent.md). |
 
 ## BASE-VECTOR - Vector / Line-Chunk Retrieval
 
@@ -244,17 +245,17 @@ Status meanings:
 | Field | Value |
 | --- | --- |
 | ID | `H5` |
-| Status | accepted quality layer |
+| Status | historical/API quality layer; active local rerank experiment |
 | Motivation | Improve top-ordering after H3 has already achieved high candidate recall. |
 | Assumptions | A bounded listwise LLM ranker can improve Hit@1/MRR/nDCG without replacing candidate generation with an open-ended agent. |
 | Index composition | Same H3 local Qwen3-Embedding-0.6B file-metadata index in current CodeSearchNet quality runs. |
 | Search/ranking flow | H3 hybrid candidates -> top-10 LLM rerank -> ranked file results. |
-| Model/provider matrix | Gemini 3.1 Flash Lite active quality tradeoff; local Qwen3.5 4B compact fallback; Gemini 3.5 Flash oracle in IntelliJ. |
+| Model/provider matrix | Historical API rows use Gemini 3.1 Flash Lite and Gemini 3.5 Flash. Current local-first rerank experiments use Gemma 4 26B-A4B via llama.cpp, Qwen3.5 local controls, and dedicated Qwen3-Reranker candidates. |
 | Dataset | CodeSearchNet/MTEB Python local positive slice, 1,000 cases. |
 | Metrics | Gemini Lite H5 Hit@1 `0.904`, Hit@10 `0.982`, nDCG `0.948`, MAP `0.936`, mean `3020 ms`; local Qwen H5 Hit@10 `0.967`, mean `7708 ms`. |
 | Cost/latency/index-size | Gemini Lite adds about `+2.47s/query` over Pure H3 on the public slice; token cost exists but exact 1,000-case H5 public cost is not stated in the source doc. |
 | Result summary | H5 with Gemini Lite is the best measured quality/cost tradeoff on the current public local positive slice. |
-| Decision | Superseded as the default by H6.1 EmbeddingGemma static hybrid until a same-index LLM/agent rerank run beats it cleanly. Keep H5 as the active ranking experiment. |
+| Decision | Superseded as the default by local H7/H6.1 candidate generation. Keep H5 as the bounded ranking experiment: one configured local LLM/cross-encoder rerank over already-good candidates, with Gemini only as an optional API baseline. |
 | Failure modes | Candidate recall ceiling, prompt size for local rankers, API cost/quotas, public-slice not official full-corpus MTEB. |
 | Follow-ups | Run stronger embedding models with the same H5 protocol; add a true cross-encoder reranker baseline. |
 | Links | [current research state](../current-research-state-2026-06-04.md), [final report](../final-report-2026-06-03.md), [CodeSearchNet agentic/model eval](../codesearchnet-agentic-model-eval-2026-06-04.md), `configs/benchmarks/codesearchnet-mteb-python-h5-qwen-quality.yml` |
@@ -399,11 +400,11 @@ Status meanings:
 | Follow-ups | Run live gate config, sweep candidate limits `3/5/10/30`, then test Qwen3-Reranker 4B with the same gate. |
 | Links | [H7 local cross-encoder rerank](../h7-local-cross-encoder-rerank-2026-06-08.md), `configs/benchmarks/codesearchnet-h7-qwen3-reranker-0_6b-preserve-100.yml`, `.code-diver/reports/h7-local-gate-qwen3-reranker-0_6b-preserve003-seed17-train60-val20-test20.json` |
 
-## H7 - Agent-Planned Probes With One Shared Rerank
+## H7-AGENTIC - Agent-Planned Probes With One Shared Rerank
 
 | Field | Value |
 | --- | --- |
-| ID | `H7` |
+| ID | `H7-AGENTIC` |
 | Status | proposed / research only |
 | Motivation | Test the agent-first product shape without letting the model perform expensive open-ended repository exploration. The LLM should generate several targeted search probes, Code Diver should run bounded retrieval in parallel, and only then should the LLM rank the merged evidence pool once. |
 | Assumptions | Multi-query planning can improve candidate recall for informal questions; reranking the merged pool once is cheaper and cleaner than reranking every probe independently; using a cheap probe retriever avoids multiplying LLM cost by query count. |
@@ -414,7 +415,7 @@ Status meanings:
 | Metrics | Required: candidate/context file Hit@1/3/5/K, candidate/context recall and precision, answer token/key-token/bigram F1, judge metrics where enabled, `planned_query_count`, `planning_duration_ms`, `rerank_duration_ms`, total latency, model calls, tokens, estimated cost, degraded/error count. |
 | Cost/latency/index-size | Reuses the same index. Adds one query-planning model call and optionally one shared rerank model call. Probe searches can run in parallel, but total retrieval latency still includes planner + probes + final rerank. |
 | Result summary | Not accepted yet. The first `--agentic-queries` smoke without shared rerank stayed flat on recall and was slower than single-query retrieval on the 3-case Qibo slice. H7 exists to test the cleaner variant explicitly instead of treating that smoke as the final agentic answer. |
-| Decision | Not default. Promote only if it improves file/context recall or answer judge score enough to justify planner/rerank latency on the same cases. Reject if it only reshuffles candidates while adding cost. |
+| Decision | Not default. This is separate from the accepted H7 local file-locator lineage. Promote only if it improves file/context recall or answer judge score enough to justify planner/rerank latency on the same cases. Reject if it only reshuffles candidates while adding cost. |
 | Failure modes | Query probes can collapse to the same intent; a weak deterministic merge can bury the right candidate before rerank; shared rerank can overfit previews; planner/reranker using the same model family as answer generation can hide correlated failures. |
 | Follow-ups | Add diversity constraints to query planning; compare `hybrid` probe search against `hybrid_rerank` probe search; test one final rerank versus no final rerank; add a full Branch A inspector with outline/symbol/rg/read tools after candidate selection. |
 | Links | [E2E answer evaluation](../e2e-answer-eval-2026-06-05.md), `uv run code-diver --help-all evaluate-answers --agentic-queries --agentic-query-search-strategy hybrid --agentic-query-rerank` |
@@ -433,8 +434,8 @@ Status meanings:
 | Dataset | Saved 100-case CodeSearchNet/MTEB Python slice; 1,000-case CodeSearchNet/MTEB Python slice with 900 train / 100 held-out test; 750/150/100 sweep for validation-selected calibration. The 1,000-case slice is entirely single-positive (`expected_files_distribution={"1":1000}`), so Hit@K equals Recall@K and Precision@10 has a hard useful ceiling of 0.1 for successful cases. |
 | Metrics | 100-case diverse-ranker CV: best single `h6` Hit@1 `0.820`, Hit@10 `0.970`, nDCG `0.900`; logistic stacking improved to Hit@1 `0.840`, Hit@10 `0.980`, nDCG `0.918`. 1,000-case Gemini Lite full run: Hit@1 `0.911`, Hit@3 `0.978`, Hit@5 `0.988`, Hit@10 `0.989`, MRR `0.944`, nDCG `0.956`. 900/100 held-out: single Gemini Lite Hit@1 `0.960`, Hit@10 `1.000`, nDCG `0.983`; best learned pairwise deterministic+Gemini stack Hit@1 `0.950`, Hit@10 `1.000`, nDCG `0.979`; oracle deterministic+Gemini Hit@1 `0.980`. |
 | Cost/latency/index-size | Offline analysis has no model-call cost. Live use must not run many LLM agents by default; production H8 should combine cheap deterministic rank signals and at most one optional LLM/cross-encoder signal. |
-| Result summary | The ensemble idea has headroom, but rank-position-only calibration cannot beat the current best single reranker, Gemini 3.1 Flash Lite. Equal-weight RRF, weighted RRF, pointwise stacking, pairwise stacking, and Gemini-anchor override guards all fail to improve on Gemini Lite on the held-out tail. Hit@5/Hit@10 are saturated on this single-positive slice; MRR/nDCG/mean rank are the meaningful differentiators. |
-| Decision | Active research, not default. Default should remain H6.1 candidates plus one Gemini Lite rerank when quality mode is enabled. H8 needs richer score/confidence features or a true cross-encoder before promotion. |
+| Result summary | The ensemble idea has headroom, but rank-position-only calibration could not beat the historical best single API reranker, Gemini 3.1 Flash Lite, on the held-out tail. Equal-weight RRF, weighted RRF, pointwise stacking, pairwise stacking, and Gemini-anchor override guards all failed to improve on Gemini Lite. Hit@5/Hit@10 are saturated on this single-positive slice; MRR/nDCG/mean rank are the meaningful differentiators. |
+| Decision | Active research, not default. Default remains local H7/H6.1 candidates; quality/rerank modes should try the configured local Gemma or a dedicated local reranker first, with Gemini Lite as an explicit API baseline. H8 needs richer score/confidence features or a true cross-encoder before promotion. |
 | Failure modes | 100-case overfitting, final-ranking-only features instead of raw score logits, correlated ranker errors, and impractical live cost if multiple LLM rankers are called per user query. |
 | Follow-ups | Train on raw candidate-level H6/H7/LLM features: LLM confidence/reason, hybrid score margins, route/query bucket, deterministic top1/top2 margin, and true cross-encoder scores. Test Qwen3-Reranker as the cheap second signal. Add a multi-positive/e2e explanation benchmark because this single-positive slice cannot measure product precision/recall well. |
 | Links | [reranker ensemble report](../reranker-ensemble-2026-06-07.md), `scripts/analyze_reranker_ensemble.py`, `.code-diver/reports/reranker-ensemble-all-saved-codesearchnet-100.json` |
@@ -608,12 +609,12 @@ Status meanings:
 | Assumptions | Changing several models at once hides causality. Each run should change exactly one axis against a fixed H5 baseline. |
 | Index composition | Baseline index shape is H5 file-first metadata: file summaries + file manifests + bounded graph metadata, no code-body vectors by default. |
 | Search/ranking flow | Baseline: H3/H5 candidate generation -> bounded reranker. Agentic variants wrap the same H3/H5 tool as a callable search primitive, then optionally inspect/rerank. |
-| Model/provider matrix | Axis 1 embeddings: Qwen3-Embedding-0.6B, Qwen3-Embedding-4B, EmbeddingGemma-300M, API controls if needed. Axis 2 rerankers: Qwen3-Reranker 0.6B/4B cross-encoder, Qwen3.5 4B listwise, Gemma E2B/E4B listwise, Gemini Lite API control. Axis 3 agents: Qwen3.5 4B, Gemma E2B/E4B, Gemini Lite API control. |
+| Model/provider matrix | Axis 1 embeddings: Qwen3-Embedding-0.6B, Qwen3-Embedding-4B, EmbeddingGemma-300M, API controls if needed. Axis 2 rerankers: Gemma 4 26B-A4B listwise via llama.cpp, Qwen3-Reranker 0.6B/4B cross-encoder, Qwen3.5 4B listwise, Gemma E2B/E4B listwise, Gemini Lite API control. Axis 3 agents: Gemma 4 26B-A4B current local default, Qwen3.5 4B, Gemma E2B/E4B, Gemini Lite API control. |
 | Dataset | Start with CodeSearchNet/MTEB Python 1,000-case slice, then promote winners to larger-negative/public-compatible and IntelliJ answer-set runs. |
 | Metrics | Required: Hit@1/3/5/10, Recall@3/5/10, Precision@R/top-k, MRR@10, nDCG@10, latency p50/p95/mean, tokens, tool calls, index size, cache warmup time, and failure/degraded count. |
 | Cost/latency/index-size | Embedding-axis runs rebuild indexes; reranker-axis runs reuse the same index; agent-axis runs reuse the same index and candidate tool but add model/tool-call cost. |
-| Result summary | Current best measured local candidate generator is EmbeddingGemma-300M + H6.1 static/grid weights. Current agent-axis smoke over that generator: Gemini Lite 25 cases Hit@10 `0.920`, mean `11,320 ms`, cost `$0.206`; Qwen3.5 4B 10 cases Hit@10 `1.000`, mean `37,020 ms`; Gemma 4 E4B 10 cases Hit@10 `0.900`, mean `56,573 ms`; Gemma 4 12B Q4_K_M stalled before completing a case. |
-| Decision | Active. Every new local-model claim must name which axis changed and which two axes were fixed. Promote Qwen3.5 4B and Gemini Lite to larger same-case agent comparison; do not promote Gemma 12B until runtime isolation is fixed. |
+| Result summary | Current best measured local candidate generator is EmbeddingGemma-300M + H6.1 static/grid weights. Current local product wiring uses Gemma 4 26B-A4B QAT through llama.cpp for chat/explanation/rerank experiments. Historical agent-axis smoke over the H6.1 generator: Gemini Lite 25 cases Hit@10 `0.920`, mean `11,320 ms`, cost `$0.206`; Qwen3.5 4B 10 cases Hit@10 `1.000`, mean `37,020 ms`; Gemma 4 E4B 10 cases Hit@10 `0.900`, mean `56,573 ms`; Gemma 4 26B-A4B is now the primary local model to validate on larger same-case runs. |
+| Decision | Active. Every new local-model claim must name which axis changed and which two axes were fixed. Promote Gemma 4 26B-A4B to same-case local agent/rerank comparisons; keep Gemini Lite as an API comparison only. |
 | Failure modes | Mixed-axis runs cannot identify causality; local serving failures can masquerade as model quality; agentic loops can over-search and spend latency without improving recall; Vertex/API auth or API-version errors can silently corrupt metrics if reports are not marked invalid. |
 | Follow-ups | Add run manifests with axis labels; add report grouping by changed axis; run Qwen3 4B embedding once local serving is stable; test Qwen3-Reranker through a real rerank endpoint; add hard wall-clock/tool-call caps to agent eval. |
 | Links | [local model axis experiments](../local-model-axis-experiments-2026-06-04.md), [H5 hybrid weight calibration](../h5-hybrid-weight-calibration-2026-06-04.md), [code embedding model research](../code-embedding-model-research-2026-06-04.md), `scripts/benchmark_embedding_models.py`, `scripts/benchmark_generation_models.py` |
@@ -652,8 +653,8 @@ Status meanings:
 | Dataset | Protogen top-5 matrix, IntelliJ answer-set, CodeSearchNet local positive slice. |
 | Metrics | Protogen top-5: H1c Gemini embedding + Flash-Lite file-first Hit@10 `0.94`; H5 Qwen4B embed + Qwen4B rerank Hit@10 `0.87`, mean `7020 ms`. CodeSearchNet H5 Gemini Lite Hit@10 `0.982`; H5 local Qwen Hit@10 `0.967`; 100-case Gemma 4 E4B OptiQ listwise rerank file Hit@10 `0.590`, mean `8049 ms`, worse than Pure H3 `0.950` / `558 ms` on the same split. |
 | Cost/latency/index-size | Gemini 3.5 IntelliJ oracle cost `$34.94` per 1,000-case run; local Qwen avoids API spend but was slower in current loops. |
-| Result summary | API LLM ranking is currently the quality winner; local generative rankers are not reliable defaults. Gemma E4B OptiQ specifically degraded H5 candidate ordering in the 100-case smoke. Cross-encoder rerankers remain the next important baseline. |
-| Decision | Use Gemini Lite for quality/cost tradeoff; reserve Gemini 3.5 for oracle runs; keep local/cross-encoder work active. |
+| Result summary | API LLM ranking is the historical quality winner in saved rows; local generative rankers were not reliable defaults in early smokes. The current local-first path is Gemma 4 26B-A4B via llama.cpp plus dedicated local reranker experiments. Cross-encoder rerankers remain the next important baseline. |
+| Decision | Use local Gemma/Qwen rerankers first for no-API development; reserve Gemini Lite/Gemini 3.5 for explicit API baselines and oracle runs. |
 | Failure modes | Reranker can only reorder candidates it sees; prompt size dominates local latency; fail-soft rerank errors can contaminate metrics if not gated. |
 | Follow-ups | Test Qwen3-Reranker via a real rerank endpoint over fixed H3 candidates; add validity status to all rerank reports. |
 | Links | [local model axis experiments](../local-model-axis-experiments-2026-06-04.md), [top-5 hypotheses eval](../top5-hypotheses-eval-2026-06-02.md), [final quality conclusions](../final-search-quality-conclusions-2026-06-03.md), [eval validity review](../eval-validity-review-2026-06-03.md), `configs/intellij/intellij-postrank-h3-manifest.yml` |
