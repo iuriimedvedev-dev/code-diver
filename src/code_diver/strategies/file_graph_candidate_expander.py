@@ -1,18 +1,27 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Iterable
 
 from ..domain import CodeItem, CodeItemIndexKind, CodeItemIndexKindResolver
 from ..graph import CodeGraph, GraphEdge
+from .file_graph_adjacency_index import FileGraphAdjacencyIndex
 from .graph_expansion_profile import GraphExpansionProfile
 
 
 class FileGraphCandidateExpander:
-    def __init__(self, graph: CodeGraph):
-        self.graph = graph
+    def __init__(
+        self,
+        graph: CodeGraph | None = None,
+        *,
+        items: Iterable[CodeItem] | None = None,
+        adjacency: FileGraphAdjacencyIndex | None = None,
+    ):
         self.kind_resolver = CodeItemIndexKindResolver()
-        self.items_by_path = self._items_by_path(graph.items.values())
-        self.adjacency = self._adjacency(graph.edges)
+        graph_items = graph.items.values() if graph is not None else items or []
+        self.items_by_id = {item.id: item for item in graph_items}
+        self.items_by_path = self._items_by_path(self.items_by_id.values())
+        self.adjacency = adjacency or self._adjacency(graph or CodeGraph(items={}, edges=[]))
 
     def expand(
         self, seed_scores: dict[str, float], profile: GraphExpansionProfile
@@ -28,7 +37,7 @@ class FileGraphCandidateExpander:
     def _seed_file_scores(self, seed_scores: dict[str, float]) -> dict[str, float]:
         scores: dict[str, float] = {}
         for item_id, score in seed_scores.items():
-            item = self.graph.items.get(item_id)
+            item = self.items_by_id.get(item_id)
             if item is None:
                 continue
             scores[item.path] = max(scores.get(item.path, 0.0), score)
@@ -39,32 +48,7 @@ class FileGraphCandidateExpander:
         seed_file_scores: dict[str, float],
         profile: GraphExpansionProfile,
     ) -> dict[str, float]:
-        accumulated: dict[str, float] = defaultdict(float)
-        frontier = dict(seed_file_scores)
-        best_seen = dict(seed_file_scores)
-        for depth in range(profile.depth):
-            next_frontier: dict[str, float] = {}
-            decay = profile.decay**depth
-            for path, seed_score in frontier.items():
-                for neighbor_path, weight in self.adjacency.get(path, []):
-                    score = seed_score * weight * decay
-                    if score <= profile.min_score:
-                        continue
-                    accumulated[neighbor_path] = max(accumulated[neighbor_path], score)
-                    previous = best_seen.get(neighbor_path, 0.0)
-                    if score > previous:
-                        best_seen[neighbor_path] = score
-                        next_frontier[neighbor_path] = max(
-                            next_frontier.get(neighbor_path, 0.0), score
-                        )
-            if not next_frontier:
-                break
-            frontier = dict(
-                sorted(next_frontier.items(), key=lambda item: item[1], reverse=True)[
-                    : profile.neighbor_limit
-                ]
-            )
-        return dict(accumulated)
+        return self.adjacency.expand(seed_file_scores, profile)
 
     def _representative_item_scores(
         self, file_scores: dict[str, float]
@@ -90,26 +74,11 @@ class FileGraphCandidateExpander:
         ]
         return file_items or items
 
-    def _items_by_path(self, items: list[CodeItem]) -> dict[str, list[CodeItem]]:
+    def _items_by_path(self, items: Iterable[CodeItem]) -> dict[str, list[CodeItem]]:
         by_path: dict[str, list[CodeItem]] = defaultdict(list)
         for item in items:
             by_path[item.path].append(item)
         return dict(by_path)
 
-    def _adjacency(self, edges: list[GraphEdge]) -> dict[str, list[tuple[str, float]]]:
-        adjacency: dict[str, dict[str, float]] = defaultdict(dict)
-        for edge in edges:
-            source = self.graph.items.get(edge.source)
-            target = self.graph.items.get(edge.target)
-            if source is None or target is None or source.path == target.path:
-                continue
-            adjacency[source.path][target.path] = max(
-                adjacency[source.path].get(target.path, 0.0), edge.weight
-            )
-            adjacency[target.path][source.path] = max(
-                adjacency[target.path].get(source.path, 0.0), edge.weight * 0.7
-            )
-        return {
-            path: sorted(neighbors.items(), key=lambda item: item[1], reverse=True)
-            for path, neighbors in adjacency.items()
-        }
+    def _adjacency(self, graph: CodeGraph) -> FileGraphAdjacencyIndex:
+        return FileGraphAdjacencyIndex.from_graph(graph)

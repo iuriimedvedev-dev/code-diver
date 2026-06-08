@@ -705,6 +705,7 @@ source = { editable = "." }
 dependencies = [
     { name = "datasets" },
     { name = "google-genai" },
+    { name = "ijson" },
     { name = "pyyaml" },
     { name = "qdrant-client" },
     { name = "questionary" },
@@ -730,6 +731,7 @@ runtime-vllm = [
 requires-dist = [
     { name = "datasets", specifier = ">=2.20.0" },
     { name = "google-genai", specifier = ">=1.0.0" },
+    { name = "ijson", specifier = ">=3.3.0" },
     { name = "pyyaml", specifier = ">=6.0.2" },
     { name = "qdrant-client", specifier = ">=1.15.0" },
     { name = "questionary", specifier = ">=2.1.0" },

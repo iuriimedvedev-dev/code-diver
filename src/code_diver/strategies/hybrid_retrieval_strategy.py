@@ -11,6 +11,9 @@ from .graph_candidate_expander import GraphCandidateExpander
 from .graph_expansion_profile import GraphExpansionProfile
 from .graph_expansion_profile_factory import GraphExpansionProfileFactory
 from .graph_neighbor_index import GraphNeighborIndex
+from .file_graph_adjacency_index import FileGraphAdjacencyIndex
+from .file_graph_catalog import FileGraphCatalog
+from .file_graph_catalog_store import FileGraphCatalogStore
 from .file_graph_candidate_expander import FileGraphCandidateExpander
 from .hybrid_candidate_score import HybridCandidateScore
 from .hybrid_candidate_scorer import HybridCandidateScorer
@@ -32,6 +35,7 @@ _SHARED_GRAPHS: dict[str, CodeGraph | None] = {}
 _SHARED_LEXICAL_INDEXES: dict[str, tuple[HybridLexicalIndex, dict[str, HybridItemProfile]]] = {}
 _SHARED_NEIGHBOR_INDEXES: dict[str, GraphNeighborIndex] = {}
 _SHARED_FILE_GRAPH_EXPANDERS: dict[str, FileGraphCandidateExpander] = {}
+_SHARED_FILE_GRAPH_CATALOGS: dict[str, FileGraphCatalog] = {}
 
 
 class HybridRetrievalStrategy(RetrievalStrategy):
@@ -81,7 +85,7 @@ class HybridRetrievalStrategy(RetrievalStrategy):
     def collect_rank_context(self, query: str, limit: int) -> HybridRankContext | None:
         vector_limit = max(limit, self.config.candidate_limit)
         vector_results = self.base_strategy.search(query, vector_limit)
-        graph = self._load_graph()
+        graph = self._load_catalog_graph()
         if graph is None:
             return None
 
@@ -94,16 +98,17 @@ class HybridRetrievalStrategy(RetrievalStrategy):
             self._item_profiles,
             profile_lock=self._cache_lock,
         )
-        lexical_scores = self._lexical_scores(graph, query_profile, active_config)
-        normalized_lexical_scores = self._normalize(lexical_scores)
-        for item in self._lexical_candidates(graph, query_profile, scorer, normalized_lexical_scores, active_config):
-            existing = scores.setdefault(item.id, HybridCandidateScore(item=item))
-            lexical = scorer.score(item)
-            lexical_score = normalized_lexical_scores.get(item.id, lexical.lexical_score)
-            existing.lexical_score = max(existing.lexical_score, lexical_score)
-            existing.path_score = max(existing.path_score, lexical.path_score)
-            existing.symbol_score = max(existing.symbol_score, lexical.symbol_score)
-            existing.symbol_match_score = max(existing.symbol_match_score, lexical.symbol_match_score)
+        if not self._uses_bounded_catalog():
+            lexical_scores = self._lexical_scores(graph, query_profile, active_config)
+            normalized_lexical_scores = self._normalize(lexical_scores)
+            for item in self._lexical_candidates(graph, query_profile, scorer, normalized_lexical_scores, active_config):
+                existing = scores.setdefault(item.id, HybridCandidateScore(item=item))
+                lexical = scorer.score(item)
+                lexical_score = normalized_lexical_scores.get(item.id, lexical.lexical_score)
+                existing.lexical_score = max(existing.lexical_score, lexical_score)
+                existing.path_score = max(existing.path_score, lexical.path_score)
+                existing.symbol_score = max(existing.symbol_score, lexical.symbol_score)
+                existing.symbol_match_score = max(existing.symbol_match_score, lexical.symbol_match_score)
 
         route_name = self.router.route_name(query, query_profile.terms)
         graph_profile = self.graph_profile_factory.create(
@@ -118,6 +123,9 @@ class HybridRetrievalStrategy(RetrievalStrategy):
                 continue
             existing = scores.setdefault(item_id, HybridCandidateScore(item=item))
             existing.graph_score = max(existing.graph_score, graph_score)
+
+        if self._uses_bounded_catalog():
+            self._score_existing_candidates(scores, scorer)
 
         self._apply_file_vote_scores(scores, active_config)
         return HybridRankContext(
@@ -193,6 +201,18 @@ class HybridRetrievalStrategy(RetrievalStrategy):
             return self._normalize(self._file_expander(graph).expand(seed_scores, profile))
         return self._normalize(GraphCandidateExpander(self._neighbors()).expand(seed_scores, profile))
 
+    def _score_existing_candidates(
+        self,
+        scores: dict[str, HybridCandidateScore],
+        scorer: HybridCandidateScorer,
+    ) -> None:
+        for existing in scores.values():
+            lexical = scorer.score(existing.item)
+            existing.lexical_score = max(existing.lexical_score, lexical.lexical_score)
+            existing.path_score = max(existing.path_score, lexical.path_score)
+            existing.symbol_score = max(existing.symbol_score, lexical.symbol_score)
+            existing.symbol_match_score = max(existing.symbol_match_score, lexical.symbol_match_score)
+
     def _file_expander(self, graph: CodeGraph) -> FileGraphCandidateExpander:
         if self._file_graph_expander is None:
             with self._cache_lock:
@@ -202,11 +222,17 @@ class HybridRetrievalStrategy(RetrievalStrategy):
                         with _SHARED_CACHE_LOCK:
                             cached = _SHARED_FILE_GRAPH_EXPANDERS.get(key)
                             if cached is None:
-                                cached = FileGraphCandidateExpander(graph)
+                                cached = FileGraphCandidateExpander(
+                                    items=graph.items.values(),
+                                    adjacency=self._load_file_graph_catalog().adjacency,
+                                )
                                 _SHARED_FILE_GRAPH_EXPANDERS[key] = cached
                         self._file_graph_expander = cached
                     else:
-                        self._file_graph_expander = FileGraphCandidateExpander(graph)
+                        self._file_graph_expander = FileGraphCandidateExpander(
+                            items=graph.items.values(),
+                            adjacency=self._load_file_graph_catalog().adjacency,
+                        )
         return self._file_graph_expander
 
     def _load_lexical_index(self, graph: CodeGraph) -> HybridLexicalIndex:
@@ -237,16 +263,51 @@ class HybridRetrievalStrategy(RetrievalStrategy):
                         with _SHARED_CACHE_LOCK:
                             cached = _SHARED_NEIGHBOR_INDEXES.get(key)
                             if cached is None:
-                                graph = self._load_graph()
+                                graph = self._load_full_graph()
                                 cached = GraphNeighborIndex(graph or CodeGraph(items={}, edges=[]))
                                 _SHARED_NEIGHBOR_INDEXES[key] = cached
                         self._neighbor_index = cached
                     else:
-                        graph = self._load_graph()
+                        graph = self._load_full_graph()
                         self._neighbor_index = GraphNeighborIndex(graph or CodeGraph(items={}, edges=[]))
         return self._neighbor_index
 
-    def _load_graph(self) -> CodeGraph | None:
+    def _load_catalog_graph(self) -> CodeGraph | None:
+        if not self._uses_bounded_catalog():
+            return self._load_full_graph()
+        if not self.graph_store.exists():
+            return None
+        catalog = self._load_file_graph_catalog()
+        return CodeGraph(items=catalog.items_by_id, edges=[])
+
+    def _uses_bounded_catalog(self) -> bool:
+        return self.config.graph_scope == "file"
+
+    def _load_file_graph_catalog(self) -> FileGraphCatalog:
+        key = self._cache_key()
+        if key:
+            with _SHARED_CACHE_LOCK:
+                cached = _SHARED_FILE_GRAPH_CATALOGS.get(key)
+                if cached is not None:
+                    return cached
+        store = FileGraphCatalogStore.for_graph_artifact(self.graph_store.artifact)
+        if store.is_fresh_for(self.graph_store.artifact):
+            catalog = store.load()
+        else:
+            if not self.graph_store.exists():
+                catalog = FileGraphCatalog(items_by_id={}, adjacency=FileGraphAdjacencyIndex({}))
+            else:
+                catalog = FileGraphCatalog.build(
+                    self.graph_store.stream_items(),
+                    self.graph_store.stream_edges(),
+                )
+                store.save(catalog)
+        if key:
+            with _SHARED_CACHE_LOCK:
+                _SHARED_FILE_GRAPH_CATALOGS[key] = catalog
+        return catalog
+
+    def _load_full_graph(self) -> CodeGraph | None:
         if self._graph is not None:
             return self._graph
         with self._cache_lock:
