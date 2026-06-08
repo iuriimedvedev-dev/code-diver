@@ -56,6 +56,7 @@ class PiCommandBuilder:
         env = {
             EnvironmentVariable.CODE_DIVER_CONFIG.value: str((config_path or Defaults.CONFIG_PATH).resolve()),
             EnvironmentVariable.CODE_DIVER_ROOT.value: str(config.root.resolve()),
+            "PI_SKIP_VERSION_CHECK": "1",
         }
         if config.storage.provider == VectorStoreProviderId.QDRANT.value:
             env[EnvironmentVariable.CODE_DIVER_QDRANT_COLLECTION.value] = config.storage.qdrant.collection

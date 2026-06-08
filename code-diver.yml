@@ -84,6 +84,7 @@ pi:
       - code_diver_record_failure
       - code_diver_record_success
   env:
+    PI_SKIP_VERSION_CHECK: "1"
     PI_CACHE_RETENTION: long
   extra_args: []
 

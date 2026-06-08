@@ -2,14 +2,22 @@
   "name": "code-diver-rag-pi-package",
   "version": "0.1.0",
   "private": true,
-  "keywords": ["pi-package", "rag", "code-search"],
+  "keywords": [
+    "pi-package",
+    "rag",
+    "code-search"
+  ],
   "pi": {
-    "extensions": ["./.pi/extensions/code-diver-rag.ts"],
-    "prompts": ["./.pi/prompts"]
+    "extensions": [
+      "./.pi/extensions/code-diver-rag.ts"
+    ],
+    "prompts": [
+      "./.pi/prompts"
+    ]
   },
   "dependencies": {
-    "@earendil-works/pi-coding-agent": "0.78.0",
-    "@earendil-works/pi-tui": "0.78.0",
+    "@earendil-works/pi-coding-agent": "0.78.1",
+    "@earendil-works/pi-tui": "0.78.1",
     "typebox": "1.1.38"
   }
 }

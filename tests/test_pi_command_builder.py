@@ -106,6 +106,7 @@ def test_pi_command_builder_exports_qdrant_collection() -> None:
     env = PiCommandBuilder().env(config, Path("code-diver.yml"))
 
     assert env["CODE_DIVER_QDRANT_COLLECTION"] == "hypothesis_collection"
+    assert env["PI_SKIP_VERSION_CHECK"] == "1"
 
 
 def test_pi_command_builder_adds_project_scoped_session_options() -> None:

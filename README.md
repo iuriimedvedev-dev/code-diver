@@ -499,12 +499,17 @@ pi:
     - google/gemini-2.5-flash
   session_dir: .code-diver/pi-sessions
   env:
+    PI_SKIP_VERSION_CHECK: "1"
     PI_CACHE_RETENTION: long
   tools:
     - code_diver_search
 ```
 
 The tool allowlist should stay read-only. Do not add `bash` or editing tools for this assistant; use the `code_diver_*` tools for repository inspection. Pi sessions, compaction, cache accounting, and interactive rendering are handled by Pi; Code Diver supplies the read-only tools, the code-search prompt, and a project-local session directory.
+
+`PI_SKIP_VERSION_CHECK=1` disables Pi's startup update check, which keeps the
+interactive Search agent free from update-notification banners. Run `npm install`
+or `pi update` explicitly when upgrading Pi.
 
 When the user explicitly corrects or confirms a Search agent answer, the agent can
 record feedback under `.code-diver/feedback/fail-cases.jsonl` or
