@@ -52,8 +52,9 @@ improves head ordering, not top-10 coverage.
 | `H7.2` | Expand only lexical query terms with aliases. | active, not sufficient | Cheap and safe to keep in configs, but not a universal quality win. |
 | `H7.3` | Learn a gate that calls LLM rerank only on low-confidence H7 results. | active candidate | Best current H7 improvement direction because it trades quality, latency, and API cost explicitly. |
 | `H7.4` | Add richer non-leaking confidence features to the gate. | implemented in analysis script | Improved the gate signal versus margin-only; still not enough to hit oracle consistently. |
-| `H7.5` | Replace Gemini Lite inside the gate with a local cross-encoder or small local LLM reranker. | proposed | Needed to remove API cost; must be compared on the same gate protocol. |
-| `H7.6` | Route-specific query expansion and route-specific gate thresholds. | proposed | SWE and CodeSearchNet behavior differ; global aliases are too blunt. |
+| `H7.5` | Route-specific gate thresholds. | tested, active fallback | Cheaper than MLP/logistic gates, but lower quality. Useful as an interpretable fallback, not the winner. |
+| `H7.6` | Replace Gemini Lite inside the gate with a local cross-encoder or small local LLM reranker. | proposed | Needed to remove API cost; must be compared on the same gate protocol. |
+| `H7.7` | Route-specific query expansion. | proposed | SWE and CodeSearchNet behavior differ; global aliases are too blunt. |
 
 ## What Changed In The Gate
 
@@ -105,15 +106,18 @@ Three random 700/150/150 splits over the same 1,000 saved CodeSearchNet cases:
 | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | 17 | H7 only | 0.827 | 0.967 | 0.980 | 1.000 | 0.894 | 0.921 | 0.000 | 780.2 | 0.000 |
 | 17 | Gemini Lite always | 0.907 | 0.980 | 1.000 | 1.000 | 0.944 | 0.958 | 1.000 | 2765.1 | 2.933 |
+| 17 | Route threshold gate | 0.873 | 0.987 | 1.000 | 1.000 | 0.928 | 0.947 | 0.293 | 1362.4 | 0.860 |
 | 17 | MLP gate | 0.913 | 0.987 | 1.000 | 1.000 | 0.949 | 0.962 | 0.260 | 1296.3 | 0.763 |
 | 17 | Oracle gate | 0.920 | 0.987 | 1.000 | 1.000 | 0.953 | 0.965 | 0.107 | 991.9 | 0.313 |
 | 23 | H7 only | 0.887 | 0.947 | 0.973 | 0.987 | 0.922 | 0.938 | 0.000 | 780.2 | 0.000 |
 | 23 | Gemini Lite always | 0.953 | 0.987 | 0.987 | 0.987 | 0.969 | 0.973 | 1.000 | 2765.1 | 2.933 |
+| 23 | Route threshold gate | 0.913 | 0.953 | 0.980 | 0.987 | 0.939 | 0.950 | 0.107 | 991.9 | 0.313 |
 | 23 | Logistic gate | 0.947 | 0.980 | 0.987 | 0.987 | 0.964 | 0.970 | 0.327 | 1428.6 | 0.958 |
 | 23 | MLP gate | 0.947 | 0.980 | 0.987 | 0.987 | 0.964 | 0.970 | 0.400 | 1574.2 | 1.173 |
 | 23 | Oracle gate | 0.953 | 0.987 | 0.987 | 0.987 | 0.969 | 0.973 | 0.080 | 939.0 | 0.235 |
 | 42 | H7 only | 0.880 | 0.967 | 0.993 | 0.993 | 0.927 | 0.944 | 0.000 | 780.2 | 0.000 |
 | 42 | Gemini Lite always | 0.900 | 0.980 | 1.000 | 1.000 | 0.940 | 0.955 | 1.000 | 2765.1 | 2.933 |
+| 42 | Route threshold gate | 0.893 | 0.973 | 1.000 | 1.000 | 0.935 | 0.951 | 0.247 | 1269.8 | 0.724 |
 | 42 | MLP gate | 0.900 | 0.973 | 1.000 | 1.000 | 0.938 | 0.954 | 0.307 | 1388.9 | 0.900 |
 | 42 | Oracle gate | 0.920 | 0.987 | 1.000 | 1.000 | 0.954 | 0.965 | 0.053 | 886.1 | 0.156 |
 
@@ -128,6 +132,32 @@ Interpretation:
 - The best current gate is not yet a default replacement because split results
   vary and the gate is trained on saved Gemini rerank outputs, not integrated
   into live search.
+- Route threshold gates are useful but not sufficient. They improve H7-only
+  with low cost, especially on seed 23, but they leave quality behind
+  logistic/MLP gates because the decision needs score-shape features inside
+  each route.
+
+## Route Diagnostics
+
+The route bucket diagnostics are computed over all 1,000 CodeSearchNet cases
+before the random split:
+
+| Route | Cases | H7 Hit@1 | Gemini Hit@1 | Gemini improvement rate | Margin mean | Margin p50 | Margin p90 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `path_symbol` | 468 | 0.863 | 0.921 | 0.085 | 0.196 | 0.180 | 0.392 |
+| `semantic` | 216 | 0.787 | 0.847 | 0.116 | 0.176 | 0.156 | 0.362 |
+| `workflow` | 316 | 0.896 | 0.940 | 0.066 | 0.167 | 0.158 | 0.324 |
+
+Interpretation:
+
+- `semantic` is the weakest H7 bucket and has the highest rerank improvement
+  rate, so it should get the most permissive rerank policy.
+- `workflow` has the best H7 Hit@1 and lowest improvement rate, so broad
+  always-rerank policies waste calls there.
+- `path_symbol` still benefits from Gemini even though it looks exact-match
+  heavy, so hard-disabling rerank by route is too blunt.
+- Margin alone is not enough: the margin distributions overlap too much across
+  routes. The gate needs score-shape and agreement features.
 
 ## SWEbenchCodeRetrieval Check
 
@@ -205,4 +235,3 @@ uv run code-diver evaluate \
   --config configs/benchmarks/swebench-h7-query-expansion-embeddinggemma-100.yml \
   --json > .code-diver/reports/swebench-code-retrieval-100-h7-query-expansion-embeddinggemma.json
 ```
-

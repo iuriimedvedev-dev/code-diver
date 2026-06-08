@@ -50,7 +50,7 @@ def main() -> int:
         raise RuntimeError("Train/validation/test split must be non-empty.")
     llm_usage = _llm_usage(args.trace)
 
-    candidates = _threshold_policies()
+    candidates = [*_threshold_policies(), *_route_threshold_policies()]
     validation_rows = [
         _policy_row(policy, validation, llm_usage, args.base_mean_ms)
         for policy in candidates
@@ -62,6 +62,18 @@ def main() -> int:
     best_by_utility = max(
         validation_rows,
         key=lambda row: (row["metrics"]["utility"], row["metrics"]["hit@1"]),
+    )
+    best_route_threshold = max(
+        [
+            row
+            for row in validation_rows
+            if row["policy"]["type"] == "route_margin_table"
+        ],
+        key=lambda row: (
+            row["metrics"]["utility"],
+            row["metrics"]["hit@1"],
+            -row["metrics"]["rerank_call_rate"],
+        ),
     )
     test_rows = [
         _policy_row(
@@ -78,6 +90,7 @@ def main() -> int:
         ),
         _policy_row(best_by_ndcg_sec["policy"], test, llm_usage, args.base_mean_ms),
         _policy_row(best_by_utility["policy"], test, llm_usage, args.base_mean_ms),
+        _policy_row(best_route_threshold["policy"], test, llm_usage, args.base_mean_ms),
         _oracle_row(test, llm_usage, args.base_mean_ms),
     ]
     logistic = _train_logistic_gate(train)
@@ -131,9 +144,11 @@ def main() -> int:
         "validation_top": {
             "by_ndcg_per_second": best_by_ndcg_sec,
             "by_utility": best_by_utility,
+            "route_threshold_by_utility": best_route_threshold,
             "logistic_by_utility": best_logistic,
             "mlp_by_utility": best_mlp,
         },
+        "route_diagnostics": _route_diagnostics(rows),
         "feature_names": _feature_names(),
         "test_rows": test_rows,
         "interpretation": {
@@ -370,17 +385,48 @@ def _threshold_policies() -> list[dict[str, Any]]:
     return policies
 
 
+def _route_threshold_policies() -> list[dict[str, Any]]:
+    policies: list[dict[str, Any]] = []
+    thresholds: list[float | None] = [None, 0.03, 0.05, 0.075, 0.1, 0.15, 0.2]
+    for semantic in thresholds:
+        for workflow in thresholds:
+            for path_symbol in thresholds:
+                if semantic is None and workflow is None and path_symbol is None:
+                    continue
+                table = {
+                    "semantic": semantic,
+                    "workflow": workflow,
+                    "path_symbol": path_symbol,
+                }
+                name_parts = [
+                    f"{route}:{'off' if threshold is None else threshold}"
+                    for route, threshold in table.items()
+                ]
+                policies.append(
+                    {
+                        "name": "route_margin_table_" + ",".join(name_parts),
+                        "type": "route_margin_table",
+                        "thresholds": table,
+                    }
+                )
+    return policies
+
+
 def _policy_row(
     policy: dict[str, Any],
     rows: list[CaseRow],
     llm_usage: dict[str, float],
     base_mean_ms: float,
 ) -> dict[str, Any]:
-    rankings = [_choose(row, _should_rerank(policy, row)) for row in rows]
-    call_count = sum(1 for row in rows if _should_rerank(policy, row))
+    rerank_flags = [_should_rerank(policy, row) for row in rows]
+    rankings = [_choose(row, use_rerank) for row, use_rerank in zip(rows, rerank_flags)]
+    call_count = sum(1 for use_rerank in rerank_flags if use_rerank)
     return {
         "policy": policy,
         "metrics": _metrics(rows, rankings, call_count, llm_usage, base_mean_ms),
+        "route_metrics": _route_metrics(
+            rows, rankings, rerank_flags, llm_usage, base_mean_ms
+        ),
     }
 
 
@@ -404,6 +450,13 @@ def _should_rerank(policy: dict[str, Any], row: CaseRow) -> bool:
         ) < float(policy["threshold"])
     if kind == "candidates_gt":
         return float(row.features["candidate_count"]) > float(policy["threshold"])
+    if kind == "route_margin_table":
+        thresholds = policy["thresholds"]
+        route = str(row.features["route"])
+        threshold = thresholds.get(route)
+        return threshold is not None and float(row.features["margin"]) < float(
+            threshold
+        )
     raise ValueError(f"Unknown policy type: {kind}")
 
 
@@ -411,16 +464,21 @@ def _oracle_row(
     rows: list[CaseRow], llm_usage: dict[str, float], base_mean_ms: float
 ) -> dict[str, Any]:
     rankings = []
+    rerank_flags = []
     calls = 0
     for row in rows:
         base_rank = _first_rank(row.base, row.expected)
         rerank_rank = _first_rank(row.rerank, row.expected)
         use_rerank = rerank_rank and (not base_rank or rerank_rank < base_rank)
+        rerank_flags.append(bool(use_rerank))
         calls += int(bool(use_rerank))
         rankings.append(row.rerank if use_rerank else row.base)
     return {
         "policy": {"name": "oracle_improvement_gate", "type": "oracle"},
         "metrics": _metrics(rows, rankings, calls, llm_usage, base_mean_ms),
+        "route_metrics": _route_metrics(
+            rows, rankings, rerank_flags, llm_usage, base_mean_ms
+        ),
     }
 
 
@@ -459,14 +517,14 @@ def _logistic_policy_row(
     mean = np.asarray(model["mean"], dtype=float)
     std = np.asarray(model["std"], dtype=float)
     rankings = []
+    rerank_flags = []
     calls = 0
     for row in rows:
         features = (np.asarray(_feature_vector(row), dtype=float) - mean) / std
-        score = float(
-            1.0
-            / (1.0 + math.exp(-np.clip(features @ weights + model["bias"], -40, 40)))
-        )
+        logit = float(np.clip((features @ weights).item() + model["bias"], -40, 40))
+        score = float(1.0 / (1.0 + math.exp(-logit)))
         use_rerank = score >= threshold
+        rerank_flags.append(use_rerank)
         calls += int(use_rerank)
         rankings.append(row.rerank if use_rerank else row.base)
     return {
@@ -477,6 +535,9 @@ def _logistic_policy_row(
         },
         "threshold": threshold,
         "metrics": _metrics(rows, rankings, calls, llm_usage, base_mean_ms),
+        "route_metrics": _route_metrics(
+            rows, rankings, rerank_flags, llm_usage, base_mean_ms
+        ),
     }
 
 
@@ -534,6 +595,7 @@ def _mlp_policy_row(
     mean = np.asarray(model["mean"], dtype=float)
     std = np.asarray(model["std"], dtype=float)
     rankings = []
+    rerank_flags = []
     calls = 0
     for row in rows:
         features = (np.asarray(_feature_vector(row), dtype=float) - mean) / std
@@ -541,6 +603,7 @@ def _mlp_policy_row(
         logit = float(np.clip((hidden @ w2).item() + b2, -40, 40))
         score = float(1.0 / (1.0 + math.exp(-logit)))
         use_rerank = score >= threshold
+        rerank_flags.append(use_rerank)
         calls += int(use_rerank)
         rankings.append(row.rerank if use_rerank else row.base)
     return {
@@ -551,6 +614,9 @@ def _mlp_policy_row(
         },
         "threshold": threshold,
         "metrics": _metrics(rows, rankings, calls, llm_usage, base_mean_ms),
+        "route_metrics": _route_metrics(
+            rows, rankings, rerank_flags, llm_usage, base_mean_ms
+        ),
     }
 
 
@@ -670,6 +736,59 @@ def _metrics(
     }
 
 
+def _route_metrics(
+    rows: list[CaseRow],
+    rankings: list[list[str]],
+    rerank_flags: list[bool],
+    llm_usage: dict[str, float],
+    base_mean_ms: float,
+) -> dict[str, dict[str, float]]:
+    route_rows: dict[str, list[CaseRow]] = {}
+    route_rankings: dict[str, list[list[str]]] = {}
+    route_flags: dict[str, list[bool]] = {}
+    for row, ranking, use_rerank in zip(rows, rankings, rerank_flags):
+        route = str(row.features["route"])
+        route_rows.setdefault(route, []).append(row)
+        route_rankings.setdefault(route, []).append(ranking)
+        route_flags.setdefault(route, []).append(use_rerank)
+    metrics: dict[str, dict[str, float]] = {}
+    for route, subset in sorted(route_rows.items()):
+        route_calls = sum(1 for use_rerank in route_flags[route] if use_rerank)
+        metrics[route] = _metrics(
+            subset,
+            route_rankings[route],
+            route_calls,
+            llm_usage,
+            base_mean_ms,
+        )
+    return metrics
+
+
+def _route_diagnostics(rows: list[CaseRow]) -> dict[str, dict[str, float]]:
+    diagnostics: dict[str, dict[str, float]] = {}
+    for route in sorted({str(row.features["route"]) for row in rows}):
+        subset = [row for row in rows if row.features["route"] == route]
+        margins = [float(row.features["margin"]) for row in subset]
+        diagnostics[route] = {
+            "cases": float(len(subset)),
+            "rerank_improvement_rate": _mean(_rerank_improves(row) for row in subset),
+            "h7_hit@1": _mean(
+                1.0 if (_first_rank(row.base, row.expected) or 1_000_000) <= 1 else 0.0
+                for row in subset
+            ),
+            "gemini_hit@1": _mean(
+                1.0
+                if (_first_rank(row.rerank, row.expected) or 1_000_000) <= 1
+                else 0.0
+                for row in subset
+            ),
+            "margin_mean": _mean(margins),
+            "margin_p50": _percentile(margins, 50),
+            "margin_p90": _percentile(margins, 90),
+        }
+    return diagnostics
+
+
 def _first_rank(ranking: list[str], expected: set[str]) -> int | None:
     for index, path in enumerate(ranking, start=1):
         if path in expected:
@@ -694,6 +813,19 @@ def _ndcg(ranking: list[str], expected: set[str]) -> float:
 def _mean(values: Any) -> float:
     materialized = list(values)
     return sum(materialized) / len(materialized) if materialized else 0.0
+
+
+def _percentile(values: list[float], percentile: float) -> float:
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    index = (len(ordered) - 1) * percentile / 100.0
+    lower = math.floor(index)
+    upper = math.ceil(index)
+    if lower == upper:
+        return ordered[int(index)]
+    fraction = index - lower
+    return ordered[lower] * (1.0 - fraction) + ordered[upper] * fraction
 
 
 def _print_table(rows: list[dict[str, Any]]) -> None:
