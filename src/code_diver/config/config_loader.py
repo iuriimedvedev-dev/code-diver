@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
@@ -735,12 +736,15 @@ class ConfigLoader:
 
     def _metrics(self, data: Any) -> MetricsConfig:
         mapping = self._mapping(data)
+        password = mapping.get("password")
+        if password is None:
+            password = os.environ.get("CLICKHOUSE_PASSWORD", Defaults.CLICKHOUSE_PASSWORD)
         return MetricsConfig(
             enabled=bool(mapping.get("enabled", Defaults.METRICS_ENABLED)),
             url=str(mapping.get("url", Defaults.CLICKHOUSE_URL)),
             database=str(mapping.get("database", Defaults.CLICKHOUSE_DATABASE)),
             username=str(mapping.get("username", Defaults.CLICKHOUSE_USERNAME)),
-            password=str(mapping.get("password", Defaults.CLICKHOUSE_PASSWORD)),
+            password=str(password),
             docker_container=mapping.get("docker_container"),
             metrics_table=str(mapping.get("metrics_table", Defaults.CLICKHOUSE_METRICS_TABLE)),
             cases_table=str(mapping.get("cases_table", Defaults.CLICKHOUSE_CASES_TABLE)),

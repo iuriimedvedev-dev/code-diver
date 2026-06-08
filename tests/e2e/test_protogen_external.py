@@ -66,4 +66,4 @@ def test_protogen_index_and_evaluate(capsys: pytest.CaptureFixture[str]) -> None
     assert main(["--config", str(CONFIG_PATH), "evaluate", "--json"]) == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["metrics"]["cases"] == 10
-    assert f"hit_rate@10" in payload["metrics"]
+    assert "hit_rate@10" in payload["metrics"]

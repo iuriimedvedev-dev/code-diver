@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import sys
 from collections.abc import Iterable
 from pathlib import Path
@@ -18,6 +19,8 @@ from .embedding_text_preparer import EmbeddingTextPreparer
 from .index_composition_analyzer import IndexCompositionAnalyzer
 from .indexing_options import IndexingOptions
 from .parallel_embedding_service import ParallelEmbeddingService
+
+logger = logging.getLogger(__name__)
 
 
 class IndexingService:
@@ -305,6 +308,7 @@ class IndexingService:
         try:
             return int(counter(root))
         except Exception:
+            logger.debug("failed to count candidate files for indexing progress", exc_info=True)
             return 0
 
     def _start_save_progress(self) -> None:

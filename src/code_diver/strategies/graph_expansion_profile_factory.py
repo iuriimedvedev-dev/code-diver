@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from ..settings import EdgeKind
 from .graph_expansion_profile import GraphExpansionProfile
-from .hybrid_query_router import ROUTE_PATH_SYMBOL, ROUTE_SEMANTIC, ROUTE_WORKFLOW
+from .hybrid_query_router import ROUTE_PATH_SYMBOL, ROUTE_WORKFLOW
 
 
 class GraphExpansionProfileFactory:

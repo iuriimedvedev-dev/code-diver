@@ -4,7 +4,7 @@ from collections import defaultdict
 from collections.abc import Iterable
 
 from ..domain import CodeItem, CodeItemIndexKind, CodeItemIndexKindResolver
-from ..graph import CodeGraph, GraphEdge
+from ..graph import CodeGraph
 from .file_graph_adjacency_index import FileGraphAdjacencyIndex
 from .graph_expansion_profile import GraphExpansionProfile
 

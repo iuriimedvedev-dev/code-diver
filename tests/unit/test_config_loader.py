@@ -481,3 +481,23 @@ generation:
     config = ConfigLoader().load(config_path)
 
     assert config.generation.response_format == "json_schema"
+
+
+def test_config_loader_uses_clickhouse_password_env_when_not_configured(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("CLICKHOUSE_PASSWORD", "from-env")
+    config_path = tmp_path / "code-diver.yml"
+    config_path.write_text(
+        """
+metrics:
+  enabled: true
+  username: writer
+""".strip(),
+        encoding="utf-8",
+    )
+
+    config = ConfigLoader().load(config_path)
+
+    assert config.metrics.password == "from-env"

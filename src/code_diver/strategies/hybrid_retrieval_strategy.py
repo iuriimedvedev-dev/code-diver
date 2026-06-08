@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from collections import defaultdict
 from threading import RLock
 
@@ -29,6 +30,8 @@ from .retrieval_strategy import RetrievalStrategy
 LEXICAL_SCORING_BM25 = "bm25"
 FUSION_RRF = "rrf"
 TRACE_CANDIDATE_LIMIT = 60
+
+logger = logging.getLogger(__name__)
 
 _SHARED_CACHE_LOCK = RLock()
 _SHARED_GRAPHS: dict[str, CodeGraph | None] = {}
@@ -335,6 +338,7 @@ class HybridRetrievalStrategy(RetrievalStrategy):
         try:
             return str(self.graph_store.artifact.resolve())
         except Exception:
+            logger.debug("failed to resolve graph artifact path for cache key", exc_info=True)
             return str(self.graph_store.artifact)
 
     def _normalize(self, scores: dict[str, float]) -> dict[str, float]:

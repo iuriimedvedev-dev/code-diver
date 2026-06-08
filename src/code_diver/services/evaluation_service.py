@@ -304,7 +304,7 @@ class EvaluationService:
             metrics[f"top_result_kind.{kind}.rate"] = count / total
         for kind, count in sorted(relevant_counts.items()):
             if kind == "none":
-                metrics[f"first_relevant_kind.none.rate"] = count / total
+                metrics["first_relevant_kind.none.rate"] = count / total
                 continue
             metrics[f"first_relevant_kind.{kind}.rate"] = count / hit_count
         return metrics
