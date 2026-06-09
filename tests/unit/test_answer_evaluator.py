@@ -13,6 +13,8 @@ from code_diver.answering import (
     AnswerEvaluator,
     AnswerJudge,
     AnswerJudgeRubric,
+    AnswerReportJudge,
+    AnswerReportMetrics,
     AnswerQueryPlanner,
 )
 from code_diver.config import LlmRerankConfig
@@ -233,6 +235,7 @@ def test_answer_evaluator_searches_reads_answers_and_judges(tmp_path: Path) -> N
     assert report["usage"]["model_calls"] == 1
     assert report["judge_usage"]["model_calls"] == 1
     assert report["results"][0]["context_files"] == ["src/auth.py"]
+    assert "def login" in report["results"][0]["context_text"]
 
 
 def test_answer_evaluator_preserves_retrieval_metrics_when_answer_json_breaks(tmp_path: Path) -> None:
@@ -274,7 +277,54 @@ def test_answer_evaluator_preserves_retrieval_metrics_when_answer_json_breaks(tm
     assert report["metrics"]["context_file_recall"] == 1.0
     assert report["results"][0]["retrieved_files"] == ["src/auth.py"]
     assert report["results"][0]["context_files"] == ["src/auth.py"]
+    assert "def login" in report["results"][0]["context_text"]
     assert "error" in report["results"][0]
+
+
+def test_answer_evaluator_can_omit_context_text(tmp_path: Path) -> None:
+    source = tmp_path / "src" / "auth.py"
+    source.parent.mkdir()
+    source.write_text("def login(user):\n    return user.token is not None\n", encoding="utf-8")
+    retrieval = FakeRetrievalStrategy(
+        [
+            SearchResult(
+                CodeItem(
+                    id="src/auth.py",
+                    path="src/auth.py",
+                    title="auth",
+                    content="Checks whether a user has a token.",
+                    start_line=1,
+                ),
+                0.91,
+            )
+        ]
+    )
+    answer_provider = FakeGenerationProvider(
+        [
+            json.dumps(
+                {
+                    "answer": "Authentication is checked in src/auth.py.",
+                    "citations": [{"path": "src/auth.py", "lines": "1-2"}],
+                }
+            )
+        ]
+    )
+    case = AnswerCase(
+        id="auth",
+        question="Where is authentication checked?",
+        reference="src/auth.py checks user tokens.",
+        expected_paths=["src/auth.py"],
+    )
+
+    report = AnswerEvaluator(
+        retrieval,
+        answer_provider,
+        AnswerContextBuilder(tmp_path, max_files=1, lines_per_file=40),
+        limit=5,
+        save_context=False,
+    ).evaluate([case])
+
+    assert report["results"][0]["context_text"] == ""
 
 
 def test_answer_evaluator_uses_llm_generated_search_queries(tmp_path: Path) -> None:
@@ -563,3 +613,70 @@ def test_answer_judge_rubric_computes_weighted_overall() -> None:
     )
 
     assert scored["scores"]["judge_overall"] == pytest.approx(5.0)
+
+
+def test_answer_report_metrics_recomputes_aggregate() -> None:
+    payload = {
+        "metrics": {"file_hit": 0.0},
+        "results": [
+            {"metrics": {"file_hit": 1.0, "token_f1": 0.2}},
+            {"metrics": {"file_hit": 0.0, "token_f1": 0.4}},
+        ],
+    }
+
+    summary = AnswerReportMetrics().summarize(payload)
+
+    assert summary["metrics"]["cases"] == 2.0
+    assert summary["metrics"]["file_hit"] == 0.5
+    assert summary["metrics"]["token_f1"] == pytest.approx(0.3)
+    assert "file_hit_ci95_low" in summary["metrics"]
+
+
+def test_answer_report_judge_scores_saved_rows_with_stored_context(tmp_path: Path) -> None:
+    judge_prompt = tmp_path / "judge.md"
+    judge_prompt.write_text(
+        "{{question}} {{metadata_json}} {{context}} {{reference}} {{prediction}}",
+        encoding="utf-8",
+    )
+    judge_provider = FakeGenerationProvider(
+        [
+            json.dumps(
+                {
+                    "criteria": {
+                        "answer_correctness": {"score": 4},
+                        "evidence_grounding": {"score": 4},
+                        "coverage": {"score": 4},
+                        "citation_quality": {"score": 4},
+                        "specificity": {"score": 4},
+                        "hallucination_control": {"score": 4},
+                    },
+                    "critical_issues": [],
+                    "rationale": "Grounded.",
+                }
+            )
+        ]
+    )
+    payload = {
+        "results": [
+            {
+                "case_id": "auth",
+                "question": "Where is auth?",
+                "reference": "src/auth.py checks user tokens.",
+                "prediction": "src/auth.py checks user tokens.",
+                "expected_paths": ["src/auth.py"],
+                "metadata": {},
+                "context_text": "Path: src/auth.py\nreturn user.token is not None",
+                "metrics": {"file_hit": 1.0, "token_f1": 0.5},
+            }
+        ]
+    }
+
+    judged = AnswerReportJudge(
+        AnswerJudge(judge_provider, prompt_path=judge_prompt),
+        workers=1,
+    ).judge_payload(payload)
+
+    assert judged["metrics"]["judge_overall"] == pytest.approx(5.0)
+    assert judged["judge_usage"]["model_calls"] == 1
+    assert judged["judge_error_count"] == 0
+    assert "return user.token" in judge_provider.prompts[0]

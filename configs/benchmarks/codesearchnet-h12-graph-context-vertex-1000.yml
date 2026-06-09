@@ -1,0 +1,126 @@
+root: .code-diver/benchmarks/mteb-codesearchnet-python/corpus
+artifact: .code-diver/benchmarks/mteb-codesearchnet-python/index-h10-graph-file-qwen3-0_6b-quality.json
+
+storage:
+  provider: json
+
+embedding:
+  provider: openai_compatible
+  model: mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ
+  dimensions:
+  url: http://127.0.0.1:8001/v1/embeddings
+  api_key: local
+  batch_size: 128
+  workers: 1
+  max_input_chars: 900
+  query_prefix: "Represent this code search query for retrieving relevant files: "
+  document_prefix: "Represent this code file metadata for retrieval: "
+
+generation:
+  provider: vertex
+  model: gemini-3.1-flash-lite
+  fallback_models: []
+  location: global
+  temperature: 0
+  thinking_budget: 256
+  api_version: v1
+  timeout_ms: 30000
+
+indexing:
+  mode: scanner
+
+scanner:
+  include:
+    - "**/*.py"
+  max_file_bytes: 200000
+  line_chunks: false
+  structural_chunks: false
+  symbol_chunks: false
+  symbol_body: false
+  file_summary_chunks: true
+  file_manifest_chunks: true
+  max_symbols_per_file: 96
+
+search:
+  limit: 10
+  preview_lines: 8
+  strategy: graph_file_rerank
+
+hybrid_search:
+  candidate_limit: 280
+  lexical_candidate_limit: 900
+  vector_weight: 0.42
+  lexical_weight: 0.26
+  path_weight: 0.12
+  symbol_weight: 0.10
+  symbol_match_weight: 0.10
+  graph_weight: 0.0
+  file_vote_weight: 0.06
+  graph_depth: 0
+  graph_neighbor_limit: 0
+  vector_kind_limits:
+    file_summary: 170
+    file_manifest: 170
+  vector_kind_multipliers:
+    file_summary: 1.0
+    file_manifest: 1.08
+  routing_enabled: true
+  lexical_scoring: bm25
+  fusion: weighted
+  preserve_vector_top: true
+  vector_top_score_margin: 0.03
+  item_kind_weights:
+    file_summary: 1.0
+    file_manifest: 1.08
+  min_token_length: 3
+
+graph_file_search:
+  seed_limit: 120
+  graph_depth: 2
+  neighbor_limit: 24
+  propagation_weight: 0.18
+  vector_weight: 0.42
+  lexical_weight: 0.24
+  path_weight: 0.14
+  symbol_weight: 0.10
+  exact_path_boost: 0.15
+  exact_symbol_boost: 0.12
+  file_vote_weight: 0.06
+  preserve_seed_top: 5
+
+llm_rerank:
+  candidate_limit: 30
+  rerank_limit: 10
+  max_preview_chars: 700
+  mode: precision
+  include_reasons: false
+  preserve_top_candidate: false
+  retry_attempts: 3
+  retry_base_delay_seconds: 1.0
+  retry_max_delay_seconds: 8.0
+  repository_context_path: .code-diver/benchmarks/mteb-codesearchnet-python/repository-context.md
+  repository_context_max_chars: 12000
+
+graph:
+  enabled: true
+  artifact: .code-diver/benchmarks/mteb-codesearchnet-python/graph-h10-graph-file-qwen3-0_6b-quality.json
+  ast_enabled: false
+  reference_edges_enabled: true
+  call_edges_enabled: false
+  expansion_depth: 2
+  neighbor_limit: 24
+
+trace:
+  enabled: true
+  artifact: .code-diver/traces/codesearchnet-h12-graph-context-vertex-1000.jsonl
+  include_prompts: true
+
+evaluation:
+  dataset: .code-diver/benchmarks/mteb-codesearchnet-python/codesearchnet_python_1000.jsonl
+  limit: 10
+  workers: 1
+
+metrics:
+  enabled: false
+
+plugins: []

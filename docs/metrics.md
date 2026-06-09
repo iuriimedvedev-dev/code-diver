@@ -129,6 +129,17 @@ The default answer judge prompt is
 `judge_*` metrics only when judge model, prompt, dataset, and context limits are
 the same.
 
+Saved answer reports can be judged after the fact:
+
+```bash
+uv run code-diver --help-all answer-report path/to/evaluate-answers.json --judge
+```
+
+For strongest validity, judge reports where each row contains `context_text`.
+If `context_text` is missing, Code Diver reconstructs bounded context from the
+saved file list and repository root; mark those metrics as reconstructed-context
+judge metrics in research notes.
+
 `evaluate-answers` also emits the standard statistical suffixes for every
 numeric E2E metric: `_variance`, `_stddev`, `_stderr`, `_ci95_low`,
 `_ci95_high`, and `_ci95_width`. Binary hit/validity metrics use Wilson

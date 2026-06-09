@@ -39,6 +39,8 @@ from .answering import (
     AnswerEvaluator,
     AnswerJudge,
     AnswerQueryPlanner,
+    AnswerReportJudge,
+    AnswerReportMetrics,
     SweQaProDatasetPreparer,
 )
 from .benchmarks import (
@@ -137,6 +139,7 @@ from .ui import (
 
 
 ADVANCED_COMMANDS = {
+    CommandName.ANSWER_REPORT.value,
     CommandName.ASK.value,
     CommandName.CHAT.value,
     CommandName.EVALUATE_ANSWERS.value,
@@ -742,10 +745,60 @@ def add_advanced_parsers(
         help="Optional YAML config for the answer judge provider.",
     )
     evaluate_answers.add_argument("--judge-model", default=None)
+    evaluate_answers.add_argument(
+        "--omit-context",
+        action="store_true",
+        help="Do not store retrieved context text in the report. Smaller artifacts, but weaker post-hoc judging.",
+    )
     evaluate_answers.add_argument(OptionName.REINDEX.value, action="store_true")
     evaluate_answers.add_argument(OptionName.YES.value, action="store_true")
     evaluate_answers.add_argument(OptionName.JSON.value, action="store_true")
     evaluate_answers.set_defaults(func=cmd_evaluate_answers)
+
+    answer_report = subparsers.add_parser(
+        CommandName.ANSWER_REPORT.value,
+        help="Summarize, compare, or post-hoc judge saved evaluate-answers reports.",
+    )
+    answer_report.add_argument("reports", nargs="+", type=Path)
+    answer_report.add_argument("--output", type=Path, default=None)
+    answer_report.add_argument(
+        "--judge",
+        action="store_true",
+        help="Run the answer judge over a saved report and write a judged report.",
+    )
+    answer_report.add_argument(
+        "--judge-prompt",
+        type=Path,
+        default=None,
+        help="Editable markdown prompt used by the answer judge.",
+    )
+    answer_report.add_argument(
+        "--judge-config",
+        type=Path,
+        default=None,
+        help="Optional YAML config for the answer judge provider.",
+    )
+    answer_report.add_argument("--judge-model", default=None)
+    answer_report.add_argument(
+        "--context-files",
+        type=int,
+        default=4,
+        help="Files to reconstruct for old reports without stored context_text.",
+    )
+    answer_report.add_argument(
+        "--context-lines",
+        type=int,
+        default=160,
+        help="Lines per reconstructed context file for old reports without stored context_text.",
+    )
+    answer_report.add_argument(
+        "--workers",
+        type=int,
+        default=1,
+        help="Judge rows concurrently.",
+    )
+    answer_report.add_argument(OptionName.JSON.value, action="store_true")
+    answer_report.set_defaults(func=cmd_answer_report)
 
     experiment = subparsers.add_parser(
         CommandName.EXPERIMENT.value,
@@ -2887,6 +2940,7 @@ def cmd_evaluate_answers(args: argparse.Namespace, config: AppConfig) -> int:
             limit=limit,
             query_workers=args.query_workers,
             workers=worker_count,
+            save_context=not bool(args.omit_context),
             progress_callback=advance_progress,
             row_callback=write_partial,
         ).evaluate(cases)
@@ -2927,6 +2981,7 @@ def cmd_evaluate_answers(args: argparse.Namespace, config: AppConfig) -> int:
             "judge_model": args.judge_model
             or (judge_config.generation.model if judge_config else None),
             "workers": worker_count,
+            "context_text_saved": not bool(args.omit_context),
         },
         **report,
     }
@@ -2940,6 +2995,203 @@ def cmd_evaluate_answers(args: argparse.Namespace, config: AppConfig) -> int:
     print(f"saved e2e answer eval report: {output}")
     render_answer_metrics_table(payload["metrics"])
     return 0
+
+
+def cmd_answer_report(args: argparse.Namespace, config: AppConfig) -> int:
+    if args.judge:
+        if len(args.reports) != 1:
+            print("error: --judge accepts exactly one report", file=sys.stderr)
+            return 1
+        return cmd_answer_report_judge(args, config)
+    comparison = AnswerReportMetrics().compare(args.reports)
+    if args.output:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(
+            json.dumps(comparison, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+    if args.json:
+        print(json.dumps(comparison, indent=2, ensure_ascii=False))
+        return 0
+    render_answer_report_comparison(comparison)
+    if args.output:
+        print(f"saved answer report comparison: {args.output}")
+    return 0
+
+
+def cmd_answer_report_judge(args: argparse.Namespace, config: AppConfig) -> int:
+    report_path = args.reports[0]
+    payload = AnswerReportMetrics().load(report_path)
+    judge_config = ConfigLoader().load(args.judge_config) if args.judge_config else config
+    judge_config = apply_runtime_config(args, judge_config)
+    if args.judge_model:
+        judge_config = replace(
+            judge_config,
+            generation=replace(judge_config.generation, model=args.judge_model),
+        )
+    root = answer_report_root(payload, config)
+    output = args.output or report_path.with_name(f"{report_path.stem}.judged.json")
+    partial_output = output.with_suffix(f"{output.suffix}.partial")
+    rows: list[dict[str, Any]] = []
+
+    def write_partial(completed: int, total: int, row: dict[str, Any]) -> None:
+        rows.append(row)
+        partial_output.parent.mkdir(parents=True, exist_ok=True)
+        partial_output.write_text(
+            json.dumps(
+                {
+                    "partial": True,
+                    "completed": completed,
+                    "total": total,
+                    "source": str(report_path),
+                    "output": str(output),
+                    "results": rows,
+                },
+                indent=2,
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+
+    progress_bar = None
+    task_id = None
+    source_rows = [row for row in payload.get("results") or [] if isinstance(row, dict)]
+    if not args.json:
+        render_status_panel(
+            "Post-hoc Answer Judge",
+            [
+                ("source", report_path),
+                ("output", output),
+                ("cases", len(source_rows)),
+                ("root", root or "(context_text only)"),
+                ("judge model", f"{judge_config.generation.provider}:{judge_config.generation.model}"),
+                ("prompt", args.judge_prompt or AnswerJudge.DEFAULT_PROMPT_PATH),
+                ("workers", args.workers),
+            ],
+            border_style="magenta",
+        )
+        progress_bar = Progress(
+            SpinnerColumn(style="magenta"),
+            TextColumn("[bold magenta]judging saved answer rows[/bold magenta]"),
+            BarColumn(),
+            MofNCompleteColumn(),
+            TimeElapsedColumn(),
+            TimeRemainingColumn(),
+            console=status_console(),
+        )
+        progress_bar.start()
+        task_id = progress_bar.add_task("judge", total=len(source_rows))
+
+    def advance(completed: int, _total: int, _row: dict[str, Any]) -> None:
+        if progress_bar is not None and task_id is not None:
+            progress_bar.update(task_id, completed=completed)
+
+    try:
+        judged = AnswerReportJudge(
+            AnswerJudge(
+                create_generation_provider(judge_config),
+                prompt_path=args.judge_prompt,
+            ),
+            root=root,
+            context_files=args.context_files,
+            context_lines=args.context_lines,
+            max_file_bytes=judge_config.scanner.max_file_bytes,
+            workers=args.workers,
+            progress_callback=advance,
+            row_callback=write_partial,
+        ).judge_payload(payload)
+    finally:
+        if progress_bar is not None:
+            progress_bar.stop()
+
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(
+        json.dumps(judged, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    if args.json:
+        print(json.dumps(judged, indent=2, ensure_ascii=False))
+        return 0
+    print(f"saved judged answer report: {output}")
+    render_answer_metrics_table(judged["metrics"])
+    return 0
+
+
+def answer_report_root(payload: dict[str, Any], config: AppConfig) -> Path | None:
+    settings = payload.get("settings") if isinstance(payload.get("settings"), dict) else {}
+    root = settings.get("root") if settings else None
+    if root:
+        return Path(str(root))
+    return config.root if config.root else None
+
+
+def render_answer_report_comparison(comparison: dict[str, Any]) -> None:
+    table = Table(title="answer report comparison")
+    table.add_column("report", style="cyan")
+    table.add_column("retrieval", justify="right")
+    table.add_column("context", justify="right")
+    table.add_column("answer", justify="right")
+    table.add_column("latency", justify="right")
+    table.add_column("judge", justify="right")
+    for report in comparison.get("reports") or []:
+        metrics = report.get("metrics") or {}
+        table.add_row(
+            str(report.get("name") or "report"),
+            "\n".join(
+                [
+                    f"cases {answer_report_metric_cell(metrics, 'cases')}",
+                    f"hit@1 {answer_report_metric_cell(metrics, 'candidate_file_hit@1')}",
+                    f"hit@3 {answer_report_metric_cell(metrics, 'candidate_file_hit@3')}",
+                    f"hit@5 {answer_report_metric_cell(metrics, 'candidate_file_hit@5')}",
+                    f"file hit {answer_report_metric_cell(metrics, 'file_hit')}",
+                ]
+            ),
+            "\n".join(
+                [
+                    f"hit {answer_report_metric_cell(metrics, 'context_file_hit')}",
+                    f"recall {answer_report_metric_cell(metrics, 'context_file_recall')}",
+                    f"precision {answer_report_metric_cell(metrics, 'context_file_precision')}",
+                ]
+            ),
+            "\n".join(
+                [
+                    f"token F1 {answer_report_metric_cell(metrics, 'token_f1')}",
+                    f"key F1 {answer_report_metric_cell(metrics, 'key_token_f1')}",
+                    f"citation path {answer_report_metric_cell(metrics, 'citation_path_valid_rate')}",
+                    f"citation line {answer_report_metric_cell(metrics, 'citation_line_valid_rate')}",
+                ]
+            ),
+            "\n".join(
+                [
+                    f"retrieval {answer_report_metric_cell(metrics, 'retrieval_duration_ms')} ms",
+                    f"context {answer_report_metric_cell(metrics, 'context_duration_ms')} ms",
+                    f"generation {answer_report_metric_cell(metrics, 'generation_duration_ms')} ms",
+                ]
+            ),
+            "\n".join(
+                [
+                    f"overall {answer_report_metric_cell(metrics, 'judge_overall')}",
+                    f"errors {answer_report_metric_cell(metrics, 'judge_error_count')}",
+                    f"duration {answer_report_metric_cell(metrics, 'judge_duration_ms')} ms",
+                ]
+            ),
+        )
+    Console().print(table)
+
+
+def answer_report_metric_cell(metrics: dict[str, Any], key: str) -> str:
+    value = metrics.get(key)
+    if not isinstance(value, (float, int)):
+        return "-"
+    if key.endswith("_ms"):
+        return f"{float(value):.0f}"
+    low = metrics.get(f"{key}_ci95_low")
+    high = metrics.get(f"{key}_ci95_high")
+    if isinstance(low, (float, int)) and isinstance(high, (float, int)) and (
+        "_hit" in key or key in {"file_hit", "context_file_hit", "judge_overall"}
+    ):
+        return f"{float(value):.3f} [{float(low):.3f}, {float(high):.3f}]"
+    return f"{float(value):.4f}"
 
 
 def answer_dataset_path(args: argparse.Namespace) -> Path:

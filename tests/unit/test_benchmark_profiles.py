@@ -34,6 +34,7 @@ def test_benchmark_registry_exposes_reproducible_profiles() -> None:
 
     assert registry.names() == [
         "codesearchnet-h10-graph-file-vertex-1000",
+        "codesearchnet-h12-graph-context-vertex-1000",
         "codesearchnet-h6-hybrid-vertex-1000",
         "codesearchnet-mteb-python-1000",
         "codesearchnet-mteb-python-hash-smoke",
@@ -55,6 +56,10 @@ def test_benchmark_registry_exposes_reproducible_profiles() -> None:
     )
     assert h10.preparation is not None
     assert h10.preparation.limit == 1000
+    h12 = registry.get("codesearchnet-h12-graph-context-vertex-1000")
+    assert h12.config_path == Path(
+        "configs/benchmarks/codesearchnet-h12-graph-context-vertex-1000.yml"
+    )
     assert (
         registry.get("intellij-1000-answer-sets").dataset.name
         == "intellij_eval_1000.answer_sets.jsonl"
@@ -172,6 +177,44 @@ def test_evaluate_answers_parser_accepts_benchmark_and_judge() -> None:
     assert args.agentic_query_rerank is True
     assert args.judge is True
     assert args.judge_model == "gemini-3.1-flash-lite"
+    assert args.omit_context is False
+
+
+def test_answer_report_parser_accepts_compare_and_judge() -> None:
+    compare = build_parser(include_advanced=True).parse_args(
+        [
+            "answer-report",
+            "a.json",
+            "b.json",
+            "--output",
+            "summary.json",
+            "--json",
+        ]
+    )
+
+    assert [str(path) for path in compare.reports] == ["a.json", "b.json"]
+    assert str(compare.output) == "summary.json"
+    assert compare.judge is False
+
+    judge = build_parser(include_advanced=True).parse_args(
+        [
+            "answer-report",
+            "a.json",
+            "--judge",
+            "--judge-config",
+            "judge.yml",
+            "--judge-model",
+            "gemini-3.1-flash-lite",
+            "--workers",
+            "2",
+            "--json",
+        ]
+    )
+
+    assert judge.judge is True
+    assert str(judge.judge_config) == "judge.yml"
+    assert judge.judge_model == "gemini-3.1-flash-lite"
+    assert judge.workers == 2
 
 
 def test_evaluate_answers_parser_uses_dynamic_context_default() -> None:

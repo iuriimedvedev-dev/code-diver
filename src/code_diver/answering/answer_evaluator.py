@@ -32,6 +32,7 @@ class AnswerEvaluator:
     limit: int = 10
     query_workers: int = 4
     workers: int = 1
+    save_context: bool = True
     progress_callback: Callable[[int, int, AnswerCase], None] | None = None
     row_callback: Callable[[int, int, dict[str, Any]], None] | None = None
     parser: JsonishParser = field(default_factory=JsonishParser)
@@ -146,6 +147,7 @@ class AnswerEvaluator:
                         "retrieved_files": retrieved_files,
                         "context_files": context.files,
                         "context_errors": context.errors,
+                        "context_text": context.text if self.save_context else "",
                         "expected_paths": case.expected_paths,
                         "metadata": case.metadata,
                         "query_plan": plan_payload,
@@ -198,6 +200,7 @@ class AnswerEvaluator:
                 "retrieved_files": retrieved_files,
                 "context_files": context.files,
                 "context_errors": context.errors,
+                "context_text": context.text if self.save_context else "",
                 "expected_paths": case.expected_paths,
                 "metadata": case.metadata,
                 "query_plan": plan_payload,

@@ -69,6 +69,34 @@ The runner writes:
 - partial report while running:
   `.code-diver/reports/code-answer-e2e-eval.json.partial`
 
+By default each row also stores `context_text`, the exact bounded context passed
+to the answer model. This makes post-hoc judging possible without rerunning
+retrieval. Use `--omit-context` only when artifact size matters more than audit
+fidelity.
+
+To summarize or compare saved reports without rerunning the benchmark:
+
+```bash
+uv run code-diver --help-all answer-report \
+  .code-diver/reports/run-a.json \
+  .code-diver/reports/run-b.json
+```
+
+To run the AI judge later over a saved report:
+
+```bash
+uv run code-diver --config configs/context-awareness/protogen-h12b-doc-vector-lane-vertex.yml \
+  --help-all answer-report \
+  .code-diver/reports/protogen-h12b-doc-vector-lane-vertex-100.json \
+  --judge \
+  --judge-prompt prompts/code-answer-judge.md \
+  --output .code-diver/reports/protogen-h12b-doc-vector-lane-vertex-100.judged.json
+```
+
+If `context_text` is missing, `answer-report --judge` reconstructs bounded
+context from saved `retrieved_files` and `settings.root`. That is useful for
+older reports, but it is not as strong as judging the exact stored context.
+
 If `--benchmark swe-qa-pro` is used and the local JSONL does not exist, the CLI
 asks before preparing it unless `--yes` is passed. Preparation uses
 `TIGER-Lab/SWE-QA-Pro-Bench` test rows and writes Code Diver answer cases under

@@ -10,6 +10,8 @@ from .answer_judge_rubric import AnswerJudgeRubric
 from .answer_metrics import AnswerMetrics
 from .answer_query_plan import AnswerQueryPlan
 from .answer_query_planner import AnswerQueryPlanner
+from .answer_report_judge import AnswerReportJudge
+from .answer_report_metrics import AnswerReportMetrics
 from .swe_qa_pro_dataset_preparer import SweQaProDatasetPreparer
 
 __all__ = [
@@ -25,5 +27,7 @@ __all__ = [
     "AnswerMetrics",
     "AnswerQueryPlan",
     "AnswerQueryPlanner",
+    "AnswerReportJudge",
+    "AnswerReportMetrics",
     "SweQaProDatasetPreparer",
 ]
