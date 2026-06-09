@@ -104,6 +104,7 @@ the explanation agent should not have to read ten files for every question.
 | Qwen3-Reranker 0.6B always-on | Local cross-encoder reranks every query | CodeSearchNet Python 100 | Hit@1 dropped `0.810 -> 0.780`, Hit@10 rose `0.970 -> 0.990`, latency `867ms -> 2881ms` | Not default; useful only gated |
 | H7.5L gated cross-encoder | Call Qwen3-Reranker only when H7 top margin is weak | Offline split over 100 saved cases | Oracle gate improved tail cases at `0-5%` call rate | Implemented; pending live sweep |
 | H8 file GraphRAG | Project item graph into file->file expansion, then keep file-level retrieval | CodeSearchNet Python 1000 final run | Hit@1 `0.855`, Hit@3 `0.958`, Hit@5 `0.980`, Hit@10 `0.986`, nDCG `0.927`, mean `796ms` | Implemented, not default; did not beat H7 |
+| H10 graph-file + Vertex Gemini Lite rerank | Graph-file retrieval over local Qwen file metadata, final LLM rerank via Vertex | CodeSearchNet Python 1000 | Hit@1 `0.907`, Hit@3 `0.977`, Hit@5 `0.982`, Hit@10 `0.983`, nDCG `0.9505`, mean `4132ms`, p95 `8670ms` | Strongest fresh API-quality baseline; slower than pure local H7 |
 | Local Gemma/Qwen generative agent rerank | Let local LLM act as search/rerank agent | 100-case slices | Generally lower Hit@1/Hit@10 and much slower than static H7 | Not default; keep for explanation/hard cases |
 | Gemini 3.5 Flash rerank | API quality ceiling | IntelliJ answer-set 1000 historical | Hit@10 `0.976`, high cost | Oracle/upper bound only |
 | SWE-bench code retrieval H7 | Harder public-ish cross-check | SWE-bench 100 | Hit@1 `0.610`, Hit@5 `0.920`, Hit@10 `0.960` | Shows benchmark difficulty matters |
@@ -155,6 +156,13 @@ Use H7 as default.
 Use file GraphRAG as a bounded experiment/tool, not as global default ranking.
 ```
 
+Fresh API-quality baseline: `codesearchnet-h10-graph-file-vertex-1000` reached
+Hit@1 `0.907`, Hit@3 `0.977`, Hit@5 `0.982`, Hit@10 `0.983`, nDCG@10 `0.9505`,
+MAP@10 `0.9394`, mean `4132ms`, p95 `8670ms`, degraded `false`. This is now the
+main Vertex/Gemini Lite reference row. It does **not** by itself prove graph
+beats the calibrated local locator, because the final LLM rerank is doing major
+ranking work. Use same-ranker H7-vs-H10 comparisons to isolate graph impact.
+
 ### Repository Context Agent Hypothesis
 
 H11 tests whether the local Search agent should start every session with a
@@ -187,6 +195,66 @@ prompt in about 4.8s and generated at about 82 tokens/sec on M3 Max. The next
 eval should record first-turn latency, follow-up latency, prompt-eval tokens/sec,
 tool calls/query, answer judge score, unsupported-claim count, and retrieval
 Hit@3/5/10.
+
+### H12: Dual-Lane Code + Documentation Retrieval
+
+H12 is the next context-aware hypothesis:
+
+```text
+code lane: file_summary + file_manifest
+docs lane: doc_summary + doc_manifest
+compact README: generated once as repository-context.md
+-> grouped LLM rerank
+-> documentation context + code context in explanation prompt
+```
+
+The key idea is that README/Markdown files are useful, but they are a different
+kind of evidence from implementation files. A README can explain terms,
+architecture, setup commands, and feature names. It should help the model
+understand the repository and choose better probes, but it should not push out
+the actual controller/service/module that implements the behavior.
+
+That is why H12 creates two logical retrieval lanes. They currently live in the
+same vector artifact/collection for operational simplicity, but they have
+separate `index_kind` values and separate quotas/weights:
+
+| Lane | Item kinds | Job |
+| --- | --- | --- |
+| Code | `file_summary`, `file_manifest` | Locate implementation-owner files quickly. |
+| Docs | `doc_summary`, `doc_manifest` | Provide README/docs orientation, commands, headings, links, and compact facts. |
+
+The LLM reranker receives two grouped lists:
+
+```json
+{
+  "code_candidates": [],
+  "documentation_candidates": []
+}
+```
+
+The answer builder also separates the context. Documentation gets a bounded
+docs budget, while code files keep their own `context_files` budget. This fixes
+the failure mode where a relevant README result consumes a slot and the model
+never reads the actual source file.
+
+For the H12 config, the repository context mode is `llm_readme_summary`. During
+index/eval/chat setup, Code Diver asks the configured generation provider to
+compress the README into a dense, fact-preserving markdown summary and saves it
+to `.code-diver/context/repository-context.md`. This artifact is then reused by
+LLM reranking and explanation prompts, so the model sees stable project facts
+without rereading the whole README every turn.
+
+H12 is implemented but not accepted as a winner yet. It must be compared against
+same-model H10/H7 controls, because context can improve answer quality while
+not changing raw file Hit@K much. The primary metrics are:
+
+| Metric | Why it matters for H12 |
+| --- | --- |
+| `candidate_file_hit@3/5/10` | Did the code lane still retrieve the implementation file? |
+| `context_file_hit@3/5` | Did explanation context keep the right source file after adding docs? |
+| `citation_path_valid_rate` / `citation_line_valid_rate` | Did the model ground claims in real files and lines? |
+| AI judge score / unsupported-claim rate | Did README/docs context improve explanation quality rather than hallucinating from docs? |
+| latency/tokens/index size | Did the extra docs lane cost too much? |
 
 ### Metric Glossary
 

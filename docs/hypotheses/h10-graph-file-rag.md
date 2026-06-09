@@ -9,9 +9,9 @@
 | Index composition | Qwen3-Embedding-0.6B local embeddings over `file_summary` and `file_manifest`; graph artifact over the same items. CodeSearchNet graph currently has only summary-to-manifest edges after filtering false reference edges. |
 | Search/ranking flow | Historical CodeSearchNet row: query -> base hybrid seeds from file metadata -> file graph propagation -> file-level candidate ranking -> Gemini 3.1 Flash Lite rerank over file summaries -> top files. Current local work replaces the API reranker with configured local Gemma/llama.cpp when rerank is enabled. |
 | Model/provider matrix | Historical row: `mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ` embeddings and Vertex `gemini-3.1-flash-lite` rerank. Current default wiring: local Qwen/EmbeddingGemma file metadata embeddings plus local Gemma 4 26B-A4B generation/rerank experiments. |
-| Dataset | Historical top table: `.code-diver/tmp/codesearchnet_python_100.jsonl`, 100 public CodeSearchNet/MTEB Python cases, one expected file per query. Current check: IntelliJ answer-set rows below. |
-| Metrics | Baseline H5/H6 `hybrid_rerank`: Hit@1 `0.860`, Hit@3 `0.930`, Hit@5 `0.960`, Hit@10 `0.960`, NDCG@10 `0.9153`, MAP@10 `0.9003`, mean `1446.7 ms`. H10 after fixes: Hit@1 `0.870`, Hit@3 `0.960`, Hit@5 `0.960`, Hit@10 `0.960`, NDCG@10 `0.9229`, MAP@10 `0.9100`, mean `2002.8 ms`. |
-| Cost/latency/index-size | Historical H10 was slower on the 100-case CodeSearchNet slice because it still ran Gemini rerank and added graph/catalog work. Reindex of 2,000 file-level items took about `36 s`; index artifact `44-46 MB`, graph artifact about `2 MB`. |
+| Dataset | Historical top table: `.code-diver/tmp/codesearchnet_python_100.jsonl`, 100 public CodeSearchNet/MTEB Python cases, one expected file per query. Fresh public-slice check: `codesearchnet-h10-graph-file-vertex-1000`, 1,000 CodeSearchNet/MTEB Python cases. Current repository check: IntelliJ answer-set rows below. |
+| Metrics | 100-case historical baseline H5/H6 `hybrid_rerank`: Hit@1 `0.860`, Hit@3 `0.930`, Hit@5 `0.960`, Hit@10 `0.960`, NDCG@10 `0.9153`, MAP@10 `0.9003`, mean `1446.7 ms`. 100-case H10 after fixes: Hit@1 `0.870`, Hit@3 `0.960`, Hit@5 `0.960`, Hit@10 `0.960`, NDCG@10 `0.9229`, MAP@10 `0.9100`, mean `2002.8 ms`. Fresh 1,000-case H10 + Vertex Gemini Lite: Hit@1 `0.907`, Hit@3 `0.977`, Hit@5 `0.982`, Hit@10 `0.983`, Recall@10 `0.983`, Precision@10 `0.0983`, NDCG@10 `0.9505`, MAP@10 `0.9394`, mean `4132 ms`, p95 `8670 ms`, degraded `false`. |
+| Cost/latency/index-size | Historical H10 was slower on the 100-case CodeSearchNet slice because it still ran Gemini rerank and added graph/catalog work. Fresh 1,000-case H10 + Vertex Gemini Lite took `1:08:52` end-to-end at workers=1. Reindex of 2,000 file-level items took about `36 s`; index artifact `44-46 MB`, graph artifact about `2 MB`. |
 | Result summary | The initial H10 run failed because `file_summary`/`file_manifest` were treated as real symbols, creating 2,000 false `references` edges and a mega-hub into `python/0001...`; Hit@1 dropped to `0.710`. After filtering non-symbol metadata kinds and preferring `file_summary` as rerank evidence, H10 slightly beat baseline quality on 100 cases but remained slower. |
 | Decision | Keep H10 active for multi-file repository experiments, but do not promote it over the current calibrated hybrid default yet. On single-snippet CodeSearchNet, graph has little real topology; its value should be judged on repositories with imports, references, calls, and package structure. |
 | Failure modes | Bad graph edges create hub effects; file-level graph collapse can hide useful summary text if manifest is selected as the representative; graph propagation can add related-but-wrong files when topology is weak. |
@@ -61,3 +61,45 @@ precision, and latency. Do not promote H10 over the local H7/H6.1 file locator
 until graph topology improves. Any new rerank comparison must explicitly name
 the reranker family: local Gemma/llama.cpp, dedicated local cross-encoder, or
 API Gemini.
+
+## CodeSearchNet 1000 Vertex Baseline - 2026-06-09
+
+Command:
+
+```bash
+uv run code-diver evaluate \
+  --benchmark codesearchnet-h10-graph-file-vertex-1000 \
+  --yes
+```
+
+Configuration:
+
+- Dataset: `.code-diver/benchmarks/mteb-codesearchnet-python/codesearchnet_python_1000.jsonl`
+- Index: local Qwen3-Embedding-0.6B file summaries + file manifests
+- Search: `graph_file_rerank`
+- Reranker: Vertex `gemini-3.1-flash-lite`
+- Rerank candidates/top: `30/10`
+- Graph: references enabled
+- Workers: `1`
+
+| Metric | Value |
+| --- | ---: |
+| Cases | 1000 |
+| Hit@1 | 0.9070 |
+| Hit@3 | 0.9770 |
+| Hit@5 | 0.9820 |
+| Hit@10 | 0.9830 |
+| Recall@10 | 0.9830 |
+| Precision@10 | 0.0983 |
+| File recall@10 | 0.9830 |
+| NDCG@10 | 0.9505 |
+| MAP@10 | 0.9394 |
+| Mean search latency | 4132 ms |
+| P95 search latency | 8670 ms |
+| Degraded cases | 0 |
+
+Interpretation: this is the strongest fresh API-quality baseline for the
+CodeSearchNet Python positive slice. It beats the original `Hit@10 >= 0.95`
+project target and is very strong at Hit@3/Hit@5. `Precision@10` is expected to
+look low on this benchmark because most cases have one positive file; returning
+one correct file in a top-10 list gives precision around `0.1`.

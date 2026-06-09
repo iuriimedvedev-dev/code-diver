@@ -39,11 +39,15 @@ they are optional. Use them only when you explicitly want an API baseline:
 ```bash
 gcloud auth application-default login
 gcloud config set project <your-gcp-project>
+gcloud auth application-default set-quota-project <your-gcp-project>
 ```
 
 Set `GOOGLE_CLOUD_LOCATION` only when you need a non-default Vertex location; Code
 Diver defaults to `global`. To use the standalone Gemini Developer API instead,
 override `generation.provider: gemini` and set:
+
+Keep concrete project names, billing projects, and credentials in environment
+variables, `.env`, or ADC. Do not commit them to shared YAML configs.
 
 ```bash
 export GEMINI_API_KEY="..."
@@ -162,6 +166,19 @@ first for the local quality embedding setup. It does not require Gemini/Vertex
 unless you explicitly enable an API rerank profile. For a no-key smoke check
 only, use `--benchmark codesearchnet-mteb-python-hash-smoke`.
 
+The paid Vertex comparison lane is intentionally isolated to H10:
+
+```bash
+uv run code-diver evaluate \
+  --benchmark codesearchnet-h10-graph-file-vertex-1000 \
+  --yes \
+  --reindex
+```
+
+This uses local embeddings and the local H10 graph-file index; only the final
+H10 rerank hypothesis calls Vertex Gemini Lite. Keep `GOOGLE_CLOUD_PROJECT` /
+ADC quota project in the environment, not in YAML.
+
 Without `--yes`, the CLI asks before downloading missing benchmark assets.
 
 For a quick repository-local sanity benchmark, generate a small dataset from the
@@ -258,6 +275,98 @@ uv run pytest -m protogen
 ```
 
 The `protogen` marker targets the optional sibling repository at `../protogen`. It is skipped when that repo is not present.
+
+## Provider Diagnostics
+
+Use `provider test` to verify the providers selected by the active YAML before
+running indexing, chat, or evaluations:
+
+```bash
+uv run code-diver provider test
+uv run code-diver provider test --json
+uv run code-diver --config configs/smoke-experiments/provider-test-gemini-cli.yml provider test --skip-embedding
+uv run code-diver --config configs/smoke-experiments/provider-test-agy-cli.yml provider test --skip-embedding
+uv run --group antigravity-sdk code-diver --config configs/smoke-experiments/provider-test-antigravity-sdk-vertex.yml provider test --skip-embedding
+uv run code-diver --config configs/smoke-experiments/provider-test-vertex-flash-lite.yml provider test --skip-embedding
+uv run code-diver --config configs/smoke-experiments/protogen-vertex-smoke.yml provider test --skip-embedding --fallback-chain
+```
+
+The command checks generation, each configured generation fallback model,
+optional forced fallback-chain behavior, and embedding query/document dimensions.
+It returns a non-zero exit code when a real check fails.
+
+`generation.provider: gemini_cli` runs the installed Gemini CLI in headless mode
+through `gemini --prompt "" --output-format json --approval-mode plan
+--skip-trust`, sending the actual prompt on stdin. This is useful when Gemini CLI
+auth works but direct Gemini/Vertex API auth or quota is inconvenient. The
+provider is read-only by default through Gemini CLI's plan approval mode:
+
+```yaml
+generation:
+  provider: gemini_cli
+  model: gemini-3.1-flash-lite
+  timeout_ms: 240000
+  extra_body:
+    approval_mode: plan
+    skip_trust: true
+```
+
+Gemini CLI currently carries its own agent/session context, so it can use more
+input tokens than a direct API call for tiny prompts. Treat it as an agent/runtime
+backend candidate first, not as the cheapest bulk reranker until measured.
+
+`generation.provider: agy_cli` runs the installed Antigravity 2 CLI in headless
+print mode. It is configured sandboxed by default and is useful as a fast CLI-agent
+baseline when direct Gemini/Vertex auth is inconvenient:
+
+```yaml
+generation:
+  provider: agy_cli
+  model: Gemini 3.5 Flash (Low)
+  timeout_ms: 120000
+  extra_body:
+    binary: agy
+    print_timeout: 45s
+    sandbox: true
+```
+
+For chat/search, set `pi.provider: agy-cli`. The current Antigravity backend uses
+the CLI's built-in read/search tools in sandbox mode; it does not yet expose the
+Code Diver `code_diver_*` structured tool bridge.
+
+`generation.provider: antigravity_sdk` uses Google's `google-antigravity` Python
+SDK through an optional dependency group. It supports a read-only builtin toolset
+(`list_dir`, `search_dir`, `find_file`, `view_file`, `finish`) and can run through
+Vertex by setting `extra_body.vertex: true`. Keep `GOOGLE_CLOUD_PROJECT` and
+`GOOGLE_CLOUD_LOCATION` in `.env` or the shell; do not commit project identifiers
+to shared configs:
+
+```bash
+uv run --group antigravity-sdk code-diver --config configs/smoke-experiments/provider-test-antigravity-sdk-vertex.yml provider test --skip-embedding
+```
+
+The standalone SDK Gemini API path may still use AI Studio billing/credits even
+when the Antigravity CLI is authenticated locally. Use the Vertex smoke config
+when the goal is to validate ADC/Vertex access.
+
+Use `provider batch-test` to validate the Vertex Gemini Batch path. By default it
+only writes a local JSONL file in the Vertex Batch request format, so it is safe
+to run without cloud writes:
+
+```bash
+uv run code-diver provider batch-test
+uv run code-diver provider batch-test --json
+```
+
+To create a real Vertex Batch job, provide a writable Cloud Storage prefix from
+environment or the CLI. Keep bucket names in `.env` or the shell, not in shared
+YAML configs:
+
+```bash
+export CODE_DIVER_VERTEX_BATCH_GCS_URI="gs://your-bucket/code-diver-batch-smoke"
+uv run code-diver provider batch-test --submit
+uv run code-diver provider batch-test --submit --gcs-uri "gs://your-bucket/code-diver-batch-smoke"
+```
 
 ## Protogen Evaluation
 
@@ -537,7 +646,8 @@ docker compose -f ops/runtime/docker-compose.yml run --rm code-diver index
 
 `evaluate-indexing` and `evaluate-search-tools` run the direct orchestrator against YAML hypotheses and write full JSONL transcripts under `.code-diver/traces`.
 
-`chat` starts interactive Pi. `ask` runs Pi in print mode. Both load `.pi/extensions/code-diver-rag.ts`, which registers:
+`chat` starts the configured Search agent backend. The default backend is Pi,
+which loads `.pi/extensions/code-diver-rag.ts` and registers:
 
 - `code_diver_index`
 - `code_diver_search`
@@ -582,6 +692,25 @@ pi:
 ```
 
 The tool allowlist should stay read-only. Do not add `bash` or editing tools for this assistant; use the `code_diver_*` tools for repository inspection. Pi sessions, compaction, cache accounting, and interactive rendering are handled by Pi; Code Diver supplies the read-only tools, the code-search prompt, and a project-local session directory.
+
+Alternative chat/search backends:
+
+```yaml
+pi:
+  provider: gemini-cli
+  binary: gemini
+  model: gemini-3.1-flash-lite
+```
+
+```yaml
+pi:
+  provider: agy-cli
+  binary: agy
+  model: Gemini 3.5 Flash (Low)
+```
+
+Both CLI backends are launched read-only (`gemini-cli` uses plan approval mode;
+`agy-cli` uses sandbox mode) and include the selected repository directory.
 
 `PI_SKIP_VERSION_CHECK=1` disables Pi's startup update check, which keeps the
 interactive Search agent free from update-notification banners. Run `npm install`

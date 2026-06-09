@@ -6,6 +6,14 @@ answer/locate code (`DirectSearchOrchestrator`) or (b) select what to index
 
 Files: `agent/*`. Entry: `cli.py` `cmd_evaluate_search_tools` / `cmd_evaluate_indexing`.
 
+Interactive `search` / `chat` can also launch external CLI agent backends:
+
+| Backend | Runner | Safety default | Notes |
+|---------|--------|----------------|-------|
+| Pi | `pi_runner.py` | Code Diver read-only tool allowlist | Exposes `code_diver_*` structured tools |
+| Gemini CLI | `gemini_cli_agent_runner.py` | `--approval-mode plan --skip-trust` | Uses Gemini CLI built-in tools |
+| Antigravity CLI | `agy_cli_agent_runner.py` | `--sandbox` | Uses Antigravity CLI built-in tools |
+
 ## The loop contract
 
 ```

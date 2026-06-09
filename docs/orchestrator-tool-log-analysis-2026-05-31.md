@@ -77,7 +77,7 @@ generation:
   fallback_models:
     - gemini-3-flash-preview
     - gemini-2.5-flash
-  project: "236777862453"
+  project: "<your-gcp-project>"
   location: global
 ```
 

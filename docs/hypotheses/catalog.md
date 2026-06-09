@@ -19,6 +19,7 @@ Status meanings:
 | --- | --- | --- | --- |
 | `H10` | active, not default | Graph-first file retrieval is viable after fixing false reference hubs and summary evidence selection, but it is not promoted over calibrated hybrid yet because the 100-case CodeSearchNet slice only shows a small quality gain with higher latency. | See [H10 - Graph-First FileRAG](h10-graph-file-rag.md). |
 | `H11` | active, pending eval | Local Gemma 4 26B-A4B chat now receives generated repository context as a stable system-prompt prefix. The next comparison is no-context vs README summary vs full README. | See [H11 - Local Repo-Context Agent](h11-local-repo-context-agent.md). |
+| `H12` | implemented, pending eval | Adds a separate documentation retrieval lane (`doc_summary`, `doc_manifest`) beside the code file-locator lane and passes grouped code/docs candidates to LLM rerank/explanation. | See [H12 - Dual-Lane Code + Documentation Retrieval](h12-dual-lane-docs-code.md). |
 
 ## BASE-VECTOR - Vector / Line-Chunk Retrieval
 

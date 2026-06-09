@@ -41,6 +41,7 @@ Evidence: [current research state](../current-research-state-2026-06-04.md), [fi
 | Agentic H3 | Open-ended tool loop over H3 tools | rejected as default | Worse quality and higher cost than Pure H3 in valid 100-case IntelliJ comparison. |
 | H5 | H3 candidates + final LLM ranker | active quality layer | Best historical API-rerank quality on the public local positive slice; must be rerun on H6.1 before promotion. |
 | H7 | Agent-planned probes + one shared rerank | proposed / research only | More faithful to the agent-first product shape than raw vector search, but not default until it beats simpler paths on the same E2E cases. |
+| H12 | Dual-lane code + documentation retrieval | implemented / pending eval | Keeps code-file locator and README/docs locator as separate lanes so the LLM gets implementation candidates plus compact repository orientation. |
 | Reranker variants | Gemini 3.5, Gemini Lite, Qwen3.5 4B, cross-encoder candidates | mixed | Gemini 3.5 is oracle/costly; Gemini Lite is active tradeoff; Qwen local is viable but slow; CE rerankers remain follow-up. |
 | Embedding variants | Qwen3 0.6B, Qwen3 4B, EmbeddingGemma, Gemini, Voyage | active matrix | EmbeddingGemma-300M is current practical default; Qwen3 0.6B is the control. |
 | Public benchmark | CodeSearchNet/MTEB Python positive slice | active internal benchmark | Strong internal comparison, not official SOTA. |
@@ -60,9 +61,11 @@ Evidence: [current research state](../current-research-state-2026-06-04.md), [fi
 | `H3-INTELLIJ-ORACLE` | H3 manifest + Gemini 3.5 | oracle | IntelliJ answer-set Hit@10 `0.976`, cost `$34.94` per 1000-case run | Shows ceiling, too expensive for routine loops. |
 | `H3-AGENTIC` | Agentic H3 tool loop | rejected as default | Agentic Gemini Lite Hit@10 `0.80` vs Pure H3 + Gemini Lite `1.00` on 100 IntelliJ cases | More calls, more cost, worse quality. |
 | `H4` | Multi-query planner before retrieval | research only | Partial 175-case matrix; Hit@10 `0.869` Gemini Lite, `0.863` Gemini 3.5 | Some case-level fixes, incomplete full-run evidence. |
-| `H5` | H3 + top-10 LLM ranker | accepted quality layer | CodeSearchNet local positive slice Hit@10 `0.982`, Hit@1 `0.904` with Gemini Lite | Best measured quality/cost tradeoff. |
+| `H5` | H3 + top-10 LLM ranker | accepted quality layer | CodeSearchNet local positive slice Hit@10 `0.982`, Hit@1 `0.904` with Gemini Lite | Strong bounded LLM rerank baseline. |
+| `H10` | Graph-file retrieval + LLM rerank | active API-quality baseline | CodeSearchNet 1000 Vertex Gemini Lite Hit@1 `0.907`, Hit@5 `0.982`, Hit@10 `0.983`, nDCG `0.9505` | Strongest fresh API row; graph impact still needs same-ranker isolation. |
 | `H5-LOCAL` | H3 + local Qwen3.5 4B ranker | fallback | CodeSearchNet local positive slice Hit@10 `0.967`, mean `7708 ms` | No API spend, but not interactive default. |
 | `H7` | Agent-planned probes + one shared LLM rerank | proposed | No accepted benchmark yet; CLI flag exists for E2E answer eval | Tests whether LLM-generated probes improve recall before a single final ranker. |
+| `H12` | Dual-lane code + documentation retrieval | implemented / pending eval | No accepted benchmark yet | Tests whether docs/README context improves rerank and explanation without displacing implementation files. |
 
 ## Where To Read Next
 
@@ -75,5 +78,6 @@ Evidence: [current research state](../current-research-state-2026-06-04.md), [fi
 | Final 2026-06-03 report | [final-report-2026-06-03.md](../final-report-2026-06-03.md) |
 | IntelliJ answer-set gate | [intellij-answer-set-eval-2026-06-03.md](../intellij-answer-set-eval-2026-06-03.md) |
 | CodeSearchNet quality slice | [codesearchnet-agentic-model-eval-2026-06-04.md](../codesearchnet-agentic-model-eval-2026-06-04.md) |
+| H12 dual-lane docs/code retrieval | [h12-dual-lane-docs-code.md](./h12-dual-lane-docs-code.md) |
 | Public benchmark caveat | [codesearchnet-market-comparison-2026-06-03.md](../codesearchnet-market-comparison-2026-06-03.md) |
 | Evaluation validity risks | [eval-validity-review-2026-06-03.md](../eval-validity-review-2026-06-03.md) |

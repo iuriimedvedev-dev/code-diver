@@ -79,6 +79,9 @@ Factory: `generation_provider_factory.py`, selected by `generation.provider`.
 | Provider | File | Notes |
 |----------|------|-------|
 | gemini | `gemini_generation_provider.py` | Thinking budget, fallback models, structured JSON |
+| gemini_cli | `gemini_cli_generation_provider.py` | Subprocess adapter for installed Gemini CLI headless mode; parses `--output-format json` envelope and token stats |
+| agy_cli | `agy_cli_generation_provider.py` | Subprocess adapter for installed Antigravity CLI print mode; sandboxed by default |
+| antigravity_sdk | `antigravity_sdk_generation_provider.py` | Optional `google-antigravity` SDK adapter; read-only builtin tools; supports Vertex through env/ADC |
 | vertex | `vertex_generation_provider.py` | Extends gemini for Vertex |
 | openai | `openai_generation_provider.py` | No fallback, no retry |
 | openai_compatible | `openai_compatible_generation_provider.py` | Generic OpenAI API |
@@ -96,6 +99,16 @@ Factory: `generation_provider_factory.py`, selected by `generation.provider`.
 
 **Pricing:** `ModelCostEstimator` gained new model price entries —
 `gemini-3.1-flash-lite`, `gpt-5.1-mini`, Claude Opus 4.8, and Claude Haiku 4.5.
+
+**Antigravity SDK smoke (2026-06-09):**
+- `provider-test-antigravity-sdk.yml` reaches the SDK but can fail on the standalone
+  Gemini API lane with AI Studio prepayment/quota errors.
+- `provider-test-antigravity-sdk-vertex.yml` runs the same SDK adapter with
+  `extra_body.vertex: true` and reads `GOOGLE_CLOUD_PROJECT` /
+  `GOOGLE_CLOUD_LOCATION` from the environment or ADC-backed shell. No project ids
+  are stored in shared YAML.
+- The adapter captures SDK warning logs so auth/quota failures surface in
+  `provider test` output instead of being reported as a generic empty response.
 
 ## Vector stores — `store/`
 
