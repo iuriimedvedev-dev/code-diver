@@ -13,7 +13,7 @@
 | Metrics | Pending. Primary metrics: candidate/context Hit@3/5/10, Recall@5/10, Precision@5/10, answer judge score, citation validity, unsupported-claim rate, latency, token usage, index item counts, and storage size. |
 | Cost/latency/index-size | Expected index growth is bounded by two doc items per documentation file. Docs have small quotas by default (`doc_summary`, `doc_manifest`) and should not scale with code body size. |
 | Result summary | Implemented as a testable hypothesis. No quality claim yet. |
-| Decision | Do not promote until H12 beats same-model H10/H7 controls on explanation quality or retrieval ranking without a significant latency/storage regression. |
+| Decision | Do not promote until H12 beats same-model controls on explanation quality or retrieval ranking without a significant latency/storage regression. Because H10 GraphRAG only showed a marginal same-reranker lift on CodeSearchNet, H12 must be measured in both variants: no-graph and graph. |
 | Failure modes | Documentation can be stale, README facts can dominate reranking, docs can hide implementation owners if quotas/weights are too high, and large repos can contain huge vendored docs unless ignores stay strict. |
 | Follow-ups | Train/calibrate doc-lane weights; test deterministic README summary vs LLM README summary; add cache invalidation keyed by README/docs hashes; test query-aware docs retrieval; add docs-specific benchmark cases such as setup, architecture, and feature-location questions. |
 | Config | `configs/context-awareness/protogen-h12-dual-lane-gemma26.yml` |
@@ -59,3 +59,20 @@ generation provider to build a compact README summary once and stores it at the
 configured `.code-diver/context/repository-context.md` path. If no summarizer is
 provided by the command path, the context builder falls back to the deterministic
 fact-preserving summary and marks that fallback in the artifact.
+
+## Required A/B Shape
+
+H12 changes the documentation/context axis. It must not be used to also smuggle
+in a graph change unless the matching control exists.
+
+| Row | Candidate generator | Docs lane | Repo context | Reranker | Purpose |
+| --- | --- | --- | --- | --- | --- |
+| H12-no-graph | calibrated hybrid | on | compact README/docs | same model | Isolate docs/context impact without graph propagation. |
+| H12-graph | graph-file rerank | on | compact README/docs | same model | Measure whether docs/context composes with GraphRAG. |
+
+Compare these against matching non-H12 rows:
+
+| Control | Candidate generator | Docs lane | Repo context | Reranker |
+| --- | --- | --- | --- | --- |
+| H6/H7 control | calibrated hybrid | off | off | same model |
+| H10 control | graph-file rerank | off | off | same model |

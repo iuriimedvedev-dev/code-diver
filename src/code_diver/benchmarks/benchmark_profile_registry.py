@@ -93,6 +93,34 @@ class BenchmarkProfileRegistry:
                     ),
                 ),
                 BenchmarkProfile(
+                    name="codesearchnet-h6-hybrid-vertex-1000",
+                    dataset=Path(
+                        ".code-diver/benchmarks/mteb-codesearchnet-python/codesearchnet_python_1000.jsonl"
+                    ),
+                    config_path=Path(
+                        "configs/benchmarks/codesearchnet-h6-hybrid-vertex-1000.yml"
+                    ),
+                    description=(
+                        "GraphRAG control for H10: same local Qwen file metadata index and "
+                        "same Vertex Gemini Lite rerank, but calibrated hybrid retrieval without graph-file propagation."
+                    ),
+                    external_repo="https://huggingface.co/datasets/mteb/CodeSearchNetRetrieval",
+                    setup_hint=(
+                        "Run the local embedding runtime first. Vertex project and credentials must come from ADC or env, "
+                        "not from the checked-in config."
+                    ),
+                    preparation=BenchmarkPreparation(
+                        kind="mteb_codesearchnet",
+                        dataset_name="mteb/CodeSearchNetRetrieval",
+                        language="python",
+                        limit=1000,
+                        output_root=Path(
+                            ".code-diver/benchmarks/mteb-codesearchnet-python"
+                        ),
+                        estimated_download_mb=25,
+                    ),
+                ),
+                BenchmarkProfile(
                     name="intellij-1000-answer-sets",
                     dataset=Path("datasets/intellij_eval_1000.answer_sets.jsonl"),
                     config_path=Path("configs/intellij-postrank-h3-manifest.yml"),

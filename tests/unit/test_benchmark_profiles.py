@@ -34,6 +34,7 @@ def test_benchmark_registry_exposes_reproducible_profiles() -> None:
 
     assert registry.names() == [
         "codesearchnet-h10-graph-file-vertex-1000",
+        "codesearchnet-h6-hybrid-vertex-1000",
         "codesearchnet-mteb-python-1000",
         "codesearchnet-mteb-python-hash-smoke",
         "intellij-1000-answer-sets",

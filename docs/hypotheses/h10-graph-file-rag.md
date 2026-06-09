@@ -103,3 +103,42 @@ CodeSearchNet Python positive slice. It beats the original `Hit@10 >= 0.95`
 project target and is very strong at Hit@3/Hit@5. `Precision@10` is expected to
 look low on this benchmark because most cases have one positive file; returning
 one correct file in a top-10 list gives precision around `0.1`.
+
+## Same-Reranker GraphRAG A/B - 2026-06-09
+
+The 1,000-case Vertex baseline above proves the complete setup is strong, but
+does not isolate GraphRAG. The control below keeps the same dataset, index,
+embedding model, Vertex `gemini-3.1-flash-lite` reranker, `30 -> 10` rerank
+settings, and workers. It changes only the candidate generator:
+
+- Control: `hybrid_rerank`, no graph-file propagation.
+- GraphRAG: `graph_file_rerank`, graph-file propagation before the same LLM rerank.
+
+Control command:
+
+```bash
+uv run code-diver evaluate \
+  --benchmark codesearchnet-h6-hybrid-vertex-1000 \
+  --yes
+```
+
+| Setup | Hit@1 | Hit@3 | Hit@5 | Hit@10 | Recall@10 | Precision@10 | NDCG@10 | MAP@10 | Mean ms | P95 ms | Degraded |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| H6 hybrid + Vertex Lite | 0.9040 | 0.9670 | 0.9800 | 0.9840 | 0.9840 | 0.1798 | 0.9495 | 0.9378 | 3413 | 6266 | false |
+| H10 GraphRAG + Vertex Lite | 0.9070 | 0.9770 | 0.9820 | 0.9830 | 0.9830 | 0.0983 | 0.9505 | 0.9394 | 4132 | 8670 | false |
+| Delta GraphRAG - control | +0.0030 | +0.0100 | +0.0020 | -0.0010 | -0.0010 | -0.0815 | +0.0010 | +0.0016 | +719 | +2404 | - |
+
+Interpretation: GraphRAG gives a small but real early-rank lift under the same
+Vertex reranker: Hit@1, Hit@3, Hit@5, NDCG, and MAP all move up. It does not
+improve candidate recall/Hit@10 on this single-file CodeSearchNet slice, and it
+costs about `+21%` mean latency and `+38%` p95 latency.
+
+Decision: H10 is a valid quality branch for context-aware H12 experiments, but
+this CodeSearchNet result is not strong enough to replace the cheaper hybrid
+candidate generator as the default. H12 should be tested as two rows:
+
+1. `H12-no-graph`: hybrid rerank + docs lane + compact repository context.
+2. `H12-graph`: graph-file rerank + docs lane + compact repository context.
+
+Only promote the graph-based H12 row if the same-ranker docs/context comparison
+keeps the early-rank lift or improves answer quality enough to justify latency.

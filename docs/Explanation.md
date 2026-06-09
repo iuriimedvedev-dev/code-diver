@@ -163,6 +163,35 @@ main Vertex/Gemini Lite reference row. It does **not** by itself prove graph
 beats the calibrated local locator, because the final LLM rerank is doing major
 ranking work. Use same-ranker H7-vs-H10 comparisons to isolate graph impact.
 
+Same-reranker GraphRAG A/B, also on 1000 CodeSearchNet Python cases:
+
+| Setup | Candidate generator | Reranker | Hit@1 | Hit@3 | Hit@5 | Hit@10 | nDCG@10 | MAP@10 | Mean ms | P95 ms |
+| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| H6 control | Calibrated hybrid, no graph-file propagation | Vertex Gemini Lite | 0.904 | 0.967 | 0.980 | 0.984 | 0.9495 | 0.9378 | 3413 | 6266 |
+| H10 GraphRAG | Graph-file propagation over the same hybrid seeds | Vertex Gemini Lite | 0.907 | 0.977 | 0.982 | 0.983 | 0.9505 | 0.9394 | 4132 | 8670 |
+
+This finally isolates the graph axis. GraphRAG improves early ranking slightly:
+`+0.003 Hit@1`, `+0.010 Hit@3`, `+0.002 Hit@5`, `+0.001 nDCG`, `+0.0016 MAP`.
+It does not improve Hit@10/recall and it adds latency. So GraphRAG is a valid
+quality branch, not a default replacement yet.
+
+### Hypothesis Axes Discipline
+
+To keep experiments interpretable, each A/B should change exactly one axis:
+
+| Axis | Examples | What it tests |
+| --- | --- | --- |
+| Index composition | `file_summary`, `file_manifest`, `doc_summary`, `doc_manifest`, body evidence | What persistent information exists before search. |
+| Candidate generator | hybrid, query expansion, graph-file, body evidence | How we build the pre-rerank candidate set. |
+| Graph expansion | off vs graph-file propagation | Whether file topology improves ranking before rerank. |
+| Reranker | none, Vertex Gemini Lite, local Gemma, cross-encoder | Whether a model improves candidate ordering. |
+| Repo context/docs lane | off vs compact README/docs index | Whether repository docs improve ranking/explanation. |
+| Agentic planning | single query vs LLM-generated multi-query probes | Whether the LLM should choose search probes. |
+
+H12 must therefore be tested as `H10 + one new axis`: docs lane and compact
+repository context. If we test H12 with GraphRAG enabled, we also need the
+matching no-graph H12 control with the same reranker.
+
 ### Repository Context Agent Hypothesis
 
 H11 tests whether the local Search agent should start every session with a
