@@ -92,6 +92,7 @@ class CodebaseScanner:
         file_body_evidence_chunks: bool = False,
         documentation_summary_chunks: bool = False,
         documentation_manifest_chunks: bool = False,
+        documentation_chunk_chunks: bool = False,
         max_symbols_per_file: int | None = None,
         symbol_extractor: CodeSymbolExtractor | None = None,
         file_summary_builder: FileSummaryItemBuilder | None = None,
@@ -118,6 +119,7 @@ class CodebaseScanner:
         self.file_body_evidence_chunks = file_body_evidence_chunks
         self.documentation_summary_chunks = documentation_summary_chunks
         self.documentation_manifest_chunks = documentation_manifest_chunks
+        self.documentation_chunk_chunks = documentation_chunk_chunks
         self.max_symbols_per_file = max_symbols_per_file
         self.symbol_extractor = symbol_extractor or CodeSymbolExtractor()
         self.file_summary_builder = file_summary_builder or FileSummaryItemBuilder()
@@ -225,12 +227,18 @@ class CodebaseScanner:
 
     def _uses_documentation_lane(self, rel_path: str) -> bool:
         return (
-            (self.documentation_summary_chunks or self.documentation_manifest_chunks)
+            (
+                self.documentation_summary_chunks
+                or self.documentation_manifest_chunks
+                or self.documentation_chunk_chunks
+            )
             and self.documentation_extractor.is_documentation_path(rel_path)
         )
 
     def _documentation_items(self, rel_path: str, text: str) -> list[CodeItem]:
-        items = self._chunk_file(rel_path, text) if self.line_chunks else []
+        items = self._documentation_chunks(rel_path, text) if self.documentation_chunk_chunks else []
+        if self.line_chunks:
+            items.extend(self._chunk_file(rel_path, text))
         if self.documentation_summary_chunks:
             items.append(self.documentation_summary_builder.build(rel_path, text))
         if self.documentation_manifest_chunks:
@@ -306,6 +314,26 @@ class CodebaseScanner:
                     metadata={
                         CodeItemMetadata.SOURCE: "scanner",
                         CodeItemMetadata.INDEX_KIND: CodeItemIndexKind.CHUNK,
+                    },
+                )
+            )
+        return chunks
+
+    def _documentation_chunks(self, rel_path: str, text: str) -> list[CodeItem]:
+        chunks: list[CodeItem] = []
+        for chunk in self._line_chunks(rel_path, text):
+            chunks.append(
+                CodeItem(
+                    id=chunk.id.replace("#", "::doc_chunk#"),
+                    path=chunk.path,
+                    title=f"{chunk.title}::doc_chunk",
+                    content=chunk.content,
+                    start_line=chunk.start_line,
+                    end_line=chunk.end_line,
+                    metadata={
+                        CodeItemMetadata.SOURCE: "scanner",
+                        CodeItemMetadata.INDEX_KIND: CodeItemIndexKind.DOC_CHUNK,
+                        CodeItemMetadata.KIND: "documentation",
                     },
                 )
             )

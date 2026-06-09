@@ -1345,6 +1345,19 @@ def index_profile_label(config: AppConfig) -> str:
         and config.scanner.file_manifest_chunks
         and config.scanner.documentation_summary_chunks
         and config.scanner.documentation_manifest_chunks
+        and config.scanner.documentation_chunk_chunks
+        and not config.scanner.file_api_manifest_chunks
+        and not config.scanner.file_body_evidence_chunks
+        and not config.scanner.line_chunks
+        and not config.scanner.structural_chunks
+        and not config.scanner.symbol_chunks
+    ):
+        return "H14 text-graph code/docs locator"
+    if (
+        config.scanner.file_summary_chunks
+        and config.scanner.file_manifest_chunks
+        and config.scanner.documentation_summary_chunks
+        and config.scanner.documentation_manifest_chunks
         and not config.scanner.file_api_manifest_chunks
         and not config.scanner.file_body_evidence_chunks
         and not config.scanner.line_chunks
@@ -1399,6 +1412,8 @@ def index_content_label(config: AppConfig) -> str:
         enabled.append("doc summaries")
     if config.scanner.documentation_manifest_chunks:
         enabled.append("doc manifests")
+    if config.scanner.documentation_chunk_chunks:
+        enabled.append("doc chunks")
     if config.scanner.line_chunks:
         enabled.append("line chunks")
     if config.scanner.structural_chunks:
@@ -3451,6 +3466,7 @@ def generate_local_eval_dataset(
         file_body_evidence_chunks=config.scanner.file_body_evidence_chunks,
         documentation_summary_chunks=config.scanner.documentation_summary_chunks,
         documentation_manifest_chunks=config.scanner.documentation_manifest_chunks,
+        documentation_chunk_chunks=config.scanner.documentation_chunk_chunks,
         max_symbols_per_file=config.scanner.max_symbols_per_file,
     )
     return LocalEvalDatasetGenerator(scanner).generate(config.root, output, case_count)
@@ -3472,6 +3488,7 @@ def make_codebase_scanner(config: AppConfig):
         file_body_evidence_chunks=config.scanner.file_body_evidence_chunks,
         documentation_summary_chunks=config.scanner.documentation_summary_chunks,
         documentation_manifest_chunks=config.scanner.documentation_manifest_chunks,
+        documentation_chunk_chunks=config.scanner.documentation_chunk_chunks,
         max_symbols_per_file=config.scanner.max_symbols_per_file,
     )
     mode = config.indexing.mode
@@ -3805,6 +3822,7 @@ def make_ephemeral_search_tool_handler(config: AppConfig):
         file_body_evidence_chunks=False,
         documentation_summary_chunks=False,
         documentation_manifest_chunks=False,
+        documentation_chunk_chunks=False,
         max_symbols_per_file=config.scanner.max_symbols_per_file,
     )
     service = EphemeralDeepIndexService(

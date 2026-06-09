@@ -173,6 +173,48 @@ def test_graph_file_strategy_keeps_best_base_score_when_file_has_duplicate_items
     assert [result.item.path for result in results] == ["src/target.py", "src/other.py"]
 
 
+def test_graph_file_strategy_can_promote_documentation_representatives(tmp_path: Path) -> None:
+    code = CodeItem(
+        id="code-summary",
+        path="src/auth.py",
+        title="src/auth.py::file_summary",
+        content="file: src/auth.py\nsymbols:\n- function authenticate",
+        metadata={"index_kind": "file_summary"},
+    )
+    doc = CodeItem(
+        id="doc-summary",
+        path="README.md",
+        title="README.md::doc_summary",
+        content="doc: README.md\ncompact_summary:\n- Authentication setup references src/auth.py",
+        metadata={"index_kind": "doc_summary"},
+    )
+    store = _graph_store(
+        tmp_path,
+        [code, doc],
+        [GraphEdge(source=code.id, target=doc.id, kind="references", weight=0.9)],
+    )
+    strategy = GraphFileRetrievalStrategy(
+        FakeRetrievalStrategy([SearchResult(code, 0.9)]),
+        store,
+        GraphFileSearchConfig(
+            seed_limit=5,
+            lexical_seed_limit=0,
+            vector_weight=0.1,
+            lexical_weight=0.0,
+            path_weight=0.0,
+            symbol_weight=0.0,
+            graph_weight=1.0,
+            depth=1,
+            neighbor_limit=5,
+            decay=1.0,
+        ),
+    )
+
+    results = strategy.search("how is authentication configured?", limit=2)
+
+    assert [result.item.id for result in results] == ["doc-summary", "code-summary"]
+
+
 def _graph_store(tmp_path: Path, items: list[CodeItem], edges: list[GraphEdge]) -> CodeGraphStore:
     store = CodeGraphStore(tmp_path / "graph.json")
     store.save(CodeGraph(items={item.id: item for item in items}, edges=edges))

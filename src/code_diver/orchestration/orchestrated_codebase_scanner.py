@@ -62,6 +62,7 @@ class OrchestratedCodebaseScanner:
                 "symbol_body": self.config.scanner.symbol_body,
                 "documentation_summary_chunks": self.config.scanner.documentation_summary_chunks,
                 "documentation_manifest_chunks": self.config.scanner.documentation_manifest_chunks,
+                "documentation_chunk_chunks": self.config.scanner.documentation_chunk_chunks,
             },
         )
         scanner = CodebaseScanner(
@@ -79,6 +80,7 @@ class OrchestratedCodebaseScanner:
             file_body_evidence_chunks=self.config.scanner.file_body_evidence_chunks,
             documentation_summary_chunks=self.config.scanner.documentation_summary_chunks,
             documentation_manifest_chunks=self.config.scanner.documentation_manifest_chunks,
+            documentation_chunk_chunks=self.config.scanner.documentation_chunk_chunks,
             max_symbols_per_file=self.config.scanner.max_symbols_per_file,
         )
         return scanner.scan(root)

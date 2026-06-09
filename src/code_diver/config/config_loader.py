@@ -292,6 +292,9 @@ class ConfigLoader:
             documentation_manifest_chunks=bool(
                 mapping.get("documentation_manifest_chunks", Defaults.DOCUMENTATION_MANIFEST_CHUNKS)
             ),
+            documentation_chunk_chunks=bool(
+                mapping.get("documentation_chunk_chunks", Defaults.DOCUMENTATION_CHUNK_CHUNKS)
+            ),
             max_symbols_per_file=self._optional_int(mapping.get("max_symbols_per_file")),
         )
 

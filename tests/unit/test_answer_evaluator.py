@@ -493,6 +493,9 @@ def test_answer_evaluator_includes_repository_context_in_answer_prompt(tmp_path:
 
     assert "Repository orientation" in answer_provider.prompts[0]
     assert "src contains app code" in answer_provider.prompts[0]
+    assert "Documentation context as navigation help only" in answer_provider.prompts[0]
+    assert "Ground behavioral claims in Code context" in answer_provider.prompts[0]
+    assert "Prefer citations to implementation files" in answer_provider.prompts[0]
 
 
 def test_answer_evaluator_can_rerank_merged_planned_query_pool(tmp_path: Path) -> None:

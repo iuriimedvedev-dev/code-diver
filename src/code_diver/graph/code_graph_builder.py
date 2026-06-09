@@ -14,6 +14,9 @@ from .python_ast_call_graph_builder import PythonAstCallGraphBuilder
 
 TS_IMPORT_RE = re.compile(r"""from\s+['"]([^'"]+)['"]|import\s*\([^)]*['"]([^'"]+)['"][^)]*\)""")
 IDENTIFIER_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+MARKDOWN_LINK_RE = re.compile(r"\[[^\]]+]\(([^)#]+)(?:#[^)]+)?\)")
+BACKTICK_PATH_RE = re.compile(r"`([^`\n]+\.[A-Za-z0-9]{1,8})`")
+ARROW_PATH_RE = re.compile(r"->\s*([^\s)]+)")
 REFERENCE_EDGE_FACTOR = 5
 REFERENCE_EDGES_PER_SOURCE = 3
 REFERENCE_TOKEN_LIMIT = 256
@@ -22,6 +25,12 @@ NON_SYMBOL_INDEX_KINDS = {
     CodeItemIndexKind.FILE_MANIFEST,
     CodeItemIndexKind.DOC_SUMMARY,
     CodeItemIndexKind.DOC_MANIFEST,
+    CodeItemIndexKind.DOC_CHUNK,
+}
+DOCUMENTATION_INDEX_KINDS = {
+    CodeItemIndexKind.DOC_SUMMARY,
+    CodeItemIndexKind.DOC_MANIFEST,
+    CodeItemIndexKind.DOC_CHUNK,
 }
 
 
@@ -46,6 +55,8 @@ class CodeGraphBuilder:
         edges: list[GraphEdge] = []
         edges.extend(self._same_file_edges(by_path))
         edges.extend(self._file_summary_edges(by_path))
+        edges.extend(self._documentation_edges(by_path))
+        edges.extend(self._documentation_path_reference_edges(by_path))
         edges.extend(self._import_edges(root, by_path))
         if self.reference_edges_enabled:
             edges.extend(self._reference_edges(items))
@@ -64,6 +75,42 @@ class CodeGraphBuilder:
             )
             for left, right in zip(sorted_chunks, sorted_chunks[1:]):
                 edges.append(GraphEdge(source=left.id, target=right.id, kind=EdgeKind.SAME_FILE_NEXT.value, weight=0.6))
+        return edges
+
+    def _documentation_edges(self, by_path: dict[str, list[CodeItem]]) -> list[GraphEdge]:
+        edges: list[GraphEdge] = []
+        for items in by_path.values():
+            doc_chunks = self._items_by_index_kind(items, CodeItemIndexKind.DOC_CHUNK)
+            if not doc_chunks:
+                continue
+            for summary in self._items_by_index_kind(items, CodeItemIndexKind.DOC_SUMMARY):
+                for chunk in doc_chunks[:80]:
+                    edges.append(
+                        GraphEdge(source=summary.id, target=chunk.id, kind=EdgeKind.SUMMARIZES.value, weight=0.75)
+                    )
+            for manifest in self._items_by_index_kind(items, CodeItemIndexKind.DOC_MANIFEST):
+                for chunk in doc_chunks[:80]:
+                    edges.append(
+                        GraphEdge(source=manifest.id, target=chunk.id, kind=EdgeKind.SUMMARIZES.value, weight=0.55)
+                    )
+        return edges
+
+    def _documentation_path_reference_edges(self, by_path: dict[str, list[CodeItem]]) -> list[GraphEdge]:
+        known_paths = set(by_path)
+        edges: list[GraphEdge] = []
+        for source_path, items in by_path.items():
+            doc_items = [item for item in items if self._is_documentation_item(item)]
+            if not doc_items:
+                continue
+            referenced_paths = self._referenced_paths(source_path, doc_items, known_paths)
+            targets = [self._path_representative(by_path[path]) for path in referenced_paths]
+            for source in doc_items:
+                for target in targets[:24]:
+                    if source.id == target.id:
+                        continue
+                    edges.append(
+                        GraphEdge(source=source.id, target=target.id, kind=EdgeKind.REFERENCES.value, weight=0.85)
+                    )
         return edges
 
     def _file_summary_edges(self, by_path: dict[str, list[CodeItem]]) -> list[GraphEdge]:
@@ -94,6 +141,39 @@ class CodeGraphBuilder:
     def _path_representative(self, items: list[CodeItem]) -> CodeItem:
         sorted_items = sorted(items, key=lambda item: (self._symbol_name(item) != "", item.start_line or 0, item.id))
         return sorted_items[0]
+
+    def _items_by_index_kind(self, items: list[CodeItem], index_kind: str) -> list[CodeItem]:
+        return [item for item in items if self.index_kind_resolver.resolve(item) == index_kind]
+
+    def _is_documentation_item(self, item: CodeItem) -> bool:
+        return self.index_kind_resolver.resolve(item) in DOCUMENTATION_INDEX_KINDS
+
+    def _referenced_paths(
+        self,
+        source_path: str,
+        doc_items: list[CodeItem],
+        known_paths: set[str],
+    ) -> list[str]:
+        references: list[str] = []
+        for item in doc_items:
+            references.extend(MARKDOWN_LINK_RE.findall(item.content))
+            references.extend(BACKTICK_PATH_RE.findall(item.content))
+            references.extend(ARROW_PATH_RE.findall(item.content))
+        resolved: list[str] = []
+        for reference in references:
+            normalized = self._normalize_doc_reference(source_path, reference)
+            if normalized in known_paths and normalized != source_path:
+                resolved.append(normalized)
+        return list(dict.fromkeys(resolved))
+
+    def _normalize_doc_reference(self, source_path: str, reference: str) -> str:
+        reference = reference.strip()
+        if not reference or "://" in reference or reference.startswith("#"):
+            return ""
+        reference = reference.split("#", 1)[0].split("?", 1)[0].strip()
+        if reference.startswith("/"):
+            return Path(reference.lstrip("/")).as_posix()
+        return (Path(source_path).parent / reference).as_posix()
 
     def _imports_for_file(self, root: Path, rel_path: str) -> set[str]:
         path = root / rel_path

@@ -296,6 +296,30 @@ uv run code-diver search "auth"
     assert "code_languages:" in items[1].content
 
 
+def test_scanner_can_add_documentation_chunks_without_code_line_chunks(tmp_path: Path) -> None:
+    (tmp_path / "README.md").write_text(
+        "# Setup\n\nUse `src/auth.py` for authentication.\n\n## API\n\nCall the service.",
+        encoding="utf-8",
+    )
+    (tmp_path / "auth.py").write_text("def authenticate(): pass\n", encoding="utf-8")
+
+    items = CodebaseScanner(
+        include=["*.md", "*.py"],
+        line_chunks=False,
+        chunk_lines=2,
+        file_summary_chunks=True,
+        documentation_chunk_chunks=True,
+        documentation_summary_chunks=True,
+    ).scan(tmp_path)
+
+    by_kind = [item.metadata["index_kind"] for item in items]
+    assert "doc_chunk" in by_kind
+    assert "doc_summary" in by_kind
+    assert "file_summary" in by_kind
+    assert "chunk" not in by_kind
+    assert all(item.path == "README.md" for item in items if item.metadata["index_kind"] == "doc_chunk")
+
+
 def test_scanner_can_add_file_api_manifest_items(tmp_path: Path) -> None:
     (tmp_path / "users.py").write_text(
         '''

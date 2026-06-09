@@ -341,6 +341,10 @@ Repository orientation:
 
 Requirements:
 - Explain the code behavior, not only where it is.
+- Treat Repository orientation and Documentation context as navigation help only.
+- Ground behavioral claims in Code context whenever code context is available.
+- Prefer citations to implementation files over documentation files for code behavior, ownership, inputs, outputs, side effects, and control flow.
+- Use documentation citations only for setup, terminology, public commands, or architecture claims that are not visible in code excerpts.
 - Cite relative file paths and line numbers from the context for important claims.
 - Citation line values must be compact numeric ranges like "61-71"; never put code text in citation lines.
 - If the context is insufficient, say what is missing instead of inventing behavior.

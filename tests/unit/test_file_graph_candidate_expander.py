@@ -93,3 +93,31 @@ def test_file_graph_expander_uses_precompiled_file_adjacency() -> None:
     ).expand({seed_summary.id: 1.0}, profile)
 
     assert scores == {"target-summary": 0.8}
+
+
+def test_file_graph_expander_projects_to_documentation_representatives() -> None:
+    seed_summary = CodeItem(
+        id="seed-summary",
+        path="src/auth.py",
+        title="src/auth.py",
+        content="auth implementation",
+        metadata={"index_kind": "file_summary"},
+    )
+    doc_chunk = CodeItem(
+        id="doc-chunk",
+        path="README.md",
+        title="README.md:1-4::doc_chunk",
+        content="Authentication setup",
+        metadata={"index_kind": "doc_chunk"},
+    )
+    adjacency = FileGraphAdjacencyIndex({"src/auth.py": [("README.md", 0.7)]})
+    profile = GraphExpansionProfile(
+        depth=1, neighbor_limit=10, edge_weights={EdgeKind.REFERENCES.value: 1.0}
+    )
+
+    scores = FileGraphCandidateExpander(
+        items=[seed_summary, doc_chunk],
+        adjacency=adjacency,
+    ).expand({seed_summary.id: 1.0}, profile)
+
+    assert scores == {"doc-chunk": 0.7}

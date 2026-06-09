@@ -80,6 +80,7 @@ scanner:
   file_api_manifest_chunks: true
   documentation_summary_chunks: true
   documentation_manifest_chunks: true
+  documentation_chunk_chunks: true
   max_symbols_per_file: 5
 search:
   strategy: recursive
@@ -268,6 +269,7 @@ plugins:
     assert config.scanner.file_api_manifest_chunks is True
     assert config.scanner.documentation_summary_chunks is True
     assert config.scanner.documentation_manifest_chunks is True
+    assert config.scanner.documentation_chunk_chunks is True
     assert config.scanner.max_symbols_per_file == 5
     assert config.search.strategy == "recursive"
     assert config.search.limit == 7

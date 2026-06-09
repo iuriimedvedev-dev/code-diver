@@ -35,6 +35,9 @@ class FileGraphCatalog:
                 CodeItemIndexKind.FILE_SUMMARY,
                 CodeItemIndexKind.FILE_MANIFEST,
                 CodeItemIndexKind.FILE_API_MANIFEST,
+                CodeItemIndexKind.DOC_SUMMARY,
+                CodeItemIndexKind.DOC_MANIFEST,
+                CodeItemIndexKind.DOC_CHUNK,
             }:
                 representatives_by_path[item.path][kind] = item
         representatives: dict[str, CodeItem] = {}
@@ -43,6 +46,9 @@ class FileGraphCatalog:
                 CodeItemIndexKind.FILE_MANIFEST,
                 CodeItemIndexKind.FILE_API_MANIFEST,
                 CodeItemIndexKind.FILE_SUMMARY,
+                CodeItemIndexKind.DOC_SUMMARY,
+                CodeItemIndexKind.DOC_MANIFEST,
+                CodeItemIndexKind.DOC_CHUNK,
             ):
                 item = by_kind.get(kind)
                 if item is not None:

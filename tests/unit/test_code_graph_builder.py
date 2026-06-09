@@ -228,3 +228,92 @@ def test_code_graph_builder_can_disable_call_edges(tmp_path: Path) -> None:
     graph = CodeGraphBuilder(ast_enabled=True, call_edges_enabled=False).build(tmp_path, items)
 
     assert not any(edge.kind == EdgeKind.CALLS.value for edge in graph.edges)
+
+
+def test_code_graph_builder_links_documentation_chunks_to_summary(tmp_path: Path) -> None:
+    items = [
+        CodeItem(
+            "doc-summary",
+            "README.md",
+            "README.md::doc_summary",
+            "compact_summary:\n- Authentication lives in src/auth.py",
+            metadata={"index_kind": "doc_summary"},
+        ),
+        CodeItem(
+            "doc-manifest",
+            "README.md",
+            "README.md::doc_manifest",
+            "links:\n- auth -> src/auth.py",
+            metadata={"index_kind": "doc_manifest"},
+        ),
+        CodeItem(
+            "doc-chunk",
+            "README.md",
+            "README.md:1-4::doc_chunk",
+            "See [auth](src/auth.py).",
+            start_line=1,
+            end_line=4,
+            metadata={"index_kind": "doc_chunk"},
+        ),
+    ]
+
+    graph = CodeGraphBuilder(ast_enabled=False).build(tmp_path, items)
+
+    assert any(
+        edge.source == "doc-summary" and edge.target == "doc-chunk" and edge.kind == EdgeKind.SUMMARIZES.value
+        for edge in graph.edges
+    )
+    assert any(
+        edge.source == "doc-manifest" and edge.target == "doc-chunk" and edge.kind == EdgeKind.SUMMARIZES.value
+        for edge in graph.edges
+    )
+
+
+def test_code_graph_builder_links_documentation_path_references_to_code_file(tmp_path: Path) -> None:
+    items = [
+        CodeItem(
+            "doc-chunk",
+            "README.md",
+            "README.md:1-4::doc_chunk",
+            "Authentication implementation is in [auth](src/auth.py) and `src/users.py`.",
+            start_line=1,
+            end_line=4,
+            metadata={"index_kind": "doc_chunk"},
+        ),
+        CodeItem(
+            "doc-manifest",
+            "README.md",
+            "README.md::doc_manifest",
+            "links:\n- auth -> src/auth.py",
+            metadata={"index_kind": "doc_manifest"},
+        ),
+        CodeItem(
+            "auth-summary",
+            "src/auth.py",
+            "src/auth.py::file_summary",
+            "file: src/auth.py\nsymbols:\n- function authenticate",
+            metadata={"index_kind": "file_summary"},
+        ),
+        CodeItem(
+            "users-summary",
+            "src/users.py",
+            "src/users.py::file_summary",
+            "file: src/users.py\nsymbols:\n- function create_user",
+            metadata={"index_kind": "file_summary"},
+        ),
+    ]
+
+    graph = CodeGraphBuilder(ast_enabled=False).build(tmp_path, items)
+
+    referenced = {
+        edge.target
+        for edge in graph.edges
+        if edge.source == "doc-chunk" and edge.kind == EdgeKind.REFERENCES.value
+    }
+    assert referenced == {"auth-summary", "users-summary"}
+    assert any(
+        edge.source == "doc-manifest"
+        and edge.target == "auth-summary"
+        and edge.kind == EdgeKind.REFERENCES.value
+        for edge in graph.edges
+    )
