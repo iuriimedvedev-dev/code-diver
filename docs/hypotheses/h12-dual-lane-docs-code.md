@@ -12,7 +12,7 @@
 | Dataset | Primary: `datasets/protogen_answer_cases_100.jsonl`. CodeSearchNet is a poor primary benchmark for H12 because its corpus is isolated snippets with little repository documentation. |
 | Metrics | Primary metrics: candidate/context Hit@1/3/5/10, Recall@5/10, Precision@5/10, answer judge score, citation validity, token/key-token F1, latency, token usage, index item counts, and storage size. |
 | Cost/latency/index-size | Expected index growth is bounded by two doc items per documentation file. Docs have small quotas by default (`doc_summary`, `doc_manifest`) and should not scale with code body size. |
-| Result summary | H12B doc-vector lane beat H12A context-artifact on file/context retrieval metrics on 100 protogen answer cases, with lower retrieval latency. Explanation quality still needs the post-hoc judge pass before final acceptance. |
+| Result summary | H12B doc-vector lane beat H12A context-artifact on file/context retrieval metrics on 100 protogen answer cases, with lower retrieval latency. Gemma 4 26B post-hoc judge preferred H12A on final answer quality, mostly citation quality. Treat the judge result as directional because these reports predate exact `context_text` storage and were judged with reconstructed context. |
 | Decision | Do not promote until H12 beats same-model controls on explanation quality or retrieval ranking without a significant latency/storage regression. Because H10 GraphRAG only showed a marginal same-reranker lift on CodeSearchNet, H12 must be measured in both variants: no-graph and graph. |
 | Failure modes | Documentation can be stale, README facts can dominate reranking, docs can hide implementation owners if quotas/weights are too high, and large repos can contain huge vendored docs unless ignores stay strict. |
 | Follow-ups | Train/calibrate doc-lane weights; test deterministic README summary vs LLM README summary; add cache invalidation keyed by README/docs hashes; test query-aware docs retrieval; add docs-specific benchmark cases such as setup, architecture, and feature-location questions. |
@@ -191,6 +191,13 @@ Completed result:
 | `generation_duration_ms` | `3199.5262` | `3409.9996` | `+210.4734` |
 | `answer_duration_ms_mean` | `15489.7392` | `14105.5866` | `-1384.1526` |
 | `answer model tokens` | `1438144` | `1395240` | `-42904` |
+| `judge_overall` | `4.8388` | `4.7525` | `-0.0863` |
+| `judge_answer_correctness` | `3.9000` | `3.8500` | `-0.0500` |
+| `judge_evidence_grounding` | `3.8900` | `3.8600` | `-0.0300` |
+| `judge_coverage` | `3.8600` | `3.8200` | `-0.0400` |
+| `judge_citation_quality` | `3.7400` | `3.4800` | `-0.2600` |
+| `judge_specificity` | `3.9500` | `3.9100` | `-0.0400` |
+| `judge_hallucination_control` | `3.8800` | `3.8900` | `+0.0100` |
 
 Interpretation:
 
@@ -199,13 +206,18 @@ Interpretation:
   rank (`file_mrr +0.0808`).
 - It did not increase total vector count; the gain came from reallocating a
   bounded slice of the index to non-code metadata.
-- The cheap lexical answer-overlap metrics got slightly worse. That is not
-  enough to reject H12B because token F1 is a weak explanation metric, but it
-  means the judge pass is mandatory before promoting H12B as the default
-  explanation setup.
+- The cheap lexical answer-overlap metrics got slightly worse. Gemma 4 26B
+  post-hoc judge agreed directionally: H12B scored lower on final answer quality
+  (`judge_overall -0.0863`), mostly because citation quality dropped
+  (`judge_citation_quality -0.2600`).
 - Retrieval got faster despite the docs lane. This likely comes from better
   early ranking and fewer expensive ambiguous rerank prompts, but that needs
   trace inspection before being treated as causal.
+- Because these H12A/H12B answer reports were produced before `context_text`
+  storage was added, the judge reconstructed bounded context from saved file
+  paths. The next decisive run should rerun `evaluate-answers` with exact
+  `context_text`, then rerun the same Gemma judge. Until then, H12B is a better
+  locator, but H12A remains safer for final explanations.
 
 ## Post-Hoc Report and Judge
 
@@ -232,3 +244,11 @@ New `evaluate-answers` runs store `context_text` by default so post-hoc judging
 has the same evidence the answer model saw. Older reports can still be judged by
 reconstructing bounded context from saved `retrieved_files` and `settings.root`,
 but those judged results should be marked as reconstructed-context runs.
+
+Current Gemma 4 26B judge artifacts:
+
+```text
+.code-diver/reports/protogen-h12a-context-artifact-vertex-100.gemma26-judge.json
+.code-diver/reports/protogen-h12b-doc-vector-lane-vertex-100.gemma26-judge.json
+.code-diver/reports/protogen-h12-doc-index-ab-comparison.gemma26-judge.json
+```
