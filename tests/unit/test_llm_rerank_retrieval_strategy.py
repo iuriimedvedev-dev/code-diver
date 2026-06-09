@@ -229,7 +229,36 @@ def test_llm_rerank_prompt_marks_path_roles_and_prefers_implementation_owners() 
     assert '"path_role": "test"' in prompt
     assert '"path_role": "implementation"' in prompt
     assert '"path_role": "doc"' in prompt
+    assert '"code_candidates"' in prompt
+    assert '"documentation_candidates"' in prompt
     assert "Prefer implementation owner files over tests" in prompt
+
+
+def test_llm_rerank_prompt_includes_repository_context(tmp_path: Path) -> None:
+    context = tmp_path / "repo-context.md"
+    context.write_text("# Repo\n\nAuth commands live under app/security.\n", encoding="utf-8")
+    provider = FakeGenerationProvider('{"results":[{"index":1}]}')
+    strategy = LlmRerankRetrievalStrategy(
+        FakeStrategy(
+            [
+                _result("impl", "app/security/auth.py", 0.8),
+                _result("doc", "README.md", 0.3),
+            ]
+        ),
+        provider,
+        LlmRerankConfig(
+            candidate_limit=2,
+            repository_context_path=context,
+            repository_context_max_chars=80,
+        ),
+    )
+
+    strategy.search("where is authentication?", 1)
+
+    prompt = provider.prompts[0]
+    assert "Repository context:" in prompt
+    assert "Auth commands live under app/security." in prompt
+    assert "candidate path/title/preview evidence wins" in prompt
 
 
 def _result(item_id: str, path: str, score: float) -> SearchResult:

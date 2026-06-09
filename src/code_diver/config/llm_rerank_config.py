@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 from ..settings import Defaults
 
@@ -17,3 +18,5 @@ class LlmRerankConfig:
     retry_attempts: int = Defaults.LLM_RERANK_RETRY_ATTEMPTS
     retry_base_delay_seconds: float = Defaults.LLM_RERANK_RETRY_BASE_DELAY_SECONDS
     retry_max_delay_seconds: float = Defaults.LLM_RERANK_RETRY_MAX_DELAY_SECONDS
+    repository_context_path: Path | None = Defaults.LLM_RERANK_REPOSITORY_CONTEXT_PATH
+    repository_context_max_chars: int = Defaults.LLM_RERANK_REPOSITORY_CONTEXT_MAX_CHARS

@@ -36,6 +36,9 @@ generation:
   provider: openai_compatible
   model: local-chat
   url: http://127.0.0.1:1234/v1/chat/completions
+  urls:
+    - http://127.0.0.1:8016/v1/chat/completions
+    - http://127.0.0.1:8017/v1/chat/completions
   project: gen-project
   location: us-central1
   fallback_models: [gemini-2.5-flash]
@@ -75,6 +78,8 @@ scanner:
   file_summary_chunks: true
   file_manifest_chunks: true
   file_api_manifest_chunks: true
+  documentation_summary_chunks: true
+  documentation_manifest_chunks: true
   max_symbols_per_file: 5
 search:
   strategy: recursive
@@ -128,6 +133,8 @@ llm_rerank:
   retry_attempts: 4
   retry_base_delay_seconds: 0.5
   retry_max_delay_seconds: 5
+  repository_context_path: {tmp_path}/repo-context.md
+  repository_context_max_chars: 1234
 cross_encoder_rerank:
   provider: llama_cpp
   model: qwen3-reranker-0.6b-q4
@@ -222,6 +229,10 @@ plugins:
     assert config.generation.provider == "openai_compatible"
     assert config.generation.model == "local-chat"
     assert config.generation.url == "http://127.0.0.1:1234/v1/chat/completions"
+    assert config.generation.urls == [
+        "http://127.0.0.1:8016/v1/chat/completions",
+        "http://127.0.0.1:8017/v1/chat/completions",
+    ]
     assert config.generation.project == "gen-project"
     assert config.generation.location == "us-central1"
     assert config.generation.fallback_models == ["gemini-2.5-flash"]
@@ -255,6 +266,8 @@ plugins:
     assert config.scanner.file_summary_chunks is True
     assert config.scanner.file_manifest_chunks is True
     assert config.scanner.file_api_manifest_chunks is True
+    assert config.scanner.documentation_summary_chunks is True
+    assert config.scanner.documentation_manifest_chunks is True
     assert config.scanner.max_symbols_per_file == 5
     assert config.search.strategy == "recursive"
     assert config.search.limit == 7
@@ -298,6 +311,8 @@ plugins:
     assert config.llm_rerank.retry_attempts == 4
     assert config.llm_rerank.retry_base_delay_seconds == 0.5
     assert config.llm_rerank.retry_max_delay_seconds == 5
+    assert config.llm_rerank.repository_context_path == tmp_path / "repo-context.md"
+    assert config.llm_rerank.repository_context_max_chars == 1234
     assert config.cross_encoder_rerank.provider == "llama_cpp"
     assert config.cross_encoder_rerank.model == "qwen3-reranker-0.6b-q4"
     assert config.cross_encoder_rerank.url == "http://127.0.0.1:8080/v1/rerank"

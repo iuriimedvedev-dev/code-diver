@@ -10,6 +10,9 @@ from pathlib import Path
 
 from ..domain import CodeItem, CodeItemIndexKind, CodeItemMetadata, CodeSymbol
 from .code_symbol_extractor import CodeSymbolExtractor
+from .documentation_manifest_item_builder import DocumentationManifestItemBuilder
+from .documentation_metadata_extractor import DocumentationMetadataExtractor
+from .documentation_summary_item_builder import DocumentationSummaryItemBuilder
 from .file_api_manifest_item_builder import FileApiManifestItemBuilder
 from .file_body_evidence_item_builder import FileBodyEvidenceItemBuilder
 from .file_manifest_item_builder import FileManifestItemBuilder
@@ -52,9 +55,11 @@ DEFAULT_INCLUDE_SUFFIXES = {
     ".kt",
     ".kts",
     ".md",
+    ".mdx",
     ".php",
     ".py",
     ".rb",
+    ".rst",
     ".rs",
     ".scala",
     ".sh",
@@ -64,6 +69,7 @@ DEFAULT_INCLUDE_SUFFIXES = {
     ".ts",
     ".tsx",
     ".txt",
+    ".adoc",
     ".yaml",
     ".yml",
 }
@@ -84,12 +90,17 @@ class CodebaseScanner:
         file_manifest_chunks: bool = False,
         file_api_manifest_chunks: bool = False,
         file_body_evidence_chunks: bool = False,
+        documentation_summary_chunks: bool = False,
+        documentation_manifest_chunks: bool = False,
         max_symbols_per_file: int | None = None,
         symbol_extractor: CodeSymbolExtractor | None = None,
         file_summary_builder: FileSummaryItemBuilder | None = None,
         file_manifest_builder: FileManifestItemBuilder | None = None,
         file_api_manifest_builder: FileApiManifestItemBuilder | None = None,
         file_body_evidence_builder: FileBodyEvidenceItemBuilder | None = None,
+        documentation_summary_builder: DocumentationSummaryItemBuilder | None = None,
+        documentation_manifest_builder: DocumentationManifestItemBuilder | None = None,
+        documentation_extractor: DocumentationMetadataExtractor | None = None,
         structural_chunker: StructuralCodeChunker | None = None,
         progress_callback: Callable[[int, int], None] | None = None,
     ):
@@ -105,12 +116,23 @@ class CodebaseScanner:
         self.file_manifest_chunks = file_manifest_chunks
         self.file_api_manifest_chunks = file_api_manifest_chunks
         self.file_body_evidence_chunks = file_body_evidence_chunks
+        self.documentation_summary_chunks = documentation_summary_chunks
+        self.documentation_manifest_chunks = documentation_manifest_chunks
         self.max_symbols_per_file = max_symbols_per_file
         self.symbol_extractor = symbol_extractor or CodeSymbolExtractor()
         self.file_summary_builder = file_summary_builder or FileSummaryItemBuilder()
         self.file_manifest_builder = file_manifest_builder or FileManifestItemBuilder()
         self.file_api_manifest_builder = file_api_manifest_builder or FileApiManifestItemBuilder()
         self.file_body_evidence_builder = file_body_evidence_builder or FileBodyEvidenceItemBuilder()
+        self.documentation_extractor = documentation_extractor or DocumentationMetadataExtractor()
+        self.documentation_summary_builder = (
+            documentation_summary_builder
+            or DocumentationSummaryItemBuilder(self.documentation_extractor)
+        )
+        self.documentation_manifest_builder = (
+            documentation_manifest_builder
+            or DocumentationManifestItemBuilder(self.documentation_extractor)
+        )
         self.structural_chunker = structural_chunker or StructuralCodeChunker(chunk_lines, self.symbol_extractor)
         self.progress_callback = progress_callback
 
@@ -175,6 +197,8 @@ class CodebaseScanner:
         return candidates
 
     def _items_for_file(self, rel_path: str, text: str) -> list[CodeItem]:
+        if self._uses_documentation_lane(rel_path):
+            return self._documentation_items(rel_path, text)
         symbols = (
             self._symbols_for_file(rel_path, text)
             if (
@@ -197,6 +221,20 @@ class CodebaseScanner:
             items.append(self.file_api_manifest_builder.build(rel_path, text, symbols))
         if self.file_body_evidence_chunks:
             items.append(self.file_body_evidence_builder.build(rel_path, text, symbols))
+        return items
+
+    def _uses_documentation_lane(self, rel_path: str) -> bool:
+        return (
+            (self.documentation_summary_chunks or self.documentation_manifest_chunks)
+            and self.documentation_extractor.is_documentation_path(rel_path)
+        )
+
+    def _documentation_items(self, rel_path: str, text: str) -> list[CodeItem]:
+        items = self._chunk_file(rel_path, text) if self.line_chunks else []
+        if self.documentation_summary_chunks:
+            items.append(self.documentation_summary_builder.build(rel_path, text))
+        if self.documentation_manifest_chunks:
+            items.append(self.documentation_manifest_builder.build(rel_path, text))
         return items
 
     def _symbols_for_file(self, rel_path: str, text: str) -> list[CodeSymbol]:

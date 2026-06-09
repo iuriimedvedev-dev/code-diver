@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable
 
 from ..config import AppConfig
 from ..config.pi_repo_context_config import PiRepoContextConfig
+from ..services.documentation_metadata_extractor import DocumentationMetadataExtractor
 
 
 @dataclass(frozen=True, slots=True)
@@ -28,18 +30,30 @@ class RepositoryContextBuilder:
         "target",
     }
 
-    def build(self, config: AppConfig) -> RepositoryContextResult | None:
+    def __init__(self, extractor: DocumentationMetadataExtractor | None = None):
+        self.extractor = extractor or DocumentationMetadataExtractor(max_summary_chars=6000)
+
+    def build(
+        self,
+        config: AppConfig,
+        readme_summarizer: Callable[[str, str], str] | None = None,
+    ) -> RepositoryContextResult | None:
         context = config.pi.repo_context
         if not context.enabled:
             return None
         root = config.root.resolve()
         output = self._root_path(root, context.output)
-        text = self._render(root, context)
+        text = self._render(root, context, readme_summarizer)
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text(text, encoding="utf-8")
         return RepositoryContextResult(path=output, chars=len(text), mode=context.mode)
 
-    def _render(self, root: Path, context: PiRepoContextConfig) -> str:
+    def _render(
+        self,
+        root: Path,
+        context: PiRepoContextConfig,
+        readme_summarizer: Callable[[str, str], str] | None,
+    ) -> str:
         sections = [
             "# Repository Context",
             "",
@@ -55,7 +69,7 @@ class RepositoryContextBuilder:
         ]
         readme = self._readme(root)
         if readme is not None:
-            sections.extend(["## README", "", self._readme_text(readme, context.mode), ""])
+            sections.extend(["## README", "", self._readme_text(readme, context.mode, readme_summarizer), ""])
         if context.include_docs:
             docs = self._docs(root, context.docs_limit)
             if docs:
@@ -86,11 +100,31 @@ class RepositoryContextBuilder:
                 return path
         return None
 
-    def _readme_text(self, path: Path, mode: str) -> str:
+    def _readme_text(
+        self,
+        path: Path,
+        mode: str,
+        readme_summarizer: Callable[[str, str], str] | None,
+    ) -> str:
         text = self._read_text(path)
         if mode == "full_readme":
             return f"Source: `{path.name}`\n\n{text.strip()}"
-        return f"Source: `{path.name}`\n\n{self._summarize_markdown(text)}"
+        if mode == "llm_readme_summary":
+            if readme_summarizer is not None:
+                summary = readme_summarizer(path.name, text)
+                return f"Source: `{path.name}`\nSummary mode: LLM compact README\n\n{summary}"
+            fallback = self.extractor.extract(path.name, text)
+            return (
+                f"Source: `{path.name}`\n"
+                "Summary mode: deterministic fallback; no LLM summarizer was provided.\n\n"
+                f"{fallback['summary']}"
+            )
+        metadata = self.extractor.extract(path.name, text)
+        return (
+            f"Source: `{path.name}`\n"
+            f"Title: {metadata['title']}\n\n"
+            f"{metadata['summary']}"
+        )
 
     def _docs(self, root: Path, limit: int) -> list[Path]:
         docs: list[Path] = []
@@ -100,16 +134,33 @@ class RepositoryContextBuilder:
             if path.name.lower().startswith("readme"):
                 continue
             docs.append(path)
-            if len(docs) >= limit:
-                break
-        return sorted(docs, key=lambda path: str(path.relative_to(root)))
+        docs.sort(key=lambda path: self._doc_priority(root, path))
+        return docs[: max(0, limit)]
+
+    def _doc_priority(self, root: Path, path: Path) -> tuple[int, str]:
+        relative = path.relative_to(root).as_posix()
+        normalized = relative.lower()
+        role_rank = 2
+        if "architecture" in normalized or "design" in normalized:
+            role_rank = 0
+        elif "/docs/" in f"/{normalized}/" or normalized.startswith("docs/"):
+            role_rank = 1
+        elif normalized.endswith(("changelog.md", "changes.md", "history.md")):
+            role_rank = 8
+        if "node_modules" in normalized or "vendor" in normalized:
+            role_rank += 10
+        return role_rank, normalized
 
     def _doc_summary(self, root: Path, path: Path) -> str:
         relative = path.relative_to(root)
         text = self._read_text(path)
-        title = next((line.strip() for line in text.splitlines() if line.strip().startswith("#")), "")
-        excerpt = self._summarize_markdown(text, max_lines=18)
-        return f"### `{relative}`\n\n{title}\n\n{excerpt}\n"
+        metadata = self.extractor.extract(relative.as_posix(), text)
+        return (
+            f"### `{relative}`\n\n"
+            f"Title: {metadata['title']}\n"
+            f"Role: {metadata['role']}\n\n"
+            f"{metadata['summary']}\n"
+        )
 
     def _summarize_markdown(self, text: str, max_lines: int = 80) -> str:
         selected: list[str] = []

@@ -12,7 +12,6 @@ embedding:
   provider: vertex
   model: gemini-embedding-001
   dimensions: 768
-  project: "236777862453"
   location: global
   batch_size: 32
   workers: 1
@@ -24,7 +23,6 @@ generation:
   provider: vertex
   model: gemini-3.1-flash-lite
   fallback_models: []
-  project: "236777862453"
   location: global
   temperature: 0
   thinking_budget: 256

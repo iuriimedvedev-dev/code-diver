@@ -1,0 +1,28 @@
+pi:
+  provider: gemini-cli
+  binary: gemini
+  model: gemini-3.1-flash-lite
+  timeout_seconds: 240
+  repo_context:
+    enabled: true
+    mode: readme_summary
+    output: .code-diver/context/repository-context.md
+    include_docs: true
+    max_chars: 16000
+    docs_limit: 8
+  env:
+    GEMINI_CLI_NO_UPDATE_NOTIFIER: "1"
+
+generation:
+  provider: gemini_cli
+  model: gemini-3.1-flash-lite
+  timeout_ms: 240000
+  extra_body:
+    approval_mode: plan
+    skip_trust: true
+
+embedding:
+  provider: openai_compatible
+  model: mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ
+  url: http://127.0.0.1:8001/v1/embeddings
+  api_key: local

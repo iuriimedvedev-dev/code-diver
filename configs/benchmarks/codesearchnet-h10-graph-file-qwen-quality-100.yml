@@ -16,6 +16,16 @@ embedding:
   query_prefix: "Represent this code search query for retrieving relevant files: "
   document_prefix: "Represent this code file metadata for retrieval: "
 
+generation:
+  provider: vertex
+  model: gemini-3.1-flash-lite
+  fallback_models: []
+  location: global
+  temperature: 0
+  thinking_budget: 256
+  api_version: v1
+  timeout_ms: 30000
+
 indexing:
   mode: scanner
 
@@ -120,7 +130,6 @@ experiments:
         provider: vertex
         model: gemini-3.1-flash-lite
         fallback_models: []
-        project: "236777862453"
         location: global
         temperature: 0
         thinking_budget: 256

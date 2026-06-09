@@ -1,0 +1,27 @@
+pi:
+  provider: agy-cli
+  binary: agy
+  model: Gemini 3.5 Flash (Low)
+  timeout_seconds: 120
+  repo_context:
+    enabled: true
+    mode: readme_summary
+    output: .code-diver/context/repository-context.md
+    include_docs: true
+    max_chars: 16000
+    docs_limit: 8
+
+generation:
+  provider: agy_cli
+  model: Gemini 3.5 Flash (Low)
+  timeout_ms: 120000
+  extra_body:
+    binary: agy
+    print_timeout: 45s
+    sandbox: true
+
+embedding:
+  provider: openai_compatible
+  model: mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ
+  url: http://127.0.0.1:8001/v1/embeddings
+  api_key: local

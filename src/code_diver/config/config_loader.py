@@ -150,6 +150,9 @@ class ConfigLoader:
             project=mapping.get("project", base.project if base is not None else None),
             location=mapping.get("location", base.location if base is not None else None),
             url=mapping.get("url", base.url if base is not None else None),
+            urls=self._string_list(mapping.get("urls"))
+            if "urls" in mapping
+            else list(base.urls if base is not None else []),
             temperature=float(
                 mapping.get("temperature", base.temperature if base is not None else Defaults.GENERATION_TEMPERATURE)
             ),
@@ -282,6 +285,12 @@ class ConfigLoader:
             ),
             file_body_evidence_chunks=bool(
                 mapping.get("file_body_evidence_chunks", Defaults.FILE_BODY_EVIDENCE_CHUNKS)
+            ),
+            documentation_summary_chunks=bool(
+                mapping.get("documentation_summary_chunks", Defaults.DOCUMENTATION_SUMMARY_CHUNKS)
+            ),
+            documentation_manifest_chunks=bool(
+                mapping.get("documentation_manifest_chunks", Defaults.DOCUMENTATION_MANIFEST_CHUNKS)
             ),
             max_symbols_per_file=self._optional_int(mapping.get("max_symbols_per_file")),
         )
@@ -545,6 +554,20 @@ class ConfigLoader:
                     base.retry_max_delay_seconds
                     if base is not None
                     else Defaults.LLM_RERANK_RETRY_MAX_DELAY_SECONDS,
+                )
+            ),
+            repository_context_path=self._optional_path(
+                mapping.get(
+                    "repository_context_path",
+                    base.repository_context_path if base is not None else Defaults.LLM_RERANK_REPOSITORY_CONTEXT_PATH,
+                )
+            ),
+            repository_context_max_chars=int(
+                mapping.get(
+                    "repository_context_max_chars",
+                    base.repository_context_max_chars
+                    if base is not None
+                    else Defaults.LLM_RERANK_REPOSITORY_CONTEXT_MAX_CHARS,
                 )
             ),
         )

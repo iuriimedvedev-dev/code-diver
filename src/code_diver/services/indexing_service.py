@@ -1,13 +1,21 @@
 from __future__ import annotations
 
 import logging
+import math
 import sys
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
 from rich.console import Console
-from rich.progress import BarColumn, MofNCompleteColumn, Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
+from rich.progress import (
+    BarColumn,
+    MofNCompleteColumn,
+    Progress,
+    SpinnerColumn,
+    TextColumn,
+    TimeElapsedColumn,
+)
 
 from ..domain import CodeItem
 from ..plugins import PluginManager
@@ -72,7 +80,9 @@ class IndexingService:
         restore_scan_progress()
         self._finish_scan_progress(len(scanned_items))
         plugin_items = self.plugin_manager.collect_items(root, plugin_config or {})
-        items = self.plugin_manager.transform_items(self._dedupe_items([*scanned_items, *plugin_items]))
+        items = self.plugin_manager.transform_items(
+            self._dedupe_items([*scanned_items, *plugin_items])
+        )
         composition = IndexCompositionAnalyzer().analyze(items)
         self._progress_message(
             "prepared retrieval records: "
@@ -132,7 +142,9 @@ class IndexingService:
     ) -> int:
         replace_batches = getattr(self.vector_store, "replace_batches", None)
         if callable(replace_batches):
-            return self._embed_and_replace_batches(root, provider, items, preparer, replace_batches)
+            return self._embed_and_replace_batches(
+                root, provider, items, preparer, replace_batches
+            )
         return self._embed_and_save_once(root, provider, items, preparer)
 
     def _embed_and_save_once(
@@ -143,6 +155,8 @@ class IndexingService:
         preparer: EmbeddingTextPreparer,
     ) -> int:
         texts = [preparer.prepare(item) for item in items]
+        total_batches = self._embedding_batch_count(len(texts))
+        self._start_embedding_progress(total_batches, len(texts))
         vectors = ParallelEmbeddingService(
             provider,
             batch_size=self.options.embedding_batch_size,
@@ -172,8 +186,11 @@ class IndexingService:
         preparer: EmbeddingTextPreparer,
         replace_batches,
     ) -> int:
-        block_size = max(self.options.embedding_batch_size * self.options.embedding_workers * 8, 1)
-        total_batches = max((len(items) + self.options.embedding_batch_size - 1) // self.options.embedding_batch_size, 1)
+        block_size = max(
+            self.options.embedding_batch_size * self.options.embedding_workers * 8, 1
+        )
+        total_batches = self._embedding_batch_count(len(items))
+        self._start_embedding_progress(total_batches, len(items))
         progress = self._streaming_progress_callback(len(items), total_batches)
         dimensions = provider.dimensions or 0
 
@@ -205,6 +222,28 @@ class IndexingService:
             self._finish_save_progress()
         return dimensions
 
+    def _embedding_batch_count(self, total_items: int) -> int:
+        return max(
+            math.ceil(total_items / max(self.options.embedding_batch_size, 1)), 1
+        )
+
+    def _start_embedding_progress(self, total_batches: int, total_items: int) -> None:
+        if not self.options.progress:
+            return
+        if self._progress is not None:
+            if self._embedding_task is None:
+                self._embedding_task = self._progress.add_task(
+                    "embedded batches", total=total_batches
+                )
+            self._progress.update(
+                self._embedding_task, completed=0, total=total_batches
+            )
+            return
+        print(
+            f"embedded batches: 0/{total_batches} (0%, items={total_items})",
+            file=sys.stderr,
+        )
+
     def _progress_callback(self, total_items: int):
         if not self.options.progress:
             return None
@@ -216,16 +255,20 @@ class IndexingService:
                 return
             if self._progress is not None:
                 if self._embedding_task is None:
-                    self._embedding_task = self._progress.add_task("embedding batches", total=total_batches)
+                    self._embedding_task = self._progress.add_task(
+                        "embedded batches", total=total_batches
+                    )
                 self._progress.update(self._embedding_task, completed=completed_batches)
                 return
             percent = int((completed_batches / total_batches) * 100)
-            should_report = completed_batches == total_batches or percent >= last_reported + 5
+            should_report = (
+                completed_batches == total_batches or percent >= last_reported + 5
+            )
             if not should_report:
                 return
             last_reported = percent
             print(
-                f"embedding batches: {completed_batches}/{total_batches} "
+                f"embedded batches: {completed_batches}/{total_batches} "
                 f"({percent}%, items={total_items})",
                 file=sys.stderr,
             )
@@ -243,7 +286,9 @@ class IndexingService:
             completed += 1
             if self._progress is not None:
                 if self._embedding_task is None:
-                    self._embedding_task = self._progress.add_task("embedding batches", total=total_batches)
+                    self._embedding_task = self._progress.add_task(
+                        "embedded batches", total=total_batches
+                    )
                 self._progress.update(self._embedding_task, completed=completed)
                 return
             percent = int((completed / total_batches) * 100)
@@ -252,7 +297,7 @@ class IndexingService:
                 return
             last_reported = percent
             print(
-                f"embedding batches: {completed}/{total_batches} "
+                f"embedded batches: {completed}/{total_batches} "
                 f"({percent}%, items={total_items})",
                 file=sys.stderr,
             )
@@ -264,8 +309,12 @@ class IndexingService:
             return
         discovery_task = self._progress.add_task("discovering files", total=None)
         total = self._candidate_file_count(root)
-        self._progress.update(discovery_task, completed=1, total=1, description="discovered files")
-        self._scan_task = self._progress.add_task("scanning files", total=total if total > 0 else None)
+        self._progress.update(
+            discovery_task, completed=1, total=1, description="discovered files"
+        )
+        self._scan_task = self._progress.add_task(
+            "scanning files", total=total if total > 0 else None
+        )
 
     def _attach_scan_progress(self):
         if self._progress is None or self._scan_task is None:
@@ -308,18 +357,24 @@ class IndexingService:
         try:
             return int(counter(root))
         except Exception:
-            logger.debug("failed to count candidate files for indexing progress", exc_info=True)
+            logger.debug(
+                "failed to count candidate files for indexing progress", exc_info=True
+            )
             return 0
 
     def _start_save_progress(self) -> None:
         if self._progress is None:
             return
-        self._save_task = self._progress.add_task("streaming vectors to store", total=None)
+        self._save_task = self._progress.add_task(
+            "streaming vectors to store", total=None
+        )
 
     def _finish_save_progress(self) -> None:
         if self._progress is None or self._save_task is None:
             return
-        self._progress.update(self._save_task, completed=1, total=1, description="saved index")
+        self._progress.update(
+            self._save_task, completed=1, total=1, description="saved index"
+        )
 
     def _progress_message(self, message: str) -> None:
         if self._progress is not None:

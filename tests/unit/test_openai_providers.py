@@ -4,8 +4,12 @@ import json
 
 import pytest
 
+from code_diver.config import AppConfig
+from code_diver.config.generation_config import GenerationConfig
+from code_diver.generation.generation_provider_factory import create_generation_provider
 from code_diver.generation.openai_generation_provider import OpenAIGenerationProvider
 from code_diver.generation.openai_compatible_generation_provider import OpenAICompatibleGenerationProvider
+from code_diver.generation.openai_compatible_generation_provider_pool import OpenAICompatibleGenerationProviderPool
 from code_diver.providers.openai_compatible_embedding_provider import OpenAICompatibleEmbeddingProvider
 from code_diver.providers.openai_embedding_provider import OpenAIEmbeddingProvider
 
@@ -192,6 +196,57 @@ def test_openai_compatible_generation_provider_accepts_reasoning_content(monkeyp
     monkeypatch.setattr(provider, "_post", fake_post)
 
     assert provider.generate_json("rank") == '{"results":[]}'
+
+
+def test_openai_compatible_generation_provider_pool_round_robins(monkeypatch) -> None:
+    calls: list[str] = []
+
+    def fake_post(self, payload):
+        calls.append(self.url)
+        return {"choices": [{"message": {"content": '{"results":[]}'}}]}
+
+    monkeypatch.setattr(OpenAICompatibleGenerationProvider, "_post", fake_post)
+
+    provider = OpenAICompatibleGenerationProviderPool(
+        model="local-model",
+        api_key="local",
+        urls=[
+            "http://127.0.0.1:8016/v1/chat/completions",
+            "http://127.0.0.1:8017/v1/chat/completions",
+        ],
+    )
+
+    assert provider.generate_json("rank") == '{"results":[]}'
+    assert provider.generate_json("rank") == '{"results":[]}'
+    assert provider.generate_json("rank") == '{"results":[]}'
+    assert calls == [
+        "http://127.0.0.1:8016/v1/chat/completions",
+        "http://127.0.0.1:8017/v1/chat/completions",
+        "http://127.0.0.1:8016/v1/chat/completions",
+    ]
+
+
+def test_generation_provider_factory_uses_openai_compatible_pool_for_urls() -> None:
+    provider = create_generation_provider(
+        AppConfig(
+            generation=GenerationConfig(
+                provider="openai_compatible",
+                model="local-model",
+                api_key="local",
+                urls=[
+                    "http://127.0.0.1:8016/v1/chat/completions",
+                    "http://127.0.0.1:8017/v1/chat/completions",
+                ],
+            )
+        )
+    )
+
+    assert isinstance(provider, OpenAICompatibleGenerationProviderPool)
+    assert provider.name == "openai_compatible_pool"
+    assert [child.url for child in provider.providers] == [
+        "http://127.0.0.1:8016/v1/chat/completions",
+        "http://127.0.0.1:8017/v1/chat/completions",
+    ]
 
 
 def test_openai_compatible_embedding_provider_allows_local_api_key(monkeypatch) -> None:

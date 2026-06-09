@@ -339,6 +339,7 @@ Repository orientation:
 Requirements:
 - Explain the code behavior, not only where it is.
 - Cite relative file paths and line numbers from the context for important claims.
+- Citation line values must be compact numeric ranges like "61-71"; never put code text in citation lines.
 - If the context is insufficient, say what is missing instead of inventing behavior.
 - Return JSON only: {{"answer":"...","citations":[{{"path":"...","lines":"...","reason":"..."}}],"confidence":0.0}}
 

@@ -105,6 +105,45 @@ def test_answer_context_builder_reads_ranked_files(tmp_path: Path) -> None:
     assert "src/auth.py:1-2" in context.text
 
 
+def test_answer_context_builder_separates_documentation_from_code_limit(tmp_path: Path) -> None:
+    readme = tmp_path / "README.md"
+    readme.write_text("# App\n\nAuth routes are described here.\n", encoding="utf-8")
+    source = tmp_path / "src" / "auth.py"
+    source.parent.mkdir()
+    source.write_text("def login():\n    return True\n", encoding="utf-8")
+    results = [
+        SearchResult(
+            CodeItem(
+                id="README.md::doc_summary",
+                path="README.md",
+                title="README.md::doc_summary",
+                content="doc summary for auth routes",
+                start_line=1,
+                metadata={"index_kind": "doc_summary"},
+            ),
+            0.95,
+        ),
+        SearchResult(
+            CodeItem(
+                id="src/auth.py::file_summary",
+                path="src/auth.py",
+                title="src/auth.py::file_summary",
+                content="Authentication implementation summary.",
+                start_line=1,
+            ),
+            0.9,
+        ),
+    ]
+
+    context = AnswerContextBuilder(tmp_path, max_files=1, lines_per_file=40, max_docs=1).build(results)
+
+    assert context.files == ["src/auth.py"]
+    assert "## Documentation context" in context.text
+    assert "README.md:1-3" in context.text
+    assert "## Code context" in context.text
+    assert "src/auth.py:1-2" in context.text
+
+
 def test_answer_evaluator_searches_reads_answers_and_judges(tmp_path: Path) -> None:
     source = tmp_path / "src" / "auth.py"
     source.parent.mkdir()

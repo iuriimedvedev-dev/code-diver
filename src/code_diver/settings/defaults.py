@@ -64,6 +64,18 @@ class Defaults:
     GENERATION_RETRY_MAX_DELAY_SECONDS = 45.0
     VERTEX_PROVIDER = "vertex"
     VERTEX_LOCATION = "global"
+    VERTEX_BATCH_MODEL = "gemini-3.1-flash-lite"
+    VERTEX_BATCH_LOCAL_DIR = Path(".code-diver/provider-tests")
+    GEMINI_CLI_PROVIDER = "gemini_cli"
+    GEMINI_CLI_BINARY = "gemini"
+    GEMINI_CLI_APPROVAL_MODE = "plan"
+    AGY_CLI_PROVIDER = "agy_cli"
+    AGY_CLI_BINARY = "agy"
+    AGY_CLI_MODEL = "Gemini 3.5 Flash (Low)"
+    AGY_CLI_PRINT_TIMEOUT = "5m"
+    ANTIGRAVITY_SDK_PROVIDER = "antigravity_sdk"
+    ANTIGRAVITY_SDK_MODEL = "gemini-3.5-flash"
+    ANTIGRAVITY_SDK_APP_DATA_DIR = Path("~/.gemini/antigravity-cli")
     OPENAI_GENERATION_MODEL = "gpt-5.1"
     OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
     OPENAI_CHAT_COMPLETIONS_URL = "https://api.openai.com/v1/chat/completions"
@@ -107,6 +119,8 @@ class Defaults:
     FILE_MANIFEST_CHUNKS = True
     FILE_API_MANIFEST_CHUNKS = False
     FILE_BODY_EVIDENCE_CHUNKS = False
+    DOCUMENTATION_SUMMARY_CHUNKS = False
+    DOCUMENTATION_MANIFEST_CHUNKS = False
     MAX_SYMBOLS_PER_FILE = 96
     SEARCH_LIMIT = 10
     PREVIEW_LINES = 8
@@ -201,6 +215,8 @@ class Defaults:
     LLM_RERANK_RETRY_ATTEMPTS = 3
     LLM_RERANK_RETRY_BASE_DELAY_SECONDS = 1.0
     LLM_RERANK_RETRY_MAX_DELAY_SECONDS = 8.0
+    LLM_RERANK_REPOSITORY_CONTEXT_PATH = None
+    LLM_RERANK_REPOSITORY_CONTEXT_MAX_CHARS = 16_000
     CROSS_ENCODER_RERANK_PROVIDER = "llama_cpp"
     CROSS_ENCODER_RERANK_MODEL = "Qwen3-Reranker-0.6B"
     CROSS_ENCODER_RERANK_URL = "http://127.0.0.1:8080/v1/rerank"

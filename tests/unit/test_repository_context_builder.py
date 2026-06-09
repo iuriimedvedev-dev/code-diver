@@ -67,3 +67,30 @@ def test_repository_context_builder_can_include_full_readme(tmp_path: Path) -> N
 
     assert result is not None
     assert "Full prose is kept." in result.path.read_text(encoding="utf-8")
+
+
+def test_repository_context_builder_can_use_llm_readme_summary(tmp_path: Path) -> None:
+    (tmp_path / "README.md").write_text("# Demo\n\nVery long prose.\n", encoding="utf-8")
+    config = AppConfig(
+        root=tmp_path,
+        pi=PiConfig(
+            repo_context=PiRepoContextConfig(
+                enabled=True,
+                mode="llm_readme_summary",
+                output=Path(".code-diver/context/repository-context.md"),
+                include_docs=False,
+                max_chars=4000,
+                docs_limit=0,
+            )
+        ),
+    )
+
+    result = RepositoryContextBuilder().build(
+        config,
+        readme_summarizer=lambda source, text: f"- summarized {source}: exact commands kept",
+    )
+
+    assert result is not None
+    text = result.path.read_text(encoding="utf-8")
+    assert "Summary mode: LLM compact README" in text
+    assert "- summarized README.md: exact commands kept" in text

@@ -41,7 +41,11 @@ from .answering import (
     AnswerQueryPlanner,
     SweQaProDatasetPreparer,
 )
-from .benchmarks import BenchmarkAssetService, BenchmarkProfile, BenchmarkProfileRegistry
+from .benchmarks import (
+    BenchmarkAssetService,
+    BenchmarkProfile,
+    BenchmarkProfileRegistry,
+)
 from .domain import CodeItemIndexKindResolver, EvalResult, SearchResult
 from .env import EnvFileLoader
 from .explanation import (
@@ -53,13 +57,45 @@ from .explanation import (
 from .experiments import ExperimentRunner
 from .generation import create_generation_provider
 from .graph import CodeGraphBuilder, CodeGraphStore
-from .inspection import GrepService, ReadExcerptService, RgService, SymbolsService, TreeService
-from .metrics import ClickHouseClient, ClickHouseDockerClient, ClickHouseMetricsRepository, ExperimentMetricsMapper
+from .inspection import (
+    GrepService,
+    ReadExcerptService,
+    RgService,
+    SymbolsService,
+    TreeService,
+)
+from .metrics import (
+    ClickHouseClient,
+    ClickHouseDockerClient,
+    ClickHouseMetricsRepository,
+    ExperimentMetricsMapper,
+)
 from .orchestration import OrchestratedCodebaseScanner
-from .pi import PiRunner, PiRuntimeManager, PiSessionOptions, RepositoryContextBuilder
+from .pi import (
+    AgyCliAgentRunner,
+    GeminiCliAgentRunner,
+    PiRunner,
+    PiRuntimeManager,
+    PiSessionOptions,
+    RepositoryContextBuilder,
+    RepositoryReadmeSummarizer,
+)
 from .plugins import PluginManager
-from .providers import create_embedding_provider
-from .runtime import EmbeddingRuntimeManager, QdrantRuntimeManager, RuntimeConfigStore, RuntimeSetupWizard
+from .providers import (
+    ProviderCheckResult,
+    ProviderTestOptions,
+    ProviderTestService,
+    VertexBatchTestOptions,
+    VertexBatchTestResult,
+    VertexBatchTestService,
+    create_embedding_provider,
+)
+from .runtime import (
+    EmbeddingRuntimeManager,
+    QdrantRuntimeManager,
+    RuntimeConfigStore,
+    RuntimeSetupWizard,
+)
 from .settings import (
     CommandName,
     Defaults,
@@ -91,7 +127,13 @@ from .services.evaluation_statistics import EvaluationStatistics
 from .strategies import RetrievalStrategyFactory
 from .store import create_vector_store
 from .tracing import TraceLogger
-from .ui import EditorOpener, EvaluationRenderer, MarkdownRenderer, SearchRenderer, TraceMonitor
+from .ui import (
+    EditorOpener,
+    EvaluationRenderer,
+    MarkdownRenderer,
+    SearchRenderer,
+    TraceMonitor,
+)
 
 
 ADVANCED_COMMANDS = {
@@ -119,13 +161,22 @@ def status_console() -> Console:
     return Console(stderr=True, color_system="auto")
 
 
-def render_status_panel(title: str, rows: list[tuple[str, object]], border_style: str = "cyan") -> None:
+def render_status_panel(
+    title: str, rows: list[tuple[str, object]], border_style: str = "cyan"
+) -> None:
     table = Table.grid(padding=(0, 2))
     table.add_column(style="bold cyan", no_wrap=True)
     table.add_column()
     for key, value in rows:
         table.add_row(key, str(value))
-    status_console().print(Panel(table, title=f"[bold]{title}[/bold]", border_style=border_style, padding=(0, 1)))
+    status_console().print(
+        Panel(
+            table,
+            title=f"[bold]{title}[/bold]",
+            border_style=border_style,
+            padding=(0, 1),
+        )
+    )
 
 
 def render_status_line(message: str, style: str = "cyan") -> None:
@@ -159,7 +210,9 @@ def ensure_storage_runtime(config: AppConfig, progress: bool = True) -> None:
     ):
         status = manager.ensure_running()
     if progress and status.started:
-        render_status_line(f"started local Qdrant: {config.storage.qdrant.url}", "green")
+        render_status_line(
+            f"started local Qdrant: {config.storage.qdrant.url}", "green"
+        )
 
 
 def make_vector_store(config: AppConfig, progress: bool = False):
@@ -175,11 +228,16 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     include_advanced = bool(
         normalized
-        and (OptionName.HELP_ALL.value in normalized or any(token in ADVANCED_COMMANDS for token in normalized))
+        and (
+            OptionName.HELP_ALL.value in normalized
+            or any(token in ADVANCED_COMMANDS for token in normalized)
+        )
     )
     parser = build_parser(include_advanced=include_advanced)
     if include_advanced:
-        normalized = [token for token in normalized or [] if token != OptionName.HELP_ALL.value]
+        normalized = [
+            token for token in normalized or [] if token != OptionName.HELP_ALL.value
+        ]
         if not normalized:
             parser.print_help()
             return 0
@@ -198,25 +256,44 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def build_parser(include_advanced: bool = False) -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="code-diver", description="Config-first codebase RAG CLI.")
-    parser.add_argument(OptionName.CONFIG.value, type=Path, default=None, help="YAML config path.")
-    parser.add_argument(OptionName.ROOT.value, type=Path, default=None, help="Repository root for built-in profiles.")
+    parser = argparse.ArgumentParser(
+        prog="code-diver", description="Config-first codebase RAG CLI."
+    )
+    parser.add_argument(
+        OptionName.CONFIG.value, type=Path, default=None, help="YAML config path."
+    )
+    parser.add_argument(
+        OptionName.ROOT.value,
+        type=Path,
+        default=None,
+        help="Repository root for built-in profiles.",
+    )
     parser.add_argument(
         OptionName.HELP_ALL.value,
         action="store_true",
         help="Show advanced inspection, agent, and research commands.",
     )
-    command_metavar = None if include_advanced else "{init,index,search,evaluate}"
-    subparsers = parser.add_subparsers(dest="command", required=True, metavar=command_metavar)
+    command_metavar = (
+        None if include_advanced else "{init,index,search,evaluate,provider}"
+    )
+    subparsers = parser.add_subparsers(
+        dest="command", required=True, metavar=command_metavar
+    )
 
-    init = subparsers.add_parser(CommandName.INIT.value, help="Interactively configure local model runtimes.")
+    init = subparsers.add_parser(
+        CommandName.INIT.value, help="Interactively configure local model runtimes."
+    )
     init.add_argument(
         "--embedding",
         choices=EmbeddingProfileRegistry().keys(),
         default=None,
         help="Embedding extractor profile to configure.",
     )
-    init.add_argument("--yes", action="store_true", help="Accept defaults and install without prompting.")
+    init.add_argument(
+        "--yes",
+        action="store_true",
+        help="Accept defaults and install without prompting.",
+    )
     init.add_argument(
         "--platform",
         choices=["apple-metal", "nvidia-cuda", "amd-rocm", "cpu", "api", "external"],
@@ -229,11 +306,22 @@ def build_parser(include_advanced: bool = False) -> argparse.ArgumentParser:
         default=None,
         help="Model runtime backend: managed host uv subprocess or external/container endpoint.",
     )
-    init.add_argument("--skip-install", action="store_true", help="Write config without installing vLLM/MLX.")
-    init.add_argument("--start", action="store_true", help="Start the configured local embedding server after setup.")
+    init.add_argument(
+        "--skip-install",
+        action="store_true",
+        help="Write config without installing vLLM/MLX.",
+    )
+    init.add_argument(
+        "--start",
+        action="store_true",
+        help="Start the configured local embedding server after setup.",
+    )
     init.set_defaults(func=cmd_init)
 
-    index = subparsers.add_parser(CommandName.INDEX.value, help="Index repository code into the configured artifact.")
+    index = subparsers.add_parser(
+        CommandName.INDEX.value,
+        help="Index repository code into the configured artifact.",
+    )
     index.add_argument(
         "index_root",
         nargs="?",
@@ -253,12 +341,25 @@ def build_parser(include_advanced: bool = False) -> argparse.ArgumentParser:
         action="store_true",
         help="Delete other Qdrant collections for this repository before indexing.",
     )
-    index.add_argument("--all", action="store_true", help="With `index clear`, delete all Code Diver index collections.")
-    index.add_argument("--no-progress", action="store_true", help="Disable indexing progress bars.")
-    index.add_argument("-q", "--quiet", action="store_true", help="Only print the final indexing summary.")
+    index.add_argument(
+        "--all",
+        action="store_true",
+        help="With `index clear`, delete all Code Diver index collections.",
+    )
+    index.add_argument(
+        "--no-progress", action="store_true", help="Disable indexing progress bars."
+    )
+    index.add_argument(
+        "-q",
+        "--quiet",
+        action="store_true",
+        help="Only print the final indexing summary.",
+    )
     index.set_defaults(func=cmd_index)
 
-    search = subparsers.add_parser(CommandName.SEARCH.value, help="Ask the code exploration agent.")
+    search = subparsers.add_parser(
+        CommandName.SEARCH.value, help="Ask the code exploration agent."
+    )
     search.add_argument("query", nargs="*")
     search.add_argument(OptionName.LIMIT.value, type=int, default=None)
     search.add_argument(
@@ -267,10 +368,17 @@ def build_parser(include_advanced: bool = False) -> argparse.ArgumentParser:
         action="store_true",
         help="Return raw deterministic retrieval results instead of invoking the agent.",
     )
-    search.add_argument("-i", "--interactive", action="store_true", help="Open an interactive Search agent.")
+    search.add_argument(
+        "-i",
+        "--interactive",
+        action="store_true",
+        help="Open an interactive Search agent.",
+    )
     search.set_defaults(func=cmd_search)
 
-    evaluate = subparsers.add_parser(CommandName.EVALUATE.value, help="Evaluate retrieval on the configured dataset.")
+    evaluate = subparsers.add_parser(
+        CommandName.EVALUATE.value, help="Evaluate retrieval on the configured dataset."
+    )
     evaluate.add_argument(
         OptionName.BENCHMARK.value,
         choices=BenchmarkProfileRegistry().names(),
@@ -293,8 +401,63 @@ def build_parser(include_advanced: bool = False) -> argparse.ArgumentParser:
         default=50,
         help="Number of local evaluation cases to generate with --generate-dataset.",
     )
-    evaluate.add_argument(OptionName.YES.value, action="store_true", help="Allow benchmark asset downloads without asking.")
+    evaluate.add_argument(
+        OptionName.YES.value,
+        action="store_true",
+        help="Allow benchmark asset downloads without asking.",
+    )
     evaluate.set_defaults(func=cmd_evaluate)
+
+    provider = subparsers.add_parser(
+        CommandName.PROVIDER.value, help="Diagnose configured model providers."
+    )
+    provider_subparsers = provider.add_subparsers(
+        dest="provider_command", required=True
+    )
+    provider_test = provider_subparsers.add_parser(
+        "test", help="Smoke-test configured generation and embedding providers."
+    )
+    provider_test.add_argument(
+        "--skip-generation",
+        action="store_true",
+        help="Do not call the generation provider.",
+    )
+    provider_test.add_argument(
+        "--skip-embedding",
+        action="store_true",
+        help="Do not call the embedding provider.",
+    )
+    provider_test.add_argument(
+        "--fallback-chain",
+        action="store_true",
+        help="Also force an invalid primary generation model and verify configured fallbacks are used.",
+    )
+    provider_test.add_argument(
+        OptionName.JSON.value, action="store_true", help="Print machine-readable JSON."
+    )
+    provider_test.set_defaults(func=cmd_provider_test)
+    provider_batch = provider_subparsers.add_parser(
+        "batch-test", help="Smoke-test Vertex Gemini Batch JSONL/job setup."
+    )
+    provider_batch.add_argument(
+        "--submit",
+        action="store_true",
+        help="Upload JSONL to GCS and create a Vertex Batch job.",
+    )
+    provider_batch.add_argument(
+        "--gcs-uri",
+        default=None,
+        help="Writable GCS prefix for batch input/output. Defaults to CODE_DIVER_VERTEX_BATCH_GCS_URI.",
+    )
+    provider_batch.add_argument(
+        "--model",
+        default=None,
+        help="Override the Vertex model used for this batch smoke.",
+    )
+    provider_batch.add_argument(
+        OptionName.JSON.value, action="store_true", help="Print machine-readable JSON."
+    )
+    provider_batch.set_defaults(func=cmd_provider_batch_test)
 
     if include_advanced:
         add_advanced_parsers(subparsers)
@@ -302,7 +465,9 @@ def build_parser(include_advanced: bool = False) -> argparse.ArgumentParser:
     return parser
 
 
-def add_advanced_parsers(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
+def add_advanced_parsers(
+    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
     index_selected = subparsers.add_parser(
         CommandName.INDEX_SELECTED.value,
         help="Index agent-selected file ranges from a JSON payload on stdin.",
@@ -310,31 +475,41 @@ def add_advanced_parsers(subparsers: argparse._SubParsersAction[argparse.Argumen
     index_selected.add_argument(OptionName.JSON.value, action="store_true")
     index_selected.set_defaults(func=cmd_index_selected)
 
-    tree = subparsers.add_parser(CommandName.TREE.value, help="Print a gitignore-aware repository tree.")
+    tree = subparsers.add_parser(
+        CommandName.TREE.value, help="Print a gitignore-aware repository tree."
+    )
     tree.add_argument(OptionName.PATH.value, default=None)
     tree.add_argument(OptionName.LIMIT.value, type=int, default=200)
     tree.add_argument("--depth", type=int, default=3)
     tree.set_defaults(func=cmd_tree)
 
-    grep = subparsers.add_parser(CommandName.GREP.value, help="Literal gitignore-aware text search.")
+    grep = subparsers.add_parser(
+        CommandName.GREP.value, help="Literal gitignore-aware text search."
+    )
     grep.add_argument("pattern")
     grep.add_argument(OptionName.PATH.value, default=None)
     grep.add_argument(OptionName.LIMIT.value, type=int, default=100)
     grep.set_defaults(func=cmd_grep)
 
-    rg = subparsers.add_parser(CommandName.RG.value, help="Regex gitignore-aware text search via rg.")
+    rg = subparsers.add_parser(
+        CommandName.RG.value, help="Regex gitignore-aware text search via rg."
+    )
     rg.add_argument("pattern")
     rg.add_argument(OptionName.PATH.value, default=None)
     rg.add_argument(OptionName.LIMIT.value, type=int, default=100)
     rg.set_defaults(func=cmd_rg)
 
-    read = subparsers.add_parser(CommandName.READ.value, help="Read a bounded, gitignore-aware file excerpt.")
+    read = subparsers.add_parser(
+        CommandName.READ.value, help="Read a bounded, gitignore-aware file excerpt."
+    )
     read.add_argument("file")
     read.add_argument(OptionName.START_LINE.value, type=int, default=1)
     read.add_argument(OptionName.LINES.value, type=int, default=80)
     read.set_defaults(func=cmd_read)
 
-    symbols = subparsers.add_parser(CommandName.SYMBOLS.value, help="List parsed source symbols.")
+    symbols = subparsers.add_parser(
+        CommandName.SYMBOLS.value, help="List parsed source symbols."
+    )
     symbols.add_argument(OptionName.PATH.value, default=None)
     symbols.add_argument(OptionName.LIMIT.value, type=int, default=200)
     symbols.set_defaults(func=cmd_symbols)
@@ -347,19 +522,49 @@ def add_advanced_parsers(subparsers: argparse._SubParsersAction[argparse.Argumen
     open_result.add_argument(OptionName.RANK.value, type=int, default=1)
     open_result.set_defaults(func=cmd_open)
 
-    chat = subparsers.add_parser(CommandName.CHAT.value, help="Start or resume the interactive Search agent.")
+    chat = subparsers.add_parser(
+        CommandName.CHAT.value, help="Start or resume the interactive Search agent."
+    )
     chat.add_argument("prompt", nargs="*", default=[])
-    chat.add_argument("--resume", "-r", action="store_true", help="Select a saved Code Diver chat session to resume.")
-    chat.add_argument("--continue", "-c", dest="continue_session", action="store_true", help="Continue the last session.")
-    chat.add_argument(OptionName.SESSION.value, default=None, help="Resume a specific Pi session path or partial id.")
-    chat.add_argument(OptionName.SESSION_ID.value, default=None, help="Use an exact project session id.")
-    chat.add_argument(OptionName.SESSION_DIR.value, type=Path, default=None, help="Override Code Diver chat session storage.")
-    chat.add_argument(OptionName.NAME.value, default=None, help="Set the session display name.")
+    chat.add_argument(
+        "--resume",
+        "-r",
+        action="store_true",
+        help="Select a saved Code Diver chat session to resume.",
+    )
+    chat.add_argument(
+        "--continue",
+        "-c",
+        dest="continue_session",
+        action="store_true",
+        help="Continue the last session.",
+    )
+    chat.add_argument(
+        OptionName.SESSION.value,
+        default=None,
+        help="Resume a specific Pi session path or partial id.",
+    )
+    chat.add_argument(
+        OptionName.SESSION_ID.value,
+        default=None,
+        help="Use an exact project session id.",
+    )
+    chat.add_argument(
+        OptionName.SESSION_DIR.value,
+        type=Path,
+        default=None,
+        help="Override Code Diver chat session storage.",
+    )
+    chat.add_argument(
+        OptionName.NAME.value, default=None, help="Set the session display name."
+    )
     chat.add_argument(OptionName.TOOLSET.value, default=None)
     chat.add_argument(OptionName.HYPOTHESIS.value, default=None)
     chat.set_defaults(func=cmd_chat)
 
-    ask = subparsers.add_parser(CommandName.ASK.value, help="Ask the Search agent once.")
+    ask = subparsers.add_parser(
+        CommandName.ASK.value, help="Ask the Search agent once."
+    )
     ask.add_argument("query", nargs="+")
     ask.add_argument(OptionName.TOOLSET.value, default=None)
     ask.add_argument(OptionName.HYPOTHESIS.value, default=None)
@@ -370,7 +575,9 @@ def add_advanced_parsers(subparsers: argparse._SubParsersAction[argparse.Argumen
         help="Run direct AI indexing hypotheses, then evaluate retrieval metrics.",
     )
     evaluate_indexing.add_argument(OptionName.LIMIT.value, type=int, default=None)
-    evaluate_indexing.add_argument(OptionName.HYPOTHESIS.value, action="append", default=[])
+    evaluate_indexing.add_argument(
+        OptionName.HYPOTHESIS.value, action="append", default=[]
+    )
     evaluate_indexing.add_argument(OptionName.DETAILS.value, action="store_true")
     evaluate_indexing.add_argument(OptionName.JSON.value, action="store_true")
     evaluate_indexing.set_defaults(func=cmd_evaluate_indexing)
@@ -379,7 +586,9 @@ def add_advanced_parsers(subparsers: argparse._SubParsersAction[argparse.Argumen
         CommandName.EVALUATE_SEARCH_TOOLS.value,
         help="Run direct AI search-tool hypotheses on the configured dataset.",
     )
-    evaluate_search_tools.add_argument(OptionName.DATASET.value, type=Path, default=None)
+    evaluate_search_tools.add_argument(
+        OptionName.DATASET.value, type=Path, default=None
+    )
     evaluate_search_tools.add_argument(OptionName.LIMIT.value, type=int, default=None)
     evaluate_search_tools.add_argument(
         "--cases",
@@ -393,7 +602,9 @@ def add_advanced_parsers(subparsers: argparse._SubParsersAction[argparse.Argumen
         default=None,
         help="Run direct search-tool cases concurrently. Defaults to evaluation.workers.",
     )
-    evaluate_search_tools.add_argument(OptionName.HYPOTHESIS.value, action="append", default=[])
+    evaluate_search_tools.add_argument(
+        OptionName.HYPOTHESIS.value, action="append", default=[]
+    )
     evaluate_search_tools.add_argument(OptionName.DETAILS.value, action="store_true")
     evaluate_search_tools.add_argument(OptionName.JSON.value, action="store_true")
     evaluate_search_tools.set_defaults(func=cmd_evaluate_search_tools)
@@ -407,7 +618,9 @@ def add_advanced_parsers(subparsers: argparse._SubParsersAction[argparse.Argumen
         choices=["codexglue-code-to-text-python"],
         default="codexglue-code-to-text-python",
     )
-    evaluate_explanations.add_argument(OptionName.DATASET.value, type=Path, default=None)
+    evaluate_explanations.add_argument(
+        OptionName.DATASET.value, type=Path, default=None
+    )
     evaluate_explanations.add_argument("--cases", type=int, default=50)
     evaluate_explanations.add_argument("--output", type=Path, default=None)
     evaluate_explanations.add_argument(
@@ -422,7 +635,11 @@ def add_advanced_parsers(subparsers: argparse._SubParsersAction[argparse.Argumen
         default=None,
         help="Write an incremental partial report after each completed case.",
     )
-    evaluate_explanations.add_argument("--judge", action="store_true", help="Score answers with an LLM-as-judge rubric.")
+    evaluate_explanations.add_argument(
+        "--judge",
+        action="store_true",
+        help="Score answers with an LLM-as-judge rubric.",
+    )
     evaluate_explanations.add_argument(
         "--judge-prompt",
         type=Path,
@@ -453,7 +670,11 @@ def add_advanced_parsers(subparsers: argparse._SubParsersAction[argparse.Argumen
     evaluate_answers.add_argument(OptionName.DATASET.value, type=Path, default=None)
     evaluate_answers.add_argument("--cases", type=int, default=20)
     evaluate_answers.add_argument(OptionName.LIMIT.value, type=int, default=None)
-    evaluate_answers.add_argument("--repo", default=None, help="Filter benchmark rows to a repository, e.g. owner/name.")
+    evaluate_answers.add_argument(
+        "--repo",
+        default=None,
+        help="Filter benchmark rows to a repository, e.g. owner/name.",
+    )
     evaluate_answers.add_argument(
         "--context-files",
         type=int,
@@ -466,8 +687,18 @@ def add_advanced_parsers(subparsers: argparse._SubParsersAction[argparse.Argumen
         action="store_true",
         help="Let the LLM generate multiple search queries before retrieval.",
     )
-    evaluate_answers.add_argument("--query-count", type=int, default=4, help="Maximum LLM-generated search queries.")
-    evaluate_answers.add_argument("--query-workers", type=int, default=4, help="Parallel retrieval workers for planned queries.")
+    evaluate_answers.add_argument(
+        "--query-count",
+        type=int,
+        default=4,
+        help="Maximum LLM-generated search queries.",
+    )
+    evaluate_answers.add_argument(
+        "--query-workers",
+        type=int,
+        default=4,
+        help="Parallel retrieval workers for planned queries.",
+    )
     evaluate_answers.add_argument(
         "--agentic-query-search-strategy",
         choices=[
@@ -493,7 +724,11 @@ def add_advanced_parsers(subparsers: argparse._SubParsersAction[argparse.Argumen
         default=None,
         help="Evaluate answer cases concurrently. Defaults to evaluation.workers.",
     )
-    evaluate_answers.add_argument("--judge", action="store_true", help="Score final answers with an LLM-as-judge rubric.")
+    evaluate_answers.add_argument(
+        "--judge",
+        action="store_true",
+        help="Score final answers with an LLM-as-judge rubric.",
+    )
     evaluate_answers.add_argument(
         "--judge-prompt",
         type=Path,
@@ -521,7 +756,9 @@ def add_advanced_parsers(subparsers: argparse._SubParsersAction[argparse.Argumen
     experiment.add_argument(OptionName.REINDEX.value, action="store_true")
     experiment.set_defaults(func=cmd_experiment)
 
-    monitor = subparsers.add_parser(CommandName.MONITOR.value, help="Show a live Rich view of a JSONL trace.")
+    monitor = subparsers.add_parser(
+        CommandName.MONITOR.value, help="Show a live Rich view of a JSONL trace."
+    )
     monitor.add_argument("--trace", type=Path, default=None)
     monitor.add_argument("--refresh", type=float, default=0.5)
     monitor.add_argument("--max-events", type=int, default=200)
@@ -538,8 +775,15 @@ def build_index_maintenance_help_parser(command: str) -> argparse.ArgumentParser
         action="store_true",
         help="Delete all Code Diver index collections instead of only the current repository collections.",
     )
-    parser.add_argument("--no-progress", action="store_true", help="Disable progress output.")
-    parser.add_argument("-q", "--quiet", action="store_true", help="Only print the final deletion summary.")
+    parser.add_argument(
+        "--no-progress", action="store_true", help="Disable progress output."
+    )
+    parser.add_argument(
+        "-q",
+        "--quiet",
+        action="store_true",
+        help="Only print the final deletion summary.",
+    )
     return parser
 
 
@@ -553,17 +797,81 @@ def normalize_argv(argv: list[str] | None) -> list[str] | None:
     index = 0
     while index < len(raw):
         token = raw[index]
-        if token in {OptionName.CONFIG.value, OptionName.ROOT.value} and index + 1 < len(raw):
+        if token in {
+            OptionName.CONFIG.value,
+            OptionName.ROOT.value,
+        } and index + 1 < len(raw):
             config_tokens.extend([token, raw[index + 1]])
             index += 2
             continue
-        if token.startswith(f"{OptionName.CONFIG.value}=") or token.startswith(f"{OptionName.ROOT.value}="):
+        if token.startswith(f"{OptionName.CONFIG.value}=") or token.startswith(
+            f"{OptionName.ROOT.value}="
+        ):
             config_tokens.append(token)
             index += 1
             continue
         normalized.append(token)
         index += 1
-    return [*config_tokens, *normalized]
+    return normalize_command_homoglyphs([*config_tokens, *normalized])
+
+
+def normalize_command_homoglyphs(tokens: list[str]) -> list[str]:
+    commands = {
+        CommandName.INIT.value,
+        CommandName.INDEX.value,
+        CommandName.SEARCH.value,
+        CommandName.EVALUATE.value,
+        CommandName.PROVIDER.value,
+    }
+    normalized = list(tokens)
+    index = 0
+    while index < len(normalized):
+        token = normalized[index]
+        if token in {
+            OptionName.CONFIG.value,
+            OptionName.ROOT.value,
+        } and index + 1 < len(normalized):
+            index += 2
+            continue
+        if token.startswith("-"):
+            index += 1
+            continue
+        candidate = command_homoglyph_fold(token)
+        if candidate == "promider":
+            candidate = CommandName.PROVIDER.value
+        if candidate in commands:
+            normalized[index] = candidate
+        return normalized
+    return normalized
+
+
+def command_homoglyph_fold(token: str) -> str:
+    return token.translate(
+        str.maketrans(
+            {
+                "А": "A",
+                "а": "a",
+                "В": "B",
+                "Е": "E",
+                "е": "e",
+                "К": "K",
+                "М": "M",
+                "м": "m",
+                "Н": "H",
+                "О": "O",
+                "о": "o",
+                "Р": "P",
+                "р": "p",
+                "С": "C",
+                "с": "c",
+                "Т": "T",
+                "Х": "X",
+                "х": "x",
+                "У": "Y",
+                "у": "y",
+            }
+        )
+    )
 
 
 def index_maintenance_help_command(argv: list[str] | None) -> str | None:
@@ -603,8 +911,12 @@ def scope_relative_repo_artifacts(config: AppConfig) -> AppConfig:
     return replace(
         config,
         artifact=repo_path(config.root, config.artifact),
-        graph=replace(config.graph, artifact=repo_path(config.root, config.graph.artifact)),
-        trace=replace(config.trace, artifact=repo_path(config.root, config.trace.artifact)),
+        graph=replace(
+            config.graph, artifact=repo_path(config.root, config.graph.artifact)
+        ),
+        trace=replace(
+            config.trace, artifact=repo_path(config.root, config.trace.artifact)
+        ),
     )
 
 
@@ -612,12 +924,16 @@ def repo_path(root: Path, path: Path) -> Path:
     return path if path.is_absolute() else root / path
 
 
-def apply_embedding_profile(config: AppConfig, profile_key: str, announce: bool = True) -> AppConfig:
+def apply_embedding_profile(
+    config: AppConfig, profile_key: str, announce: bool = True
+) -> AppConfig:
     profile = EmbeddingProfileRegistry().get(profile_key)
     if announce:
         render_status_line(f"embedding extractor: {profile.label}", "green")
         if profile.startup_hint:
-            render_status_line(f"local server expected: {profile.startup_hint}", "yellow")
+            render_status_line(
+                f"local server expected: {profile.startup_hint}", "yellow"
+            )
     return replace(config, embedding=profile.config)
 
 
@@ -756,9 +1072,13 @@ def cmd_index(args: argparse.Namespace, config: AppConfig) -> int:
         return cmd_index_clear(args, config)
     if bool(getattr(args, "all", False)):
         raise ValueError("`--all` is only supported with `code-diver index clear`.")
-    progress = not bool(getattr(args, "no_progress", False) or getattr(args, "quiet", False))
+    progress = not bool(
+        getattr(args, "no_progress", False) or getattr(args, "quiet", False)
+    )
     ensure_storage_runtime(config, progress=progress)
     prepare_index_collection(args, config, progress=progress)
+    with render_activity("building repository context artifact", enabled=progress):
+        repository_context_result = build_repository_context(config)
     if progress:
         render_status_panel(
             "Index",
@@ -769,6 +1089,14 @@ def cmd_index(args: argparse.Namespace, config: AppConfig) -> int:
                 ("scanner", config.indexing.mode),
                 ("profile", index_profile_label(config)),
                 ("embeds", index_content_label(config)),
+                (
+                    "repo ctx",
+                    (
+                        f"{repository_context_result.mode} ({repository_context_result.chars} chars)"
+                        if repository_context_result is not None
+                        else "disabled"
+                    ),
+                ),
                 ("graph", graph_label(config)),
                 ("include", config.scanner.include or ["default-code-files"]),
                 ("exclude", f"{len(config.scanner.exclude)} configured patterns"),
@@ -782,7 +1110,12 @@ def cmd_index(args: argparse.Namespace, config: AppConfig) -> int:
             [
                 ("provider", provider.name),
                 ("model", provider.model),
-                ("endpoint", config.embedding.url or config.embedding.location or "provider default"),
+                (
+                    "endpoint",
+                    config.embedding.url
+                    or config.embedding.location
+                    or "provider default",
+                ),
                 ("dimensions", provider.dimensions or "auto"),
                 ("batch size", config.embedding.batch_size),
                 ("workers", config.embedding.workers),
@@ -798,7 +1131,9 @@ def cmd_index(args: argparse.Namespace, config: AppConfig) -> int:
             plugin_config={"config": config},
         )
         if config.graph.enabled:
-            with render_activity(graph_activity_message(config, len(items)), enabled=progress):
+            with render_activity(
+                graph_activity_message(config, len(items)), enabled=progress
+            ):
                 GraphIndexingService(
                     CodeGraphBuilder(
                         ast_enabled=config.graph.ast_enabled,
@@ -811,14 +1146,18 @@ def cmd_index(args: argparse.Namespace, config: AppConfig) -> int:
                     items,
                 )
             if progress:
-                render_status_line(f"saved graph artifact: {config.graph.artifact}", "green")
+                render_status_line(
+                    f"saved graph artifact: {config.graph.artifact}", "green"
+                )
         print(
             f"Indexed {len(items)} items -> {store_label(config)} "
             f"({provider.name}, model={provider.model}, dimensions={provider.dimensions})"
         )
         print(format_index_composition(items))
     except KeyboardInterrupt:
-        render_status_line("indexing interrupted; staged index writes were discarded", "yellow")
+        render_status_line(
+            "indexing interrupted; staged index writes were discarded", "yellow"
+        )
         raise
     finally:
         close_vector_store(indexing_service.vector_store)
@@ -826,14 +1165,28 @@ def cmd_index(args: argparse.Namespace, config: AppConfig) -> int:
 
 
 def cmd_index_clear(args: argparse.Namespace, config: AppConfig) -> int:
-    if bool(getattr(args, "update_index", False) or getattr(args, "override_repo", False)):
-        raise ValueError("`index clear` cannot be combined with `--update-index` or `--override-repo`.")
+    if bool(
+        getattr(args, "update_index", False) or getattr(args, "override_repo", False)
+    ):
+        raise ValueError(
+            "`index clear` cannot be combined with `--update-index` or `--override-repo`."
+        )
     if config.storage.provider != VectorStoreProviderId.QDRANT.value:
         raise ValueError("`index clear` is only supported for Qdrant storage.")
-    progress = not bool(getattr(args, "no_progress", False) or getattr(args, "quiet", False))
+    progress = not bool(
+        getattr(args, "no_progress", False) or getattr(args, "quiet", False)
+    )
     ensure_storage_runtime(config, progress=progress)
-    prefix = Defaults.QDRANT_COLLECTION if bool(getattr(args, "all", False)) else current_repo_collection_prefix(config)
-    scope = "all Code Diver index collections" if bool(getattr(args, "all", False)) else "current repository collections"
+    prefix = (
+        Defaults.QDRANT_COLLECTION
+        if bool(getattr(args, "all", False))
+        else current_repo_collection_prefix(config)
+    )
+    scope = (
+        "all Code Diver index collections"
+        if bool(getattr(args, "all", False))
+        else "current repository collections"
+    )
     if progress:
         render_status_panel(
             "Index Clear",
@@ -842,14 +1195,20 @@ def cmd_index_clear(args: argparse.Namespace, config: AppConfig) -> int:
                 ("prefix", prefix),
                 (
                     "store",
-                    config.storage.qdrant.url if config.storage.qdrant.location is None else config.storage.qdrant.location,
+                    config.storage.qdrant.url
+                    if config.storage.qdrant.location is None
+                    else config.storage.qdrant.location,
                 ),
             ],
             border_style="yellow",
         )
     vector_store = make_vector_store(config)
     try:
-        with render_activity(f"deleting Qdrant index collections: {prefix}", enabled=progress, style="yellow"):
+        with render_activity(
+            f"deleting Qdrant index collections: {prefix}",
+            enabled=progress,
+            style="yellow",
+        ):
             deleted = vector_store.delete_collections_with_prefix(prefix)
     finally:
         close_vector_store(vector_store)
@@ -860,19 +1219,28 @@ def cmd_index_clear(args: argparse.Namespace, config: AppConfig) -> int:
     return 0
 
 
-def prepare_index_collection(args: argparse.Namespace, config: AppConfig, progress: bool = True) -> None:
+def prepare_index_collection(
+    args: argparse.Namespace, config: AppConfig, progress: bool = True
+) -> None:
     if config.storage.provider != VectorStoreProviderId.QDRANT.value:
         return
     vector_store = make_vector_store(config)
     try:
         if bool(getattr(args, "override_repo", False)):
             prefix = current_repo_collection_prefix(config)
-            with render_activity(f"removing existing Qdrant collections for repo prefix: {prefix}", enabled=progress):
+            with render_activity(
+                f"removing existing Qdrant collections for repo prefix: {prefix}",
+                enabled=progress,
+            ):
                 deleted = vector_store.delete_collections_with_prefix(prefix)
             if progress:
-                render_status_line(f"removed {len(deleted)} repo collection entries", "yellow")
+                render_status_line(
+                    f"removed {len(deleted)} repo collection entries", "yellow"
+                )
             return
-        if bool(getattr(args, "update_index", False) or getattr(args, "reindex", False)):
+        if bool(
+            getattr(args, "update_index", False) or getattr(args, "reindex", False)
+        ):
             return
         if vector_store.exists():
             raise RuntimeError(
@@ -909,12 +1277,28 @@ def embedding_activity_message(config: AppConfig) -> str:
             f"model={model} endpoint={config.embedding.url}"
         )
     if config.embedding.provider in {"gemini", "vertex"}:
-        location = f" location={config.embedding.location}" if config.embedding.location else ""
+        location = (
+            f" location={config.embedding.location}"
+            if config.embedding.location
+            else ""
+        )
         return f"creating API embedding client: provider={provider} model={model}{location}"
     return f"creating embedding client: provider={provider} model={model}"
 
 
 def index_profile_label(config: AppConfig) -> str:
+    if (
+        config.scanner.file_summary_chunks
+        and config.scanner.file_manifest_chunks
+        and config.scanner.documentation_summary_chunks
+        and config.scanner.documentation_manifest_chunks
+        and not config.scanner.file_api_manifest_chunks
+        and not config.scanner.file_body_evidence_chunks
+        and not config.scanner.line_chunks
+        and not config.scanner.structural_chunks
+        and not config.scanner.symbol_chunks
+    ):
+        return "H12 dual-lane code/docs locator"
     if (
         config.scanner.file_summary_chunks
         and config.scanner.file_manifest_chunks
@@ -958,6 +1342,10 @@ def index_content_label(config: AppConfig) -> str:
         enabled.append("API manifests")
     if config.scanner.file_body_evidence_chunks:
         enabled.append("body evidence")
+    if config.scanner.documentation_summary_chunks:
+        enabled.append("doc summaries")
+    if config.scanner.documentation_manifest_chunks:
+        enabled.append("doc manifests")
     if config.scanner.line_chunks:
         enabled.append("line chunks")
     if config.scanner.structural_chunks:
@@ -990,9 +1378,15 @@ def graph_activity_message(config: AppConfig, item_count: int) -> str:
 
 def cmd_init(args: argparse.Namespace, config: AppConfig) -> int:
     if bool(args.skip_install):
-        render_status_line("skipping Search agent npm dependency install because --skip-install was passed", "yellow")
+        render_status_line(
+            "skipping Search agent npm dependency install because --skip-install was passed",
+            "yellow",
+        )
     else:
-        with render_activity("installing Search agent npm dependencies from package-lock/package.json", style="blue"):
+        with render_activity(
+            "installing Search agent npm dependencies from package-lock/package.json",
+            style="blue",
+        ):
             PiRuntimeManager().install()
         render_status_line("Search agent npm runtime is installed", "green")
     RuntimeSetupWizard().run(
@@ -1006,8 +1400,164 @@ def cmd_init(args: argparse.Namespace, config: AppConfig) -> int:
     try:
         ensure_storage_runtime(config, progress=True)
     except Exception as exc:
-        render_status_line(f"storage runtime was not started during init: {exc}", "yellow")
+        render_status_line(
+            f"storage runtime was not started during init: {exc}", "yellow"
+        )
     return 0
+
+
+def cmd_provider_test(args: argparse.Namespace, config: AppConfig) -> int:
+    options = ProviderTestOptions(
+        generation=not args.skip_generation,
+        embedding=not args.skip_embedding,
+        fallback_chain=bool(args.fallback_chain),
+    )
+    results = ProviderTestService().run(config, options)
+    payload = {
+        "ok": all(result.ok for result in results),
+        "generation": {
+            "provider": config.generation.provider,
+            "model": config.generation.model,
+            "fallback_models": list(config.generation.fallback_models),
+            "project": config.generation.project,
+            "location": config.generation.location,
+            "url": config.generation.url,
+            "urls": list(config.generation.urls),
+        },
+        "embedding": {
+            "provider": config.embedding.provider,
+            "model": config.embedding.model,
+            "dimensions": config.embedding.dimensions,
+            "project": config.embedding.project,
+            "location": config.embedding.location,
+            "url": config.embedding.url,
+        },
+        "checks": [result.to_dict() for result in results],
+    }
+    if args.json:
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+    else:
+        render_provider_test_results(config, results)
+    return 0 if payload["ok"] else 1
+
+
+def cmd_provider_batch_test(args: argparse.Namespace, config: AppConfig) -> int:
+    options = VertexBatchTestOptions(
+        submit=bool(args.submit),
+        model=args.model,
+        gcs_uri=args.gcs_uri,
+    )
+    result = VertexBatchTestService().run(config, options)
+    payload = result.to_dict()
+    payload["ok"] = result.ok
+    if args.json:
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+    else:
+        render_provider_batch_test_result(result)
+    return 0 if result.ok else 1
+
+
+def render_provider_batch_test_result(result: VertexBatchTestResult) -> None:
+    console = Console()
+    settings = Table.grid(padding=(0, 2))
+    settings.add_column(style="bold cyan", no_wrap=True)
+    settings.add_column()
+    settings.add_row("model", result.model)
+    settings.add_row("location", result.location)
+    settings.add_row("project", result.project or "resolved by ADC")
+    settings.add_row("local input", str(result.local_input))
+    if result.gcs_input_uri:
+        settings.add_row("gcs input", result.gcs_input_uri)
+    if result.gcs_output_uri:
+        settings.add_row("gcs output", result.gcs_output_uri)
+    if result.job_name:
+        settings.add_row("job", result.job_name)
+    if result.job_state:
+        settings.add_row("state", result.job_state)
+    status_style = "green" if result.ok else "red"
+    console.print(
+        Panel(
+            settings,
+            title=f"[bold]Vertex Batch Smoke: [{status_style}]{result.status}[/{status_style}][/bold]",
+            border_style=status_style,
+            padding=(0, 1),
+        )
+    )
+    if result.details:
+        console.print(f"[dim]{result.details}[/dim]")
+
+
+def render_provider_test_results(
+    config: AppConfig, results: list[ProviderCheckResult]
+) -> None:
+    console = Console()
+    settings = Table.grid(padding=(0, 2))
+    settings.add_column(style="bold cyan", no_wrap=True)
+    settings.add_column()
+    settings.add_row(
+        "generation",
+        provider_summary(config.generation.provider, config.generation.model),
+    )
+    if config.generation.fallback_models:
+        settings.add_row("fallbacks", ", ".join(config.generation.fallback_models))
+    settings.add_row(
+        "embedding", provider_summary(config.embedding.provider, config.embedding.model)
+    )
+    if config.generation.project or config.embedding.project:
+        settings.add_row(
+            "project", config.generation.project or config.embedding.project or ""
+        )
+    if config.generation.location or config.embedding.location:
+        settings.add_row(
+            "location", config.generation.location or config.embedding.location or ""
+        )
+    console.print(
+        Panel(
+            settings,
+            title="[bold]Provider Test[/bold]",
+            border_style="cyan",
+            padding=(0, 1),
+        )
+    )
+
+    table = Table(show_lines=False)
+    table.add_column("check", style="bold")
+    table.add_column("provider")
+    table.add_column("model")
+    table.add_column("status")
+    table.add_column("latency", justify="right")
+    table.add_column("tokens", justify="right")
+    table.add_column("details")
+    for result in results:
+        table.add_row(
+            result.name,
+            result.provider,
+            result.model or "-",
+            provider_status_text(result.status),
+            f"{result.latency_ms} ms" if result.latency_ms else "-",
+            str(result.total_tokens) if result.total_tokens else "-",
+            compact_text(result.details, 120) if result.details else "-",
+        )
+    console.print(table)
+
+
+def provider_summary(provider: str, model: str | None) -> str:
+    return f"{provider}:{model}" if model else provider
+
+
+def provider_status_text(status: str) -> str:
+    if status == "ok":
+        return "[bold green]ok[/bold green]"
+    if status == "skipped":
+        return "[yellow]skipped[/yellow]"
+    return "[bold red]failed[/bold red]"
+
+
+def compact_text(text: str, limit: int) -> str:
+    compact = " ".join(text.split())
+    if len(compact) <= limit:
+        return compact
+    return compact[: max(limit - 3, 0)].rstrip() + "..."
 
 
 def cmd_index_selected(args: argparse.Namespace, config: AppConfig) -> int:
@@ -1018,8 +1568,15 @@ def cmd_index_selected(args: argparse.Namespace, config: AppConfig) -> int:
         inspection_exclude_patterns(config),
     ).build(selections)
     if not built.items:
-        payload = {"indexed": 0, "skipped": built.skipped, "store": store_label(config), "items": []}
-        print(json.dumps(payload, indent=2) if args.json else "Indexed 0 selected items.")
+        payload = {
+            "indexed": 0,
+            "skipped": built.skipped,
+            "store": store_label(config),
+            "items": [],
+        }
+        print(
+            json.dumps(payload, indent=2) if args.json else "Indexed 0 selected items."
+        )
         return 0
     provider = make_embedding_provider(config)
     service = SelectedIndexingService(
@@ -1061,7 +1618,10 @@ def cmd_index_selected(args: argparse.Namespace, config: AppConfig) -> int:
 def cmd_search(args: argparse.Namespace, config: AppConfig) -> int:
     query = normalize_query(args.query)
     if not query and not args.interactive:
-        print("error: search query is required unless -i/--interactive is used.", file=sys.stderr)
+        print(
+            "error: search query is required unless -i/--interactive is used.",
+            file=sys.stderr,
+        )
         return 1
     if args.json:
         results = run_search(config, query, args.limit or config.search.limit)
@@ -1076,25 +1636,35 @@ def cmd_search(args: argparse.Namespace, config: AppConfig) -> int:
                 "Search Agent Unavailable",
                 [
                     ("binary", config.pi.binary),
-                    ("fix", "install/configure the Search agent runtime, or use non-interactive search"),
-                    ("deterministic", f'uv run code-diver --root {config.root} search "{query}" --json'),
+                    (
+                        "fix",
+                        "install/configure the Search agent runtime, or use non-interactive search",
+                    ),
+                    (
+                        "deterministic",
+                        f'uv run code-diver --root {config.root} search "{query}" --json',
+                    ),
                 ],
                 border_style="red",
             )
             return 1
-        return run_deterministic_search_fallback(config, query, args.limit or config.search.limit, config.pi.binary)
+        return run_deterministic_search_fallback(
+            config, query, args.limit or config.search.limit, config.pi.binary
+        )
     if args.interactive:
-        prompt = build_code_exploration_prompt(query) if query else None
-        return PiRunner().run_interactive(config, args.config, prompt=prompt)
+        prompt = search_agent_prompt(config, query) if query else None
+        return make_search_agent_runner(config).run_interactive(
+            config, args.config, prompt=prompt
+        )
     with render_activity(
         "running Search agent: planning tool calls, reading bounded excerpts, preparing answer",
         enabled=True,
         style="green",
     ):
-        exit_code, output = PiRunner().run_print_capture(
+        exit_code, output = make_search_agent_runner(config).run_print_capture(
             config,
             args.config,
-            build_code_exploration_prompt(query),
+            search_agent_prompt(config, query),
             toolset=None,
             hypothesis=None,
         )
@@ -1104,11 +1674,44 @@ def cmd_search(args: argparse.Namespace, config: AppConfig) -> int:
 
 
 def search_agent_binary_available(config: AppConfig) -> bool:
-    binary = config.pi.binary
+    binary = search_agent_binary(config)
     return bool(shutil.which(binary) or Path(binary).exists())
 
 
-def run_deterministic_search_fallback(config: AppConfig, query: str, limit: int, missing_binary: str) -> int:
+def search_agent_binary(config: AppConfig) -> str:
+    if (
+        config.pi.provider in GeminiCliAgentRunner.PROVIDERS
+        and config.pi.binary == Defaults.PI_BINARY
+    ):
+        return Defaults.GEMINI_CLI_BINARY
+    if (
+        config.pi.provider in AgyCliAgentRunner.PROVIDERS
+        and config.pi.binary == Defaults.PI_BINARY
+    ):
+        return Defaults.AGY_CLI_BINARY
+    return config.pi.binary
+
+
+def make_search_agent_runner(config: AppConfig):
+    if config.pi.provider in AgyCliAgentRunner.PROVIDERS:
+        return AgyCliAgentRunner()
+    if config.pi.provider in GeminiCliAgentRunner.PROVIDERS:
+        return GeminiCliAgentRunner()
+    return PiRunner()
+
+
+def search_agent_prompt(config: AppConfig, query: str) -> str:
+    if (
+        config.pi.provider in AgyCliAgentRunner.PROVIDERS
+        or config.pi.provider in GeminiCliAgentRunner.PROVIDERS
+    ):
+        return query
+    return build_code_exploration_prompt(query)
+
+
+def run_deterministic_search_fallback(
+    config: AppConfig, query: str, limit: int, missing_binary: str
+) -> int:
     render_status_panel(
         "Deterministic Search Fallback",
         [
@@ -1118,13 +1721,45 @@ def run_deterministic_search_fallback(config: AppConfig, query: str, limit: int,
         ],
         border_style="yellow",
     )
-    with render_activity("running deterministic retrieval over the existing index", enabled=True, style="yellow"):
+    with render_activity(
+        "running deterministic retrieval over the existing index",
+        enabled=True,
+        style="yellow",
+    ):
         results = run_search(config, query, limit)
-    SearchRenderer(config.root, config.ui, config.search.preview_lines).render(query, results)
+    SearchRenderer(config.root, config.ui, config.search.preview_lines).render(
+        query, results
+    )
     return 0
 
 
 def code_explorer_preflight(config: AppConfig, config_path: Path | None) -> bool:
+    if config.pi.provider in AgyCliAgentRunner.PROVIDERS:
+        render_status_panel(
+            "Search Agent",
+            [
+                ("root", str(config.root.resolve())),
+                ("config", str((config_path or Defaults.CONFIG_PATH).resolve())),
+                ("backend", "Antigravity CLI"),
+                ("mode", "read-only sandbox"),
+                ("model", config.pi.model or "default"),
+            ],
+            border_style="cyan",
+        )
+        return True
+    if config.pi.provider in GeminiCliAgentRunner.PROVIDERS:
+        render_status_panel(
+            "Search Agent",
+            [
+                ("root", str(config.root.resolve())),
+                ("config", str((config_path or Defaults.CONFIG_PATH).resolve())),
+                ("backend", "Gemini CLI"),
+                ("mode", "read-only plan"),
+                ("model", config.pi.model or "default"),
+            ],
+            border_style="cyan",
+        )
+        return True
     render_status_panel(
         "Search Agent",
         [
@@ -1132,7 +1767,10 @@ def code_explorer_preflight(config: AppConfig, config_path: Path | None) -> bool
             ("config", (config_path or Defaults.CONFIG_PATH).resolve()),
             ("store", store_label(config)),
             ("model", config.pi.model or "default"),
-            ("tools", ", ".join(config.pi.tools) if config.pi.tools else "(none configured)"),
+            (
+                "tools",
+                ", ".join(config.pi.tools) if config.pi.tools else "(none configured)",
+            ),
         ],
     )
     vector_store = make_vector_store(config)
@@ -1143,7 +1781,10 @@ def code_explorer_preflight(config: AppConfig, config_path: Path | None) -> bool
                 [
                     ("store", store_label(config)),
                     ("fix", f"uv run code-diver --root {config.root} index"),
-                    ("raw check", f'uv run code-diver --root {config.root} search "your query" --json'),
+                    (
+                        "raw check",
+                        f'uv run code-diver --root {config.root} search "your query" --json',
+                    ),
                 ],
                 border_style="red",
             )
@@ -1244,9 +1885,7 @@ def cmd_read(args: argparse.Namespace, config: AppConfig) -> int:
             config.root,
             inspection_exclude_patterns(config),
             config.scanner.max_file_bytes,
-        ).render(
-            args.file, start_line=args.start_line, lines=args.lines
-        )
+        ).render(args.file, start_line=args.start_line, lines=args.lines)
     )
     return 0
 
@@ -1282,8 +1921,8 @@ def cmd_open(args: argparse.Namespace, config: AppConfig) -> int:
 
 
 def cmd_ask(args: argparse.Namespace, config: AppConfig) -> int:
-    RepositoryContextBuilder().build(config)
-    return PiRunner().run_print(
+    build_repository_context(config)
+    return make_search_agent_runner(config).run_print(
         config,
         args.config,
         normalize_query(args.query),
@@ -1292,10 +1931,21 @@ def cmd_ask(args: argparse.Namespace, config: AppConfig) -> int:
     )
 
 
+def build_repository_context(
+    config: AppConfig,
+    generation_provider: Any | None = None,
+) -> Any:
+    summarizer = None
+    if config.pi.repo_context.mode == "llm_readme_summary":
+        provider = generation_provider or create_generation_provider(config)
+        summarizer = RepositoryReadmeSummarizer(provider).summarize
+    return RepositoryContextBuilder().build(config, readme_summarizer=summarizer)
+
+
 def cmd_chat(args: argparse.Namespace, config: AppConfig) -> int:
-    RepositoryContextBuilder().build(config)
+    build_repository_context(config)
     prompt, session = chat_prompt_and_session(args, config)
-    return PiRunner().run_interactive(
+    return make_search_agent_runner(config).run_interactive(
         config,
         args.config,
         prompt,
@@ -1305,7 +1955,9 @@ def cmd_chat(args: argparse.Namespace, config: AppConfig) -> int:
     )
 
 
-def chat_prompt_and_session(args: argparse.Namespace, config: AppConfig) -> tuple[str | None, PiSessionOptions]:
+def chat_prompt_and_session(
+    args: argparse.Namespace, config: AppConfig
+) -> tuple[str | None, PiSessionOptions]:
     words = list(getattr(args, "prompt", []) or [])
     resume = bool(getattr(args, "resume", False))
     continue_session = bool(getattr(args, "continue_session", False))
@@ -1333,19 +1985,34 @@ def chat_prompt_and_session(args: argparse.Namespace, config: AppConfig) -> tupl
 
 def cmd_evaluate(args: argparse.Namespace, config: AppConfig) -> int:
     benchmark = resolve_benchmark_profile(args)
-    if benchmark is not None and args.config is None and benchmark.config_path is not None:
+    if (
+        benchmark is not None
+        and args.config is None
+        and benchmark.config_path is not None
+    ):
         config = ConfigLoader().load(benchmark.config_path)
         EnvFileLoader().load(config.env_file.path, config.env_file.override)
     if benchmark is not None:
-        BenchmarkAssetService().ensure(benchmark, assume_yes=bool(getattr(args, "yes", False)))
+        BenchmarkAssetService().ensure(
+            benchmark, assume_yes=bool(getattr(args, "yes", False))
+        )
 
-    dataset = args.dataset or (benchmark.dataset if benchmark is not None else config.evaluation.dataset)
+    dataset = args.dataset or (
+        benchmark.dataset if benchmark is not None else config.evaluation.dataset
+    )
     generated_cases: list[dict[str, Any]] | None = None
     if bool(getattr(args, "generate_dataset", False)):
-        dataset = args.dataset or config.root / ".code-diver" / "eval" / "local_eval.jsonl"
-        generated_cases = generate_local_eval_dataset(config, dataset, int(getattr(args, "cases", 50)))
+        dataset = (
+            args.dataset or config.root / ".code-diver" / "eval" / "local_eval.jsonl"
+        )
+        generated_cases = generate_local_eval_dataset(
+            config, dataset, int(getattr(args, "cases", 50))
+        )
         if not bool(args.json):
-            render_status_line(f"generated local eval dataset: {dataset} ({len(generated_cases)} cases)", "green")
+            render_status_line(
+                f"generated local eval dataset: {dataset} ({len(generated_cases)} cases)",
+                "green",
+            )
 
     vector_store = make_vector_store(config, progress=not bool(args.json))
     if args.reindex or not vector_store.exists():
@@ -1364,7 +2031,12 @@ def cmd_evaluate(args: argparse.Namespace, config: AppConfig) -> int:
         case.query = plugin_manager.prepare_query(case.query)
 
     strategy = make_retrieval_strategy(config, provider, vector_store)
-    settings = evaluation_settings(config, dataset, limit, args.config or (benchmark.config_path if benchmark else None))
+    settings = evaluation_settings(
+        config,
+        dataset,
+        limit,
+        args.config or (benchmark.config_path if benchmark else None),
+    )
     if not bool(args.json):
         render_status_panel(
             "Evaluate",
@@ -1395,14 +2067,18 @@ def cmd_evaluate(args: argparse.Namespace, config: AppConfig) -> int:
             def progress_callback(completed: int, total: int) -> None:
                 progress.update(task_id, total=total, completed=completed)
 
-            metrics, results = EvaluationService(strategy, trace_logger=make_trace_logger(config)).evaluate(
+            metrics, results = EvaluationService(
+                strategy, trace_logger=make_trace_logger(config)
+            ).evaluate(
                 cases,
                 limit,
                 workers=config.evaluation.workers,
                 progress_callback=progress_callback,
             )
     else:
-        metrics, results = EvaluationService(strategy, trace_logger=make_trace_logger(config)).evaluate(
+        metrics, results = EvaluationService(
+            strategy, trace_logger=make_trace_logger(config)
+        ).evaluate(
             cases,
             limit,
             workers=config.evaluation.workers,
@@ -1412,7 +2088,14 @@ def cmd_evaluate(args: argparse.Namespace, config: AppConfig) -> int:
             json.dumps(
                 {
                     "benchmark": benchmark.to_json() if benchmark is not None else None,
-                    "config": str(args.config or (benchmark.config_path if benchmark is not None else Defaults.CONFIG_PATH)),
+                    "config": str(
+                        args.config
+                        or (
+                            benchmark.config_path
+                            if benchmark is not None
+                            else Defaults.CONFIG_PATH
+                        )
+                    ),
                     "dataset": str(dataset),
                     "settings": settings,
                     "generated_dataset": {
@@ -1440,7 +2123,9 @@ def cmd_evaluate(args: argparse.Namespace, config: AppConfig) -> int:
     return 0
 
 
-def evaluation_settings(config: AppConfig, dataset: Path, limit: int, config_path: Path | None) -> dict[str, Any]:
+def evaluation_settings(
+    config: AppConfig, dataset: Path, limit: int, config_path: Path | None
+) -> dict[str, Any]:
     return {
         "config": str(config_path or Defaults.CONFIG_PATH),
         "root": str(config.root),
@@ -1453,11 +2138,17 @@ def evaluation_settings(config: AppConfig, dataset: Path, limit: int, config_pat
         "indexed content": index_content_label(config),
         "embedding provider": config.embedding.provider,
         "embedding model": config.embedding.model or "provider default",
-        "embedding endpoint": config.embedding.url or config.embedding.location or "provider default",
+        "embedding endpoint": config.embedding.url
+        or config.embedding.location
+        or "provider default",
         "embedding batch/workers": f"{config.embedding.batch_size}/{config.embedding.workers}",
         "embedding max chars": config.embedding.max_input_chars or "provider default",
-        "ranker provider": config.generation.provider if search_uses_llm_rerank(config) else "none",
-        "ranker model": config.generation.model if search_uses_llm_rerank(config) else "none",
+        "ranker provider": config.generation.provider
+        if search_uses_llm_rerank(config)
+        else "none",
+        "ranker model": config.generation.model
+        if search_uses_llm_rerank(config)
+        else "none",
         "rerank candidates/top": f"{config.llm_rerank.candidate_limit}/{config.llm_rerank.rerank_limit}",
         "rerank mode": config.llm_rerank.mode,
         "hybrid candidates": config.hybrid_search.candidate_limit,
@@ -1563,7 +2254,9 @@ def cmd_evaluate_indexing(args: argparse.Namespace, config: AppConfig) -> int:
         provider = make_embedding_provider(eval_config, vector_store.metadata())
         strategy = make_retrieval_strategy(eval_config, provider, vector_store)
         eval_started = perf_counter()
-        metrics, results = EvaluationService(strategy, trace_logger=make_trace_logger(eval_config)).evaluate(
+        metrics, results = EvaluationService(
+            strategy, trace_logger=make_trace_logger(eval_config)
+        ).evaluate(
             cases,
             limit,
             workers=eval_config.evaluation.workers,
@@ -1598,7 +2291,11 @@ def cmd_evaluate_indexing(args: argparse.Namespace, config: AppConfig) -> int:
             continue
         print(f"  indexed_items: {row.get('indexed_items', 'unknown')}")
         for name, value in row["metrics"].items():
-            print(f"  {name}: {value:.4f}" if isinstance(value, float) else f"  {name}: {value}")
+            print(
+                f"  {name}: {value:.4f}"
+                if isinstance(value, float)
+                else f"  {name}: {value}"
+            )
     return 0
 
 
@@ -1635,14 +2332,20 @@ def cmd_evaluate_search_tools(args: argparse.Namespace, config: AppConfig) -> in
                 else None
             )
             ephemeral_search_handler = (
-                make_ephemeral_search_tool_handler(eval_config) if "code_diver_ephemeral_search" in tools else None
+                make_ephemeral_search_tool_handler(eval_config)
+                if "code_diver_ephemeral_search" in tools
+                else None
             )
             if "code_diver_search" in tools or "code_diver_h3_search" in tools:
                 search_vector_store = make_vector_store(eval_config)
-                search_provider = make_embedding_provider(eval_config, search_vector_store.metadata())
+                search_provider = make_embedding_provider(
+                    eval_config, search_vector_store.metadata()
+                )
                 if "code_diver_search" in tools:
                     search_handler = make_search_tool_handler(
-                        make_retrieval_strategy(eval_config, search_provider, search_vector_store)
+                        make_retrieval_strategy(
+                            eval_config, search_provider, search_vector_store
+                        )
                     )
                 if "code_diver_h3_search" in tools:
                     h3_handler = H3SearchToolHandler(
@@ -1666,7 +2369,9 @@ def cmd_evaluate_search_tools(args: argparse.Namespace, config: AppConfig) -> in
                 max_file_bytes=eval_config.scanner.max_file_bytes,
             )
 
-            def run_case(index: int, case: Any) -> tuple[int, Any, float, dict[str, Any], str | None]:
+            def run_case(
+                index: int, case: Any
+            ) -> tuple[int, Any, float, dict[str, Any], str | None]:
                 case_started = perf_counter()
                 try:
                     search_result = orchestrator.search(
@@ -1676,7 +2381,11 @@ def cmd_evaluate_search_tools(args: argparse.Namespace, config: AppConfig) -> in
                         limit=limit,
                     )
                     duration_ms = (perf_counter() - case_started) * 1000
-                    error = f"{case.id}: {search_result.error}" if search_result.error else None
+                    error = (
+                        f"{case.id}: {search_result.error}"
+                        if search_result.error
+                        else None
+                    )
                     return (
                         index,
                         direct_search_eval_result(case, search_result.retrieved, limit),
@@ -1697,10 +2406,14 @@ def cmd_evaluate_search_tools(args: argparse.Namespace, config: AppConfig) -> in
             eval_results_by_index: list[Any | None] = [None] * len(cases)
             durations_by_index: list[float] = [0.0] * len(cases)
             if worker_count == 1 or len(cases) <= 1:
-                completed_rows = [run_case(index, case) for index, case in enumerate(cases)]
+                completed_rows = [
+                    run_case(index, case) for index, case in enumerate(cases)
+                ]
             else:
                 completed_rows = []
-                with ThreadPoolExecutor(max_workers=min(worker_count, max(len(cases), 1))) as executor:
+                with ThreadPoolExecutor(
+                    max_workers=min(worker_count, max(len(cases), 1))
+                ) as executor:
                     futures = {
                         executor.submit(run_case, index, case): index
                         for index, case in enumerate(cases)
@@ -1713,7 +2426,9 @@ def cmd_evaluate_search_tools(args: argparse.Namespace, config: AppConfig) -> in
                 merge_agent_usage(usage, case_usage)
                 if error:
                     errors.append(error)
-            eval_results = [result for result in eval_results_by_index if result is not None]
+            eval_results = [
+                result for result in eval_results_by_index if result is not None
+            ]
             durations_ms = durations_by_index[: len(eval_results)]
         finally:
             if search_vector_store is not None:
@@ -1758,16 +2473,27 @@ def cmd_evaluate_search_tools(args: argparse.Namespace, config: AppConfig) -> in
         if row["error_count"]:
             print(f"  error_count: {row['error_count']}")
         for name, value in row["metrics"].items():
-            print(f"  {name}: {value:.4f}" if isinstance(value, float) else f"  {name}: {value}")
+            print(
+                f"  {name}: {value:.4f}"
+                if isinstance(value, float)
+                else f"  {name}: {value}"
+            )
     return 0
 
 
 def cmd_evaluate_explanations(args: argparse.Namespace, config: AppConfig) -> int:
-    dataset = args.dataset or Path(".code-diver/benchmarks/codexglue-code-to-text-python/explanations.jsonl")
-    output = args.output or Path(".code-diver/reports/codexglue-code-explanation-eval.json")
+    dataset = args.dataset or Path(
+        ".code-diver/benchmarks/codexglue-code-to-text-python/explanations.jsonl"
+    )
+    output = args.output or Path(
+        ".code-diver/reports/codexglue-code-explanation-eval.json"
+    )
     if not dataset.exists():
         if not args.yes and not sys.stdin.isatty():
-            print("error: explanation benchmark dataset is missing; pass --yes to download/prepare it.", file=sys.stderr)
+            print(
+                "error: explanation benchmark dataset is missing; pass --yes to download/prepare it.",
+                file=sys.stderr,
+            )
             return 1
         if not args.yes:
             print(
@@ -1780,13 +2506,22 @@ def cmd_evaluate_explanations(args: argparse.Namespace, config: AppConfig) -> in
             )
             if input().strip().lower() not in {"y", "yes"}:
                 return 1
-        with render_activity("preparing CodeXGLUE Python code explanation benchmark", enabled=not args.json):
-            preparation = CodeExplanationDatasetPreparer().prepare_codexglue_python(dataset, limit=max(args.cases, 1))
+        with render_activity(
+            "preparing CodeXGLUE Python code explanation benchmark",
+            enabled=not args.json,
+        ):
+            preparation = CodeExplanationDatasetPreparer().prepare_codexglue_python(
+                dataset, limit=max(args.cases, 1)
+            )
     else:
         preparation = None
 
     cases = ExplanationDatasetLoader().load(dataset)[: max(args.cases, 0)]
-    if args.cases > 0 and len(cases) < args.cases and args.benchmark == "codexglue-code-to-text-python":
+    if (
+        args.cases > 0
+        and len(cases) < args.cases
+        and args.benchmark == "codexglue-code-to-text-python"
+    ):
         if not args.yes and not sys.stdin.isatty():
             print(
                 f"error: explanation benchmark has only {len(cases)} cases; pass --yes to prepare {args.cases}.",
@@ -1802,8 +2537,13 @@ def cmd_evaluate_explanations(args: argparse.Namespace, config: AppConfig) -> in
             )
             if input().strip().lower() not in {"y", "yes"}:
                 return 1
-        with render_activity("expanding CodeXGLUE Python code explanation benchmark", enabled=not args.json):
-            preparation = CodeExplanationDatasetPreparer().prepare_codexglue_python(dataset, limit=args.cases)
+        with render_activity(
+            "expanding CodeXGLUE Python code explanation benchmark",
+            enabled=not args.json,
+        ):
+            preparation = CodeExplanationDatasetPreparer().prepare_codexglue_python(
+                dataset, limit=args.cases
+            )
         cases = ExplanationDatasetLoader().load(dataset)[: args.cases]
     if not cases:
         print(f"error: no explanation cases found in {dataset}", file=sys.stderr)
@@ -1811,14 +2551,23 @@ def cmd_evaluate_explanations(args: argparse.Namespace, config: AppConfig) -> in
 
     judge = None
     if args.judge:
-        judge_config = ConfigLoader().load(args.judge_config) if args.judge_config else config
+        judge_config = (
+            ConfigLoader().load(args.judge_config) if args.judge_config else config
+        )
         judge_config = apply_runtime_config(args, judge_config)
         if args.judge_model:
-            judge_config = replace(judge_config, generation=replace(judge_config.generation, model=args.judge_model))
-        judge = ExplanationJudge(create_generation_provider(judge_config), prompt_path=args.judge_prompt)
+            judge_config = replace(
+                judge_config,
+                generation=replace(judge_config.generation, model=args.judge_model),
+            )
+        judge = ExplanationJudge(
+            create_generation_provider(judge_config), prompt_path=args.judge_prompt
+        )
 
     worker_count = max(1, int(args.workers or config.evaluation.workers or 1))
-    partial_output = args.partial_output or output.with_suffix(f"{output.suffix}.partial")
+    partial_output = args.partial_output or output.with_suffix(
+        f"{output.suffix}.partial"
+    )
     partial_rows: list[dict[str, Any]] = []
 
     progress_bar = None
@@ -1836,6 +2585,7 @@ def cmd_evaluate_explanations(args: argparse.Namespace, config: AppConfig) -> in
         progress_bar.start()
         task_id = progress_bar.add_task("explanations", total=len(cases))
     try:
+
         def advance_progress(completed: int, _total: int, _case: object) -> None:
             if progress_bar is not None and task_id is not None:
                 progress_bar.update(task_id, completed=completed)
@@ -1882,12 +2632,17 @@ def cmd_evaluate_explanations(args: argparse.Namespace, config: AppConfig) -> in
             "enabled": bool(args.judge),
             "config": str(args.judge_config) if args.judge_config else None,
             "prompt": str(args.judge_prompt or ExplanationJudge.DEFAULT_PROMPT_PATH),
-            "model": args.judge_model or (judge_config.generation.model if args.judge else config.generation.model),
+            "model": args.judge_model
+            or (
+                judge_config.generation.model if args.judge else config.generation.model
+            ),
         },
         **report,
     }
     output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    output.write_text(
+        json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
     if args.json:
         print(json.dumps(payload, indent=2, ensure_ascii=False))
         return 0
@@ -1913,27 +2668,43 @@ def cmd_evaluate_explanations(args: argparse.Namespace, config: AppConfig) -> in
     ]:
         if key in metrics:
             value = metrics[key]
-            table.add_row(key, f"{value:.4f}" if isinstance(value, float) else str(value))
+            table.add_row(
+                key, f"{value:.4f}" if isinstance(value, float) else str(value)
+            )
     Console().print(table)
     return 0
 
 
 def cmd_evaluate_answers(args: argparse.Namespace, config: AppConfig) -> int:
     if args.agentic_query_rerank and not args.agentic_queries:
-        print("error: --agentic-query-rerank requires --agentic-queries", file=sys.stderr)
+        print(
+            "error: --agentic-query-rerank requires --agentic-queries", file=sys.stderr
+        )
         return 1
     dataset = answer_dataset_path(args)
     output = args.output or Path(".code-diver/reports/code-answer-e2e-eval.json")
     preparation = prepare_answer_benchmark(args, dataset, enabled=not bool(args.json))
     cases = AnswerDatasetLoader().load(dataset)
     if args.repo:
-        cases = [case for case in cases if str(case.metadata.get("repo") or "") == args.repo]
+        cases = [
+            case for case in cases if str(case.metadata.get("repo") or "") == args.repo
+        ]
     requested_cases = max(int(args.cases or 0), 0)
-    if args.benchmark == "swe-qa-pro" and requested_cases > 0 and len(cases) < requested_cases:
-        preparation = expand_answer_benchmark(args, dataset, requested_cases, enabled=not bool(args.json))
+    if (
+        args.benchmark == "swe-qa-pro"
+        and requested_cases > 0
+        and len(cases) < requested_cases
+    ):
+        preparation = expand_answer_benchmark(
+            args, dataset, requested_cases, enabled=not bool(args.json)
+        )
         cases = AnswerDatasetLoader().load(dataset)
         if args.repo:
-            cases = [case for case in cases if str(case.metadata.get("repo") or "") == args.repo]
+            cases = [
+                case
+                for case in cases
+                if str(case.metadata.get("repo") or "") == args.repo
+            ]
     cases = cases[:requested_cases]
     if not cases:
         print(f"error: no answer cases found in {dataset}", file=sys.stderr)
@@ -1950,13 +2721,23 @@ def cmd_evaluate_answers(args: argparse.Namespace, config: AppConfig) -> int:
 
     limit = args.limit or config.evaluation.limit
     context_files = int(args.context_files or default_answer_context_files(config))
-    provider = make_embedding_provider(config, vector_store.metadata())
-    strategy = make_retrieval_strategy(config, provider, vector_store)
     answer_provider = create_generation_provider(config)
-    repository_context_result = RepositoryContextBuilder().build(config)
+    repository_context_result = build_repository_context(config, answer_provider)
     repository_context = ""
     if repository_context_result is not None:
-        repository_context = repository_context_result.path.read_text(encoding="utf-8", errors="replace")
+        repository_context = repository_context_result.path.read_text(
+            encoding="utf-8", errors="replace"
+        )
+        if config.llm_rerank.repository_context_path is None:
+            config = replace(
+                config,
+                llm_rerank=replace(
+                    config.llm_rerank,
+                    repository_context_path=repository_context_result.path,
+                ),
+            )
+    provider = make_embedding_provider(config, vector_store.metadata())
+    strategy = make_retrieval_strategy(config, provider, vector_store)
     query_planner = (
         AnswerQueryPlanner(
             answer_provider,
@@ -1967,9 +2748,26 @@ def cmd_evaluate_answers(args: argparse.Namespace, config: AppConfig) -> int:
         else None
     )
     query_retrieval_strategy = None
-    if args.agentic_queries and args.agentic_query_search_strategy:
-        query_config = replace(config, search=replace(config.search, strategy=args.agentic_query_search_strategy))
-        query_retrieval_strategy = make_retrieval_strategy(query_config, provider, vector_store)
+    agentic_query_search_strategy = args.agentic_query_search_strategy
+    if (
+        args.agentic_queries
+        and args.agentic_query_rerank
+        and not agentic_query_search_strategy
+        and config.search.strategy == RetrievalStrategyId.HYBRID_RERANK.value
+    ):
+        agentic_query_search_strategy = RetrievalStrategyId.HYBRID.value
+        if not args.json:
+            status_console().print(
+                "[yellow]Using hybrid probe search before the shared LLM rerank to avoid nested per-query reranking.[/yellow]"
+            )
+    if args.agentic_queries and agentic_query_search_strategy:
+        query_config = replace(
+            config,
+            search=replace(config.search, strategy=agentic_query_search_strategy),
+        )
+        query_retrieval_strategy = make_retrieval_strategy(
+            query_config, provider, vector_store
+        )
     query_result_reranker = (
         AnswerCandidateReranker(answer_provider, config.llm_rerank)
         if args.agentic_queries and args.agentic_query_rerank
@@ -1978,14 +2776,23 @@ def cmd_evaluate_answers(args: argparse.Namespace, config: AppConfig) -> int:
     judge = None
     judge_config = None
     if args.judge:
-        judge_config = ConfigLoader().load(args.judge_config) if args.judge_config else config
+        judge_config = (
+            ConfigLoader().load(args.judge_config) if args.judge_config else config
+        )
         judge_config = apply_runtime_config(args, judge_config)
         if args.judge_model:
-            judge_config = replace(judge_config, generation=replace(judge_config.generation, model=args.judge_model))
-        judge = AnswerJudge(create_generation_provider(judge_config), prompt_path=args.judge_prompt)
+            judge_config = replace(
+                judge_config,
+                generation=replace(judge_config.generation, model=args.judge_model),
+            )
+        judge = AnswerJudge(
+            create_generation_provider(judge_config), prompt_path=args.judge_prompt
+        )
 
     worker_count = max(1, int(args.workers or config.evaluation.workers or 1))
-    partial_output = args.partial_output or output.with_suffix(f"{output.suffix}.partial")
+    partial_output = args.partial_output or output.with_suffix(
+        f"{output.suffix}.partial"
+    )
     partial_rows: list[dict[str, Any]] = []
     if not args.json:
         render_status_panel(
@@ -1997,9 +2804,15 @@ def cmd_evaluate_answers(args: argparse.Namespace, config: AppConfig) -> int:
                 ("search", config.search.strategy),
                 ("limit", limit),
                 ("context", f"{context_files} files x {args.context_lines} lines"),
-                ("query mode", "llm multi-query" if args.agentic_queries else "single query"),
+                (
+                    "query mode",
+                    "llm multi-query" if args.agentic_queries else "single query",
+                ),
                 ("query count", args.query_count if args.agentic_queries else 1),
-                ("query search", args.agentic_query_search_strategy or config.search.strategy),
+                (
+                    "query search",
+                    agentic_query_search_strategy or config.search.strategy,
+                ),
                 ("query final rerank", bool(query_result_reranker)),
                 (
                     "repo context",
@@ -2007,7 +2820,10 @@ def cmd_evaluate_answers(args: argparse.Namespace, config: AppConfig) -> int:
                     if repository_context_result is not None
                     else "disabled",
                 ),
-                ("answer model", f"{config.generation.provider}:{config.generation.model}"),
+                (
+                    "answer model",
+                    f"{config.generation.provider}:{config.generation.model}",
+                ),
                 ("judge", args.judge),
                 ("workers", worker_count),
             ],
@@ -2029,6 +2845,7 @@ def cmd_evaluate_answers(args: argparse.Namespace, config: AppConfig) -> int:
         progress_bar.start()
         task_id = progress_bar.add_task("answers", total=len(cases))
     try:
+
         def advance_progress(completed: int, _total: int, _case: object) -> None:
             if progress_bar is not None and task_id is not None:
                 progress_bar.update(task_id, completed=completed)
@@ -2091,24 +2908,32 @@ def cmd_evaluate_answers(args: argparse.Namespace, config: AppConfig) -> int:
             "agentic_queries": bool(args.agentic_queries),
             "query_count": args.query_count if args.agentic_queries else 1,
             "query_workers": args.query_workers,
-            "agentic_query_search_strategy": args.agentic_query_search_strategy or config.search.strategy,
+            "agentic_query_search_strategy": agentic_query_search_strategy
+            or config.search.strategy,
             "agentic_query_rerank": bool(args.agentic_query_rerank),
             "repo_context_enabled": repository_context_result is not None,
-            "repo_context_mode": repository_context_result.mode if repository_context_result is not None else None,
-            "repo_context_chars": repository_context_result.chars if repository_context_result is not None else 0,
+            "repo_context_mode": repository_context_result.mode
+            if repository_context_result is not None
+            else None,
+            "repo_context_chars": repository_context_result.chars
+            if repository_context_result is not None
+            else 0,
             "embedding_provider": config.embedding.provider,
             "embedding_model": config.embedding.model,
             "answer_provider": config.generation.provider,
             "answer_model": config.generation.model,
             "judge_enabled": bool(args.judge),
             "judge_prompt": str(args.judge_prompt or AnswerJudge.DEFAULT_PROMPT_PATH),
-            "judge_model": args.judge_model or (judge_config.generation.model if judge_config else None),
+            "judge_model": args.judge_model
+            or (judge_config.generation.model if judge_config else None),
             "workers": worker_count,
         },
         **report,
     }
     output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    output.write_text(
+        json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
     if args.json:
         print(json.dumps(payload, indent=2, ensure_ascii=False))
         return 0
@@ -2126,13 +2951,17 @@ def answer_dataset_path(args: argparse.Namespace) -> Path:
     return Path(".code-diver/eval/answer_cases.jsonl")
 
 
-def prepare_answer_benchmark(args: argparse.Namespace, dataset: Path, *, enabled: bool = True) -> dict[str, Any] | None:
+def prepare_answer_benchmark(
+    args: argparse.Namespace, dataset: Path, *, enabled: bool = True
+) -> dict[str, Any] | None:
     if args.benchmark != "swe-qa-pro":
         return None
     if dataset.exists():
         return None
     if not args.yes and not sys.stdin.isatty():
-        raise RuntimeError("SWE-QA-Pro answer dataset is missing; pass --yes to download/prepare it.")
+        raise RuntimeError(
+            "SWE-QA-Pro answer dataset is missing; pass --yes to download/prepare it."
+        )
     if not args.yes:
         print(
             "Benchmark 'swe-qa-pro' is not prepared.\n"
@@ -2147,7 +2976,9 @@ def prepare_answer_benchmark(args: argparse.Namespace, dataset: Path, *, enabled
         if input().strip().lower() not in {"y", "yes"}:
             raise RuntimeError(f"Benchmark assets not prepared for '{args.benchmark}'.")
     with render_activity("preparing SWE-QA-Pro answer benchmark", enabled=enabled):
-        return SweQaProDatasetPreparer().prepare(dataset, limit=max(int(args.cases or 1), 1), repo=args.repo)
+        return SweQaProDatasetPreparer().prepare(
+            dataset, limit=max(int(args.cases or 1), 1), repo=args.repo
+        )
 
 
 def expand_answer_benchmark(
@@ -2173,7 +3004,9 @@ def expand_answer_benchmark(
         if input().strip().lower() not in {"y", "yes"}:
             raise RuntimeError(f"Benchmark assets not expanded for '{args.benchmark}'.")
     with render_activity("expanding SWE-QA-Pro answer benchmark", enabled=enabled):
-        return SweQaProDatasetPreparer().prepare(dataset, limit=requested_cases, repo=args.repo)
+        return SweQaProDatasetPreparer().prepare(
+            dataset, limit=requested_cases, repo=args.repo
+        )
 
 
 def render_answer_metrics_table(metrics: dict[str, Any]) -> None:
@@ -2235,12 +3068,20 @@ def cmd_experiment(args: argparse.Namespace, config: AppConfig) -> int:
             config,
             experiments=replace(
                 config.experiments,
-                hypotheses=[hypothesis for hypothesis in config.experiments.hypotheses if hypothesis.name in selected],
+                hypotheses=[
+                    hypothesis
+                    for hypothesis in config.experiments.hypotheses
+                    if hypothesis.name in selected
+                ],
             ),
         )
-        missing = selected - {hypothesis.name for hypothesis in config.experiments.hypotheses}
+        missing = selected - {
+            hypothesis.name for hypothesis in config.experiments.hypotheses
+        }
         if missing:
-            raise ValueError(f"Unknown experiment hypothesis: {', '.join(sorted(missing))}")
+            raise ValueError(
+                f"Unknown experiment hypothesis: {', '.join(sorted(missing))}"
+            )
     vector_store = None if args.reindex else make_vector_store(config)
     needs_index = args.reindex or not vector_store.exists()
     if needs_index:
@@ -2266,7 +3107,9 @@ def cmd_experiment(args: argparse.Namespace, config: AppConfig) -> int:
     if config.metrics.enabled:
         repository = make_metrics_repository(config)
         repository.ensure_schema()
-        metric_rows, case_rows = ExperimentMetricsMapper().to_rows(experiment_run, config, args.config)
+        metric_rows, case_rows = ExperimentMetricsMapper().to_rows(
+            experiment_run, config, args.config
+        )
         repository.save(metric_rows, case_rows)
         saved_rows = len(metric_rows) + len(case_rows)
 
@@ -2280,7 +3123,11 @@ def cmd_experiment(args: argparse.Namespace, config: AppConfig) -> int:
         print()
         print(f"{strategy_result.strategy}:")
         for name, value in strategy_result.metrics.items():
-            print(f"  {name}: {value:.4f}" if isinstance(value, float) else f"  {name}: {value}")
+            print(
+                f"  {name}: {value:.4f}"
+                if isinstance(value, float)
+                else f"  {name}: {value}"
+            )
     if config.metrics.enabled:
         print(f"\nrecorded_rows: {saved_rows}")
     return 0
@@ -2288,7 +3135,9 @@ def cmd_experiment(args: argparse.Namespace, config: AppConfig) -> int:
 
 def cmd_monitor(args: argparse.Namespace, config: AppConfig) -> int:
     if args.trace is None and not config.trace.enabled:
-        print("Tracing is disabled in config. Pass --trace <path> to monitor an existing trace file.")
+        print(
+            "Tracing is disabled in config. Pass --trace <path> to monitor an existing trace file."
+        )
         return 1
     trace_path = args.trace or config.trace.artifact
     TraceMonitor(
@@ -2309,10 +3158,14 @@ def run_search(config: AppConfig, query: str, limit: int) -> list[SearchResult]:
     vector_store = make_vector_store(config)
     try:
         if not vector_store.exists():
-            raise ValueError(f"Index not found in {store_label(config)}. Run `code-diver index` first.")
+            raise ValueError(
+                f"Index not found in {store_label(config)}. Run `code-diver index` first."
+            )
         provider = make_embedding_provider(config, vector_store.metadata())
         prepared_query = make_plugin_manager(config).prepare_query(query)
-        return make_retrieval_strategy(config, provider, vector_store).search(prepared_query, limit)
+        return make_retrieval_strategy(config, provider, vector_store).search(
+            prepared_query, limit
+        )
     finally:
         close_vector_store(vector_store)
 
@@ -2332,7 +3185,9 @@ def make_indexing_service(config: AppConfig, progress: bool = True) -> IndexingS
     )
 
 
-def generate_local_eval_dataset(config: AppConfig, output: Path, case_count: int) -> list[dict[str, Any]]:
+def generate_local_eval_dataset(
+    config: AppConfig, output: Path, case_count: int
+) -> list[dict[str, Any]]:
     scanner = CodebaseScanner(
         include=config.scanner.include,
         exclude=config.scanner.exclude,
@@ -2342,6 +3197,8 @@ def generate_local_eval_dataset(config: AppConfig, output: Path, case_count: int
         file_manifest_chunks=True,
         file_api_manifest_chunks=config.scanner.file_api_manifest_chunks,
         file_body_evidence_chunks=config.scanner.file_body_evidence_chunks,
+        documentation_summary_chunks=config.scanner.documentation_summary_chunks,
+        documentation_manifest_chunks=config.scanner.documentation_manifest_chunks,
         max_symbols_per_file=config.scanner.max_symbols_per_file,
     )
     return LocalEvalDatasetGenerator(scanner).generate(config.root, output, case_count)
@@ -2361,14 +3218,23 @@ def make_codebase_scanner(config: AppConfig):
         file_manifest_chunks=config.scanner.file_manifest_chunks,
         file_api_manifest_chunks=config.scanner.file_api_manifest_chunks,
         file_body_evidence_chunks=config.scanner.file_body_evidence_chunks,
+        documentation_summary_chunks=config.scanner.documentation_summary_chunks,
+        documentation_manifest_chunks=config.scanner.documentation_manifest_chunks,
         max_symbols_per_file=config.scanner.max_symbols_per_file,
     )
     mode = config.indexing.mode
     if mode == "scanner":
         return scanner
     if mode == "orchestrated":
-        return OrchestratedCodebaseScanner(scanner, create_generation_provider(config), config, make_trace_logger(config))
-    ai_scanner = AiCodebaseScanner(scanner, create_generation_provider(config), config.indexing.ai)
+        return OrchestratedCodebaseScanner(
+            scanner,
+            create_generation_provider(config),
+            config,
+            make_trace_logger(config),
+        )
+    ai_scanner = AiCodebaseScanner(
+        scanner, create_generation_provider(config), config.indexing.ai
+    )
     if mode == "ai":
         return ai_scanner
     if mode == "hybrid":
@@ -2389,10 +3255,15 @@ def make_embedding_provider(config: AppConfig, payload: dict[str, Any] | None = 
     embedding = config.embedding
     if payload:
         validate_embedding_metadata(config, payload)
-    provider_name = embedding.provider or str((payload or {}).get(SchemaKey.PROVIDER.value, Defaults.EMBEDDING_PROVIDER))
+    provider_name = embedding.provider or str(
+        (payload or {}).get(SchemaKey.PROVIDER.value, Defaults.EMBEDDING_PROVIDER)
+    )
     model = embedding.model or (payload or {}).get(SchemaKey.MODEL.value)
     dimensions = embedding.dimensions
-    if dimensions is None and provider_name != EmbeddingProviderId.OPENAI_COMPATIBLE.value:
+    if (
+        dimensions is None
+        and provider_name != EmbeddingProviderId.OPENAI_COMPATIBLE.value
+    ):
         dimensions = (payload or {}).get(SchemaKey.DIMENSIONS.value)
     return create_embedding_provider(
         provider_name,
@@ -2432,7 +3303,11 @@ def validate_embedding_metadata(config: AppConfig, payload: dict[str, Any]) -> N
 
     expected_dimensions = config.embedding.dimensions
     actual_dimensions = payload.get(SchemaKey.DIMENSIONS.value)
-    if expected_dimensions is not None and actual_dimensions is not None and int(expected_dimensions) != int(actual_dimensions):
+    if (
+        expected_dimensions is not None
+        and actual_dimensions is not None
+        and int(expected_dimensions) != int(actual_dimensions)
+    ):
         raise ValueError(
             "Index embedding dimensions mismatch: "
             f"config expects {expected_dimensions}, artifact has {actual_dimensions}. "
@@ -2447,7 +3322,10 @@ def ensure_configured_embedding_runtime(config: AppConfig) -> None:
     store = RuntimeConfigStore()
     if not store.exists():
         profile = EmbeddingProfileRegistry().get(profile_key)
-        platform = next((item for item in profile.platforms if item not in {"external", "api"}), "external")
+        platform = next(
+            (item for item in profile.platforms if item not in {"external", "api"}),
+            "external",
+        )
         raise RuntimeError(
             "Local embedding runtime is not configured. Run "
             f"`uv run code-diver init --platform {platform} --embedding {profile_key} --yes --start` first."
@@ -2477,7 +3355,9 @@ def local_embedding_profile_key(config: AppConfig) -> str | None:
 
 
 def make_retrieval_strategy(config: AppConfig, provider: Any, vector_store: Any):
-    return RetrievalStrategyFactory().create(config.search.strategy, config, provider, vector_store)
+    return RetrievalStrategyFactory().create(
+        config.search.strategy, config, provider, vector_store
+    )
 
 
 def indexing_hypotheses(config: AppConfig, names: list[str] | None = None):
@@ -2486,7 +3366,8 @@ def indexing_hypotheses(config: AppConfig, names: list[str] | None = None):
         hypothesis
         for hypothesis in config.experiments.hypotheses
         if not selected_names or hypothesis.name in selected_names
-        if "code_diver_index_selected" in resolve_hypothesis_tools(config, hypothesis.name)
+        if "code_diver_index_selected"
+        in resolve_hypothesis_tools(config, hypothesis.name)
     ]
 
 
@@ -2497,13 +3378,18 @@ def search_tool_hypotheses(config: AppConfig, names: list[str] | None = None):
         for hypothesis in config.experiments.hypotheses
         if not selected_names or hypothesis.name in selected_names
         if resolve_hypothesis_tools(config, hypothesis.name)
-        if "code_diver_index_selected" not in resolve_hypothesis_tools(config, hypothesis.name)
+        if "code_diver_index_selected"
+        not in resolve_hypothesis_tools(config, hypothesis.name)
     ]
 
 
 def resolve_hypothesis_tools(config: AppConfig, hypothesis_name: str) -> list[str]:
     hypothesis = next(
-        (candidate for candidate in config.experiments.hypotheses if candidate.name == hypothesis_name),
+        (
+            candidate
+            for candidate in config.experiments.hypotheses
+            if candidate.name == hypothesis_name
+        ),
         None,
     )
     if hypothesis is None:
@@ -2515,7 +3401,9 @@ def resolve_hypothesis_tools(config: AppConfig, hypothesis_name: str) -> list[st
     return config.pi.tools
 
 
-def config_for_indexing_hypothesis(config: AppConfig, hypothesis_name: str, run_id: str) -> AppConfig:
+def config_for_indexing_hypothesis(
+    config: AppConfig, hypothesis_name: str, run_id: str
+) -> AppConfig:
     qdrant = replace(
         config.storage.qdrant,
         collection=f"{config.storage.qdrant.collection}_{hypothesis_name}_{run_id}",
@@ -2524,34 +3412,58 @@ def config_for_indexing_hypothesis(config: AppConfig, hypothesis_name: str, run_
         config,
         artifact=suffixed_artifact_path(config.artifact, hypothesis_name, run_id),
         storage=replace(config.storage, qdrant=qdrant),
-        graph=replace(config.graph, artifact=suffixed_artifact_path(config.graph.artifact, hypothesis_name, run_id)),
+        graph=replace(
+            config.graph,
+            artifact=suffixed_artifact_path(
+                config.graph.artifact, hypothesis_name, run_id
+            ),
+        ),
     )
 
 
 def config_for_search_hypothesis(config: AppConfig, hypothesis: Any) -> AppConfig:
     search_config = config
     if getattr(hypothesis, "strategy", None):
-        search_config = replace(search_config, search=replace(search_config.search, strategy=hypothesis.strategy))
+        search_config = replace(
+            search_config,
+            search=replace(search_config.search, strategy=hypothesis.strategy),
+        )
     if getattr(hypothesis, "generation", None) is not None:
         search_config = replace(search_config, generation=hypothesis.generation)
     if getattr(hypothesis, "graph_file_search", None) is not None:
-        search_config = replace(search_config, graph_file_search=hypothesis.graph_file_search)
+        search_config = replace(
+            search_config, graph_file_search=hypothesis.graph_file_search
+        )
     if getattr(hypothesis, "hybrid_search", None) is not None:
         search_config = replace(search_config, hybrid_search=hypothesis.hybrid_search)
     if getattr(hypothesis, "llm_rerank", None) is not None:
         search_config = replace(search_config, llm_rerank=hypothesis.llm_rerank)
     if getattr(hypothesis, "cross_encoder_rerank", None) is not None:
-        search_config = replace(search_config, cross_encoder_rerank=hypothesis.cross_encoder_rerank)
+        search_config = replace(
+            search_config, cross_encoder_rerank=hypothesis.cross_encoder_rerank
+        )
     return search_config
 
 
-def indexing_hypothesis_log_path(config: AppConfig, hypothesis_name: str, run_id: str) -> Path:
-    base = config.trace.artifact.parent if config.trace.artifact else Path(".code-diver/traces")
+def indexing_hypothesis_log_path(
+    config: AppConfig, hypothesis_name: str, run_id: str
+) -> Path:
+    base = (
+        config.trace.artifact.parent
+        if config.trace.artifact
+        else Path(".code-diver/traces")
+    )
     return base / "orchestrator-indexing" / run_id / f"{hypothesis_name}.jsonl"
 
 
-def search_hypothesis_log_path(config: AppConfig, hypothesis_name: str, run_id: str) -> Path:
-    base = config.trace.artifact.parent if config.trace.artifact else Path(".code-diver/traces")
+def search_hypothesis_log_path(
+    config: AppConfig, hypothesis_name: str, run_id: str
+) -> Path:
+    base = (
+        config.trace.artifact.parent
+        if config.trace.artifact
+        else Path(".code-diver/traces")
+    )
     return base / "orchestrator-search" / run_id / f"{hypothesis_name}.jsonl"
 
 
@@ -2617,7 +3529,9 @@ def format_index_composition(items: list[Any]) -> str:
 def make_rerank_tool_handler(config: AppConfig, generation_provider: Any):
     handler = RerankToolHandler(generation_provider, config.llm_rerank)
 
-    def rerank(query: str, candidates: list[dict[str, Any]], limit: int, args: dict[str, Any]) -> dict[str, Any]:
+    def rerank(
+        query: str, candidates: list[dict[str, Any]], limit: int, args: dict[str, Any]
+    ) -> dict[str, Any]:
         return handler.rerank(query, candidates, limit, args)
 
     return rerank
@@ -2637,6 +3551,8 @@ def make_ephemeral_search_tool_handler(config: AppConfig):
         file_manifest_chunks=False,
         file_api_manifest_chunks=False,
         file_body_evidence_chunks=False,
+        documentation_summary_chunks=False,
+        documentation_manifest_chunks=False,
         max_symbols_per_file=config.scanner.max_symbols_per_file,
     )
     service = EphemeralDeepIndexService(
@@ -2649,9 +3565,15 @@ def make_ephemeral_search_tool_handler(config: AppConfig):
         ),
     )
 
-    def search(query: str, files: list[str], limit: int, args: dict[str, Any]) -> dict[str, Any]:
+    def search(
+        query: str, files: list[str], limit: int, args: dict[str, Any]
+    ) -> dict[str, Any]:
         provider = make_embedding_provider(config)
-        index = service.build(config.root, files[: int(args.get("fileLimit") or args.get("file_limit") or 30)], provider)
+        index = service.build(
+            config.root,
+            files[: int(args.get("fileLimit") or args.get("file_limit") or 30)],
+            provider,
+        )
         search_result = service.search(index, provider, query, limit)
         return {
             "candidates": [
@@ -2695,7 +3617,9 @@ def inspection_exclude_patterns(config: AppConfig) -> list[str]:
 
 def direct_search_eval_result(case: Any, retrieved: list[str], limit: int):
     matched_ranks = [
-        rank for rank, value in enumerate(retrieved[:limit], start=1) if direct_search_matches_any(value, case.expected)
+        rank
+        for rank, value in enumerate(retrieved[:limit], start=1)
+        if direct_search_matches_any(value, case.expected)
     ]
     hit = bool(matched_ranks)
     reciprocal_rank = 1.0 / matched_ranks[0] if matched_ranks else 0.0
@@ -2728,7 +3652,9 @@ def direct_search_matches_any(path: str, expected: list[str]) -> bool:
 def direct_search_matches(path: str, expected: str) -> bool:
     normalized = expected.strip()
     if normalized.startswith("glob:"):
-        return fnmatch.fnmatchcase(direct_search_file_path(path), normalized.removeprefix("glob:"))
+        return fnmatch.fnmatchcase(
+            direct_search_file_path(path), normalized.removeprefix("glob:")
+        )
     return (
         path == normalized
         or path.startswith(normalized + "#")
@@ -2737,20 +3663,33 @@ def direct_search_matches(path: str, expected: str) -> bool:
     )
 
 
-def direct_search_file_metrics(expected: list[str], retrieved: list[str], limit: int) -> dict[str, Any]:
-    files = dedupe_preserving_order(direct_search_file_path(value) for value in retrieved[:limit])
+def direct_search_file_metrics(
+    expected: list[str], retrieved: list[str], limit: int
+) -> dict[str, Any]:
+    files = dedupe_preserving_order(
+        direct_search_file_path(value) for value in retrieved[:limit]
+    )
     matched_ranks = [
-        rank for rank, path in enumerate(files, start=1) if direct_search_matches_any(path, expected)
+        rank
+        for rank, path in enumerate(files, start=1)
+        if direct_search_matches_any(path, expected)
     ]
     expected_count = max(len(expected), 1)
-    matched_expected_count = sum(1 for value in expected if any(direct_search_matches(path, value) for path in files))
+    matched_expected_count = sum(
+        1
+        for value in expected
+        if any(direct_search_matches(path, value) for path in files)
+    )
     r = min(expected_count, limit)
     top_r = files[:r]
     return {
         "retrieved_files": files,
         "file_hit": bool(matched_ranks),
         "file_mrr": 1.0 / matched_ranks[0] if matched_ranks else 0.0,
-        "file_precision_at_r": sum(1 for path in top_r if direct_search_matches_any(path, expected)) / max(r, 1),
+        "file_precision_at_r": sum(
+            1 for path in top_r if direct_search_matches_any(path, expected)
+        )
+        / max(r, 1),
         "file_recall": min(matched_expected_count / expected_count, 1.0),
         "ndcg": direct_search_ndcg(files, expected, limit),
         "average_precision": direct_search_average_precision(files, expected),
@@ -2802,7 +3741,9 @@ def direct_search_average_precision(files: list[str], expected: list[str]) -> fl
     return total / max(len(expected), 1)
 
 
-def first_unmatched_direct_expected(path: str, expected: list[str], matched: set[int]) -> int | None:
+def first_unmatched_direct_expected(
+    path: str, expected: list[str], matched: set[int]
+) -> int | None:
     for index, value in enumerate(expected):
         if index in matched:
             continue
@@ -2811,20 +3752,54 @@ def first_unmatched_direct_expected(path: str, expected: list[str], matched: set
     return None
 
 
-def direct_search_metrics(results: list[Any], durations_ms: list[float], limit: int) -> dict[str, Any]:
+def direct_search_metrics(
+    results: list[Any], durations_ms: list[float], limit: int
+) -> dict[str, Any]:
     metrics = {
         "cases": len(results),
         f"hit_rate@{limit}": mean(1.0 if result.hit else 0.0 for result in results),
         f"mrr@{limit}": mean(result.reciprocal_rank for result in results),
         f"precision@{limit}": mean(result.precision for result in results),
         f"recall@{limit}": mean(result.recall for result in results),
-        "hit_rate@1": mean(1.0 if any(direct_search_matches_any(value, result.expected) for value in result.retrieved[:1]) else 0.0 for result in results),
-        "hit_rate@3": mean(1.0 if any(direct_search_matches_any(value, result.expected) for value in result.retrieved[:3]) else 0.0 for result in results),
-        "hit_rate@5": mean(1.0 if any(direct_search_matches_any(value, result.expected) for value in result.retrieved[:5]) else 0.0 for result in results),
-        "file_hit_rate@1": mean(1.0 if direct_search_file_hit_at(result, 1) else 0.0 for result in results),
-        "file_hit_rate@3": mean(1.0 if direct_search_file_hit_at(result, 3) else 0.0 for result in results),
-        "file_hit_rate@5": mean(1.0 if direct_search_file_hit_at(result, 5) else 0.0 for result in results),
-        f"file_hit_rate@{limit}": mean(1.0 if result.file_hit else 0.0 for result in results),
+        "hit_rate@1": mean(
+            1.0
+            if any(
+                direct_search_matches_any(value, result.expected)
+                for value in result.retrieved[:1]
+            )
+            else 0.0
+            for result in results
+        ),
+        "hit_rate@3": mean(
+            1.0
+            if any(
+                direct_search_matches_any(value, result.expected)
+                for value in result.retrieved[:3]
+            )
+            else 0.0
+            for result in results
+        ),
+        "hit_rate@5": mean(
+            1.0
+            if any(
+                direct_search_matches_any(value, result.expected)
+                for value in result.retrieved[:5]
+            )
+            else 0.0
+            for result in results
+        ),
+        "file_hit_rate@1": mean(
+            1.0 if direct_search_file_hit_at(result, 1) else 0.0 for result in results
+        ),
+        "file_hit_rate@3": mean(
+            1.0 if direct_search_file_hit_at(result, 3) else 0.0 for result in results
+        ),
+        "file_hit_rate@5": mean(
+            1.0 if direct_search_file_hit_at(result, 5) else 0.0 for result in results
+        ),
+        f"file_hit_rate@{limit}": mean(
+            1.0 if result.file_hit else 0.0 for result in results
+        ),
         f"file_mrr@{limit}": mean(result.file_reciprocal_rank for result in results),
         "file_precision@R": mean(result.file_precision_at_r for result in results),
         f"file_recall@{limit}": mean(result.file_recall for result in results),
@@ -2840,14 +3815,79 @@ def direct_search_metrics(results: list[Any], durations_ms: list[float], limit: 
         (f"mrr@{limit}", (result.reciprocal_rank for result in results), False),
         (f"precision@{limit}", (result.precision for result in results), False),
         (f"recall@{limit}", (result.recall for result in results), False),
-        ("hit_rate@1", (1.0 if any(direct_search_matches_any(value, result.expected) for value in result.retrieved[:1]) else 0.0 for result in results), True),
-        ("hit_rate@3", (1.0 if any(direct_search_matches_any(value, result.expected) for value in result.retrieved[:3]) else 0.0 for result in results), True),
-        ("hit_rate@5", (1.0 if any(direct_search_matches_any(value, result.expected) for value in result.retrieved[:5]) else 0.0 for result in results), True),
-        ("file_hit_rate@1", (1.0 if direct_search_file_hit_at(result, 1) else 0.0 for result in results), True),
-        ("file_hit_rate@3", (1.0 if direct_search_file_hit_at(result, 3) else 0.0 for result in results), True),
-        ("file_hit_rate@5", (1.0 if direct_search_file_hit_at(result, 5) else 0.0 for result in results), True),
-        (f"file_hit_rate@{limit}", (1.0 if result.file_hit else 0.0 for result in results), True),
-        (f"file_mrr@{limit}", (result.file_reciprocal_rank for result in results), False),
+        (
+            "hit_rate@1",
+            (
+                1.0
+                if any(
+                    direct_search_matches_any(value, result.expected)
+                    for value in result.retrieved[:1]
+                )
+                else 0.0
+                for result in results
+            ),
+            True,
+        ),
+        (
+            "hit_rate@3",
+            (
+                1.0
+                if any(
+                    direct_search_matches_any(value, result.expected)
+                    for value in result.retrieved[:3]
+                )
+                else 0.0
+                for result in results
+            ),
+            True,
+        ),
+        (
+            "hit_rate@5",
+            (
+                1.0
+                if any(
+                    direct_search_matches_any(value, result.expected)
+                    for value in result.retrieved[:5]
+                )
+                else 0.0
+                for result in results
+            ),
+            True,
+        ),
+        (
+            "file_hit_rate@1",
+            (
+                1.0 if direct_search_file_hit_at(result, 1) else 0.0
+                for result in results
+            ),
+            True,
+        ),
+        (
+            "file_hit_rate@3",
+            (
+                1.0 if direct_search_file_hit_at(result, 3) else 0.0
+                for result in results
+            ),
+            True,
+        ),
+        (
+            "file_hit_rate@5",
+            (
+                1.0 if direct_search_file_hit_at(result, 5) else 0.0
+                for result in results
+            ),
+            True,
+        ),
+        (
+            f"file_hit_rate@{limit}",
+            (1.0 if result.file_hit else 0.0 for result in results),
+            True,
+        ),
+        (
+            f"file_mrr@{limit}",
+            (result.file_reciprocal_rank for result in results),
+            False,
+        ),
         ("file_precision@R", (result.file_precision_at_r for result in results), False),
         (f"file_recall@{limit}", (result.file_recall for result in results), False),
         (f"ndcg@{limit}", (result.ndcg for result in results), False),
@@ -2860,7 +3900,10 @@ def direct_search_metrics(results: list[Any], durations_ms: list[float], limit: 
 
 
 def direct_search_file_hit_at(result: Any, limit: int) -> bool:
-    return any(direct_search_matches_any(value, result.expected) for value in result.retrieved_files[:limit])
+    return any(
+        direct_search_matches_any(value, result.expected)
+        for value in result.retrieved_files[:limit]
+    )
 
 
 def empty_agent_usage() -> dict[str, Any]:
@@ -2876,7 +3919,13 @@ def empty_agent_usage() -> dict[str, Any]:
 
 
 def merge_agent_usage(target: dict[str, Any], source: dict[str, Any]) -> None:
-    for key in ["model_calls", "tool_calls", "input_tokens", "output_tokens", "total_tokens"]:
+    for key in [
+        "model_calls",
+        "tool_calls",
+        "input_tokens",
+        "output_tokens",
+        "total_tokens",
+    ]:
         target[key] += int(source.get(key) or 0)
     target["total_cost"] += float(source.get("total_cost") or 0.0)
     for model in source.get("models") or []:
@@ -2909,7 +3958,9 @@ def make_metrics_repository(config: AppConfig) -> ClickHouseMetricsRepository:
             metrics.timeout_seconds,
         )
     else:
-        client = ClickHouseClient(metrics.url, metrics.username, metrics.password, metrics.timeout_seconds)
+        client = ClickHouseClient(
+            metrics.url, metrics.username, metrics.password, metrics.timeout_seconds
+        )
     return ClickHouseMetricsRepository(
         client,
         database=metrics.database,
@@ -2933,7 +3984,10 @@ def close_vector_store(vector_store: Any) -> None:
 
 
 def result_to_json(result: SearchResult) -> dict[str, Any]:
-    return {SchemaKey.SCORE.value: result.score, SchemaKey.ITEM.value: result.item.to_json()}
+    return {
+        SchemaKey.SCORE.value: result.score,
+        SchemaKey.ITEM.value: result.item.to_json(),
+    }
 
 
 def eval_result_to_json(result: Any) -> dict[str, Any]:
@@ -2968,7 +4022,9 @@ def experiment_run_to_json(run: Any, saved_rows: int) -> dict[str, Any]:
             {
                 "strategy": strategy_result.strategy,
                 "metrics": strategy_result.metrics,
-                "results": [eval_result_to_json(result) for result in strategy_result.results],
+                "results": [
+                    eval_result_to_json(result) for result in strategy_result.results
+                ],
             }
             for strategy_result in run.strategy_results
         ],

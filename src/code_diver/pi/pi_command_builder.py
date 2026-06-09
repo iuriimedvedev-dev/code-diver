@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 from pathlib import Path
@@ -80,16 +81,52 @@ class PiCommandBuilder:
     def _add_vertex_env(self, config: AppConfig, env: dict[str, str]) -> None:
         if config.pi.provider != "google-vertex":
             return
+        location = (
+            os.environ.get(EnvironmentVariable.GOOGLE_CLOUD_LOCATION.value)
+            or self._configured_vertex_location(config)
+            or Defaults.VERTEX_LOCATION
+        )
         env.setdefault(
             EnvironmentVariable.GOOGLE_CLOUD_LOCATION.value,
-            os.environ.get(EnvironmentVariable.GOOGLE_CLOUD_LOCATION.value) or Defaults.VERTEX_LOCATION,
+            location,
         )
         project_key = EnvironmentVariable.GOOGLE_CLOUD_PROJECT.value
         if env.get(project_key):
             return
-        project = os.environ.get(project_key) or self._gcloud_project()
+        project = (
+            os.environ.get(project_key)
+            or self._configured_vertex_project(config)
+            or self._adc_quota_project()
+            or self._gcloud_project()
+        )
         if project:
             env[project_key] = project
+
+    def _configured_vertex_project(self, config: AppConfig) -> str | None:
+        if config.generation.provider == Defaults.VERTEX_PROVIDER and config.generation.project:
+            return config.generation.project
+        if config.embedding.provider == Defaults.VERTEX_PROVIDER and config.embedding.project:
+            return config.embedding.project
+        return None
+
+    def _configured_vertex_location(self, config: AppConfig) -> str | None:
+        if config.generation.provider == Defaults.VERTEX_PROVIDER and config.generation.location:
+            return config.generation.location
+        if config.embedding.provider == Defaults.VERTEX_PROVIDER and config.embedding.location:
+            return config.embedding.location
+        return None
+
+    def _adc_quota_project(self) -> str | None:
+        path = Path.home() / ".config" / "gcloud" / "application_default_credentials.json"
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None
+        project = data.get("quota_project_id")
+        if not isinstance(project, str):
+            return None
+        project = project.strip()
+        return project or None
 
     def _gcloud_project(self) -> str | None:
         try:

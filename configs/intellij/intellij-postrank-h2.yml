@@ -23,7 +23,6 @@ generation:
   model: gemini-3.5-flash
   fallback_models:
     - gemini-2.5-flash
-  project: "236777862453"
   location: global
   temperature: 0
   thinking_budget: 1024
@@ -180,7 +179,6 @@ experiments:
         provider: vertex
         model: gemini-3.1-flash-lite
         fallback_models: []
-        project: "236777862453"
         location: global
         temperature: 0
         thinking_budget: 256
@@ -201,7 +199,6 @@ experiments:
         model: gemini-3.5-flash
         fallback_models:
           - gemini-2.5-flash
-        project: "236777862453"
         location: global
         temperature: 0
         thinking_budget: 1024
@@ -240,7 +237,6 @@ experiments:
         provider: vertex
         model: gemini-3.1-flash-lite
         fallback_models: []
-        project: "236777862453"
         location: global
         temperature: 0
         thinking_budget: 256
@@ -261,7 +257,6 @@ experiments:
         model: gemini-3.5-flash
         fallback_models:
           - gemini-2.5-flash
-        project: "236777862453"
         location: global
         temperature: 0
         thinking_budget: 1024
@@ -300,7 +295,6 @@ experiments:
         provider: vertex
         model: gemini-3.1-flash-lite
         fallback_models: []
-        project: "236777862453"
         location: global
         temperature: 0
         thinking_budget: 256
@@ -321,7 +315,6 @@ experiments:
         model: gemini-3.5-flash
         fallback_models:
           - gemini-2.5-flash
-        project: "236777862453"
         location: global
         temperature: 0
         thinking_budget: 1024
@@ -352,7 +345,6 @@ experiments:
         provider: vertex
         model: gemini-3.1-flash-lite
         fallback_models: []
-        project: "236777862453"
         location: global
         temperature: 0
         thinking_budget: 256
@@ -369,7 +361,6 @@ experiments:
         model: gemini-3.5-flash
         fallback_models:
           - gemini-2.5-flash
-        project: "236777862453"
         location: global
         temperature: 0
         thinking_budget: 1024

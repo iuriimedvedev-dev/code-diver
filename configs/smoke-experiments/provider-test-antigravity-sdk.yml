@@ -1,0 +1,15 @@
+generation:
+  provider: antigravity_sdk
+  model: gemini-3.5-flash
+  timeout_ms: 120000
+  response_format: true
+  extra_body:
+    app_data_dir: ~/.gemini/antigravity-cli
+    workspace: .
+    system_instructions: "Return exactly valid JSON when JSON is requested. Do not edit files."
+
+embedding:
+  provider: openai_compatible
+  model: mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ
+  url: http://127.0.0.1:8001/v1/embeddings
+  api_key: local

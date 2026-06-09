@@ -1,0 +1,22 @@
+root: .
+
+generation:
+  provider: vertex
+  model: gemini-3.1-flash-lite
+  location: global
+  temperature: 0
+  thinking_budget:
+  api_version: v1
+  timeout_ms: 30000
+  max_tokens: 128
+  response_format: json_object
+
+embedding:
+  provider: openai_compatible
+  model: mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ
+  dimensions:
+  url: http://127.0.0.1:8001/v1/embeddings
+  api_key: local
+  batch_size: 128
+  workers: 1
+  max_input_chars: 400

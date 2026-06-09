@@ -4,6 +4,9 @@ from .codebase_scanner import CodebaseScanner
 from .code_item_scanner import CodeItemScanner
 from .code_symbol_extractor import CodeSymbolExtractor
 from .dataset_loader import DatasetLoader
+from .documentation_manifest_item_builder import DocumentationManifestItemBuilder
+from .documentation_metadata_extractor import DocumentationMetadataExtractor
+from .documentation_summary_item_builder import DocumentationSummaryItemBuilder
 from .ephemeral_deep_index_result import EphemeralDeepIndexResult
 from .ephemeral_deep_index_service import EphemeralDeepIndexService
 from .ephemeral_deep_search_result import EphemeralDeepSearchResult
@@ -30,6 +33,9 @@ __all__ = [
     "CodeItemScanner",
     "CodeSymbolExtractor",
     "DatasetLoader",
+    "DocumentationManifestItemBuilder",
+    "DocumentationMetadataExtractor",
+    "DocumentationSummaryItemBuilder",
     "EphemeralDeepIndexResult",
     "EphemeralDeepIndexService",
     "EphemeralDeepSearchResult",

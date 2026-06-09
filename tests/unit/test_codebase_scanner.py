@@ -262,6 +262,40 @@ def test_file_manifest_extracts_config_keys(tmp_path: Path) -> None:
     assert "toolWindow" in manifest.content
 
 
+def test_scanner_can_add_documentation_lane_items(tmp_path: Path) -> None:
+    (tmp_path / "README.md").write_text(
+        """
+# Code Diver
+
+## Setup
+
+- Run `uv run code-diver index`.
+- Authentication routes live under `src/auth`.
+
+```bash
+uv run code-diver search "auth"
+```
+""".strip(),
+        encoding="utf-8",
+    )
+
+    items = CodebaseScanner(
+        include=["*.md"],
+        line_chunks=False,
+        file_summary_chunks=True,
+        file_manifest_chunks=True,
+        documentation_summary_chunks=True,
+        documentation_manifest_chunks=True,
+    ).scan(tmp_path)
+
+    kinds = [item.metadata["index_kind"] for item in items]
+    assert kinds == ["doc_summary", "doc_manifest"]
+    assert items[0].metadata["doc_role"] == "readme"
+    assert "compact_summary:" in items[0].content
+    assert "Authentication routes" in items[0].content
+    assert "code_languages:" in items[1].content
+
+
 def test_scanner_can_add_file_api_manifest_items(tmp_path: Path) -> None:
     (tmp_path / "users.py").write_text(
         '''

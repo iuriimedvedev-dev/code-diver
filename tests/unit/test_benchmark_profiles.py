@@ -5,7 +5,12 @@ from pathlib import Path
 
 import pytest
 
-from code_diver.benchmarks import BenchmarkAssetService, BenchmarkPreparation, BenchmarkProfile, BenchmarkProfileRegistry
+from code_diver.benchmarks import (
+    BenchmarkAssetService,
+    BenchmarkPreparation,
+    BenchmarkProfile,
+    BenchmarkProfileRegistry,
+)
 from code_diver.cli import (
     apply_builtin_h5,
     apply_embedding_profile,
@@ -28,6 +33,7 @@ def test_benchmark_registry_exposes_reproducible_profiles() -> None:
     registry = BenchmarkProfileRegistry()
 
     assert registry.names() == [
+        "codesearchnet-h10-graph-file-vertex-1000",
         "codesearchnet-mteb-python-1000",
         "codesearchnet-mteb-python-hash-smoke",
         "intellij-1000-answer-sets",
@@ -36,11 +42,22 @@ def test_benchmark_registry_exposes_reproducible_profiles() -> None:
     codesearch = registry.get("codesearchnet-mteb-python-1000")
     assert codesearch.preparation is not None
     assert codesearch.preparation.dataset_name == "mteb/CodeSearchNetRetrieval"
-    assert codesearch.config_path == Path("configs/codesearchnet-mteb-python-h5-embeddinggemma-quality.yml")
+    assert codesearch.config_path == Path(
+        "configs/codesearchnet-mteb-python-h5-embeddinggemma-quality.yml"
+    )
     assert registry.get("codesearchnet-mteb-python-hash-smoke").config_path == Path(
         "configs/codesearchnet-mteb-python-hash.yml"
     )
-    assert registry.get("intellij-1000-answer-sets").dataset.name == "intellij_eval_1000.answer_sets.jsonl"
+    h10 = registry.get("codesearchnet-h10-graph-file-vertex-1000")
+    assert h10.config_path == Path(
+        "configs/benchmarks/codesearchnet-h10-graph-file-vertex-1000.yml"
+    )
+    assert h10.preparation is not None
+    assert h10.preparation.limit == 1000
+    assert (
+        registry.get("intellij-1000-answer-sets").dataset.name
+        == "intellij_eval_1000.answer_sets.jsonl"
+    )
 
 
 def test_benchmark_registry_reports_available_names() -> None:
@@ -56,7 +73,9 @@ def test_evaluate_parser_accepts_benchmark_profile() -> None:
 
 
 def test_evaluate_parser_accepts_local_dataset_generation() -> None:
-    args = build_parser().parse_args(["evaluate", "--generate-dataset", "--cases", "25", "--json"])
+    args = build_parser().parse_args(
+        ["evaluate", "--generate-dataset", "--cases", "25", "--json"]
+    )
 
     assert args.generate_dataset is True
     assert args.cases == 25
@@ -64,7 +83,16 @@ def test_evaluate_parser_accepts_local_dataset_generation() -> None:
 
 def test_evaluate_search_tools_parser_accepts_case_limit() -> None:
     args = build_parser(include_advanced=True).parse_args(
-        ["evaluate-search-tools", "--cases", "25", "--limit", "10", "--workers", "4", "--json"]
+        [
+            "evaluate-search-tools",
+            "--cases",
+            "25",
+            "--limit",
+            "10",
+            "--workers",
+            "4",
+            "--json",
+        ]
     )
 
     assert args.cases == 25
@@ -146,7 +174,9 @@ def test_evaluate_answers_parser_accepts_benchmark_and_judge() -> None:
 
 
 def test_evaluate_answers_parser_uses_dynamic_context_default() -> None:
-    args = build_parser(include_advanced=True).parse_args(["evaluate-answers", "--dataset", "answers.jsonl"])
+    args = build_parser(include_advanced=True).parse_args(
+        ["evaluate-answers", "--dataset", "answers.jsonl"]
+    )
 
     assert args.context_files is None
 
@@ -240,7 +270,9 @@ def test_embeddinggemma_profile_uses_code_retrieval_prompts() -> None:
     assert config.embedding.max_input_chars == 1200
 
 
-def test_default_config_path_applies_runtime_embedding_profile(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_default_config_path_applies_runtime_embedding_profile(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     class FakeRuntimeConfigStore:
         def exists(self) -> bool:
             return True
@@ -249,9 +281,17 @@ def test_default_config_path_applies_runtime_embedding_profile(monkeypatch: pyte
             return RuntimeConfig("qwen3-0.6b", Path(".runtime"), platform="apple-metal")
 
     monkeypatch.setattr("code_diver.cli.RuntimeConfigStore", FakeRuntimeConfigStore)
-    args = Namespace(config=Path("code-diver.yml"), command="search", root=None, index_root=None, embedding=None)
+    args = Namespace(
+        config=Path("code-diver.yml"),
+        command="search",
+        root=None,
+        index_root=None,
+        embedding=None,
+    )
 
-    config = apply_runtime_config(args, AppConfig(storage=StorageConfig(provider="qdrant")))
+    config = apply_runtime_config(
+        args, AppConfig(storage=StorageConfig(provider="qdrant"))
+    )
 
     assert config.embedding.provider == "openai_compatible"
     assert config.embedding.model == "mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ"
@@ -261,7 +301,9 @@ def test_default_config_path_applies_runtime_embedding_profile(monkeypatch: pyte
     assert "qwen3_embedding_0_6b" in config.storage.qdrant.collection
 
 
-def test_non_default_config_path_keeps_experiment_embedding(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_non_default_config_path_keeps_experiment_embedding(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     class FakeRuntimeConfigStore:
         def exists(self) -> bool:
             return True
@@ -270,9 +312,17 @@ def test_non_default_config_path_keeps_experiment_embedding(monkeypatch: pytest.
             return RuntimeConfig("qwen3-0.6b", Path(".runtime"), platform="apple-metal")
 
     monkeypatch.setattr("code_diver.cli.RuntimeConfigStore", FakeRuntimeConfigStore)
-    args = Namespace(config=Path("configs/experiment.yml"), command="search", root=None, index_root=None, embedding=None)
+    args = Namespace(
+        config=Path("configs/experiment.yml"),
+        command="search",
+        root=None,
+        index_root=None,
+        embedding=None,
+    )
 
-    config = apply_runtime_config(args, AppConfig(storage=StorageConfig(provider="qdrant")))
+    config = apply_runtime_config(
+        args, AppConfig(storage=StorageConfig(provider="qdrant"))
+    )
 
     assert config.embedding.provider == "openai_compatible"
     assert config.embedding.model == "google/embeddinggemma-300m"
@@ -286,17 +336,29 @@ def test_global_root_can_be_parsed_before_subcommand() -> None:
 
 
 def test_normalize_argv_moves_root_before_subcommand() -> None:
-    assert normalize_argv(["index", "--root", "/tmp/repo"]) == ["--root", "/tmp/repo", "index"]
+    assert normalize_argv(["index", "--root", "/tmp/repo"]) == [
+        "--root",
+        "/tmp/repo",
+        "index",
+    ]
 
 
-def test_root_override_rebases_repo_local_artifacts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_root_override_rebases_repo_local_artifacts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     class EmptyRuntimeConfigStore:
         def exists(self) -> bool:
             return False
 
     monkeypatch.setattr("code_diver.cli.RuntimeConfigStore", EmptyRuntimeConfigStore)
     repo = tmp_path / "repo"
-    args = Namespace(config=Path("code-diver.yml"), command="search", root=repo, index_root=None, embedding=None)
+    args = Namespace(
+        config=Path("code-diver.yml"),
+        command="search",
+        root=repo,
+        index_root=None,
+        embedding=None,
+    )
 
     config = apply_runtime_config(
         args,
@@ -322,7 +384,10 @@ def test_builtin_h5_profile_sets_manifest_hybrid_rerank_defaults() -> None:
     assert config.scanner.file_summary_chunks is True
     assert config.scanner.file_manifest_chunks is True
     assert config.hybrid_search.routing_enabled is True
-    assert config.hybrid_search.vector_kind_limits == {"file_summary": 170, "file_manifest": 170}
+    assert config.hybrid_search.vector_kind_limits == {
+        "file_summary": 170,
+        "file_manifest": 170,
+    }
     assert config.hybrid_search.vector_weight == 0.5625
     assert config.hybrid_search.lexical_weight == 0.1875
     assert config.hybrid_search.graph_weight == 0.08333333333333334
@@ -343,14 +408,20 @@ def test_benchmark_asset_service_skips_existing_assets(tmp_path: Path) -> None:
     )
     preparation.corpus_dir.mkdir(parents=True)
     (preparation.corpus_dir / "case.py").write_text("def f(): pass\n", encoding="utf-8")
-    preparation.dataset_path.write_text('{"id":"x","query":"q","expected":["case.py"]}\n', encoding="utf-8")
+    preparation.dataset_path.write_text(
+        '{"id":"x","query":"q","expected":["case.py"]}\n', encoding="utf-8"
+    )
     preparation.manifest_path.write_text("{}", encoding="utf-8")
-    profile = BenchmarkProfile("bench", preparation.dataset_path, "desc", preparation=preparation)
+    profile = BenchmarkProfile(
+        "bench", preparation.dataset_path, "desc", preparation=preparation
+    )
 
     assert BenchmarkAssetService().ensure(profile) is None
 
 
-def test_benchmark_asset_service_declines_without_tty(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_benchmark_asset_service_declines_without_tty(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     preparation = BenchmarkPreparation(
         kind="mteb_codesearchnet",
         dataset_name="dataset",
@@ -359,7 +430,9 @@ def test_benchmark_asset_service_declines_without_tty(tmp_path: Path, monkeypatc
         output_root=tmp_path,
         estimated_download_mb=1,
     )
-    profile = BenchmarkProfile("bench", preparation.dataset_path, "desc", preparation=preparation)
+    profile = BenchmarkProfile(
+        "bench", preparation.dataset_path, "desc", preparation=preparation
+    )
     monkeypatch.setattr("sys.stdin.isatty", lambda: False)
 
     with pytest.raises(RuntimeError, match="Benchmark assets not prepared"):
@@ -379,7 +452,9 @@ def test_benchmark_asset_service_prompts_on_stderr(
         output_root=tmp_path,
         estimated_download_mb=1,
     )
-    profile = BenchmarkProfile("bench", preparation.dataset_path, "desc", preparation=preparation)
+    profile = BenchmarkProfile(
+        "bench", preparation.dataset_path, "desc", preparation=preparation
+    )
     monkeypatch.setattr("sys.stdin.isatty", lambda: True)
     monkeypatch.setattr("builtins.input", lambda: "n")
 

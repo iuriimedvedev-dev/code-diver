@@ -14,6 +14,7 @@ class GenerationConfig:
     project: str | None = None
     location: str | None = None
     url: str | None = None
+    urls: list[str] = field(default_factory=list)
     temperature: float = Defaults.GENERATION_TEMPERATURE
     thinking_budget: int | None = Defaults.GENERATION_THINKING_BUDGET
     api_version: str | None = Defaults.GENERATION_API_VERSION

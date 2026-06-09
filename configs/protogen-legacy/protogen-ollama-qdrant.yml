@@ -24,7 +24,6 @@ generation:
   fallback_models:
     - gemini-3-flash-preview
     - gemini-2.5-flash
-  project: "236777862453"
   location: global
   temperature: 0
   thinking_budget: 1024
@@ -539,7 +538,6 @@ experiments:
         provider: vertex
         model: gemini-3.1-flash-lite
         fallback_models: []
-        project: "236777862453"
         location: global
         temperature: 0
         thinking_budget: 256
@@ -573,7 +571,6 @@ experiments:
         provider: vertex
         model: gemini-3.1-flash-lite
         fallback_models: []
-        project: "236777862453"
         location: global
         temperature: 0
         thinking_budget: 256
@@ -607,7 +604,6 @@ experiments:
         provider: vertex
         model: gemini-3.1-flash-lite
         fallback_models: []
-        project: "236777862453"
         location: global
         temperature: 0
         thinking_budget: 256
@@ -645,7 +641,6 @@ experiments:
         provider: vertex
         model: gemini-3.1-flash-lite
         fallback_models: []
-        project: "236777862453"
         location: global
         temperature: 0
         thinking_budget: 256
@@ -844,7 +839,6 @@ experiments:
         provider: vertex
         model: gemini-3.1-flash-lite
         fallback_models: []
-        project: "236777862453"
         location: global
         temperature: 0
         thinking_budget: 256
@@ -865,7 +859,6 @@ experiments:
         provider: vertex
         model: gemini-3.1-flash-lite
         fallback_models: []
-        project: "236777862453"
         location: global
         temperature: 0
         thinking_budget: 256
@@ -917,7 +910,6 @@ experiments:
         provider: vertex
         model: gemini-3.1-flash-lite
         fallback_models: []
-        project: "236777862453"
         location: global
         temperature: 0
         thinking_budget: 256

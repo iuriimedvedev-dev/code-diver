@@ -1,0 +1,15 @@
+generation:
+  provider: agy_cli
+  model: Gemini 3.5 Flash (Low)
+  timeout_ms: 120000
+  response_format: true
+  extra_body:
+    binary: agy
+    print_timeout: 45s
+    sandbox: true
+
+embedding:
+  provider: openai_compatible
+  model: mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ
+  url: http://127.0.0.1:8001/v1/embeddings
+  api_key: local

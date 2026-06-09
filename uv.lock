@@ -23,6 +23,15 @@ resolution-markers = [
 ]
 
 [[package]]
+name = "absl-py"
+version = "2.4.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/64/c7/8de93764ad66968d19329a7e0c147a2bb3c7054c554d4a119111b8f9440f/absl_py-2.4.0.tar.gz", hash = "sha256:8c6af82722b35cf71e0f4d1d47dcaebfff286e27110a99fc359349b247dfb5d4", size = 116543, upload-time = "2026-01-28T10:17:05.322Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/18/a6/907a406bb7d359e6a63f99c313846d9eec4f7e6f7437809e03aa00fa3074/absl_py-2.4.0-py3-none-any.whl", hash = "sha256:88476fd881ca8aab94ffa78b7b6c632a782ab3ba1cd19c9bd423abc4fb4cd28d", size = 135750, upload-time = "2026-01-28T10:17:04.19Z" },
+]
+
+[[package]]
 name = "accelerate"
 version = "1.13.0"
 source = { registry = "https://pypi.org/simple" }
@@ -713,6 +722,9 @@ dependencies = [
 ]
 
 [package.dev-dependencies]
+antigravity-sdk = [
+    { name = "google-antigravity" },
+]
 dev = [
     { name = "pytest" },
 ]
@@ -739,6 +751,7 @@ requires-dist = [
 ]
 
 [package.metadata.requires-dev]
+antigravity-sdk = [{ name = "google-antigravity", specifier = ">=0.1.2" }]
 dev = [{ name = "pytest", specifier = ">=8.0" }]
 runtime-apple-metal = [
     { name = "transformers", marker = "python_full_version == '3.12.*' and platform_machine == 'arm64' and sys_platform == 'darwin'", specifier = "==5.9.0" },
@@ -1515,6 +1528,27 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/48/ae/17f1308ae45cd7b08ebb521747d5b23f4efc4d172038a4e228dd5106c3ff/gguf-0.19.0.tar.gz", hash = "sha256:dbadcd6cc7ccd44256f2229fe7c2dff5e8aa5cf0612ab987fd2b1a57e428923f", size = 111220, upload-time = "2026-05-06T13:04:03.667Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b3/bb/d71d6da82763528c2c2ed6b59a9d6142c6595545a4c448e2085d155e88c2/gguf-0.19.0-py3-none-any.whl", hash = "sha256:70bcd10edfe697fb2dad6e40af2234b9d8ece9a41a99761405121ebda1c3c1cd", size = 118475, upload-time = "2026-05-06T13:04:02.588Z" },
+]
+
+[[package]]
+name = "google-antigravity"
+version = "0.1.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "absl-py" },
+    { name = "google-genai" },
+    { name = "mcp" },
+    { name = "protobuf" },
+    { name = "pydantic" },
+    { name = "uvicorn" },
+    { name = "websockets" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/03/d5/c6dc9b06d8248059c4ebba3489f620be1e53b03528f822c0fcf9b2dcc1bf/google_antigravity-0.1.2-py3-none-macosx_11_0_arm64.whl", hash = "sha256:129f370b44320aefc00999ccf7c97418cd40252c5d3c07c3569843224500ffc5", size = 30044136, upload-time = "2026-06-04T21:19:14.18Z" },
+    { url = "https://files.pythonhosted.org/packages/ca/b0/a2cd625471f365601f45315b21ec02c4f9499180c00a88544bb88be567ec/google_antigravity-0.1.2-py3-none-manylinux_2_17_aarch64.whl", hash = "sha256:e888b2aa0b39d4526eb4add020c6bd5c1a2bfc8e4a3e5c228fc1698af2de4011", size = 32525913, upload-time = "2026-06-04T21:19:17.176Z" },
+    { url = "https://files.pythonhosted.org/packages/73/af/36b933c23f9114c58185ea18c7c12ab40e862f06a3074bdcc6ab6208fcc6/google_antigravity-0.1.2-py3-none-manylinux_2_17_x86_64.whl", hash = "sha256:5e7a7d88f3f6401b8efbf45477184874c60e387990e9ddb52686aad0da0be5f2", size = 35584793, upload-time = "2026-06-04T21:19:20.61Z" },
+    { url = "https://files.pythonhosted.org/packages/77/e4/d51b1003c03a2acb35919bf1e681974ec584f4354d3529bcaa79856d3c1c/google_antigravity-0.1.2-py3-none-win_amd64.whl", hash = "sha256:000fc0d3c0ef35551c7fc683a090ff2a61a20c5fedaad4d5e482239499d63207", size = 34671491, upload-time = "2026-06-04T21:19:23.747Z" },
+    { url = "https://files.pythonhosted.org/packages/4f/c4/0acbd66d9150f25ab693c3bfa14d440c48fa1e6dd32cdfe243f901cc1b61/google_antigravity-0.1.2-py3-none-win_arm64.whl", hash = "sha256:40cc33c30469008ee3f78e6cc8130cff9ad4e1d66c0a82b59740965a901d8b62", size = 31367318, upload-time = "2026-06-04T21:19:26.763Z" },
 ]
 
 [[package]]

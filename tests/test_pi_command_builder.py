@@ -5,8 +5,10 @@ from pathlib import Path
 import pytest
 
 from code_diver.config.app_config import AppConfig
+from code_diver.config.embedding_config import EmbeddingConfig
 from code_diver.config.experiment_hypothesis_config import ExperimentHypothesisConfig
 from code_diver.config.experiments_config import ExperimentsConfig
+from code_diver.config.generation_config import GenerationConfig
 from code_diver.config.pi_config import PiConfig
 from code_diver.config.pi_repo_context_config import PiRepoContextConfig
 from code_diver.config.qdrant_config import QdrantConfig
@@ -140,14 +142,50 @@ def test_pi_command_builder_adds_vertex_adc_environment(monkeypatch) -> None:
     config = AppConfig(
         root=Path("/repo"),
         pi=PiConfig(provider="google-vertex", env={}),
+        generation=GenerationConfig(provider="vertex", project="project-from-generation", location="europe-west1"),
     )
     monkeypatch.delenv("GOOGLE_CLOUD_PROJECT", raising=False)
     monkeypatch.delenv("GOOGLE_CLOUD_LOCATION", raising=False)
+    monkeypatch.setattr(PiCommandBuilder, "_adc_quota_project", lambda self: "project-from-adc")
     monkeypatch.setattr(PiCommandBuilder, "_gcloud_project", lambda self: "project-from-gcloud")
 
     env = PiCommandBuilder().env(config, Path("code-diver.yml"))
 
-    assert env["GOOGLE_CLOUD_PROJECT"] == "project-from-gcloud"
+    assert env["GOOGLE_CLOUD_PROJECT"] == "project-from-generation"
+    assert env["GOOGLE_CLOUD_LOCATION"] == "europe-west1"
+
+
+def test_pi_command_builder_uses_embedding_vertex_project_when_generation_is_local(monkeypatch) -> None:
+    config = AppConfig(
+        root=Path("/repo"),
+        pi=PiConfig(provider="google-vertex", env={}),
+        generation=GenerationConfig(provider="openai_compatible"),
+        embedding=EmbeddingConfig(provider="vertex", project="project-from-embedding", location="global"),
+    )
+    monkeypatch.delenv("GOOGLE_CLOUD_PROJECT", raising=False)
+    monkeypatch.delenv("GOOGLE_CLOUD_LOCATION", raising=False)
+    monkeypatch.setattr(PiCommandBuilder, "_adc_quota_project", lambda self: "project-from-adc")
+    monkeypatch.setattr(PiCommandBuilder, "_gcloud_project", lambda self: "project-from-gcloud")
+
+    env = PiCommandBuilder().env(config, Path("code-diver.yml"))
+
+    assert env["GOOGLE_CLOUD_PROJECT"] == "project-from-embedding"
+    assert env["GOOGLE_CLOUD_LOCATION"] == "global"
+
+
+def test_pi_command_builder_uses_adc_project_before_gcloud(monkeypatch) -> None:
+    config = AppConfig(
+        root=Path("/repo"),
+        pi=PiConfig(provider="google-vertex", env={}),
+    )
+    monkeypatch.delenv("GOOGLE_CLOUD_PROJECT", raising=False)
+    monkeypatch.delenv("GOOGLE_CLOUD_LOCATION", raising=False)
+    monkeypatch.setattr(PiCommandBuilder, "_adc_quota_project", lambda self: "project-from-adc")
+    monkeypatch.setattr(PiCommandBuilder, "_gcloud_project", lambda self: "project-from-gcloud")
+
+    env = PiCommandBuilder().env(config, Path("code-diver.yml"))
+
+    assert env["GOOGLE_CLOUD_PROJECT"] == "project-from-adc"
     assert env["GOOGLE_CLOUD_LOCATION"] == "global"
 
 

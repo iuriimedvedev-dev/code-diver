@@ -18,6 +18,7 @@ class CommandName(StrEnum):
     INDEX_SELECTED = "index-selected"
     MONITOR = "monitor"
     OPEN = "open"
+    PROVIDER = "provider"
     READ = "read"
     RG = "rg"
     SEARCH = "search"
