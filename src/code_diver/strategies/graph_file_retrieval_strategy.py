@@ -47,6 +47,7 @@ class GraphFileRetrievalStrategy(RetrievalStrategy):
         self.config = config
         self.profiler = HybridItemProfiler()
         self._catalog: FileGraphCatalog | None = None
+        self._items_by_path: dict[str, list[CodeItem]] | None = None
 
     def search(self, query: str, limit: int) -> list[SearchResult]:
         catalog = self._load_catalog()
@@ -159,11 +160,21 @@ class GraphFileRetrievalStrategy(RetrievalStrategy):
         return tuple(dict.fromkeys(tokens))
 
     def _item_for_path(self, catalog: FileGraphCatalog, path: str) -> CodeItem | None:
-        candidates = [item for item in catalog.items_by_id.values() if item.path == path]
+        candidates = self._items_by_path_index(catalog).get(path, [])
         if not candidates:
             return None
-        candidates.sort(key=lambda item: (self._representative_rank(item), item.id))
         return candidates[0]
+
+    def _items_by_path_index(self, catalog: FileGraphCatalog) -> dict[str, list[CodeItem]]:
+        if self._items_by_path is not None:
+            return self._items_by_path
+        by_path: dict[str, list[CodeItem]] = defaultdict(list)
+        for item in catalog.items_by_id.values():
+            by_path[item.path].append(item)
+        for candidates in by_path.values():
+            candidates.sort(key=lambda item: (self._representative_rank(item), item.id))
+        self._items_by_path = dict(by_path)
+        return self._items_by_path
 
     def _representative_rank(self, item: CodeItem) -> int:
         index_kind = str(item.metadata.get("index_kind") or "")
@@ -185,15 +196,18 @@ class GraphFileRetrievalStrategy(RetrievalStrategy):
         store = FileGraphCatalogStore.for_graph_artifact(self.graph_store.artifact)
         if store.is_fresh_for(self.graph_store.artifact):
             self._catalog = store.load()
+            self._items_by_path = None
             return self._catalog
         if not self.graph_store.exists():
             self._catalog = FileGraphCatalog(items_by_id={}, adjacency=FileGraphCatalog.build([], []).adjacency)
+            self._items_by_path = None
             return self._catalog
         self._catalog = FileGraphCatalog.build(
             self.graph_store.stream_items(),
             self.graph_store.stream_edges(),
         )
         store.save(self._catalog)
+        self._items_by_path = None
         return self._catalog
 
     def _normalize(self, scores: dict[str, float]) -> dict[str, float]:
