@@ -12,7 +12,7 @@
 | Dataset | Primary: `datasets/protogen_answer_cases_100.jsonl`. CodeSearchNet is a poor primary benchmark for H12 because its corpus is isolated snippets with little repository documentation. |
 | Metrics | Primary metrics: candidate/context Hit@1/3/5/10, Recall@5/10, Precision@5/10, answer judge score, citation validity, token/key-token F1, latency, token usage, index item counts, and storage size. |
 | Cost/latency/index-size | Expected index growth is bounded by two doc items per documentation file. Docs have small quotas by default (`doc_summary`, `doc_manifest`) and should not scale with code body size. |
-| Result summary | H12A context-artifact control completed on 100 protogen answer cases. H12B doc-vector lane is the matching active run. Do not claim a winner until both reports are complete and judged with the same judge model/prompt. |
+| Result summary | H12B doc-vector lane beat H12A context-artifact on file/context retrieval metrics on 100 protogen answer cases, with lower retrieval latency. Explanation quality still needs the post-hoc judge pass before final acceptance. |
 | Decision | Do not promote until H12 beats same-model controls on explanation quality or retrieval ranking without a significant latency/storage regression. Because H10 GraphRAG only showed a marginal same-reranker lift on CodeSearchNet, H12 must be measured in both variants: no-graph and graph. |
 | Failure modes | Documentation can be stale, README facts can dominate reranking, docs can hide implementation owners if quotas/weights are too high, and large repos can contain huge vendored docs unless ignores stay strict. |
 | Follow-ups | Train/calibrate doc-lane weights; test deterministic README summary vs LLM README summary; add cache invalidation keyed by README/docs hashes; test query-aware docs retrieval; add docs-specific benchmark cases such as setup, architecture, and feature-location questions. |
@@ -168,6 +168,44 @@ This keeps total vector count equal to H12A (`45156`) while reallocating part of
 the vector budget from code-file metadata to non-code documentation metadata.
 That makes the comparison cleaner: if H12B wins, it is because the docs lane
 adds useful signal, not because it simply indexed more total points.
+
+Completed result:
+
+| Metric | H12A context artifact | H12B doc-vector lane | Delta |
+| --- | ---: | ---: | ---: |
+| `file_hit` | `0.8600` | `0.8900` | `+0.0300` |
+| `file_recall` | `0.7700` | `0.8100` | `+0.0400` |
+| `file_precision` | `0.1230` | `0.1285` | `+0.0055` |
+| `file_mrr` | `0.7608` | `0.8417` | `+0.0808` |
+| `candidate_file_hit@1` | `0.6800` | `0.7900` | `+0.1100` |
+| `candidate_file_hit@3` | `0.8500` | `0.8800` | `+0.0300` |
+| `candidate_file_hit@5` | `0.8600` | `0.8900` | `+0.0300` |
+| `context_file_hit` | `0.8600` | `0.8900` | `+0.0300` |
+| `context_file_recall` | `0.7150` | `0.7500` | `+0.0350` |
+| `context_file_precision` | `0.2808` | `0.2950` | `+0.0142` |
+| `citation_path_valid_rate` | `0.9567` | `0.9867` | `+0.0300` |
+| `citation_line_valid_rate` | `0.9567` | `0.9867` | `+0.0300` |
+| `token_f1` | `0.1791` | `0.1718` | `-0.0072` |
+| `key_token_f1` | `0.1697` | `0.1640` | `-0.0057` |
+| `retrieval_duration_ms` | `27574.4394` | `24520.4806` | `-3053.9588` |
+| `generation_duration_ms` | `3199.5262` | `3409.9996` | `+210.4734` |
+| `answer_duration_ms_mean` | `15489.7392` | `14105.5866` | `-1384.1526` |
+| `answer model tokens` | `1438144` | `1395240` | `-42904` |
+
+Interpretation:
+
+- The doc-vector lane improved the candidate stage materially for this dataset,
+  especially first-rank quality (`candidate_file_hit@1 +0.11`) and reciprocal
+  rank (`file_mrr +0.0808`).
+- It did not increase total vector count; the gain came from reallocating a
+  bounded slice of the index to non-code metadata.
+- The cheap lexical answer-overlap metrics got slightly worse. That is not
+  enough to reject H12B because token F1 is a weak explanation metric, but it
+  means the judge pass is mandatory before promoting H12B as the default
+  explanation setup.
+- Retrieval got faster despite the docs lane. This likely comes from better
+  early ranking and fewer expensive ambiguous rerank prompts, but that needs
+  trace inspection before being treated as causal.
 
 ## Post-Hoc Report and Judge
 
