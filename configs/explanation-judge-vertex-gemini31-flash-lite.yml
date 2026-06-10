@@ -1,0 +1,12 @@
+root: .
+
+generation:
+  provider: vertex
+  model: gemini-3.1-flash-lite
+  location: global
+  temperature: 0
+  thinking_budget:
+  api_version: v1
+  timeout_ms: 120000
+  max_tokens: 2048
+  response_format: json_object

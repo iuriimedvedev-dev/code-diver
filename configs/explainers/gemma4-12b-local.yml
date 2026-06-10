@@ -1,0 +1,16 @@
+root: .
+
+generation:
+  provider: openai_compatible
+  model: gemma-4-12B-it-qat-UD-Q4_K_XL
+  url: http://127.0.0.1:8015/v1/chat/completions
+  api_key: local
+  temperature: 0
+  max_tokens: 2048
+  timeout_ms: 300000
+  response_format: json_schema
+  extra_body:
+    enable_thinking: false
+  retry_attempts: 2
+  retry_base_delay_seconds: 2
+  retry_max_delay_seconds: 10

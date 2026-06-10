@@ -31,6 +31,31 @@ class JsonishParser:
 
     def _extract_object(self, text: str) -> str:
         stripped = self._strip_fence(text)
+        start = stripped.find("{")
+        if start < 0:
+            return stripped
+        depth = 0
+        in_string = False
+        escaped = False
+        for index in range(start, len(stripped)):
+            char = stripped[index]
+            if escaped:
+                escaped = False
+                continue
+            if char == "\\":
+                escaped = True
+                continue
+            if char == '"':
+                in_string = not in_string
+                continue
+            if in_string:
+                continue
+            if char == "{":
+                depth += 1
+            elif char == "}":
+                depth -= 1
+                if depth == 0:
+                    return stripped[start : index + 1]
         match = re.search(r"\{.*\}", stripped, flags=re.DOTALL)
         return match.group(0) if match else stripped
 

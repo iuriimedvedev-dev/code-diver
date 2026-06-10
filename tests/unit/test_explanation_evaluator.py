@@ -171,12 +171,42 @@ def test_code_explanation_evaluator_records_malformed_case_and_continues() -> No
     assert report["results"][1]["prediction"] == "Returns true."
 
 
+def test_code_explanation_evaluator_treats_empty_explanation_as_generation_error() -> None:
+    case = ExplanationCase(
+        id="empty",
+        code="def ok(): return True",
+        reference="Return true.",
+        prompt="Explain it.",
+    )
+    prediction_provider = FakeProvider([json.dumps({"explanation": ""})])
+    judge_provider = FakeProvider([json.dumps({"criteria": {}})])
+
+    report = CodeExplanationEvaluator(
+        prediction_provider,
+        judge=ExplanationJudge(judge_provider),
+    ).evaluate([case])
+
+    assert report["error_count"] == 1
+    assert report["judge_usage"]["model_calls"] == 0
+    assert report["results"][0]["error"] == "empty explanation"
+
+
 def test_jsonish_parser_repairs_fenced_json_with_invalid_escapes() -> None:
     parsed = JsonishParser().parse_object(
         '```json\n{"explanation": "Uses regex \\(group\\) and path C:\\\\tmp."}\n```'
     )
 
     assert parsed["explanation"] == "Uses regex \\(group\\) and path C:\\tmp."
+
+
+def test_jsonish_parser_uses_first_balanced_object_with_trailing_content() -> None:
+    parsed = JsonishParser().parse_object(
+        '{"criteria": {"clarity": {"score": 4}}, "rationale": "ok"}\n'
+        '{"extra": "trailing object from model"}'
+    )
+
+    assert parsed["criteria"]["clarity"]["score"] == 4
+    assert "extra" not in parsed
 
 
 def test_code_explanation_evaluator_can_run_cases_concurrently_in_dataset_order() -> None:

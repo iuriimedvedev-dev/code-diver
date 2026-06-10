@@ -120,6 +120,27 @@ class CodeExplanationEvaluator:
                 "judge_error": 0,
             }
         explanation = str(prediction_payload.get("explanation") or "").strip()
+        if not explanation:
+            return {
+                "row": {
+                    "case_id": case.id,
+                    "metadata": case.metadata,
+                    "prompt": case.prompt,
+                    "reference": case.reference,
+                    "prediction": "",
+                    "raw_prediction": prediction_text,
+                    "generation_model": generation_model,
+                    "metrics": metrics.score("", case.reference),
+                    "error": "empty explanation",
+                    "duration_ms": (perf_counter() - case_started) * 1000,
+                },
+                "usage": usage,
+                "generation_model": generation_model,
+                "judge_usage": None,
+                "judge_model": None,
+                "error": 1,
+                "judge_error": 0,
+            }
         row_metrics = metrics.score(explanation, case.reference)
         row: dict[str, Any] = {
             "case_id": case.id,

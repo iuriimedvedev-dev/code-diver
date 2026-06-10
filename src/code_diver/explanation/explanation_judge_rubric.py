@@ -25,11 +25,14 @@ class ExplanationJudgeRubric:
         flat_scores: dict[str, float] = {}
         for criterion in self.CRITERIA:
             response = criteria_payload.get(criterion.id)
-            if not isinstance(response, dict):
-                response = {}
-            score = self._bounded_score(response.get("score"))
-            answer = str(response.get("answer") or response.get("verdict") or "").strip()
-            evidence = str(response.get("evidence") or response.get("reason") or "").strip()
+            if isinstance(response, dict):
+                score = self._bounded_score(response.get("score"))
+                answer = str(response.get("answer") or response.get("verdict") or "").strip()
+                evidence = str(response.get("evidence") or response.get("reason") or "").strip()
+            else:
+                score = self._bounded_score(response)
+                answer = ""
+                evidence = ""
             questionnaire[criterion.id] = {
                 "label": criterion.label,
                 "weight": criterion.weight,
