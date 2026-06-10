@@ -1,0 +1,141 @@
+root: ../protogen
+
+storage:
+  provider: qdrant
+  qdrant:
+    url: http://localhost:6333
+    collection: code_diver_h14_gemma26_text_graph
+    batch_size: 256
+
+embedding:
+  provider: openai_compatible
+  model: mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ
+  dimensions:
+  url: http://127.0.0.1:8001/v1/embeddings
+  api_key: local
+  batch_size: 128
+  workers: 1
+  max_input_chars: 400
+  query_prefix: "Represent this code and repository documentation search query: "
+  document_prefix: "Represent this file-level code or documentation metadata for retrieval: "
+
+generation:
+  provider: openai_compatible
+  model: mlx-community/Qwen3.5-4B-OptiQ-4bit
+  url: http://127.0.0.1:8012/v1/chat/completions
+  api_key: local
+  temperature: 0
+  max_tokens: 2048
+  timeout_ms: 240000
+  response_format: json_schema
+  extra_body:
+    enable_thinking: false
+  retry_attempts: 2
+  retry_base_delay_seconds: 2
+  retry_max_delay_seconds: 10
+
+pi:
+  repo_context:
+    enabled: true
+    mode: llm_readme_summary
+    output: .code-diver/context/protogen-h14-qwen4b-repository-context.md
+    include_docs: true
+    max_chars: 16000
+    docs_limit: 12
+
+search:
+  limit: 10
+  preview_lines: 8
+  strategy: graph_file_rerank
+
+scanner:
+  line_chunks: false
+  structural_chunks: false
+  symbol_chunks: false
+  symbol_body: false
+  file_summary_chunks: true
+  file_manifest_chunks: true
+  file_api_manifest_chunks: false
+  file_body_evidence_chunks: false
+  documentation_summary_chunks: true
+  documentation_manifest_chunks: true
+  documentation_chunk_chunks: true
+  max_symbols_per_file: 96
+
+hybrid_search:
+  candidate_limit: 360
+  lexical_candidate_limit: 1000
+  vector_weight: 0.42
+  lexical_weight: 0.26
+  path_weight: 0.12
+  symbol_weight: 0.10
+  symbol_match_weight: 0.10
+  graph_weight: 0.0
+  file_vote_weight: 0.06
+  graph_depth: 0
+  graph_neighbor_limit: 0
+  vector_kind_limits:
+    file_summary: 170
+    file_manifest: 170
+    doc_summary: 36
+    doc_manifest: 24
+    doc_chunk: 48
+  vector_kind_multipliers:
+    file_summary: 1.0
+    file_manifest: 1.08
+    doc_summary: 0.72
+    doc_manifest: 0.58
+    doc_chunk: 0.64
+  routing_enabled: true
+  lexical_scoring: bm25
+  fusion: weighted
+  preserve_vector_top: true
+  vector_top_score_margin: 0.03
+  item_kind_weights:
+    file_summary: 1.0
+    file_manifest: 1.08
+    doc_summary: 0.72
+    doc_manifest: 0.58
+    doc_chunk: 0.64
+  min_token_length: 3
+
+graph_file_search:
+  seed_limit: 140
+  lexical_seed_limit: 280
+  vector_weight: 0.25
+  lexical_weight: 0.25
+  path_weight: 0.20
+  symbol_weight: 0.10
+  graph_weight: 0.45
+  depth: 2
+  neighbor_limit: 40
+  decay: 0.65
+  min_token_length: 3
+
+llm_rerank:
+  candidate_limit: 34
+  rerank_limit: 10
+  max_preview_chars: 850
+  mode: precision
+  include_reasons: false
+  preserve_top_candidate: false
+  retry_attempts: 3
+  retry_base_delay_seconds: 1.0
+  retry_max_delay_seconds: 8.0
+  repository_context_max_chars: 16000
+
+graph:
+  enabled: true
+  artifact: .code-diver/protogen-h14-qwen4b-text-graph.json
+  ast_enabled: false
+  reference_edges_enabled: true
+  call_edges_enabled: false
+  expansion_depth: 2
+  neighbor_limit: 40
+
+evaluation:
+  limit: 10
+  workers: 1
+
+metrics:
+  enabled: false
