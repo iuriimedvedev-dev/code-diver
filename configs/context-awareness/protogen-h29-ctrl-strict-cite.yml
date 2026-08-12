@@ -1,10 +1,12 @@
+# h29 control: the champion (graph_file_rerank) + the citation allowlist. One knob from the
+# champion. Without this run the allowlist and the reranker are confounded in the arm.
 root: ../protogen
 
 storage:
   provider: qdrant
   qdrant:
     url: http://localhost:6333
-    collection: code_diver_h14_gemma26_text_graph
+    collection: code_diver_h17_ctrl
     batch_size: 256
 
 embedding:
@@ -127,7 +129,7 @@ llm_rerank:
 
 graph:
   enabled: true
-  artifact: .code-diver/protogen-h14-gemma26-text-graph.json
+  artifact: .code-diver/protogen-h17-ctrl.json
   ast_enabled: false
   reference_edges_enabled: true
   call_edges_enabled: false
@@ -137,6 +139,12 @@ graph:
 evaluation:
   limit: 10
   workers: 1
+  # Finding 38: h28 kept the cross-encoder's 22pp latency reclaim but broke the
+  # `citation_fabricated_rate` guardrail (0.025 -> 0.053, bound 0.035) without retrieving any
+  # worse -- it reordered the bundle, the prompt changed, and the model cited real repo files
+  # it had not been shown. This names the citable set in the prompt. h29 is the pair of runs
+  # that tells us whether that fixes the guardrail without costing the primary.
+  restrict_citations_to_context: true
 
 metrics:
   enabled: false

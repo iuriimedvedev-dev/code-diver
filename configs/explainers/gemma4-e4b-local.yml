@@ -10,7 +10,8 @@ generation:
   timeout_ms: 240000
   response_format: json_schema
   extra_body:
-    enable_thinking: false
+    chat_template_kwargs:
+      enable_thinking: false
   retry_attempts: 2
   retry_base_delay_seconds: 2
   retry_max_delay_seconds: 10

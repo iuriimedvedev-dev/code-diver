@@ -23,16 +23,19 @@ embedding:
 
 generation:
   provider: openai_compatible
-  model: gemma-4-26B-A4B-it-qat-UD-Q4_K_XL
-  url: http://127.0.0.1:8016/v1/chat/completions
+  model: mlx-community/Qwen3.5-4B-OptiQ-4bit
+  url: http://127.0.0.1:8012/v1/chat/completions
   api_key: local
   fallback_models: []
   temperature: 0
   thinking_budget:
   api_version:
-  timeout_ms: 480000
+  timeout_ms: 240000
   max_tokens: 2048
-  response_format: json_object
+  response_format: json_schema
+  extra_body:
+    chat_template_kwargs:
+      enable_thinking: false
 
 indexing:
   mode: scanner
@@ -46,7 +49,7 @@ pi:
   extension: .pi/extensions/code-diver-rag.ts
   prompt_template: .pi/prompts/code-diver-rag.md
   provider: code-diver-local
-  model: gemma-4-26B-A4B-it-qat-UD-Q4_K_XL
+  model: mlx-community/Qwen3.5-4B-OptiQ-4bit
   fallback_models: []
   timeout_seconds: 180
   session_dir: .code-diver/pi-sessions
@@ -59,8 +62,8 @@ pi:
     docs_limit: 8
   env:
     CODE_DIVER_LOCAL_LLM_PROVIDER: code-diver-local
-    CODE_DIVER_LOCAL_LLM_MODEL: gemma-4-26B-A4B-it-qat-UD-Q4_K_XL
-    CODE_DIVER_LOCAL_LLM_BASE_URL: http://127.0.0.1:8016/v1
+    CODE_DIVER_LOCAL_LLM_MODEL: mlx-community/Qwen3.5-4B-OptiQ-4bit
+    CODE_DIVER_LOCAL_LLM_BASE_URL: http://127.0.0.1:8012/v1
     CODE_DIVER_LOCAL_LLM_API_KEY: local
     PI_SKIP_VERSION_CHECK: "1"
     PI_CACHE_RETENTION: long

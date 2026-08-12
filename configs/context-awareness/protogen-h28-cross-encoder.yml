@@ -1,10 +1,25 @@
+# H28: replace the generative rerank stage with a dedicated cross-encoder.
+#
+# One change from protogen-h17-ctrl.yml: `search.strategy` moves from `graph_file_rerank` to
+# `graph_file_cross_encoder`. Same collection, same graph artifact, same answer model, same
+# retrieval pool -- only the primitive that orders the 34 candidates differs.
+#
+# Why: the final LLM rerank measures 17.5 s/case, 26% of the 66.7 s total, and Finding 33 shows
+# that stage -- not retrieval -- is what caps quality (pool recall 0.908 at depth 60 collapses to
+# 0.745 measured file recall). A cross-encoder scores each (query, document) pair independently
+# with no generation at all, so it attacks both axes at once.
+#
+# Requires: llama-server --model .code-diver/models/rerankers/qwen3-reranker-0.6b/Qwen3-Reranker-0.6B-Q4_K_M.gguf \
+#             --host 127.0.0.1 --port 8081 --embedding --reranking --pooling rank
+# See docs/llama-cpp-rerank-runtime-notes-2026-06-02.md before touching the tuned flags.
+
 root: ../protogen
 
 storage:
   provider: qdrant
   qdrant:
     url: http://localhost:6333
-    collection: code_diver_h14_gemma26_text_graph
+    collection: code_diver_h17_ctrl
     batch_size: 256
 
 embedding:
@@ -47,7 +62,7 @@ pi:
 search:
   limit: 10
   preview_lines: 8
-  strategy: graph_file_rerank
+  strategy: graph_file_cross_encoder
 
 scanner:
   line_chunks: false
@@ -113,6 +128,8 @@ graph_file_search:
   decay: 0.65
   min_token_length: 3
 
+# Inert under `graph_file_cross_encoder` -- kept verbatim from the champion so the two files
+# diff cleanly and so switching `search.strategy` back needs no other edit.
 llm_rerank:
   candidate_limit: 34
   rerank_limit: 10
@@ -125,9 +142,24 @@ llm_rerank:
   retry_max_delay_seconds: 8.0
   repository_context_max_chars: 16000
 
+cross_encoder_rerank:
+  provider: llama_cpp
+  model: Qwen3-Reranker-0.6B
+  # :8080 is taken by an unrelated jbcc-api listener on this machine, so the reranker
+  # gets :8081. The docs' known-good command names 8080; only the port differs.
+  url: http://127.0.0.1:8081/v1/rerank
+  # Matched to `llm_rerank` above: same list depth, same per-candidate text budget, same
+  # top-preservation policy. Anything else here would confound the primitive swap.
+  candidate_limit: 34
+  max_document_chars: 850
+  preserve_top_candidate: false
+  # The June notes warn that 34-40 documents is slow locally on the 4B; the 0.6B is the arm
+  # being measured, and 60 s leaves room for a cold first request without masking a real stall.
+  timeout_ms: 60000
+
 graph:
   enabled: true
-  artifact: .code-diver/protogen-h14-gemma26-text-graph.json
+  artifact: .code-diver/protogen-h17-ctrl.json
   ast_enabled: false
   reference_edges_enabled: true
   call_edges_enabled: false

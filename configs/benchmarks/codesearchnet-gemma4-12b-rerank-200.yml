@@ -24,7 +24,8 @@ generation:
   response_format: json_schema
   timeout_ms: 300000
   extra_body:
-    enable_thinking: false
+    chat_template_kwargs:
+      enable_thinking: false
 
 indexing:
   mode: scanner

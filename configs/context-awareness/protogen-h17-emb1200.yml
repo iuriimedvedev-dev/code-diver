@@ -4,7 +4,7 @@ storage:
   provider: qdrant
   qdrant:
     url: http://localhost:6333
-    collection: code_diver_h14_gemma26_text_graph
+    collection: code_diver_h17_emb1200
     batch_size: 256
 
 embedding:
@@ -15,7 +15,7 @@ embedding:
   api_key: local
   batch_size: 128
   workers: 1
-  max_input_chars: 400
+  max_input_chars: 1200
   query_prefix: "Represent this code and repository documentation search query: "
   document_prefix: "Represent this file-level code or documentation metadata for retrieval: "
 
@@ -127,7 +127,7 @@ llm_rerank:
 
 graph:
   enabled: true
-  artifact: .code-diver/protogen-h14-gemma26-text-graph.json
+  artifact: .code-diver/protogen-h17-emb1200.json
   ast_enabled: false
   reference_edges_enabled: true
   call_edges_enabled: false

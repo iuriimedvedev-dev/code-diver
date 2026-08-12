@@ -4,7 +4,7 @@ storage:
   provider: qdrant
   qdrant:
     url: http://localhost:6333
-    collection: code_diver_h14_gemma26_text_graph
+    collection: code_diver_h17_nocaps
     batch_size: 256
 
 embedding:
@@ -62,6 +62,8 @@ scanner:
   documentation_manifest_chunks: true
   documentation_chunk_chunks: true
   max_symbols_per_file: 96
+  file_summary_head_line_max_chars: 1000000
+  file_summary_head_block_max_chars: 1000000
 
 hybrid_search:
   candidate_limit: 360
@@ -127,7 +129,7 @@ llm_rerank:
 
 graph:
   enabled: true
-  artifact: .code-diver/protogen-h14-gemma26-text-graph.json
+  artifact: .code-diver/protogen-h17-nocaps.json
   ast_enabled: false
   reference_edges_enabled: true
   call_edges_enabled: false

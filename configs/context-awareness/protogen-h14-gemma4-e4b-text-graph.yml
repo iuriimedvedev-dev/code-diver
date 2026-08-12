@@ -21,8 +21,8 @@ embedding:
 
 generation:
   provider: openai_compatible
-  model: mlx-community/Qwen3.5-4B-OptiQ-4bit
-  url: http://127.0.0.1:8012/v1/chat/completions
+  model: mlx-community/gemma-4-e4b-it-4bit
+  url: http://127.0.0.1:8024/v1/chat/completions
   api_key: local
   temperature: 0
   max_tokens: 2048
@@ -39,7 +39,7 @@ pi:
   repo_context:
     enabled: true
     mode: llm_readme_summary
-    output: .code-diver/context/protogen-h14-qwen4b-repository-context.md
+    output: .code-diver/context/protogen-h14-gemma4-e4b-repository-context.md
     include_docs: true
     max_chars: 16000
     docs_limit: 12

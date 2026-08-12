@@ -1,0 +1,22 @@
+# Cross-family local strict answer judge, on its own reserved judge port (8031).
+#
+# Kept alongside the Gemma judge because same-family judging inflates scores: a Gemma judge
+# grading a Gemma answer shares the model's blind spots. Running both and comparing is the
+# only local check available now that the Vertex judge is gone.
+#
+# Judge scores are SECONDARY -- see configs/answer-judge-local-gemma4-12b.yml.
+generation:
+  provider: openai_compatible
+  model: mlx-community/Qwen3.5-9B-MLX-4bit
+  url: http://127.0.0.1:8031/v1/chat/completions
+  api_key: local
+  temperature: 0
+  max_tokens: 3072
+  timeout_ms: 240000
+  response_format: json_schema
+  extra_body:
+    chat_template_kwargs:
+      enable_thinking: false
+  retry_attempts: 2
+  retry_base_delay_seconds: 2
+  retry_max_delay_seconds: 10

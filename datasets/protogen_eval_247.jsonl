@@ -1,0 +1,247 @@
+{"id": "where-agent-factory", "query": "where are agent objects constructed", "expected": ["src/agents/factory.py", "src/agents/base/factory.py"]}
+{"id": "where-agent-registry", "query": "where are agents registered and resolved", "expected": ["src/agents/registry.py", "src/agents/base/registry.py"]}
+{"id": "where-agent-runtime", "query": "where is agent runtime execution managed", "expected": ["src/agents/runtime/executor.py", "src/agents/runtime/session_map.py"]}
+{"id": "where-ailoop", "query": "where does autonomous improvement loop orchestrate analysis optimization", "expected": ["src/ailoop/orchestrator.py", "src/ailoop/service.py"]}
+{"id": "where-ailoop-analysis", "query": "where does ailoop analyze failures and metrics", "expected": ["src/ailoop/analyzer.py", "src/ailoop/deep_analyzer.py"]}
+{"id": "where-ailoop-optimize", "query": "where does ailoop optimize generator prompts or config", "expected": ["src/ailoop/optimizer.py", "src/ailoop/models.py"]}
+{"id": "where-analytics-report", "query": "where are arena analytics reports generated", "expected": ["src/analytics/arena_reporter.py", "src/analytics/report_generator.py"]}
+{"id": "where-angular-cli", "query": "where does the app wrap Angular CLI commands", "expected": ["src/automation/cli_tools/angular_cli_tool.py"]}
+{"id": "where-api-prompts", "query": "where are API generation prompts and templates stored", "expected": ["src/agents/api/prompts.py", "src/agents/api/templates.py"]}
+{"id": "where-api-router-wiring", "query": "where are FastAPI routers included in the app", "expected": ["src/main.py", "src/app.py"]}
+{"id": "where-app-host-client", "query": "where does the system call generated app host", "expected": ["src/services/app_host_client.py"]}
+{"id": "where-architecture-agent", "query": "where is architecture design agent implemented", "expected": ["src/agents/architecture/agent.py", "src/agents/architect/agent.py"]}
+{"id": "where-architecture-models", "query": "where are architecture output models defined", "expected": ["src/agents/architecture/models.py"]}
+{"id": "where-arena-aggregation", "query": "where are arena results aggregated", "expected": ["src/arena/aggregator.py", "src/arena/statistics.py"]}
+{"id": "where-arena-quality", "query": "where is arena quality runner implemented", "expected": ["src/arena/quality_runner.py"]}
+{"id": "where-arena-repository", "query": "where are arena runs persisted", "expected": ["src/arena/repository.py"]}
+{"id": "where-artifacts", "query": "where are generated artifacts stored and served", "expected": ["src/artifacts/service.py", "src/api/routes/artifacts.py"]}
+{"id": "where-authorization", "query": "where is authorization authentication user permissions tokens handled", "expected": ["src/config/settings.py", "src/api/routes/settings.py", "src/operators/models_config.py"]}
+{"id": "where-backend-agent", "query": "where is backend generation agent behavior defined", "expected": ["src/agents/backend/agent.py", "src/agents/developer/backend.py"]}
+{"id": "where-backend-models", "query": "where are backend generation models defined", "expected": ["src/agents/backend/models.py"]}
+{"id": "where-backend-prompts", "query": "where are backend generation prompts stored", "expected": ["src/agents/backend/prompts.py", "src/agents/backend/prompts_improved.py"]}
+{"id": "where-batch-eval", "query": "where are batch eval jobs orchestrated", "expected": ["src/eval/batch_orchestrator.py"]}
+{"id": "where-blog-api", "query": "where is the example blog API implemented", "expected": ["src/api/routes/blog.py", "src/api/schemas/blog.py"]}
+{"id": "where-calculator-api", "query": "where is the calculator route and service implemented", "expected": ["src/api/routes/calculator.py", "src/api/services/calculator.py"]}
+{"id": "where-changes-analyzed", "query": "where are incremental change requests analyzed", "expected": ["src/changes/analyzer.py", "src/changes/service.py"]}
+{"id": "where-changes-decomposed", "query": "where are changes decomposed into implementation steps", "expected": ["src/changes/decomposer.py", "src/changes/models.py"]}
+{"id": "where-claude-operator", "query": "where does Claude Code operator run", "expected": ["src/operators/claude_code.py", "src/operators/claude_code_sdk.py"]}
+{"id": "where-codegen-models", "query": "where are code generation request and response models", "expected": ["src/codegen/models.py"]}
+{"id": "where-codegen-prompts", "query": "where are code generation prompts defined", "expected": ["src/codegen/prompts.py"]}
+{"id": "where-codegen-tools", "query": "where are code generation tools implemented", "expected": ["src/tools/codegen/codegen_tool.py", "src/agents/tools/codegen.py"]}
+{"id": "where-command-created", "query": "where is a generation command created from cli user input", "expected": ["src/cli/commands_click/generate.py", "src/cli/commands/generate.py"]}
+{"id": "where-command-dispatched", "query": "where does the CLI route commands to handlers", "expected": ["src/cli/cli.py", "src/cli/app.py"]}
+{"id": "where-compose", "query": "where is docker compose generated or managed", "expected": ["src/containers/compose.py", "src/tools/infrastructure/compose_tool.py"]}
+{"id": "where-containers", "query": "where are docker containers created and monitored", "expected": ["src/containers/service.py", "src/containers/docker_client.py"]}
+{"id": "where-database-session", "query": "where is database session setup", "expected": ["src/database/session.py", "src/config/settings.py"]}
+{"id": "where-dev-compose", "query": "where are postgres redis backend frontend dev services configured", "expected": ["docker-compose.dev.yml"]}
+{"id": "where-direct-agents", "query": "where are direct non langchain agents implemented", "expected": ["src/agents/direct/base.py", "src/agents/direct/operator_agent.py"]}
+{"id": "where-eval-config-loader", "query": "where are evaluation yaml configs loaded", "expected": ["src/eval/config_loader.py"]}
+{"id": "where-eval-import", "query": "where are eval yaml datasets imported", "expected": ["src/eval/dataset_importer.py", "src/cli/commands_click/evals.py"]}
+{"id": "where-eval-judge", "query": "where is generated app quality judged", "expected": ["src/eval/judge.py", "src/arena/evaluator.py"]}
+{"id": "where-eval-repository", "query": "where are evaluation runs persisted", "expected": ["src/eval/repository.py"]}
+{"id": "where-eval-runner", "query": "where are evaluation datasets executed", "expected": ["src/eval/runner.py", "src/eval/service.py"]}
+{"id": "where-events-stored", "query": "where are websocket or protocol events stored", "expected": ["src/websocket/event_store.py", "src/protocol/models.py"]}
+{"id": "where-feature-flags", "query": "where are feature flags configured", "expected": ["src/config/feature_flags.py"]}
+{"id": "where-feature-loop", "query": "where is the feature iteration loop controlled", "expected": ["src/pipeline/feature_loop.py", "src/pipeline/feature_partitioner.py"]}
+{"id": "where-file-tools", "query": "where are read write edit file tools implemented", "expected": ["src/tools/infrastructure/read_file_tool.py", "src/tools/infrastructure/write_file_tool.py"]}
+{"id": "where-frontend-agent", "query": "where is frontend generation agent behavior defined", "expected": ["src/agents/frontend/agent.py", "src/agents/developer/frontend.py"]}
+{"id": "where-frontend-models", "query": "where are frontend generation models defined", "expected": ["src/agents/frontend/models.py"]}
+{"id": "where-frontend-package", "query": "where are frontend dependencies and npm scripts configured", "expected": ["frontend/package.json"]}
+{"id": "where-frontend-prompts", "query": "where are frontend generation prompts stored", "expected": ["src/agents/frontend/prompts.py"]}
+{"id": "where-gemini-operator", "query": "where does Gemini operator call the SDK or CLI", "expected": ["src/operators/gemini_sdk.py", "src/operators/gemini_cli.py"]}
+{"id": "where-generated-code-service", "query": "where is generated code produced from specifications", "expected": ["src/codegen/service.py"]}
+{"id": "where-health-checks", "query": "where are container health checks implemented", "expected": ["src/containers/health.py", "src/api/routes/health.py"]}
+{"id": "where-infra-agent", "query": "where is infrastructure docker generation agent behavior defined", "expected": ["src/agents/infrastructure/agent.py", "src/agents/developer/infrastructure.py"]}
+{"id": "where-infra-models", "query": "where are docker infrastructure models defined", "expected": ["src/agents/infrastructure/models.py"]}
+{"id": "where-infra-prompts", "query": "where are infrastructure generation prompts stored", "expected": ["src/agents/infrastructure/prompts.py"]}
+{"id": "where-live-updates", "query": "where are live websocket progress updates sent", "expected": ["src/websocket/manager.py", "src/services/pipeline_service.py"]}
+{"id": "where-logfire", "query": "where is Logfire observability configured", "expected": ["src/observability/logfire_config.py", "src/config/src/observability/logfire_config.py"]}
+{"id": "where-logging", "query": "where is structured logging configured", "expected": ["src/logging_config.py"]}
+{"id": "where-mcp-config", "query": "where is MCP server configuration loaded", "expected": ["src/config/mcp_config.py"]}
+{"id": "where-memory", "query": "where is cross feature memory or registry implemented", "expected": ["src/memory/cross_feature_registry.py", "src/memory/tools.py"]}
+{"id": "where-metrics-api", "query": "where are metrics exposed through API routes", "expected": ["src/api/routes/metrics.py", "src/cli/commands_click/metrics.py"]}
+{"id": "where-metrics-collector", "query": "where are LLM tokens cost cache usage collected", "expected": ["src/metrics/collector.py", "src/metrics/callbacks.py"]}
+{"id": "where-model-generator", "query": "where does scaffolding generate models", "expected": ["src/scaffolding/generators/model_generator.py"]}
+{"id": "where-monitor-api", "query": "where does API expose monitoring endpoints", "expected": ["src/api/routes/monitor.py"]}
+{"id": "where-monitoring-compose", "query": "where are prometheus grafana monitoring services configured", "expected": ["docker-compose.monitoring.yml"]}
+{"id": "where-npm-tool", "query": "where does the app run npm commands", "expected": ["src/automation/cli_tools/npm_tool.py"]}
+{"id": "where-openai-operator", "query": "where does OpenAI Codex or SDK operator run", "expected": ["src/operators/openai_sdk.py", "src/operators/openai_codex.py"]}
+{"id": "where-openapi-generation", "query": "where is OpenAPI parsing or extraction done", "expected": ["src/agents/backend/openapi_parser.py", "src/operators/openapi_extractor.py"]}
+{"id": "where-operator-config", "query": "where are operator models and provider settings configured", "expected": ["src/operators/models_config.py", "src/config/provider.py"]}
+{"id": "where-operator-registry", "query": "where are coding operators registered", "expected": ["src/operators/registry.py", "src/operators/process_registry.py"]}
+{"id": "where-operators-api", "query": "where does API expose operator management", "expected": ["src/api/routes/operators.py"]}
+{"id": "where-pipeline-built", "query": "where is the feature generation pipeline assembled", "expected": ["src/pipeline/builder.py", "src/pipeline/graph.py"]}
+{"id": "where-pipeline-run", "query": "where does pipeline execution happen", "expected": ["src/pipeline/runner.py", "src/pipeline/orchestrator.py"]}
+{"id": "where-platform-module", "query": "where is platform module registry handled", "expected": ["src/platform/registry.py", "src/tools/platform/module_details_tool.py"]}
+{"id": "where-platform-tools", "query": "where are platform module tools implemented", "expected": ["src/tools/platform/module_details_tool.py"]}
+{"id": "where-pricing", "query": "where is OpenRouter pricing calculated", "expected": ["src/metrics/openrouter_pricing.py", "src/metrics/models.py"]}
+{"id": "where-product-manager", "query": "where does product manager coordinate features", "expected": ["src/agents/product_manager/coordinator.py", "src/agents/product_manager/agent.py"]}
+{"id": "where-prompt-parts", "query": "where are prompt parts stored and resolved", "expected": ["src/teams_db/prompt_part_resolver.py", "src/api/routes/prompt_parts.py"]}
+{"id": "where-prompt-templates", "query": "where are agent prompt templates defined", "expected": ["src/agents/base/prompts.py", "src/codegen/templates/prompts.py"]}
+{"id": "where-protocol-models", "query": "where are protocol event models defined", "expected": ["src/protocol/models.py"]}
+{"id": "where-python-package", "query": "where are python dependencies and console scripts configured", "expected": ["pyproject.toml"]}
+{"id": "where-repository-generator", "query": "where does scaffolding generate repositories", "expected": ["src/scaffolding/generators/repository_generator.py"]}
+{"id": "where-reviewer", "query": "where is code review agent service implemented", "expected": ["src/review/service.py", "src/review/reviewer_agent.py"]}
+{"id": "where-root-health", "query": "where is root health check endpoint implemented", "expected": ["src/api/routes/root_health.py", "src/api/routes/health.py"]}
+{"id": "where-sample-apps", "query": "where are sample app definitions configured", "expected": ["scripts/sample_apps.yaml"]}
+{"id": "where-scaffolding", "query": "where are model repository schema service generators", "expected": ["src/scaffolding/generators/model_generator.py", "src/scaffolding/generators/service_generator.py"]}
+{"id": "where-schema-generator", "query": "where does scaffolding generate schemas", "expected": ["src/scaffolding/generators/schema_generator.py"]}
+{"id": "where-service-generator", "query": "where does scaffolding generate services", "expected": ["src/scaffolding/generators/service_generator.py"]}
+{"id": "where-session-analysis", "query": "where are generation sessions analyzed", "expected": ["src/analytics/session_analyzer.py"]}
+{"id": "where-session-cancel", "query": "where is session cancellation implemented", "expected": ["src/sessions/service.py", "src/cli/commands_click/session.py"]}
+{"id": "where-session-cleanup", "query": "where are old sessions cleaned up", "expected": ["src/sessions/cleanup.py", "src/sessions/service.py"]}
+{"id": "where-session-ports", "query": "where are session service ports or interfaces defined", "expected": ["src/sessions/ports.py"]}
+{"id": "where-session-repository", "query": "where are sessions persisted in postgres", "expected": ["src/sessions/postgres_repository.py", "src/sessions/repository.py"]}
+{"id": "where-session-starts", "query": "where is a generation session created and started", "expected": ["src/sessions/service.py", "src/api/routes/sessions.py"]}
+{"id": "where-settings-api", "query": "where can UI fetch or update provider settings", "expected": ["src/api/routes/settings.py"]}
+{"id": "where-static-files", "query": "where are static files registered for generated apps", "expected": ["src/automation/static_files/registry.py"]}
+{"id": "where-strategy-created", "query": "where is an arena strategy experiment created", "expected": ["src/arena/service.py", "src/arena/models.py"]}
+{"id": "where-strategy-run", "query": "where are arena strategies run and compared", "expected": ["src/arena/runner.py", "src/arena/evaluator.py"]}
+{"id": "where-subagents", "query": "where are subagents spawned for work", "expected": ["src/agents/subagent_spawner.py"]}
+{"id": "where-agent-base-class", "query": "where is the abstract base class every agent inherits from", "expected": ["src/agents/base/agent.py", "src/agents/base.py"]}
+{"id": "where-agent-dependencies", "query": "where are dependency injection models for agents defined", "expected": ["src/agents/dependencies.py"]}
+{"id": "where-agent-knowledge", "query": "where is retrieval augmented knowledge kept for agent memory", "expected": ["src/memory/knowledge_store.py", "src/memory/store.py"]}
+{"id": "where-agent-status-enum", "query": "where are agent type and agent status enumerations defined", "expected": ["src/agents/base/models.py", "src/agents/types.py"]}
+{"id": "where-ailoop-cli", "query": "where are the autonomous improvement loop cli commands defined", "expected": ["src/ailoop/cli.py", "src/cli/commands/ailoop.py"]}
+{"id": "where-ailoop-eval", "query": "where does the improvement loop run eval suites against deployed apps", "expected": ["src/ailoop/eval_runner.py"]}
+{"id": "where-ailoop-generator-client", "query": "where does the improvement loop drive the generator as a black box", "expected": ["src/ailoop/generator_client.py"]}
+{"id": "where-ailoop-persistence", "query": "where does the improvement loop persist its records to the database", "expected": ["src/ailoop/repository.py"]}
+{"id": "where-ailoop-schemas", "query": "where are the improvement loop api schemas defined", "expected": ["src/ailoop/schemas.py"]}
+{"id": "where-ailoop-tables", "query": "where are the sqlalchemy tables for improvement loop persistence", "expected": ["src/database/ailoop_models.py"]}
+{"id": "where-api-layer-agent", "query": "where does an agent generate the fastapi api layer", "expected": ["src/agents/api/agent.py"]}
+{"id": "where-api-tests-generated", "query": "where are api tests generated from an openapi spec", "expected": ["src/tools/testing/api_tests_tool.py", "src/tools/testing/schemathesis_tool.py"]}
+{"id": "where-architect-validation", "query": "where is architect output validated and normalized at zero cost", "expected": ["src/operators/architect_validator.py"]}
+{"id": "where-architecture-output-parsed", "query": "where is architecture agent llm output parsed and repaired", "expected": ["src/agents/architecture/parsers.py", "src/agents/architecture/parsing.py", "src/agents/architecture/src/agents/architecture/parsers.py"]}
+{"id": "where-architecture-prompts", "query": "where are requirements and data model prompts for architecture built", "expected": ["src/agents/architecture/prompts.py"]}
+{"id": "where-arena-commands", "query": "where are arena experiment cli commands defined", "expected": ["src/cli/commands_click/arena.py"]}
+{"id": "where-arena-endpoints", "query": "where are the http endpoints for arena experiment management", "expected": ["src/api/routes/arena.py"]}
+{"id": "where-arena-schemas", "query": "where are arena api request and response schemas defined", "expected": ["src/arena/schemas.py"]}
+{"id": "where-artifact-models", "query": "where are the artifact api models defined", "expected": ["src/artifacts/models.py"]}
+{"id": "where-automation-wrappers", "query": "where are automation cli tools wrapped for use by the generator", "expected": ["src/automation/wrappers.py"]}
+{"id": "where-backend-http-client", "query": "where does the cli talk to the backend over http and websockets", "expected": ["src/cli/api_client.py", "src/cli/client.py"]}
+{"id": "where-backend-templates", "query": "where are template classes for pydantic model and service scaffolding", "expected": ["src/agents/backend/templates.py"]}
+{"id": "where-blog-repository", "query": "where are blog posts and comments read and written to the database", "expected": ["src/repositories/blog.py"]}
+{"id": "where-bug-fix-delegated", "query": "where is a bug fix delegated to an external coding model", "expected": ["src/agents/tools/bug_fix.py", "src/agents/tools/issue_fix.py"]}
+{"id": "where-business-atom", "query": "where are entity specific presentational components generated", "expected": ["src/tools/codegen/business_atom_tool.py"]}
+{"id": "where-business-organism", "query": "where are complex business ui blocks generated", "expected": ["src/tools/codegen/business_organism_tool.py"]}
+{"id": "where-calculator-schemas", "query": "where are calculator operation schemas defined", "expected": ["src/api/schemas/calculator.py"]}
+{"id": "where-central-tool-registry", "query": "where is the central registry for all tools", "expected": ["src/tools/registry.py"]}
+{"id": "where-changes-endpoints", "query": "where are incremental change endpoints exposed over http", "expected": ["src/api/routes/changes.py"]}
+{"id": "where-claude-code-invoked", "query": "where is claude code invoked for code generation", "expected": ["src/codegen/claude_code_wrapper.py", "src/operators/claude_code.py"]}
+{"id": "where-cli-rendering", "query": "where are rich based display components for cli output defined", "expected": ["src/cli/display.py"]}
+{"id": "where-cli-tool-base", "query": "where is the shared base class for cli tool wrappers", "expected": ["src/automation/cli_tools/base.py"]}
+{"id": "where-code-validators", "query": "where are validation utilities for generated code implemented", "expected": ["src/codegen/validators.py"]}
+{"id": "where-codegen-mcp-server", "query": "where does the mcp server expose codegen tools to ai agents", "expected": ["src/mcp/server.py"]}
+{"id": "where-codex-invoked", "query": "where is openai codex invoked for code generation", "expected": ["src/codegen/openai_codex_wrapper.py", "src/operators/openai_codex.py"]}
+{"id": "where-component-docs-fetched", "query": "where is component library documentation fetched for the ui", "expected": ["src/tools/ui/taiga_docs_fetcher.py", "src/tools/ui/taiga_docs_tool.py"]}
+{"id": "where-container-cleanup", "query": "where are stale containers cleaned up", "expected": ["src/containers/cleanup.py"]}
+{"id": "where-container-errors", "query": "where are container specific exceptions defined", "expected": ["src/containers/exceptions.py"]}
+{"id": "where-conversational-branch", "query": "where is a conversational branch executed in the pipeline", "expected": ["src/pipeline/conversational_branch.py"]}
+{"id": "where-cross-functional-team", "query": "where is a cross functional team executed", "expected": ["src/pipeline/cross_functional_team.py"]}
+{"id": "where-deploy-commands", "query": "where are cli commands for deploying generated apps defined", "expected": ["src/cli/commands_click/deploy.py"]}
+{"id": "where-deterministic-stubs", "query": "where are python code stubs generated deterministically without an llm", "expected": ["src/operators/python_codegen.py"]}
+{"id": "where-developer-agent", "query": "where is the base developer agent defined", "expected": ["src/agents/developer/base.py"]}
+{"id": "where-di-container", "query": "where is the dependency injection container assembled for the api", "expected": ["src/dependencies.py"]}
+{"id": "where-direct-llm-agent", "query": "where is an llm agent implemented without operators for anthropic and gemini", "expected": ["src/agents/direct/llm_agent.py"]}
+{"id": "where-dockerfile-generated", "query": "where is a dockerfile generated for the application", "expected": ["src/tools/infrastructure/dockerfile_tool.py"]}
+{"id": "where-domain-primitives", "query": "where are shared base models and domain primitives defined", "expected": ["src/shared/models/base.py"]}
+{"id": "where-error-responses", "query": "where are api error responses made consistent", "expected": ["src/exceptions.py"]}
+{"id": "where-eval-endpoints", "query": "where are eval suite group case and run endpoints exposed", "expected": ["src/api/routes/eval.py"]}
+{"id": "where-eval-schemas", "query": "where are eval api request and response schemas defined", "expected": ["src/eval/schemas.py"]}
+{"id": "where-eval-tables", "query": "where are the sqlalchemy tables for eval suites and runs", "expected": ["src/eval/models.py"]}
+{"id": "where-exception-hierarchy", "query": "where is the shared custom exception hierarchy defined", "expected": ["src/shared/exceptions/base.py"]}
+{"id": "where-feature-architecture-models", "query": "where are feature first architecture models defined", "expected": ["src/models/feature_architecture.py"]}
+{"id": "where-feature-contexts-stored", "query": "where are feature contexts stored persistently", "expected": ["src/changes/registry.py"]}
+{"id": "where-feature-page", "query": "where is a feature page with routing generated", "expected": ["src/tools/codegen/feature_page_tool.py"]}
+{"id": "where-frontend-templates", "query": "where are angular code generation templates defined", "expected": ["src/agents/frontend/templates.py"]}
+{"id": "where-gemini-cli-invoked", "query": "where is the gemini cli invoked for code generation", "expected": ["src/codegen/gemini_cli_wrapper.py", "src/operators/gemini_cli.py"]}
+{"id": "where-generated-code-validated", "query": "where is generated code validated against rules after generation", "expected": ["src/agents/validator/agent.py", "src/agents/validator/rules.py"]}
+{"id": "where-generation-monitor-agent", "query": "where does an agent supervise generation in real time", "expected": ["src/agents/monitor/agent.py"]}
+{"id": "where-graph-loops", "query": "where are graph loops subgraphs and parallel groups supported", "expected": ["src/agents/graph_advanced.py"]}
+{"id": "where-http-method-models", "query": "where are http method and request schema models for api generation defined", "expected": ["src/agents/api/models.py"]}
+{"id": "where-infra-templates", "query": "where are static templates for infrastructure generation defined", "expected": ["src/agents/infrastructure/templates.py"]}
+{"id": "where-integration-tests-generated", "query": "where are integration tests generated for the application", "expected": ["src/tools/testing/integration_tests_tool.py"]}
+{"id": "where-interactive-mode", "query": "where is the interactive cli mode implemented", "expected": ["src/cli/interactive.py"]}
+{"id": "where-lead-product-manager", "query": "where is the lead product manager agent implemented", "expected": ["src/agents/lead_product_manager/agent.py"]}
+{"id": "where-live-terminal-progress", "query": "where is live generation progress rendered in the terminal", "expected": ["src/cli/tui/live_display.py"]}
+{"id": "where-llm-call-files", "query": "where are llm calls and generation metadata written to log files", "expected": ["src/logging/llm_file_logger.py"]}
+{"id": "where-llm-retry", "query": "where are llm calls retried with backoff and rate limiting", "expected": ["src/llm/retry_wrapper.py"]}
+{"id": "where-makefile-generated", "query": "where is a makefile generated for the application", "expected": ["src/tools/infrastructure/makefile_tool.py"]}
+{"id": "where-mcp-stdio", "query": "where does the system talk to standard mcp servers over stdio", "expected": ["src/llm/mcp_stdio_client.py", "src/llm/mcp_wrappers.py"]}
+{"id": "where-memory-prompts", "query": "where are memory aware prompt templates defined", "expected": ["src/memory/prompts.py"]}
+{"id": "where-metrics-commands", "query": "where are cli commands for viewing and analyzing metrics", "expected": ["src/cli/commands/metrics.py", "src/cli/commands_click/metrics.py"]}
+{"id": "where-metrics-postgres", "query": "where are metrics persisted to postgres", "expected": ["src/metrics/persistence/postgres_database.py"]}
+{"id": "where-metrics-sqlite", "query": "where are metrics persisted to sqlite", "expected": ["src/metrics/persistence/database.py"]}
+{"id": "where-metrics-tables", "query": "where are the sqlalchemy tables for metrics persistence", "expected": ["src/database/metrics_models.py"]}
+{"id": "where-module-directories-created", "query": "where is the directory structure for a new module created", "expected": ["src/scaffolding/module_scaffolder.py"]}
+{"id": "where-monitor-command", "query": "where is the interactive session monitoring command implemented", "expected": ["src/cli/commands/monitor.py", "src/cli/commands_click/monitor.py"]}
+{"id": "where-movie-cache", "query": "where is omdb movie data fetched and cached", "expected": ["src/models/movie.py", "src/services/omdb_service.py"]}
+{"id": "where-nginx-generated", "query": "where is the nginx configuration generated", "expected": ["src/tools/infrastructure/nginx_tool.py"]}
+{"id": "where-observability-events", "query": "where are observability events persisted to postgres", "expected": ["src/observability/logger.py"]}
+{"id": "where-openapi-operation-updated", "query": "where is a single operation in an openapi spec updated", "expected": ["src/tools/update_openapi_endpoint.py"]}
+{"id": "where-openapi-spec-tool", "query": "where are openapi specifications produced by a tool", "expected": ["src/tools/codegen/openapi_tool.py"]}
+{"id": "where-opencode-invoked", "query": "where is opencode invoked for code generation", "expected": ["src/codegen/opencode_wrapper.py", "src/operators/opencode_cli.py"]}
+{"id": "where-operator-base", "query": "where is the base class for ai operators defined", "expected": ["src/operators/base.py"]}
+{"id": "where-parallel-codegen-delegated", "query": "where is parallel code generation delegated to an external coder", "expected": ["src/llm/ninja_codegen.py"]}
+{"id": "where-parallel-entry-points", "query": "where is a parallel pipeline graph with dual entry points built", "expected": ["src/pipeline/parallel_graph.py"]}
+{"id": "where-pipeline-checkpoints", "query": "where is pipeline state checkpointed in redis", "expected": ["src/pipeline/checkpointer.py"]}
+{"id": "where-platform-copy", "query": "where are platform modules copied into a generated project", "expected": ["src/platform/copier.py"]}
+{"id": "where-pm-factory", "query": "where are product manager agents created by a factory", "expected": ["src/agents/product_manager/factory.py"]}
+{"id": "where-pm-langchain-tools", "query": "where are langchain tools for the project manager agent defined", "expected": ["src/agents/pm/tools.py", "src/agents/product_manager/tools.py"]}
+{"id": "where-pm-state", "query": "where are state models for the product manager agent defined", "expected": ["src/agents/product_manager/state.py"]}
+{"id": "where-post-generation-wiring", "query": "where are routers and routes wired up after generation finishes", "expected": ["src/templates/consolidation.py", "src/operators/consolidation_op.py"]}
+{"id": "where-product-owner-agent", "query": "where are the product owner agents implemented", "expected": ["src/agents/product_owner/agent.py", "src/agents/lead_product_owner/agent.py"]}
+{"id": "where-project-from-template", "query": "where are projects scaffolded from templates", "expected": ["src/templates/service.py", "src/templates/models.py"]}
+{"id": "where-property-tests-generated", "query": "where are property based tests generated from type hints", "expected": ["src/tools/testing/hypothesis_tool.py"]}
+{"id": "where-protocol-event-types", "query": "where are protocol event types enumerated", "expected": ["src/protocol/events.py"]}
+{"id": "where-protocol-logging", "query": "where is structured protocol logging configured", "expected": ["src/protocol/logger.py"]}
+{"id": "where-qa-api-tester", "query": "where does an agent test the generated api", "expected": ["src/agents/qa/api_tester.py"]}
+{"id": "where-recommendation-schemas", "query": "where are cinema recommendation request and response schemas defined", "expected": ["src/api/schemas/recommendation.py"]}
+{"id": "where-research-integration", "query": "where is web research integrated for product owners", "expected": ["src/llm/ninja_researcher.py", "src/research/service.py"]}
+{"id": "where-review-commands", "query": "where are ai review cli commands defined", "expected": ["src/cli/commands_click/review.py"]}
+{"id": "where-review-models", "query": "where are the ai review system models defined", "expected": ["src/review/models.py"]}
+{"id": "where-runtime-contracts", "query": "where are non executing contracts for team runtime policies defined", "expected": ["src/team_builder/runtime_contracts.py"]}
+{"id": "where-runtime-loop-models", "query": "where are runtime models for agent execution and loop configuration defined", "expected": ["src/agents/runtime/models.py"]}
+{"id": "where-scaffolding-engine", "query": "where is scaffolding based code generation orchestrated", "expected": ["src/scaffolding/engine.py", "src/scaffolding/models.py"]}
+{"id": "where-segment-quality-loops", "query": "where does the pipeline run segments with quality control loops", "expected": ["src/pipeline/segment_pipeline.py"]}
+{"id": "where-self-repair-agent", "query": "where does an ai developer agent fix issues in the generator itself", "expected": ["src/review/developer_agent.py"]}
+{"id": "where-server-commands", "query": "where are server start and stop cli commands defined", "expected": ["src/cli/commands/server.py", "src/cli/commands_click/server.py"]}
+{"id": "where-session-commands", "query": "where are session management cli commands defined", "expected": ["src/cli/commands/session.py", "src/cli/commands_click/session.py"]}
+{"id": "where-session-models", "query": "where are session module models and dtos defined", "expected": ["src/sessions/models.py"]}
+{"id": "where-session-workspace", "query": "where is the workspace for session code generation managed", "expected": ["src/sessions/workspace.py"]}
+{"id": "where-stage-handlers", "query": "where are base stage handlers for pipeline stages defined", "expected": ["src/pipeline/stages/base.py"]}
+{"id": "where-supervisor-models", "query": "where are supervisor state and decision models defined", "expected": ["src/agents/supervisor/models.py"]}
+{"id": "where-supervisor-orchestration", "query": "where does the supervisor orchestrate the generation pipeline", "expected": ["src/agents/supervisor/agent.py", "src/agents/supervisor/graph.py"]}
+{"id": "where-supervisor-prompts", "query": "where are the supervisor prompts defined", "expected": ["src/agents/supervisor/prompts.py"]}
+{"id": "where-team-agent-runner", "query": "where are operator based team agents executed with metrics collection", "expected": ["src/agents/team_agent_runner.py"]}
+{"id": "where-team-builder-endpoints", "query": "where are the team builder http endpoints defined", "expected": ["src/api/routes/team_builder.py"]}
+{"id": "where-team-builder-service", "query": "where is the team builder service implemented", "expected": ["src/team_builder/service.py"]}
+{"id": "where-team-config-converted", "query": "where is a team configuration converted between representations", "expected": ["src/team_builder/converter.py"]}
+{"id": "where-team-config-validated", "query": "where is a team configuration validated", "expected": ["src/team_builder/validator.py", "src/team_builder/yaml_validator.py"]}
+{"id": "where-team-db-models", "query": "where are database models for team configurations defined", "expected": ["src/teams_db/models.py"]}
+{"id": "where-team-graph-built", "query": "where is a langgraph execution graph built from a team configuration", "expected": ["src/agents/team_graph_builder.py"]}
+{"id": "where-team-pipeline-executed", "query": "where is a team based pipeline executed", "expected": ["src/services/team_pipeline_executor.py"]}
+{"id": "where-team-records", "query": "where are team records read and written in the database", "expected": ["src/teams_db/repository.py", "src/teams_db/service.py"]}
+{"id": "where-team-service", "query": "where are operator and langgraph teams managed and executed", "expected": ["src/services/team_service.py"]}
+{"id": "where-team-state", "query": "where are team state models for the multi agent graph defined", "expected": ["src/teams/state.py"]}
+{"id": "where-team-yaml-compiled", "query": "where are yaml team configs loaded and compiled into a state machine", "expected": ["src/teams/builder.py"]}
+{"id": "where-team-yaml-migration", "query": "where are yaml teams imported into the database", "expected": ["src/teams_db/migrate_yaml_to_db.py"]}
+{"id": "where-teams-db-endpoints", "query": "where are database backed team endpoints exposed", "expected": ["src/api/routes/teams_db.py"]}
+{"id": "where-techsupport-agent", "query": "where are generated applications fixed and redeployed after failures", "expected": ["src/agents/techsupport/agent.py"]}
+{"id": "where-todo-repository", "query": "where are todos read and written to the database", "expected": ["src/repositories/todo.py"]}
+{"id": "where-todo-schemas", "query": "where are todo request and response schemas defined", "expected": ["src/api/schemas/todo.py"]}
+{"id": "where-tool-config-models", "query": "where are pydantic models for the tool configuration system defined", "expected": ["src/agents/tools/models.py"]}
+{"id": "where-tool-format-adapters", "query": "where is the interface for converting langchain tools to provider tool formats", "expected": ["src/operators/adapters/base.py"]}
+{"id": "where-tool-instantiation", "query": "where are configured tool instances built from tool definitions", "expected": ["src/agents/tools/factory.py", "src/agents/tools/registry.py"]}
+{"id": "where-tool-registration-errors", "query": "where are unknown tool and duplicate tool registration errors raised", "expected": ["src/agents/base/tools.py"]}
+{"id": "where-tools-over-mcp", "query": "where is the tool registry exposed over mcp", "expected": ["src/tools/mcp_server.py", "src/tools/mcp_server_simple.py"]}
+{"id": "where-tools-provided", "query": "where are tools provided to agents dynamically", "expected": ["src/tools/provider.py"]}
+{"id": "where-ui-components-db", "query": "where is the ui components database kept", "expected": ["src/tools/ui/taiga_components_db.py"]}
+{"id": "where-ui-mcp-client", "query": "where is the official ui component mcp server client", "expected": ["src/tools/ui/taiga_mcp_client.py"]}
+{"id": "where-ui-theme-generated", "query": "where is a ui theme generated", "expected": ["src/tools/ui/taiga_theme_generator.py", "src/tools/ui/taiga_theme_tool.py"]}
+{"id": "where-unit-tests-generated", "query": "where are unit tests generated for the application", "expected": ["src/tools/testing/unit_tests_tool.py"]}
+{"id": "where-uv-invoked", "query": "where is the uv package manager invoked", "expected": ["src/automation/cli_tools/uv_tool.py"]}
+{"id": "where-websocket-event-schemas", "query": "where are websocket event schemas defined", "expected": ["src/websocket/events.py"]}
+{"id": "where-websocket-handlers", "query": "where are websocket events handled", "expected": ["src/websocket/handlers.py"]}
+{"id": "where-workspace-file-edit", "query": "where are existing workspace files edited by a tool", "expected": ["src/tools/infrastructure/edit_file_tool.py"]}
+{"id": "where-workspace-listing", "query": "where are workspace directory contents listed by a tool", "expected": ["src/tools/infrastructure/list_directory_tool.py"]}

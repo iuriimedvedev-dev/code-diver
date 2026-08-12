@@ -1,3 +1,6 @@
+# H16 arm B (depth) — variant of protogen-h14-qwen35-4b-text-graph.yml.
+# Changed keys only: evaluation.limit (10 -> 20), llm_rerank.candidate_limit (34 -> 60).
+# Invariant: llm_rerank.candidate_limit (60) >= evaluation.limit (20).
 root: ../protogen
 
 storage:
@@ -114,7 +117,7 @@ graph_file_search:
   min_token_length: 3
 
 llm_rerank:
-  candidate_limit: 34
+  candidate_limit: 60
   rerank_limit: 10
   max_preview_chars: 850
   mode: precision
@@ -135,7 +138,7 @@ graph:
   neighbor_limit: 40
 
 evaluation:
-  limit: 10
+  limit: 20
   workers: 1
 
 metrics:

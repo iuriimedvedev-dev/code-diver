@@ -4,7 +4,7 @@ storage:
   provider: qdrant
   qdrant:
     url: http://localhost:6333
-    collection: code_diver_h14_gemma26_text_graph
+    collection: code_diver_h17_ctrl
     batch_size: 256
 
 embedding:
@@ -21,7 +21,7 @@ embedding:
 
 generation:
   provider: openai_compatible
-  model: mlx-community/Qwen3.5-4B-OptiQ-4bit
+  model: mlx-community/gemma-4-e2b-it-4bit
   url: http://127.0.0.1:8012/v1/chat/completions
   api_key: local
   temperature: 0
@@ -127,7 +127,7 @@ llm_rerank:
 
 graph:
   enabled: true
-  artifact: .code-diver/protogen-h14-gemma26-text-graph.json
+  artifact: .code-diver/protogen-h17-ctrl.json
   ast_enabled: false
   reference_edges_enabled: true
   call_edges_enabled: false

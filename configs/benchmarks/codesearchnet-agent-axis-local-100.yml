@@ -24,7 +24,8 @@ generation:
   response_format: json_schema
   timeout_ms: 120000
   extra_body:
-    enable_thinking: false
+    chat_template_kwargs:
+      enable_thinking: false
 
 indexing:
   mode: scanner
@@ -130,7 +131,8 @@ experiments:
         response_format: json_schema
         timeout_ms: 120000
         extra_body:
-          enable_thinking: false
+          chat_template_kwargs:
+            enable_thinking: false
       rerank_generation: *gemma_e2b
       description: "Local-only agent: Gemma 4 E2B plans/tool-calls and reranks over H6.1 EmbeddingGemma candidates."
     - name: agent_gemma4_e2b_qat_llama_monotonic_local_rerank
@@ -158,7 +160,8 @@ experiments:
         response_format: json_schema
         timeout_ms: 120000
         extra_body:
-          enable_thinking: false
+          chat_template_kwargs:
+            enable_thinking: false
       rerank_generation: *gemma_e4b
       description: "Local-only agent: Gemma 4 E4B plans/tool-calls and reranks over H6.1 EmbeddingGemma candidates."
     - name: agent_gemma4_e4b_monotonic_local_rerank
@@ -191,7 +194,8 @@ experiments:
         response_format: json_schema
         timeout_ms: 120000
         extra_body:
-          enable_thinking: false
+          chat_template_kwargs:
+            enable_thinking: false
       rerank_generation: *qwen35_9b
       description: "Local-only agent: Qwen3.5 9B plans/tool-calls and reranks over H6.1 EmbeddingGemma candidates."
     - name: agent_gemma4_12b_local_rerank
@@ -206,7 +210,8 @@ experiments:
         response_format: json_schema
         timeout_ms: 300000
         extra_body:
-          enable_thinking: false
+          chat_template_kwargs:
+            enable_thinking: false
       rerank_generation: *gemma_12b
       description: "Local-only agent: Gemma 4 12B plans/tool-calls and reranks over H6.1 EmbeddingGemma candidates."
     - name: agent_gemma4_12b_monotonic_local_rerank

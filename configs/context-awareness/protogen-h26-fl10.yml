@@ -4,7 +4,7 @@ storage:
   provider: qdrant
   qdrant:
     url: http://localhost:6333
-    collection: code_diver_h14_gemma26_text_graph
+    collection: code_diver_h17_ctrl
     batch_size: 256
 
 embedding:
@@ -110,6 +110,7 @@ graph_file_search:
   graph_weight: 0.45
   depth: 2
   neighbor_limit: 40
+  frontier_limit: 10
   decay: 0.65
   min_token_length: 3
 
@@ -127,7 +128,7 @@ llm_rerank:
 
 graph:
   enabled: true
-  artifact: .code-diver/protogen-h14-gemma26-text-graph.json
+  artifact: .code-diver/protogen-h17-ctrl.json
   ast_enabled: false
   reference_edges_enabled: true
   call_edges_enabled: false

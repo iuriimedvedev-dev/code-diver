@@ -122,7 +122,8 @@ experiments:
         response_format: json_schema
         timeout_ms: 120000
         extra_body:
-          enable_thinking: false
+          chat_template_kwargs:
+            enable_thinking: false
       description: "One-shot local Gemma E2B rerank over fixed H6.1 EmbeddingGemma candidates."
     - name: h6_embeddinggemma_rerank_gemma4_e4b
       strategy: hybrid_rerank
@@ -136,7 +137,8 @@ experiments:
         response_format: json_schema
         timeout_ms: 120000
         extra_body:
-          enable_thinking: false
+          chat_template_kwargs:
+            enable_thinking: false
       description: "One-shot local Gemma E4B rerank over fixed H6.1 EmbeddingGemma candidates."
     - name: h6_embeddinggemma_rerank_qwen35_9b
       strategy: hybrid_rerank
@@ -150,7 +152,8 @@ experiments:
         response_format: json_schema
         timeout_ms: 120000
         extra_body:
-          enable_thinking: false
+          chat_template_kwargs:
+            enable_thinking: false
       description: "One-shot local Qwen3.5 9B rerank over fixed H6.1 EmbeddingGemma candidates."
 
 metrics:
