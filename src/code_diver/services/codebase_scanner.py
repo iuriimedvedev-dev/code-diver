@@ -277,12 +277,37 @@ class CodebaseScanner:
 
     def _matches_exclude_pattern(self, rel_path: str, pattern: str) -> bool:
         normalized = pattern.rstrip("/")
-        if normalized.endswith("/**"):
-            base = normalized[:-3]
-            if "/" not in base and base in rel_path.split("/"):
-                return True
-            return rel_path == base or rel_path.startswith(base + "/")
-        return self._matches_any(rel_path, [pattern])
+        if not normalized.endswith("/**"):
+            return self._matches_any(rel_path, [pattern])
+        base = normalized[:-3]
+        # ``**/dir/**`` and the bare ``dir/**`` mean the same thing: exclude that
+        # directory wherever it sits. Only a multi-segment base without the ``**/``
+        # prefix (e.g. ``.pi/npm/**``) is anchored at the repository root.
+        any_depth = base.startswith("**/")
+        if any_depth:
+            base = base[3:]
+        if not base:
+            return True
+        if any_depth or "/" not in base:
+            return self._contains_segment_run(rel_path.split("/"), base.split("/"))
+        return rel_path == base or rel_path.startswith(base + "/")
+
+    @staticmethod
+    def _contains_segment_run(path_segments: list[str], run: list[str]) -> bool:
+        """True when ``run`` appears as a contiguous run of path segments.
+
+        Matching a run rather than a substring keeps ``node_modules/**`` from
+        excluding ``src/node_modules_helper.py``. Segments are compared with
+        ``fnmatch`` so a wildcard inside the base (``**/*_generated/**``) still works.
+        """
+        span = len(run)
+        return any(
+            all(
+                fnmatch.fnmatch(segment, expected)
+                for segment, expected in zip(path_segments[offset : offset + span], run, strict=True)
+            )
+            for offset in range(len(path_segments) - span + 1)
+        )
 
     def _read_text(self, path: Path) -> str | None:
         try:

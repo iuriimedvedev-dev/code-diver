@@ -415,6 +415,36 @@ def test_nested_vendor_directory_is_excluded_at_any_depth(tmp_path: Path) -> Non
     assert [item.path for item in items] == ["src/node_modules_helper.py"]
 
 
+def test_doublestar_prefixed_directory_patterns_exclude_at_any_depth() -> None:
+    # The `**/dir/**` form is what real configs are written in (every IntelliJ
+    # exclusion uses it). It regressed silently once because the exclusion
+    # predicate only recognised the bare `dir/**` spelling, and nothing failed:
+    # a broken exclusion adds files to an index rather than raising.
+    scanner = CodebaseScanner(
+        include=["**/*.java", "**/*.js"],
+        exclude=["**/test/**", "**/gen/**", "**/testData/**", "**/node_modules/**"],
+    )
+
+    assert scanner._is_excluded("RegExpSupport/test/org/RegExpCompletionTest.java") is True
+    assert scanner._is_excluded("RegExpSupport/gen/org/_RegExLexer.java") is True
+    assert scanner._is_excluded("java/java-tests/testData/inspection/x.java") is True
+    assert scanner._is_excluded("plugins/x/node_modules/y/index.js") is True
+    # The directory itself, as the walk branch sees it during pruning.
+    assert scanner._is_excluded("RegExpSupport/test") is True
+    # Neither a same-named prefix nor a same-named file suffix is a match.
+    assert scanner._is_excluded("platform/testFramework/Runner.java") is False
+    assert scanner._is_excluded("platform/util/src/GenUtil.java") is False
+
+
+def test_anchored_multi_segment_directory_pattern_stays_rooted() -> None:
+    # `.pi/npm/**` has no `**/` prefix, so it must only match at the root --
+    # otherwise it would start swallowing `vendor/.pi/npm/...` too.
+    scanner = CodebaseScanner(include=["**/*.py"], exclude=[".pi/npm/**"])
+
+    assert scanner._is_excluded(".pi/npm/pkg/a.py") is True
+    assert scanner._is_excluded("vendor/.pi/npm/pkg/a.py") is False
+
+
 def test_file_glob_exclude_patterns_keep_plain_fnmatch_semantics() -> None:
     scanner = CodebaseScanner(exclude=["*.lock", "**/*.min.js"])
 
