@@ -5,15 +5,14 @@ from pathlib import Path
 
 import pytest
 
+from code_diver.config.ai_index_config import AiIndexConfig
 from code_diver.config.app_config import AppConfig
 from code_diver.config.indexing_config import IndexingConfig
-from code_diver.config.ai_index_config import AiIndexConfig
 from code_diver.config.scanner_config import ScannerConfig
 from code_diver.config.trace_config import TraceConfig
 from code_diver.orchestration import OrchestratedCodebaseScanner, OrchestratedRetrievalStrategy
 from code_diver.services import CodebaseScanner
 from code_diver.tracing import TraceLogger
-
 
 pytestmark = pytest.mark.unit
 
@@ -26,7 +25,7 @@ class FakeGenerationProvider:
         self.response = response
         self.prompts: list[str] = []
 
-    def generate_json(self, prompt: str) -> str:
+    def generate_json(self, prompt: str, *, schema: dict | None = None) -> str:
         self.prompts.append(prompt)
         return self.response
 

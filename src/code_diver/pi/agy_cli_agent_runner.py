@@ -4,6 +4,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from typing import ClassVar
 
 from rich.console import Console
 from rich.panel import Panel
@@ -15,7 +16,7 @@ from .pi_session_options import PiSessionOptions
 
 
 class AgyCliAgentRunner:
-    PROVIDERS = {
+    PROVIDERS: ClassVar[set[str]] = {
         "agy",
         "agy-cli",
         "agy_cli",

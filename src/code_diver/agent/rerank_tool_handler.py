@@ -6,7 +6,7 @@ from time import perf_counter
 from typing import Any
 
 from ..config.llm_rerank_config import LlmRerankConfig
-from ..generation import GenerationProvider
+from ..generation import RERANK_SCHEMA, GenerationProvider
 from ..orchestration.json_response import JsonResponse
 from .model_cost_estimator import ModelCostEstimator
 
@@ -27,7 +27,7 @@ class RerankToolHandler:
 
         prompt = self._prompt(query, normalized, limit, config)
         started = perf_counter()
-        response = self.generation_provider.generate_json_result(prompt)
+        response = self.generation_provider.generate_json_result(prompt, schema=RERANK_SCHEMA)
         duration_ms = (perf_counter() - started) * 1000
         parse_error: str | None = None
         try:

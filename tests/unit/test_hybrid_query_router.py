@@ -5,7 +5,6 @@ import pytest
 from code_diver.config import HybridSearchConfig
 from code_diver.strategies.hybrid_query_router import HybridQueryRouter
 
-
 pytestmark = pytest.mark.unit
 
 

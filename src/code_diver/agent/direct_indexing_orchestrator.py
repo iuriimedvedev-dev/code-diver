@@ -1,17 +1,18 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from pathlib import Path
 from time import perf_counter
-from typing import Any, Callable
+from typing import Any
 
 from ..generation import GenerationProvider, GenerationResult
 from ..providers import EmbeddingProvider
 from ..services import (
     IndexingOptions,
     SelectedCodeItemBuilder,
-    SelectedIndexPayloadParser,
     SelectedIndexingService,
+    SelectedIndexPayloadParser,
 )
 from ..store import VectorStore
 from .direct_agent_logger import DirectAgentLogger

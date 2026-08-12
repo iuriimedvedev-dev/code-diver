@@ -26,37 +26,40 @@ from rich.progress import (
 )
 from rich.table import Table
 
-from .config import AppConfig, ConfigLoader
-from .config.embedding_profile_registry import EmbeddingProfileRegistry
 from .agent import DirectIndexingOrchestrator, DirectSearchOrchestrator
 from .agent.h3_search_tool_handler import H3SearchToolHandler
 from .agent.rerank_tool_handler import RerankToolHandler
 from .ai_indexing import AiCodebaseScanner, HybridCodebaseScanner
 from .answering import (
-    AnswerCandidateReranker,
+    AnswerCandidateRerankerFactory,
     AnswerContextBuilder,
     AnswerDatasetLoader,
     AnswerEvaluator,
     AnswerJudge,
+    AnswerPairwiseJudge,
+    AnswerPairwiseReport,
     AnswerQueryPlanner,
     AnswerReportJudge,
     AnswerReportMetrics,
     SweQaProDatasetPreparer,
 )
+from .answering.answer_report_metrics import DURATION_METRICS, JUDGE_METRICS, PRIMARY_METRICS
 from .benchmarks import (
     BenchmarkAssetService,
     BenchmarkProfile,
     BenchmarkProfileRegistry,
 )
+from .config import AppConfig, ConfigLoader
+from .config.embedding_profile_registry import EmbeddingProfileRegistry
 from .domain import CodeItemIndexKindResolver, EvalResult, SearchResult
 from .env import EnvFileLoader
+from .experiments import ExperimentRunner
 from .explanation import (
     CodeExplanationDatasetPreparer,
     CodeExplanationEvaluator,
     ExplanationDatasetLoader,
     ExplanationJudge,
 )
-from .experiments import ExperimentRunner
 from .generation import create_generation_provider
 from .graph import CodeGraphBuilder, CodeGraphStore
 from .inspection import (
@@ -98,15 +101,6 @@ from .runtime import (
     RuntimeConfigStore,
     RuntimeSetupWizard,
 )
-from .settings import (
-    CommandName,
-    Defaults,
-    EmbeddingProviderId,
-    OptionName,
-    RetrievalStrategyId,
-    SchemaKey,
-    VectorStoreProviderId,
-)
 from .services import (
     CandidateFileScanner,
     CodebaseScanner,
@@ -119,15 +113,24 @@ from .services import (
     IndexingService,
     LocalEvalDatasetGenerator,
     SelectedCodeItemBuilder,
-    SelectedIndexPayloadParser,
     SelectedIndexingService,
+    SelectedIndexPayloadParser,
 )
 from .services.codebase_scanner import DEFAULT_EXCLUDES
 from .services.eval_case_bucket_classifier import EvalCaseBucketClassifier
 from .services.evaluation_service import EvaluationService
 from .services.evaluation_statistics import EvaluationStatistics
-from .strategies import RetrievalStrategyFactory
+from .settings import (
+    CommandName,
+    Defaults,
+    EmbeddingProviderId,
+    OptionName,
+    RetrievalStrategyId,
+    SchemaKey,
+    VectorStoreProviderId,
+)
 from .store import create_vector_store
+from .strategies import RetrievalStrategyFactory
 from .tracing import TraceLogger
 from .ui import (
     EditorOpener,
@@ -137,8 +140,8 @@ from .ui import (
     TraceMonitor,
 )
 
-
 ADVANCED_COMMANDS = {
+    CommandName.ANSWER_PAIRWISE.value,
     CommandName.ANSWER_REPORT.value,
     CommandName.ASK.value,
     CommandName.CHAT.value,
@@ -800,6 +803,48 @@ def add_advanced_parsers(
     answer_report.add_argument(OptionName.JSON.value, action="store_true")
     answer_report.set_defaults(func=cmd_answer_report)
 
+    answer_pairwise = subparsers.add_parser(
+        CommandName.ANSWER_PAIRWISE.value,
+        help=(
+            "Forced-choice comparison of two saved evaluate-answers reports. Use when the "
+            "absolute judge saturates and cannot separate the arms."
+        ),
+    )
+    answer_pairwise.add_argument("baseline", type=Path, help="Report treated as the incumbent.")
+    answer_pairwise.add_argument("arm", type=Path, help="Report treated as the challenger.")
+    answer_pairwise.add_argument(
+        "--baseline-name",
+        default=None,
+        help="Label for the baseline in the results. Defaults to the report filename stem.",
+    )
+    answer_pairwise.add_argument(
+        "--arm-name",
+        default=None,
+        help="Label for the arm in the results. Defaults to the report filename stem.",
+    )
+    answer_pairwise.add_argument("--output", type=Path, default=None)
+    answer_pairwise.add_argument(
+        "--judge-prompt",
+        type=Path,
+        default=None,
+        help="Editable markdown prompt used by the pairwise judge.",
+    )
+    answer_pairwise.add_argument(
+        "--judge-config",
+        type=Path,
+        default=None,
+        help="Optional YAML config for the pairwise judge provider.",
+    )
+    answer_pairwise.add_argument("--judge-model", default=None)
+    answer_pairwise.add_argument(
+        "--workers",
+        type=int,
+        default=1,
+        help="Compare pairs concurrently. Keep at 1 for a single-slot local server.",
+    )
+    answer_pairwise.add_argument(OptionName.JSON.value, action="store_true")
+    answer_pairwise.set_defaults(func=cmd_answer_pairwise)
+
     experiment = subparsers.add_parser(
         CommandName.EXPERIMENT.value,
         help="Run configured retrieval hypotheses and optionally record metrics.",
@@ -841,10 +886,7 @@ def build_index_maintenance_help_parser(command: str) -> argparse.ArgumentParser
 
 
 def normalize_argv(argv: list[str] | None) -> list[str] | None:
-    if argv is None:
-        raw = list(sys.argv[1:])
-    else:
-        raw = list(argv)
+    raw = list(sys.argv[1:]) if argv is None else list(argv)
     normalized: list[str] = []
     config_tokens: list[str] = []
     index = 0
@@ -857,9 +899,7 @@ def normalize_argv(argv: list[str] | None) -> list[str] | None:
             config_tokens.extend([token, raw[index + 1]])
             index += 2
             continue
-        if token.startswith(f"{OptionName.CONFIG.value}=") or token.startswith(
-            f"{OptionName.ROOT.value}="
-        ):
+        if token.startswith((f"{OptionName.CONFIG.value}=", f"{OptionName.ROOT.value}=")):
             config_tokens.append(token)
             index += 1
             continue
@@ -1695,9 +1735,8 @@ def cmd_search(args: argparse.Namespace, config: AppConfig) -> int:
         results = run_search(config, query, args.limit or config.search.limit)
         print(json.dumps([result_to_json(result) for result in results], indent=2))
         return 0
-    if not args.json:
-        if not code_explorer_preflight(config, args.config):
-            return 1
+    if not args.json and not code_explorer_preflight(config, args.config):
+        return 1
     if not search_agent_binary_available(config):
         if args.interactive:
             render_status_panel(
@@ -2235,6 +2274,7 @@ def graph_file_settings_label(config: AppConfig) -> str:
     if config.search.strategy not in {
         RetrievalStrategyId.GRAPH_FILE.value,
         RetrievalStrategyId.GRAPH_FILE_RERANK.value,
+        RetrievalStrategyId.GRAPH_FILE_CROSS_ENCODER.value,
     }:
         return "disabled"
     graph_file = config.graph_file_search
@@ -2244,6 +2284,19 @@ def graph_file_settings_label(config: AppConfig) -> str:
         f"weights=vector:{graph_file.vector_weight}/lexical:{graph_file.lexical_weight}/"
         f"path:{graph_file.path_weight}/symbol:{graph_file.symbol_weight}/graph:{graph_file.graph_weight}"
     )
+
+
+def final_rerank_settings(reranker: object | None) -> dict[str, Any]:
+    """What the final candidate rerank will actually be, for the report's settings block."""
+    if reranker is None:
+        return {"final_rerank_kind": None}
+    provider = getattr(reranker, "provider", None)
+    return {
+        "final_rerank_kind": type(reranker).__name__,
+        "final_rerank_provider": getattr(provider, "name", None),
+        "final_rerank_model": getattr(provider, "model", None),
+        "final_rerank_candidate_limit": getattr(reranker, "candidate_limit", None),
+    }
 
 
 def search_uses_llm_rerank(config: AppConfig) -> bool:
@@ -2442,8 +2495,8 @@ def cmd_evaluate_search_tools(args: argparse.Namespace, config: AppConfig) -> in
             ) -> tuple[int, Any, float, dict[str, Any], str | None]:
                 case_started = perf_counter()
                 try:
-                    search_result = orchestrator.search(
-                        hypothesis_name=hypothesis.name,
+                    search_result = orchestrator.search(  # noqa: B023 - joined before next iteration
+                        hypothesis_name=hypothesis.name,  # noqa: B023 - joined before next iteration
                         case_id=case.id,
                         query=case.query,
                         limit=limit,
@@ -2836,8 +2889,11 @@ def cmd_evaluate_answers(args: argparse.Namespace, config: AppConfig) -> int:
         query_retrieval_strategy = make_retrieval_strategy(
             query_config, provider, vector_store
         )
+    # Which primitive does the final rerank follows from `search.strategy`, not from the probe
+    # strategy passed on the command line. Building it here rather than hard-coding
+    # AnswerCandidateReranker is what makes a cross-encoder arm a config diff.
     query_result_reranker = (
-        AnswerCandidateReranker(answer_provider, config.llm_rerank)
+        AnswerCandidateRerankerFactory().create(config, answer_provider)
         if args.agentic_queries and args.agentic_query_rerank
         else None
     )
@@ -2956,6 +3012,7 @@ def cmd_evaluate_answers(args: argparse.Namespace, config: AppConfig) -> int:
             query_workers=args.query_workers,
             workers=worker_count,
             save_context=not bool(args.omit_context),
+            restrict_citations_to_context=config.evaluation.restrict_citations_to_context,
             progress_callback=advance_progress,
             row_callback=write_partial,
         ).evaluate(cases)
@@ -2991,12 +3048,21 @@ def cmd_evaluate_answers(args: argparse.Namespace, config: AppConfig) -> int:
             "embedding_model": config.embedding.model,
             "answer_provider": config.generation.provider,
             "answer_model": config.generation.model,
+            # Read off the reranker object, not off the config. An arm that names a rerank model
+            # the eval path ignores used to look identical to one that honours it, which is how a
+            # whole 100-case arm came back as an unwitting replicate of its own control
+            # (Finding 35). Recording what will actually run makes that unrepeatable.
+            **final_rerank_settings(query_result_reranker),
             "judge_enabled": bool(args.judge),
             "judge_prompt": str(args.judge_prompt or AnswerJudge.DEFAULT_PROMPT_PATH),
             "judge_model": args.judge_model
             or (judge_config.generation.model if judge_config else None),
             "workers": worker_count,
             "context_text_saved": not bool(args.omit_context),
+            # Part of the arm's identity: the same reranker with and without the citation
+            # allowlist are different arms, and a report that does not say which one it was
+            # cannot be compared to anything.
+            "restrict_citations_to_context": config.evaluation.restrict_citations_to_context,
         },
         **report,
     }
@@ -3132,6 +3198,126 @@ def cmd_answer_report_judge(args: argparse.Namespace, config: AppConfig) -> int:
     return 0
 
 
+def cmd_answer_pairwise(args: argparse.Namespace, config: AppConfig) -> int:
+    baseline_payload = AnswerReportMetrics().load(args.baseline)
+    arm_payload = AnswerReportMetrics().load(args.arm)
+    judge_config = ConfigLoader().load(args.judge_config) if args.judge_config else config
+    judge_config = apply_runtime_config(args, judge_config)
+    if args.judge_model:
+        judge_config = replace(
+            judge_config,
+            generation=replace(judge_config.generation, model=args.judge_model),
+        )
+    baseline_name = args.baseline_name or args.baseline.stem
+    arm_name = args.arm_name or args.arm.stem
+    if baseline_name == arm_name:
+        print(
+            f"error: baseline and arm resolve to the same label {baseline_name!r}; "
+            "pass --baseline-name/--arm-name so the verdicts can be told apart",
+            file=sys.stderr,
+        )
+        return 1
+    output = args.output or Path(f"{args.arm.with_suffix('')}.pairwise-vs-{baseline_name}.json")
+    if output.exists():
+        print(f"error: refusing to overwrite existing {output}", file=sys.stderr)
+        return 1
+
+    progress_bar = None
+    task_id = None
+    if not args.json:
+        render_status_panel(
+            "Pairwise Answer Judge",
+            [
+                ("baseline", f"{baseline_name} ({args.baseline})"),
+                ("arm", f"{arm_name} ({args.arm})"),
+                ("output", output),
+                ("judge model", f"{judge_config.generation.provider}:{judge_config.generation.model}"),
+                ("prompt", args.judge_prompt or AnswerPairwiseJudge.DEFAULT_PROMPT_PATH),
+                ("workers", args.workers),
+            ],
+            border_style="magenta",
+        )
+        progress_bar = Progress(
+            SpinnerColumn(style="magenta"),
+            TextColumn("[bold magenta]comparing answers[/bold magenta]"),
+            BarColumn(),
+            MofNCompleteColumn(),
+            TimeElapsedColumn(),
+            TimeRemainingColumn(),
+            console=status_console(),
+        )
+        progress_bar.start()
+        task_id = progress_bar.add_task("pairwise", total=None)
+
+    def advance(completed: int, total: int, _verdict: Any) -> None:
+        if progress_bar is not None and task_id is not None:
+            progress_bar.update(task_id, completed=completed, total=total)
+
+    try:
+        result = AnswerPairwiseReport(
+            AnswerPairwiseJudge(
+                create_generation_provider(judge_config),
+                prompt_path=args.judge_prompt,
+            ),
+            baseline_name=baseline_name,
+            arm_name=arm_name,
+            workers=args.workers,
+            progress_callback=advance,
+        ).compare_payloads(baseline_payload, arm_payload)
+    finally:
+        if progress_bar is not None:
+            progress_bar.stop()
+
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8")
+    if args.json:
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return 0
+    print(f"saved pairwise comparison: {output}")
+    render_answer_pairwise_summary(result)
+    return 0
+
+
+def render_answer_pairwise_summary(result: dict[str, Any]) -> None:
+    summary = result["summary"]
+    arm, baseline = result["arm"], result["baseline"]
+    table = Table(title=f"pairwise: {arm} vs {baseline}")
+    table.add_column("dimension", style="cyan")
+    table.add_column(f"{arm} wins", justify="right", style="bold")
+    table.add_column(f"{baseline} wins", justify="right")
+    table.add_column("ties", justify="right")
+    table.add_column("sign p", justify="right")
+    table.add_row(
+        "OVERALL",
+        str(summary["arm_wins"]),
+        str(summary["arm_losses"]),
+        str(summary["ties"]),
+        f"{summary['sign_test_p']:.4f}",
+    )
+    for name, stats in summary["dimensions"].items():
+        table.add_row(
+            name,
+            str(stats["arm_wins"]),
+            str(stats["arm_losses"]),
+            str(stats["ties"]),
+            f"{stats['sign_test_p']:.4f}",
+        )
+    Console().print(table)
+    Console().print(
+        f"cases judged {result['cases_judged']}/{result['cases_paired']}"
+        f"  win rate {summary['win_rate']:.1%}"
+        f"  win rate among decided {summary['win_rate_decided']:.1%}"
+    )
+    # Printed every time, not only when it looks bad: a reader who is not told the position
+    # split has no way to know whether a win rate reflects quality or reading order.
+    Console().print(
+        f"position-bias check: slot A won {summary['slot_a_win_share']:.1%} of "
+        f"{summary['decided_cases']} decided cases (0.5 = unbiased)"
+    )
+    if result["judge_errors"]:
+        Console().print(f"[yellow]judge errors: {len(result['judge_errors'])} case(s) dropped[/yellow]")
+
+
 def answer_report_root(payload: dict[str, Any], config: AppConfig) -> Path | None:
     settings = payload.get("settings") if isinstance(payload.get("settings"), dict) else {}
     root = settings.get("root") if settings else None
@@ -3140,18 +3326,42 @@ def answer_report_root(payload: dict[str, Any], config: AppConfig) -> Path | Non
     return config.root if config.root else None
 
 
+# Keys that render with a 95% CI in `answer_report_metric_cell`, on top of any key already
+# matched by the `"_hit" in key` heuristic below. These are the deterministic gates -- bundle
+# completeness and grounding binaries -- where a 100-case sweep needs the interval to tell a
+# real gap from sampling noise, plus `judge_overall` for continuity with historical reports.
+CI_RENDERED_METRICS: frozenset[str] = frozenset(
+    {
+        "context_bundle_complete",
+        "candidate_bundle_complete",
+        "answer_grounded",
+        "answer_nonempty",
+        "judge_overall",
+    }
+)
+
+
 def render_answer_report_comparison(comparison: dict[str, Any]) -> None:
     table = Table(title="answer report comparison")
     table.add_column("report", style="cyan")
+    table.add_column("primary (bundle)", justify="right", style="bold")
     table.add_column("retrieval", justify="right")
     table.add_column("context", justify="right")
-    table.add_column("answer", justify="right")
+    table.add_column("text / citations", justify="right")
     table.add_column("latency", justify="right")
-    table.add_column("judge", justify="right")
+    table.add_column("judge (SECONDARY,\nunvalidated)", justify="right")
     for report in comparison.get("reports") or []:
         metrics = report.get("metrics") or {}
         table.add_row(
             str(report.get("name") or "report"),
+            "\n".join(
+                [
+                    f"context bundle {answer_report_metric_cell(metrics, 'context_bundle_complete')}",
+                    f"candidate bundle {answer_report_metric_cell(metrics, 'candidate_bundle_complete')}",
+                    f"grounded {answer_report_metric_cell(metrics, 'answer_grounded')}",
+                    f"fabricated {answer_report_metric_cell(metrics, 'citation_fabricated_rate')}",
+                ]
+            ),
             "\n".join(
                 [
                     f"cases {answer_report_metric_cell(metrics, 'cases')}",
@@ -3185,9 +3395,15 @@ def render_answer_report_comparison(comparison: dict[str, Any]) -> None:
             ),
             "\n".join(
                 [
-                    f"overall {answer_report_metric_cell(metrics, 'judge_overall')}",
+                    f"correctness {answer_report_metric_cell(metrics, 'judge_answer_correctness')}",
+                    f"grounding {answer_report_metric_cell(metrics, 'judge_evidence_grounding')}",
+                    f"coverage {answer_report_metric_cell(metrics, 'judge_coverage')}",
+                    f"citation qual {answer_report_metric_cell(metrics, 'judge_citation_quality')}",
+                    f"specificity {answer_report_metric_cell(metrics, 'judge_specificity')}",
+                    f"hallucination {answer_report_metric_cell(metrics, 'judge_hallucination_control')}",
+                    f"abstained {answer_report_metric_cell(metrics, 'judge_abstained')}",
                     f"errors {answer_report_metric_cell(metrics, 'judge_error_count')}",
-                    f"duration {answer_report_metric_cell(metrics, 'judge_duration_ms')} ms",
+                    f"[dim]overall {answer_report_metric_cell(metrics, 'judge_overall')}[/dim]",
                 ]
             ),
         )
@@ -3203,7 +3419,7 @@ def answer_report_metric_cell(metrics: dict[str, Any], key: str) -> str:
     low = metrics.get(f"{key}_ci95_low")
     high = metrics.get(f"{key}_ci95_high")
     if isinstance(low, (float, int)) and isinstance(high, (float, int)) and (
-        "_hit" in key or key in {"file_hit", "context_file_hit", "judge_overall"}
+        "_hit" in key or key in CI_RENDERED_METRICS
     ):
         return f"{float(value):.3f} [{float(low):.3f}, {float(high):.3f}]"
     return f"{float(value):.4f}"
@@ -3276,52 +3492,45 @@ def expand_answer_benchmark(
         )
 
 
-def render_answer_metrics_table(metrics: dict[str, Any]) -> None:
-    table = Table(title="e2e answer metrics")
+def _render_metrics_section(title: str, metrics: dict[str, Any], keys: tuple[str, ...]) -> None:
+    present = [key for key in keys if key in metrics]
+    if not present:
+        return
+    table = Table(title=title)
     table.add_column("metric", style="cyan")
     table.add_column("value", justify="right")
-    preferred = [
-        "cases",
-        "file_hit",
-        "file_recall",
-        "file_precision",
-        "file_mrr",
-        "candidate_file_hit@1",
-        "candidate_file_hit@3",
-        "candidate_file_hit@5",
-        "candidate_file_recall@5",
-        "context_file_hit",
-        "context_file_recall",
-        "context_file_precision",
-        "planned_query_count",
-        "planning_duration_ms",
-        "rerank_duration_ms",
-        "citation_count",
-        "citation_path_valid_rate",
-        "citation_line_valid_rate",
-        "token_f1",
-        "key_token_f1",
-        "bigram_f1",
-        "judge_answer_correctness",
-        "judge_evidence_grounding",
-        "judge_coverage",
-        "judge_citation_quality",
-        "judge_specificity",
-        "judge_hallucination_control",
-        "judge_overall",
-        "retrieval_duration_ms",
-        "context_duration_ms",
-        "generation_duration_ms",
-        "judge_duration_ms",
-        "answer_duration_ms_mean",
-        "answer_duration_ms_total",
-    ]
-    for key in preferred:
-        if key not in metrics:
-            continue
-        value = metrics[key]
-        table.add_row(key, f"{value:.4f}" if isinstance(value, float) else str(value))
+    for key in present:
+        table.add_row(key, answer_report_metric_cell(metrics, key))
     Console().print(table)
+
+
+def render_answer_metrics_table(metrics: dict[str, Any]) -> None:
+    # `context_bundle_complete` leads: it is the deterministic, model-free bottleneck metric.
+    # The judge criteria are printed in a visually separate, explicitly-labelled section
+    # because until the local judge is validated its numbers are not comparable to historical
+    # ones -- and a sum of the six criteria is never computed, since it rewards citation-format
+    # density over correctness (a judge halo effect).
+    _render_metrics_section(
+        "e2e answer metrics -- PRIMARY (deterministic)",
+        metrics,
+        (
+            *PRIMARY_METRICS,
+            "planned_query_count",
+            "planning_duration_ms",
+            "rerank_duration_ms",
+            "citation_count",
+        ),
+    )
+    _render_metrics_section(
+        "e2e answer metrics -- cost / latency",
+        metrics,
+        (*DURATION_METRICS, "answer_duration_ms_total"),
+    )
+    _render_metrics_section(
+        "e2e answer metrics -- SECONDARY, unvalidated (LLM judge)",
+        metrics,
+        JUDGE_METRICS,
+    )
 
 
 def default_answer_context_files(config: AppConfig) -> int:
@@ -3461,6 +3670,8 @@ def generate_local_eval_dataset(
         max_file_bytes=config.scanner.max_file_bytes,
         line_chunks=False,
         file_summary_chunks=True,
+        file_summary_head_line_max_chars=config.scanner.file_summary_head_line_max_chars,
+        file_summary_head_block_max_chars=config.scanner.file_summary_head_block_max_chars,
         file_manifest_chunks=True,
         file_api_manifest_chunks=config.scanner.file_api_manifest_chunks,
         file_body_evidence_chunks=config.scanner.file_body_evidence_chunks,
@@ -3483,6 +3694,8 @@ def make_codebase_scanner(config: AppConfig):
         symbol_chunks=config.scanner.symbol_chunks,
         symbol_body=config.scanner.symbol_body,
         file_summary_chunks=config.scanner.file_summary_chunks,
+        file_summary_head_line_max_chars=config.scanner.file_summary_head_line_max_chars,
+        file_summary_head_block_max_chars=config.scanner.file_summary_head_block_max_chars,
         file_manifest_chunks=config.scanner.file_manifest_chunks,
         file_api_manifest_chunks=config.scanner.file_api_manifest_chunks,
         file_body_evidence_chunks=config.scanner.file_body_evidence_chunks,
@@ -3926,10 +4139,7 @@ def direct_search_matches(path: str, expected: str) -> bool:
             direct_search_file_path(path), normalized.removeprefix("glob:")
         )
     return (
-        path == normalized
-        or path.startswith(normalized + "#")
-        or path.startswith(normalized + "::")
-        or path.startswith(normalized.rstrip("/") + "/")
+        path == normalized or path.startswith((normalized + "#", normalized + "::", normalized.rstrip("/") + "/"))
     )
 
 
@@ -4214,7 +4424,7 @@ def percentile(values: list[float], quantile: float) -> float:
     if not values:
         return 0.0
     ordered = sorted(values)
-    index = min(int(round((len(ordered) - 1) * quantile)), len(ordered) - 1)
+    index = min(round((len(ordered) - 1) * quantile), len(ordered) - 1)
     return ordered[index]
 
 

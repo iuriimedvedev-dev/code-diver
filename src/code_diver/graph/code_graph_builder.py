@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import itertools
 import re
 import warnings
 from pathlib import Path
@@ -73,7 +74,7 @@ class CodeGraphBuilder:
                 [item for item in chunks if item.start_line is not None],
                 key=lambda item: (item.start_line or 0, item.end_line or 0, item.id),
             )
-            for left, right in zip(sorted_chunks, sorted_chunks[1:]):
+            for left, right in itertools.pairwise(sorted_chunks):
                 edges.append(GraphEdge(source=left.id, target=right.id, kind=EdgeKind.SAME_FILE_NEXT.value, weight=0.6))
         return edges
 

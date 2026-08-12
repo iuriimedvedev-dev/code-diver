@@ -8,7 +8,6 @@ import pytest
 from code_diver.agent import DirectSearchOrchestrator
 from code_diver.generation import GenerationResult
 
-
 pytestmark = pytest.mark.unit
 
 
@@ -20,7 +19,7 @@ class FakeSearchGenerationProvider:
         self.responses = responses
         self.prompts: list[str] = []
 
-    def generate_json_result(self, prompt: str) -> GenerationResult:
+    def generate_json_result(self, prompt: str, *, schema: dict | None = None) -> GenerationResult:
         self.prompts.append(prompt)
         return GenerationResult(
             text=self.responses.pop(0),
@@ -30,7 +29,7 @@ class FakeSearchGenerationProvider:
             total_tokens=10,
         )
 
-    def generate_json(self, prompt: str) -> str:
+    def generate_json(self, prompt: str, *, schema: dict | None = None) -> str:
         return self.generate_json_result(prompt).text
 
 

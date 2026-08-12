@@ -14,7 +14,6 @@ from code_diver.strategies.cross_encoder_rerank_retrieval_strategy import (
 )
 from code_diver.tracing import TraceLogger
 
-
 pytestmark = pytest.mark.unit
 
 

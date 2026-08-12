@@ -2,21 +2,27 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from time import perf_counter
-from typing import Any, Callable
+from typing import Any
 
-from ..explanation.jsonish_parser import JsonishParser
 from ..domain import SearchResult
-from ..generation import GenerationProvider
+from ..generation import ANSWER_SCHEMA, GenerationProvider
+from ..generation.jsonish_parser import JsonishParser
 from ..strategies import RetrievalStrategy
 from .answer_candidate_reranker import AnswerCandidateReranker
 from .answer_case import AnswerCase
+from .answer_context import AnswerContext
 from .answer_context_builder import AnswerContextBuilder
+from .answer_grounding_metrics import AnswerGroundingMetrics
 from .answer_judge import AnswerJudge
 from .answer_metrics import AnswerMetrics
+from .answer_query_merge import merge_query_results
 from .answer_query_planner import AnswerQueryPlanner
+from .answer_report_integrity import assert_case_count_matches, stamp_case_counts
+from .unjudgeable_row_policy import REASON_GENERATION_ERROR, synthesize_judgment, unjudgeable_reason
 
 
 @dataclass(slots=True)
@@ -33,6 +39,7 @@ class AnswerEvaluator:
     query_workers: int = 4
     workers: int = 1
     save_context: bool = True
+    restrict_citations_to_context: bool = False
     progress_callback: Callable[[int, int, AnswerCase], None] | None = None
     row_callback: Callable[[int, int, dict[str, Any]], None] | None = None
     parser: JsonishParser = field(default_factory=JsonishParser)
@@ -87,6 +94,10 @@ class AnswerEvaluator:
         rows = [row for row in rows_by_index if row is not None]
         metrics = AnswerMetrics().aggregate(rows)
         metrics["cases"] = float(len(rows))
+        stamp_case_counts(metrics, case_count_requested=len(cases), row_count=len(rows))
+        assert_case_count_matches(
+            case_count_requested=len(cases), row_count=len(rows), context="AnswerEvaluator.evaluate"
+        )
         metrics["answer_duration_ms_total"] = (perf_counter() - started) * 1000
         metrics["answer_duration_ms_mean"] = metrics["answer_duration_ms_total"] / max(len(rows), 1)
         return {
@@ -115,6 +126,10 @@ class AnswerEvaluator:
             base_metrics = AnswerMetrics().score("", case.reference)
             base_metrics.update(self._file_bundle_metrics(retrieved_files, case.expected_paths, prefix="candidate"))
             base_metrics.update(self._file_bundle_metrics(context.files, case.expected_paths, prefix="context"))
+            # Scored with an empty answer so a case that later fails to parse still carries
+            # every grounding key. Aggregation would otherwise read a missing key as 0.0
+            # anyway, but only after the key exists in some other row.
+            base_metrics.update(AnswerGroundingMetrics().score("", [], context.files, case.expected_paths))
             base_metrics.update(
                 {
                     "retrieval_duration_ms": retrieval_duration_ms,
@@ -130,32 +145,39 @@ class AnswerEvaluator:
                 }
             )
             generation_started = perf_counter()
-            result = self.answer_provider.generate_json_result(self._answer_prompt(case, context.text))
+            result = self.answer_provider.generate_json_result(
+                self._answer_prompt(case, context), schema=ANSWER_SCHEMA
+            )
             generation_duration_ms = (perf_counter() - generation_started) * 1000
             raw_prediction = result.text
             try:
                 payload = self.parser.parse_object(raw_prediction)
             except Exception as exc:
                 base_metrics["generation_duration_ms"] = generation_duration_ms
+                parse_failure_row: dict[str, Any] = {
+                    "case_id": case.id,
+                    "question": case.question,
+                    "reference": case.reference,
+                    "prediction": "",
+                    "raw_prediction": raw_prediction,
+                    "retrieved_files": retrieved_files,
+                    "context_files": context.files,
+                    "context_errors": context.errors,
+                    "context_text": context.text if self.save_context else "",
+                    "expected_paths": case.expected_paths,
+                    "metadata": case.metadata,
+                    "query_plan": plan_payload,
+                    "generation_model": result.model,
+                    "metrics": base_metrics,
+                    "error": str(exc),
+                    "duration_ms": (perf_counter() - started) * 1000,
+                }
+                if self.judge is not None:
+                    judged = synthesize_judgment(REASON_GENERATION_ERROR)
+                    parse_failure_row["judge"] = judged
+                    base_metrics.update(judged["scores"])
                 return {
-                    "row": {
-                        "case_id": case.id,
-                        "question": case.question,
-                        "reference": case.reference,
-                        "prediction": "",
-                        "raw_prediction": raw_prediction,
-                        "retrieved_files": retrieved_files,
-                        "context_files": context.files,
-                        "context_errors": context.errors,
-                        "context_text": context.text if self.save_context else "",
-                        "expected_paths": case.expected_paths,
-                        "metadata": case.metadata,
-                        "query_plan": plan_payload,
-                        "generation_model": result.model,
-                        "metrics": base_metrics,
-                        "error": str(exc),
-                        "duration_ms": (perf_counter() - started) * 1000,
-                    },
+                    "row": parse_failure_row,
                     "usage": {
                         "input_tokens": result.input_tokens,
                         "output_tokens": result.output_tokens,
@@ -173,10 +195,16 @@ class AnswerEvaluator:
                 }
             answer = str(payload.get("answer") or "").strip()
             citations = payload.get("citations") if isinstance(payload.get("citations"), list) else []
+            confidence = payload.get("confidence")
             metrics = AnswerMetrics().score(answer, case.reference)
+            if isinstance(confidence, (int, float)) and not isinstance(confidence, bool):
+                metrics["answer_confidence"] = float(confidence)
             metrics.update(self._file_bundle_metrics(retrieved_files, case.expected_paths, prefix="candidate"))
             metrics.update(self._file_bundle_metrics(context.files, case.expected_paths, prefix="context"))
             metrics.update(self._citation_metrics(citations, context.file_ranges))
+            metrics.update(
+                AnswerGroundingMetrics().score(answer, citations, context.files, case.expected_paths)
+            )
             metrics.update(
                 {
                     "retrieval_duration_ms": retrieval_duration_ms,
@@ -212,17 +240,24 @@ class AnswerEvaluator:
             judge_model = None
             judge_error = 0
             if self.judge is not None:
-                try:
-                    judge_started = perf_counter()
-                    judged = self.judge.judge(case, answer, context.text)
-                    metrics["judge_duration_ms"] = (perf_counter() - judge_started) * 1000
+                unjudgeable = unjudgeable_reason(row)
+                if unjudgeable is not None:
+                    judged = synthesize_judgment(unjudgeable)
+                    metrics["judge_duration_ms"] = 0.0
                     row["judge"] = judged
                     row["metrics"].update(judged["scores"])
-                    judge_usage = judged["usage"]
-                    judge_model = judged["model"]
-                except Exception as exc:
-                    judge_error = 1
-                    row["judge_error"] = str(exc)
+                else:
+                    try:
+                        judge_started = perf_counter()
+                        judged = self.judge.judge(case, answer, context.text)
+                        metrics["judge_duration_ms"] = (perf_counter() - judge_started) * 1000
+                        row["judge"] = judged
+                        row["metrics"].update(judged["scores"])
+                        judge_usage = judged["usage"]
+                        judge_model = judged["model"]
+                    except Exception as exc:
+                        judge_error = 1
+                        row["judge_error"] = str(exc)
             return {
                 "row": row,
                 "usage": {
@@ -241,19 +276,25 @@ class AnswerEvaluator:
                 "judge_error": judge_error,
             }
         except Exception as exc:
+            failure_metrics = AnswerMetrics().score("", case.reference)
+            failure_row: dict[str, Any] = {
+                "case_id": case.id,
+                "question": case.question,
+                "reference": case.reference,
+                "prediction": "",
+                "raw_prediction": raw_prediction,
+                "expected_paths": case.expected_paths,
+                "metadata": case.metadata,
+                "metrics": failure_metrics,
+                "error": str(exc),
+                "duration_ms": (perf_counter() - started) * 1000,
+            }
+            if self.judge is not None:
+                judged = synthesize_judgment(REASON_GENERATION_ERROR)
+                failure_row["judge"] = judged
+                failure_metrics.update(judged["scores"])
             return {
-                "row": {
-                    "case_id": case.id,
-                    "question": case.question,
-                    "reference": case.reference,
-                    "prediction": "",
-                    "raw_prediction": raw_prediction,
-                    "expected_paths": case.expected_paths,
-                    "metadata": case.metadata,
-                    "metrics": AnswerMetrics().score("", case.reference),
-                    "error": str(exc),
-                    "duration_ms": (perf_counter() - started) * 1000,
-                },
+                "row": failure_row,
                 "usage": empty_usage,
                 "generation_model": getattr(self.answer_provider, "model", "unknown"),
                 "planning_usage": None,
@@ -302,10 +343,13 @@ class AnswerEvaluator:
             with ThreadPoolExecutor(max_workers=worker_count) as executor:
                 futures = [executor.submit(probe_strategy.search, query, query_limit) for query in plan.queries]
                 result_sets = [future.result() for future in futures]
-        merged = self._merge_query_results(result_sets, query_limit)
+        merged = merge_query_results(result_sets, query_limit)
+        candidate_pool = self._build_candidate_pool(merged[:rerank_candidate_limit])
         if self.query_result_reranker is None:
+            plan_payload["final_rerank"] = self._disabled_rerank_payload(candidate_pool)
             return merged[: self.limit], plan_payload, usage, result.model, None, None
         reranked, rerank_payload = self.query_result_reranker.rerank(case.question, merged, self.limit)
+        rerank_payload["candidate_pool"] = candidate_pool
         plan_payload["final_rerank"] = rerank_payload
         rerank_usage = {
             "input_tokens": int(rerank_payload.get("input_tokens") or 0),
@@ -315,20 +359,27 @@ class AnswerEvaluator:
         rerank_model = str(rerank_payload.get("model") or "")
         return reranked, plan_payload, usage, result.model, rerank_usage, rerank_model
 
-    def _merge_query_results(self, result_sets: list[list[SearchResult]], limit: int) -> list[SearchResult]:
-        best_by_file: dict[str, SearchResult] = {}
-        for query_index, results in enumerate(result_sets):
-            query_boost = 1.0 / (query_index + 1)
-            for rank, result in enumerate(results, start=1):
-                file_key = self._normalize_path(result.item.path)
-                rank_score = 1.0 / rank
-                merged_score = float(result.score) + rank_score + (0.05 * query_boost)
-                existing = best_by_file.get(file_key)
-                if existing is None or merged_score > existing.score:
-                    best_by_file[file_key] = SearchResult(result.item, merged_score)
-        return sorted(best_by_file.values(), key=lambda item: item.score, reverse=True)[:limit]
+    def _build_candidate_pool(self, candidates: list[SearchResult]) -> list[dict[str, Any]]:
+        pool: list[dict[str, Any]] = []
+        for rank, candidate in enumerate(candidates, start=1):
+            entry: dict[str, Any] = {"rank": rank, "path": candidate.item.path}
+            candidate_id = getattr(candidate.item, "id", None)
+            if candidate_id is not None:
+                entry["id"] = candidate_id
+            entry["score"] = float(candidate.score)
+            pool.append(entry)
+        return pool
 
-    def _answer_prompt(self, case: AnswerCase, context: str) -> str:
+    def _disabled_rerank_payload(self, candidate_pool: list[dict[str, Any]]) -> dict[str, Any]:
+        return {
+            "enabled": False,
+            "candidate_count": len(candidate_pool),
+            "selected_indices": [],
+            "selected_candidates": [],
+            "candidate_pool": candidate_pool,
+        }
+
+    def _answer_prompt(self, case: AnswerCase, context: AnswerContext) -> str:
         repository_context = self.repository_context.strip()
         context_section = ""
         if repository_context:
@@ -349,7 +400,7 @@ Requirements:
 - Citation line values must be compact numeric ranges like "61-71"; never put code text in citation lines.
 - If the context is insufficient, say what is missing instead of inventing behavior.
 - Return JSON only: {{"answer":"...","citations":[{{"path":"...","lines":"...","reason":"..."}}],"confidence":0.0}}
-
+{self._citation_allowlist_section(context.files)}
 {context_section}
 Question:
 {case.question}
@@ -358,7 +409,26 @@ Case metadata:
 {json.dumps(case.metadata, ensure_ascii=False)}
 
 Retrieved context:
-{context}
+{context.text}
+"""
+
+    def _citation_allowlist_section(self, context_files: list[str]) -> str:
+        """Close the citation set to the files actually shown, when the arm asks for it.
+
+        The bare "from the context" line above states the rule but never says what the context
+        is, so the model has to infer the boundary from the excerpts. h28's fabrications were
+        real repo paths -- `src/app.py`, `src/api/routes/sessions.py`, README files -- that a
+        model with any sense of the repository will produce whether or not it was shown them.
+        Enumerating the allowed set turns an inference into a lookup.
+        """
+        if not self.restrict_citations_to_context or not context_files:
+            return ""
+        allowed = "\n".join(f"  - {path}" for path in context_files)
+        return f"""
+Citable files -- every citation path must be copied exactly from this list:
+{allowed}
+Citing any other path is an error, even one you believe exists in this repository. If the
+answer needs a file that is not listed, say so in the answer instead of citing it.
 """
 
     def _file_bundle_metrics(
@@ -376,11 +446,16 @@ Retrieved context:
             (index for index, path in enumerate(normalized_files, start=1) if path in normalized_expected),
             0,
         )
+        recall = self._file_recall(normalized_files, normalized_expected)
         metrics = {
             f"{prefix}_file_hit": 1.0 if first_rank else 0.0,
             f"{prefix}_file_mrr": (1.0 / first_rank) if first_rank else 0.0,
-            f"{prefix}_file_recall": self._file_recall(normalized_files, normalized_expected),
+            f"{prefix}_file_recall": recall,
             f"{prefix}_file_precision": self._file_precision(normalized_files, normalized_expected),
+            # Partial recall is not a usable bundle for a multi-file question: the model is
+            # asked to answer from files it was never shown. `*_file_hit` hides that by
+            # scoring 1.0 as soon as one expected file makes it in.
+            f"{prefix}_bundle_complete": 1.0 if recall >= 1.0 else 0.0,
         }
         if prefix == "candidate":
             metrics.update(

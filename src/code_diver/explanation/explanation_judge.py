@@ -4,10 +4,10 @@ import json
 from pathlib import Path
 from typing import Any
 
-from ..generation import GenerationProvider
+from ..generation import EXPLANATION_JUDGE_SCHEMA, GenerationProvider
+from ..generation.jsonish_parser import JsonishParser
 from .explanation_case import ExplanationCase
 from .explanation_judge_rubric import ExplanationJudgeRubric
-from .jsonish_parser import JsonishParser
 
 
 class ExplanationJudge:
@@ -29,7 +29,7 @@ class ExplanationJudge:
 
     def judge(self, case: ExplanationCase, prediction: str) -> dict[str, Any]:
         prompt = self._prompt(case, prediction)
-        result = self.provider.generate_json_result(prompt)
+        result = self.provider.generate_json_result(prompt, schema=EXPLANATION_JUDGE_SCHEMA)
         payload = self._parse_json(result.text)
         scored = self.rubric.score(payload)
         return {

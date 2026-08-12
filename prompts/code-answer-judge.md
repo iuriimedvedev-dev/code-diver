@@ -14,11 +14,25 @@ Score each criterion from 0 to 4:
 - 1: mostly wrong; one useful fragment, but major misunderstanding.
 - 0: wrong, empty, unsafe, or hallucinated.
 
+Classify the candidate answer's `answer_type`:
+
+- `substantive`: the answer asserts something about the codebase.
+- `abstention`: the answer explicitly declines (says it cannot determine the
+  answer, lacks sufficient context, or could not find the relevant code) and
+  makes no substantive claim about the codebase.
+- `empty`: the answer is blank, whitespace, or contains no assertion at all.
+
+An abstention is NOT a good answer when the reference contains a real answer.
+Score answer_correctness, evidence_grounding, coverage, citation_quality and
+specificity all 0 for an abstention. hallucination_control may remain high
+because nothing was fabricated.
+
 Return JSON only. Do not include markdown.
 
 Required JSON shape:
 
 {
+  "answer_type": "substantive | abstention | empty",
   "criteria": {
     "answer_correctness": {
       "score": 0,

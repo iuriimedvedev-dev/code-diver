@@ -6,7 +6,7 @@ from typing import Any
 from ..agent.model_cost_estimator import ModelCostEstimator
 from ..config.llm_rerank_config import LlmRerankConfig
 from ..domain import SearchResult
-from ..generation import GenerationProvider, GenerationResult
+from ..generation import RERANK_SCHEMA, GenerationProvider, GenerationResult
 from ..strategies.llm_rerank_prompt_builder import LlmRerankPromptBuilder
 from ..strategies.llm_rerank_response_parser import LlmRerankResponseParser
 from ..strategies.llm_rerank_selection import LlmRerankSelection
@@ -35,7 +35,7 @@ class AnswerCandidateReranker:
         for attempt in range(1, attempts + 1):
             started = perf_counter()
             try:
-                result = self.provider.generate_json_result(prompt)
+                result = self.provider.generate_json_result(prompt, schema=RERANK_SCHEMA)
                 duration_ms = (perf_counter() - started) * 1000
                 selections = self.response_parser.parse_selections(result.text, len(rerank_candidates))
                 selected_indices = [selection.index for selection in selections]

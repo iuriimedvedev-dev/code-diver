@@ -6,7 +6,6 @@ import pytest
 
 from code_diver.config import ConfigLoader
 
-
 pytestmark = pytest.mark.unit
 
 
@@ -518,3 +517,119 @@ metrics:
     config = ConfigLoader().load(config_path)
 
     assert config.metrics.password == "from-env"
+
+
+def test_llm_rerank_generation_defaults_to_the_app_generation_block(tmp_path: Path) -> None:
+    config_path = tmp_path / "code-diver.yml"
+    config_path.write_text(
+        """
+generation:
+  provider: openai_compatible
+  model: answer-model
+  url: http://127.0.0.1:8012/v1/chat/completions
+llm_rerank:
+  candidate_limit: 34
+""".strip(),
+        encoding="utf-8",
+    )
+
+    config = ConfigLoader().load(config_path)
+
+    assert config.llm_rerank.generation is None
+
+
+def test_llm_rerank_generation_overrides_only_the_named_keys(tmp_path: Path) -> None:
+    config_path = tmp_path / "code-diver.yml"
+    config_path.write_text(
+        """
+generation:
+  provider: openai_compatible
+  model: answer-model
+  url: http://127.0.0.1:8012/v1/chat/completions
+  temperature: 0.3
+llm_rerank:
+  generation:
+    model: rerank-model
+""".strip(),
+        encoding="utf-8",
+    )
+
+    config = ConfigLoader().load(config_path)
+
+    rerank_generation = config.llm_rerank.generation
+    assert rerank_generation is not None
+    assert rerank_generation.model == "rerank-model"
+    assert rerank_generation.provider == "openai_compatible"
+    assert rerank_generation.url == "http://127.0.0.1:8012/v1/chat/completions"
+    assert rerank_generation.temperature == 0.3
+    assert config.generation.model == "answer-model"
+
+
+def test_graph_file_frontier_limit_is_unset_by_default(tmp_path: Path) -> None:
+    config_path = tmp_path / "code-diver.yml"
+    config_path.write_text(
+        """
+graph_file_search:
+  neighbor_limit: 40
+""".strip(),
+        encoding="utf-8",
+    )
+
+    config = ConfigLoader().load(config_path)
+
+    assert config.graph_file_search.neighbor_limit == 40
+    assert config.graph_file_search.frontier_limit is None
+
+
+def test_graph_file_frontier_limit_is_independent_of_neighbor_limit(tmp_path: Path) -> None:
+    config_path = tmp_path / "code-diver.yml"
+    config_path.write_text(
+        """
+graph_file_search:
+  neighbor_limit: 40
+  frontier_limit: 12
+""".strip(),
+        encoding="utf-8",
+    )
+
+    config = ConfigLoader().load(config_path)
+
+    assert config.graph_file_search.neighbor_limit == 40
+    assert config.graph_file_search.frontier_limit == 12
+
+
+def test_llm_rerank_chunking_is_unset_by_default(tmp_path: Path) -> None:
+    config_path = tmp_path / "code-diver.yml"
+    config_path.write_text(
+        """
+llm_rerank:
+  candidate_limit: 34
+""".strip(),
+        encoding="utf-8",
+    )
+
+    config = ConfigLoader().load(config_path)
+
+    assert config.llm_rerank.chunk_size is None
+    assert config.llm_rerank.chunk_keep is None
+
+
+def test_llm_rerank_chunk_keep_is_independent_of_rerank_limit(tmp_path: Path) -> None:
+    """Two different quantities: how many a chunk contributes vs. how many the run outputs."""
+    config_path = tmp_path / "code-diver.yml"
+    config_path.write_text(
+        """
+llm_rerank:
+  candidate_limit: 60
+  rerank_limit: 10
+  chunk_size: 20
+  chunk_keep: 7
+""".strip(),
+        encoding="utf-8",
+    )
+
+    config = ConfigLoader().load(config_path)
+
+    assert config.llm_rerank.chunk_size == 20
+    assert config.llm_rerank.chunk_keep == 7
+    assert config.llm_rerank.rerank_limit == 10

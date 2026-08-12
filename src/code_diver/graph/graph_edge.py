@@ -21,7 +21,7 @@ class GraphEdge:
         }
 
     @classmethod
-    def from_json(cls, data: dict) -> "GraphEdge":
+    def from_json(cls, data: dict) -> GraphEdge:
         return cls(
             source=str(data[SchemaKey.SOURCE.value]),
             target=str(data[SchemaKey.TARGET.value]),

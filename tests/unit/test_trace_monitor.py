@@ -7,7 +7,6 @@ import pytest
 
 from code_diver.ui.trace_monitor import TraceMonitor
 
-
 pytestmark = pytest.mark.unit
 
 

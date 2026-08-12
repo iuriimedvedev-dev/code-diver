@@ -5,7 +5,6 @@ import pytest
 from code_diver.domain import CodeItem, SearchResult
 from code_diver.strategies.multi_index_vector_retrieval_strategy import MultiIndexVectorRetrievalStrategy
 
-
 pytestmark = pytest.mark.unit
 
 

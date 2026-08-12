@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import json
 
-from ..explanation.jsonish_parser import JsonishParser
-from ..generation import GenerationProvider, GenerationResult
+from ..generation import QUERY_PLAN_SCHEMA, GenerationProvider, GenerationResult
+from ..generation.jsonish_parser import JsonishParser
 from .answer_case import AnswerCase
 from .answer_query_plan import AnswerQueryPlan
 
@@ -23,7 +23,7 @@ class AnswerQueryPlanner:
         self.parser = parser or JsonishParser()
 
     def plan_result(self, case: AnswerCase) -> tuple[AnswerQueryPlan, GenerationResult]:
-        result = self.provider.generate_json_result(self._prompt(case))
+        result = self.provider.generate_json_result(self._prompt(case), schema=QUERY_PLAN_SCHEMA)
         return self._parse(result.text, case.question), result
 
     def _parse(self, text: str, original_query: str) -> AnswerQueryPlan:
@@ -32,10 +32,7 @@ class AnswerQueryPlanner:
         queries: list[str] = []
         if isinstance(raw_queries, list):
             for item in raw_queries:
-                if isinstance(item, dict):
-                    value = item.get("query")
-                else:
-                    value = item
+                value = item.get("query") if isinstance(item, dict) else item
                 query = str(value or "").strip()
                 if query and query not in queries:
                     queries.append(query)

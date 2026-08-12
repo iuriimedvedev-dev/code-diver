@@ -4,7 +4,6 @@ import pytest
 
 from code_diver.services import CodeSymbolExtractor
 
-
 pytestmark = pytest.mark.unit
 
 

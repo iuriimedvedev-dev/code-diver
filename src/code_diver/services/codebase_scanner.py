@@ -87,6 +87,8 @@ class CodebaseScanner:
         symbol_chunks: bool = False,
         symbol_body: bool = True,
         file_summary_chunks: bool = False,
+        file_summary_head_line_max_chars: int = 200,
+        file_summary_head_block_max_chars: int = 4000,
         file_manifest_chunks: bool = False,
         file_api_manifest_chunks: bool = False,
         file_body_evidence_chunks: bool = False,
@@ -114,6 +116,8 @@ class CodebaseScanner:
         self.symbol_chunks = symbol_chunks
         self.symbol_body = symbol_body
         self.file_summary_chunks = file_summary_chunks
+        self.file_summary_head_line_max_chars = file_summary_head_line_max_chars
+        self.file_summary_head_block_max_chars = file_summary_head_block_max_chars
         self.file_manifest_chunks = file_manifest_chunks
         self.file_api_manifest_chunks = file_api_manifest_chunks
         self.file_body_evidence_chunks = file_body_evidence_chunks
@@ -122,7 +126,10 @@ class CodebaseScanner:
         self.documentation_chunk_chunks = documentation_chunk_chunks
         self.max_symbols_per_file = max_symbols_per_file
         self.symbol_extractor = symbol_extractor or CodeSymbolExtractor()
-        self.file_summary_builder = file_summary_builder or FileSummaryItemBuilder()
+        self.file_summary_builder = file_summary_builder or FileSummaryItemBuilder(
+            max_head_line_chars=file_summary_head_line_max_chars,
+            max_head_block_chars=file_summary_head_block_max_chars,
+        )
         self.file_manifest_builder = file_manifest_builder or FileManifestItemBuilder()
         self.file_api_manifest_builder = file_api_manifest_builder or FileApiManifestItemBuilder()
         self.file_body_evidence_builder = file_body_evidence_builder or FileBodyEvidenceItemBuilder()
@@ -189,7 +196,7 @@ class CodebaseScanner:
             dir_names[:] = [
                 name
                 for name in sorted(dir_names)
-                if not self._matches_excluded_directory((current_path / name).relative_to(root).as_posix())
+                if not self._is_excluded((current_path / name).relative_to(root).as_posix())
             ]
             for file_name in sorted(file_names):
                 path = current_path / file_name
@@ -252,18 +259,23 @@ class CodebaseScanner:
         return symbols[: self.max_symbols_per_file]
 
     def _should_skip_file(self, path: Path, rel_path: str) -> bool:
-        if self._matches_any(rel_path, self.exclude):
+        if self._is_excluded(rel_path):
             return True
         if self.include and not self._matches_any(rel_path, self.include):
             return True
-        if not self.include and path.suffix.lower() not in DEFAULT_INCLUDE_SUFFIXES:
-            return True
-        return False
+        return bool(not self.include and path.suffix.lower() not in DEFAULT_INCLUDE_SUFFIXES)
 
-    def _matches_excluded_directory(self, rel_path: str) -> bool:
-        return any(self._matches_directory_pattern(rel_path, pattern) for pattern in self.exclude)
+    def _is_excluded(self, rel_path: str) -> bool:
+        """Single exclusion predicate shared by the rg and os.walk enumeration paths.
 
-    def _matches_directory_pattern(self, rel_path: str, pattern: str) -> bool:
+        A pattern ending in ``/**`` excludes the directory (and everything under
+        it) at any depth, not just when it is rooted at ``rel_path``'s top level.
+        Any other pattern (e.g. ``*.lock``, ``**/*.min.js``) is treated as a plain
+        file glob via ``fnmatch``, unchanged.
+        """
+        return any(self._matches_exclude_pattern(rel_path, pattern) for pattern in self.exclude)
+
+    def _matches_exclude_pattern(self, rel_path: str, pattern: str) -> bool:
         normalized = pattern.rstrip("/")
         if normalized.endswith("/**"):
             base = normalized[:-3]
@@ -302,7 +314,7 @@ class CodebaseScanner:
             start_line = offset + 1
             end_line = offset + len(chunk)
             title = rel_path if len(lines) <= self.chunk_lines else f"{rel_path}:{start_line}-{end_line}"
-            digest = hashlib.sha1(f"{rel_path}:{start_line}:{end_line}".encode("utf-8")).hexdigest()[:12]
+            digest = hashlib.sha1(f"{rel_path}:{start_line}:{end_line}".encode()).hexdigest()[:12]
             chunks.append(
                 CodeItem(
                     id=f"{rel_path}#{digest}",
@@ -346,7 +358,7 @@ class CodebaseScanner:
             start_line = max(symbol.start_line, 1)
             end_line = min(max(symbol.end_line, start_line), len(lines))
             body = "\n".join(lines[start_line - 1 : end_line])
-            digest = hashlib.sha1(f"{rel_path}:{symbol.name}:{start_line}:{end_line}".encode("utf-8")).hexdigest()[:12]
+            digest = hashlib.sha1(f"{rel_path}:{symbol.name}:{start_line}:{end_line}".encode()).hexdigest()[:12]
             content_lines = [
                 f"symbol: {symbol.kind} {symbol.name}",
                 f"signature: {symbol.signature}",

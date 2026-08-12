@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from pathlib import Path
 from time import perf_counter
-from typing import Any, Callable
+from typing import Any
 
 from ..generation import GenerationProvider, GenerationResult
 from .direct_agent_logger import DirectAgentLogger
@@ -489,9 +490,7 @@ class DirectSearchOrchestrator:
             return False
         if candidate_tool_calls < 2:
             return True
-        if "code_diver_rerank" in self.allowed_tools and "code_diver_rerank" not in tool_names_used:
-            return True
-        return False
+        return bool("code_diver_rerank" in self.allowed_tools and "code_diver_rerank" not in tool_names_used)
 
     def _candidate_tool_count(self, tool_results: list[ToolResult]) -> int:
         return sum(1 for result in tool_results if self._paths_from_tool_result(result))
@@ -578,7 +577,7 @@ class DirectSearchOrchestrator:
                 read_calls_used += requested_reads
             executable.append((index, call))
         executed_results = self._execute_ordered_tools(executable, executor)
-        for (index, _), result in zip(executable, executed_results):
+        for (index, _), result in zip(executable, executed_results, strict=True):
             results_by_index[index] = result
         results = [results_by_index[index] for index in range(len(calls))]
         usage.tool_calls += len(results)
@@ -609,13 +608,13 @@ class DirectSearchOrchestrator:
                 [call for _, call in candidate_calls],
                 executor.execute,
             )
-            for (index, _), result in zip(candidate_calls, first_results):
+            for (index, _), result in zip(candidate_calls, first_results, strict=True):
                 staged_results[index] = result
             delayed_results = ParallelToolExecutor(self.MAX_PARALLEL_TOOLS).execute(
                 [call for _, call in delayed_calls],
                 executor.execute,
             )
-            for (index, _), result in zip(delayed_calls, delayed_results):
+            for (index, _), result in zip(delayed_calls, delayed_results, strict=True):
                 staged_results[index] = result
             return [staged_results[index] for index, _ in executable]
         return ParallelToolExecutor(self.MAX_PARALLEL_TOOLS).execute(

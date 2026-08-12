@@ -11,7 +11,6 @@ from code_diver.agent import DirectIndexingOrchestrator
 from code_diver.generation import GenerationResult
 from code_diver.services import IndexingOptions
 
-
 pytestmark = pytest.mark.unit
 
 
@@ -23,7 +22,7 @@ class FakeGenerationProvider:
         self.responses = responses
         self.prompts: list[str] = []
 
-    def generate_json_result(self, prompt: str) -> GenerationResult:
+    def generate_json_result(self, prompt: str, *, schema: dict | None = None) -> GenerationResult:
         self.prompts.append(prompt)
         return GenerationResult(
             text=self.responses.pop(0),
@@ -33,7 +32,7 @@ class FakeGenerationProvider:
             total_tokens=15,
         )
 
-    def generate_json(self, prompt: str) -> str:
+    def generate_json(self, prompt: str, *, schema: dict | None = None) -> str:
         return self.generate_json_result(prompt).text
 
 
@@ -70,13 +69,7 @@ def test_direct_indexing_orchestrator_uses_tools_and_persists_selected_ranges(tm
     source = tmp_path / "src" / "app.py"
     source.parent.mkdir()
     source.write_text(
-        "\n".join(
-            [
-                "class AuthService:",
-                "    def login(self, user):",
-                "        return user",
-            ]
-        ),
+        "class AuthService:\n    def login(self, user):\n        return user",
         encoding="utf-8",
     )
     log_path = tmp_path / "logs" / "agent.jsonl"

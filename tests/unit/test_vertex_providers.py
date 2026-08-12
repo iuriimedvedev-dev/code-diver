@@ -4,10 +4,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from code_diver.generation.vertex_generation_provider import VertexGenerationProvider
 from code_diver.generation.transient_generation_retry import TransientGenerationRetry
+from code_diver.generation.vertex_generation_provider import VertexGenerationProvider
 from code_diver.providers.vertex_embedding_provider import VertexEmbeddingProvider
-
 
 pytestmark = pytest.mark.unit
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from typing import Any
 
 from ..settings import Defaults, EnvironmentVariable
 from .generation_result import GenerationResult
@@ -25,7 +26,7 @@ class GeminiGenerationProvider:
             from google import genai
             from google.genai import types
         except ImportError as exc:  # pragma: no cover - depends on environment
-            raise RuntimeError("Install dependencies with `uv sync` before using Gemini generation.") from exc
+            raise RuntimeError("Install the Vertex/Gemini extra with `uv sync --extra gemini` before using Gemini generation.") from exc
 
         self.name = "gemini"
         self.model = model
@@ -46,10 +47,12 @@ class GeminiGenerationProvider:
         self.client = genai.Client(**client_kwargs)
         self.types = types
 
-    def generate_json(self, prompt: str) -> str:
-        return self.generate_json_result(prompt).text
+    def generate_json(self, prompt: str, *, schema: dict[str, Any] | None = None) -> str:
+        return self.generate_json_result(prompt, schema=schema).text
 
-    def generate_json_result(self, prompt: str) -> GenerationResult:
+    # `schema` is accepted and ignored: this backend cannot constrain decoding.
+    # SchemaGuardedGenerationProvider validates and repairs the output instead.
+    def generate_json_result(self, prompt: str, *, schema: dict[str, Any] | None = None) -> GenerationResult:
         errors: list[str] = []
         for model in [self.model, *self.fallback_models]:
             try:

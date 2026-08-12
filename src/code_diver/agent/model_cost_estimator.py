@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import ClassVar
 
 
 @dataclass(frozen=True)
@@ -11,7 +12,7 @@ class ModelPrice:
 
 class ModelCostEstimator:
     DEFAULT_PRICE = ModelPrice(input_per_million=1.50, output_per_million=9.00)
-    MODEL_PRICES = {
+    MODEL_PRICES: ClassVar[dict[str, ModelPrice]] = {
         "gemini-3.1-flash-lite": ModelPrice(input_per_million=0.25, output_per_million=1.50),
         "gemini-3.5-flash": DEFAULT_PRICE,
         "gemini-3-flash-preview": ModelPrice(input_per_million=0.50, output_per_million=3.00),

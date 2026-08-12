@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from time import perf_counter
-from typing import Callable
 
 from ..config import AppConfig
 from ..generation import GenerationProvider, create_generation_provider

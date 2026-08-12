@@ -4,7 +4,6 @@ import pytest
 
 from code_diver.metrics import CaseMetricRow, ClickHouseMetricsRepository, MetricRow
 
-
 pytestmark = pytest.mark.unit
 
 

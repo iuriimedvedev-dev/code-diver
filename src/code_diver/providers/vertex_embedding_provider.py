@@ -22,7 +22,7 @@ class VertexEmbeddingProvider(GeminiEmbeddingProvider):
             from google import genai
             from google.genai import types
         except ImportError as exc:  # pragma: no cover - depends on environment
-            raise RuntimeError("Install dependencies with `uv sync` before using Vertex embeddings.") from exc
+            raise RuntimeError("Install the Vertex/Gemini extra with `uv sync --extra gemini` before using Vertex embeddings.") from exc
 
         self.name = EmbeddingProviderId.VERTEX.value
         self.model = model

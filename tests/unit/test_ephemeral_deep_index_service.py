@@ -7,7 +7,6 @@ import pytest
 from code_diver.providers import EmbeddingProvider
 from code_diver.services import CandidateFileScanner, CodebaseScanner, EphemeralDeepIndexService, IndexingOptions
 
-
 pytestmark = pytest.mark.unit
 
 

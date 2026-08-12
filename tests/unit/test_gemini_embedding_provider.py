@@ -6,7 +6,6 @@ import pytest
 
 from code_diver.providers.gemini_embedding_provider import GeminiEmbeddingProvider
 
-
 pytestmark = pytest.mark.unit
 
 

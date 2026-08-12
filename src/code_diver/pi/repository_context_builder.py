@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
+from typing import ClassVar
 
 from ..config import AppConfig
 from ..config.pi_repo_context_config import PiRepoContextConfig
@@ -17,7 +18,7 @@ class RepositoryContextResult:
 
 
 class RepositoryContextBuilder:
-    IGNORED_DIRS = {
+    IGNORED_DIRS: ClassVar[set[str]] = {
         ".git",
         ".code-diver",
         ".idea",
@@ -84,7 +85,7 @@ class RepositoryContextBuilder:
         except OSError:
             return "- unavailable"
         for path in children:
-            if path.name in self.IGNORED_DIRS or path.name.startswith(".") and path.name != ".github":
+            if path.name in self.IGNORED_DIRS or (path.name.startswith(".") and path.name != ".github"):
                 continue
             suffix = "/" if path.is_dir() else ""
             rows.append(f"- `{path.name}{suffix}`")

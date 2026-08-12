@@ -13,7 +13,7 @@ class ExplanationCase:
     metadata: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
-    def from_json(cls, row: dict[str, Any]) -> "ExplanationCase":
+    def from_json(cls, row: dict[str, Any]) -> ExplanationCase:
         return cls(
             id=str(row["id"]),
             code=str(row["code"]),

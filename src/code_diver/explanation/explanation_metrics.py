@@ -3,11 +3,11 @@ from __future__ import annotations
 import re
 from collections import Counter
 from statistics import mean
-from typing import Any
+from typing import Any, ClassVar
 
 
 class ExplanationMetrics:
-    STOP_WORDS = {
+    STOP_WORDS: ClassVar[set[str]] = {
         "a",
         "an",
         "and",
@@ -80,7 +80,7 @@ class ExplanationMetrics:
     def _ngrams(self, tokens: list[str], size: int) -> list[str]:
         if len(tokens) < size:
             return []
-        return [" ".join(tokens[index : index + size]) for index in range(0, len(tokens) - size + 1)]
+        return [" ".join(tokens[index : index + size]) for index in range(len(tokens) - size + 1)]
 
     def _overlap(self, predicted: list[str], reference: list[str]) -> dict[str, float]:
         if not predicted or not reference:

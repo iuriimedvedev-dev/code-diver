@@ -6,9 +6,8 @@ import pytest
 
 from code_diver.domain import CodeItem
 from code_diver.graph import CodeGraphBuilder
-from code_diver.settings import EdgeKind
 from code_diver.graph.code_graph_builder import REFERENCE_EDGES_PER_SOURCE
-
+from code_diver.settings import EdgeKind
 
 pytestmark = pytest.mark.unit
 

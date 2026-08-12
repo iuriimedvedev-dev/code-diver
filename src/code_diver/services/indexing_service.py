@@ -321,7 +321,7 @@ class IndexingService:
             return lambda: None
         if not hasattr(self.scanner, "progress_callback"):
             return lambda: None
-        previous = getattr(self.scanner, "progress_callback")
+        previous = self.scanner.progress_callback
 
         def callback(processed_files: int, items_found: int) -> None:
             if self._progress is None or self._scan_task is None:
@@ -332,10 +332,10 @@ class IndexingService:
                 description=f"scanning files ({items_found} items)",
             )
 
-        setattr(self.scanner, "progress_callback", callback)
+        self.scanner.progress_callback = callback
 
         def restore() -> None:
-            setattr(self.scanner, "progress_callback", previous)
+            self.scanner.progress_callback = previous
 
         return restore
 

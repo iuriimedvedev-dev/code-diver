@@ -5,8 +5,7 @@ from pathlib import Path
 import pytest
 
 from code_diver.domain import CodeItem
-from code_diver.store import InMemoryVectorStore, IndexStoreError
-
+from code_diver.store import IndexStoreError, InMemoryVectorStore
 
 pytestmark = pytest.mark.unit
 

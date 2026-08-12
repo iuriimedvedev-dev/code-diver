@@ -22,7 +22,7 @@ class CodeGraph:
         }
 
     @classmethod
-    def from_json(cls, data: dict) -> "CodeGraph":
+    def from_json(cls, data: dict) -> CodeGraph:
         return cls(
             items={
                 item_id: CodeItem.from_json(item)

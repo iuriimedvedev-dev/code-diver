@@ -5,14 +5,13 @@ from pathlib import Path
 
 import pytest
 
-from code_diver.config.trace_config import TraceConfig
 from code_diver.config.llm_rerank_config import LlmRerankConfig
+from code_diver.config.trace_config import TraceConfig
 from code_diver.domain import CodeItem, SearchResult
 from code_diver.generation import GenerationResult
-from code_diver.strategies.llm_rerank_retrieval_strategy import LlmRerankRetrievalStrategy
 from code_diver.strategies.llm_rerank_response_parser import LlmRerankResponseParser
+from code_diver.strategies.llm_rerank_retrieval_strategy import LlmRerankRetrievalStrategy
 from code_diver.tracing import TraceLogger
-
 
 pytestmark = pytest.mark.unit
 
@@ -35,11 +34,11 @@ class FakeGenerationProvider:
         self.response = response
         self.prompts: list[str] = []
 
-    def generate_json(self, prompt: str) -> str:
+    def generate_json(self, prompt: str, *, schema: dict | None = None) -> str:
         self.prompts.append(prompt)
         return self.response
 
-    def generate_json_result(self, prompt: str) -> GenerationResult:
+    def generate_json_result(self, prompt: str, *, schema: dict | None = None) -> GenerationResult:
         self.prompts.append(prompt)
         return GenerationResult(
             text=self.response,
@@ -57,7 +56,7 @@ class FlakyGenerationProvider:
     def __init__(self):
         self.calls = 0
 
-    def generate_json_result(self, prompt: str) -> GenerationResult:
+    def generate_json_result(self, prompt: str, *, schema: dict | None = None) -> GenerationResult:
         self.calls += 1
         if self.calls == 1:
             raise RuntimeError("transient 499 cancelled")
@@ -273,3 +272,145 @@ def _result(item_id: str, path: str, score: float) -> SearchResult:
         ),
         score=score,
     )
+
+
+class ScriptedGenerationProvider:
+    """Answers each call from a script, so a chunked run can be steered chunk by chunk."""
+
+    name = "fake"
+    model = "fake-model"
+
+    def __init__(self, responses: list[str]):
+        self.responses = list(responses)
+        self.prompts: list[str] = []
+
+    def generate_json_result(self, prompt: str, *, schema: dict | None = None) -> GenerationResult:
+        self.prompts.append(prompt)
+        if not self.responses:
+            raise AssertionError(f"unscripted rerank call number {len(self.prompts)}")
+        return GenerationResult(
+            text=self.responses.pop(0),
+            model=self.model,
+            input_tokens=100,
+            output_tokens=10,
+            total_tokens=110,
+        )
+
+
+def _lettered_results(count: int) -> list[SearchResult]:
+    letters = "abcdefghij"[:count]
+    return [_result(letter, f"src/{letter}.py", 1.0 - index / 10) for index, letter in enumerate(letters)]
+
+
+def _select(*indices: int) -> str:
+    picks = [{"index": index, "confidence": 0.9, "reason": "r"} for index in indices]
+    return json.dumps({"results": picks})
+
+
+def test_chunking_is_off_by_default_so_a_long_list_is_one_call() -> None:
+    """The champion runs with `chunk_size` unset; that path must stay a single rerank call."""
+    provider = ScriptedGenerationProvider([_select(6)])
+    strategy = LlmRerankRetrievalStrategy(
+        FakeStrategy(_lettered_results(6)),
+        provider,
+        LlmRerankConfig(candidate_limit=6, rerank_limit=2),
+    )
+
+    reranked = strategy.search("where is auth handled", 2)
+
+    assert len(provider.prompts) == 1
+    assert [result.item.path for result in reranked] == ["src/f.py", "src/a.py"]
+
+
+def test_chunking_ranks_each_chunk_then_reranks_the_survivors() -> None:
+    provider = ScriptedGenerationProvider([_select(3, 1), _select(2, 3), _select(4, 1)])
+    strategy = LlmRerankRetrievalStrategy(
+        FakeStrategy(_lettered_results(6)),
+        provider,
+        LlmRerankConfig(candidate_limit=6, rerank_limit=2, chunk_size=3, chunk_keep=2),
+    )
+
+    reranked = strategy.search("where is auth handled", 2)
+
+    # two chunks of three, then one final pass over the four survivors
+    assert len(provider.prompts) == 3
+    assert [result.item.path for result in reranked] == ["src/f.py", "src/c.py"]
+
+
+def test_chunking_drops_within_chunk_losers_before_the_final_pass() -> None:
+    """The point of chunking: the final prompt sees a short list, not every candidate."""
+    provider = ScriptedGenerationProvider([_select(3, 1), _select(2, 3), _select(1)])
+    strategy = LlmRerankRetrievalStrategy(
+        FakeStrategy(_lettered_results(6)),
+        provider,
+        LlmRerankConfig(candidate_limit=6, rerank_limit=2, chunk_size=3, chunk_keep=2),
+    )
+
+    strategy.search("where is auth handled", 2)
+
+    final_prompt = provider.prompts[2]
+    assert "src/b.py" not in final_prompt  # lost inside chunk one
+    assert "src/d.py" not in final_prompt  # lost inside chunk two
+    assert "src/c.py" in final_prompt and "src/f.py" in final_prompt
+
+
+def test_a_trailing_chunk_no_longer_than_chunk_keep_costs_no_call() -> None:
+    """Everything in it would survive anyway, so the call would buy nothing."""
+    provider = ScriptedGenerationProvider([_select(3, 1), _select(1)])
+    strategy = LlmRerankRetrievalStrategy(
+        FakeStrategy(_lettered_results(5)),
+        provider,
+        LlmRerankConfig(candidate_limit=5, rerank_limit=2, chunk_size=3, chunk_keep=2),
+    )
+
+    strategy.search("where is auth handled", 2)
+
+    assert len(provider.prompts) == 2
+    assert "src/d.py" in provider.prompts[1] and "src/e.py" in provider.prompts[1]
+
+
+def test_chunk_keep_defaults_to_rerank_limit() -> None:
+    provider = ScriptedGenerationProvider([_select(3, 1), _select(2, 3), _select(1)])
+    strategy = LlmRerankRetrievalStrategy(
+        FakeStrategy(_lettered_results(6)),
+        provider,
+        LlmRerankConfig(candidate_limit=6, rerank_limit=2, chunk_size=3),
+    )
+
+    strategy.search("where is auth handled", 2)
+
+    assert len(provider.prompts) == 3
+    assert "src/b.py" not in provider.prompts[2]
+
+
+def test_a_list_that_fits_in_one_chunk_is_not_chunked() -> None:
+    provider = ScriptedGenerationProvider([_select(2)])
+    strategy = LlmRerankRetrievalStrategy(
+        FakeStrategy(_lettered_results(3)),
+        provider,
+        LlmRerankConfig(candidate_limit=3, rerank_limit=2, chunk_size=3, chunk_keep=2),
+    )
+
+    reranked = strategy.search("where is auth handled", 2)
+
+    assert len(provider.prompts) == 1
+    assert [result.item.path for result in reranked] == ["src/b.py", "src/a.py"]
+
+
+def test_chunk_stage_is_recorded_in_the_trace(tmp_path: Path) -> None:
+    trace_path = tmp_path / "trace.jsonl"
+    strategy = LlmRerankRetrievalStrategy(
+        FakeStrategy(_lettered_results(6)),
+        ScriptedGenerationProvider([_select(3, 1), _select(2, 3), _select(1)]),
+        LlmRerankConfig(candidate_limit=6, rerank_limit=2, chunk_size=3, chunk_keep=2),
+        trace_logger=TraceLogger(TraceConfig(enabled=True, artifact=trace_path, include_prompts=True)),
+    )
+
+    strategy.search("where is auth handled", 2)
+
+    stages = [
+        json.loads(line)["payload"]["stage"]
+        for line in trace_path.read_text(encoding="utf-8").splitlines()
+        if json.loads(line)["event"] == "llm_rerank_prompt"
+    ]
+    assert stages == ["chunk", "chunk", "final"]

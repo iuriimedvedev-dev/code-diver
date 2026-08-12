@@ -16,7 +16,7 @@ class DocumentationManifestItemBuilder:
 
     def build(self, rel_path: str, text: str) -> CodeItem:
         metadata = self.extractor.extract(rel_path, text)
-        digest = hashlib.sha1(f"{rel_path}:doc-manifest".encode("utf-8")).hexdigest()[:12]
+        digest = hashlib.sha1(f"{rel_path}:doc-manifest".encode()).hexdigest()[:12]
         content = "\n".join(
             [
                 f"doc: {rel_path}",

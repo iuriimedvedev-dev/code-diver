@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 import math
-from collections import Counter
-from collections import defaultdict
+from collections import Counter, defaultdict
 from collections.abc import Iterable
 
 from ..domain import CodeItem

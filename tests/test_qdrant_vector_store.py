@@ -5,7 +5,6 @@ import pytest
 from code_diver.domain import CodeItem
 from code_diver.store import QdrantVectorStore
 
-
 pytestmark = pytest.mark.unit
 
 

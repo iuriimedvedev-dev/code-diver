@@ -8,7 +8,6 @@ import pytest
 
 from code_diver.services import CodebaseScanner
 
-
 pytestmark = pytest.mark.unit
 
 
@@ -396,6 +395,91 @@ class UserService:
     assert "raise ValueError" in evidence.content
     assert "effect_lines:" in evidence.content
     assert "class UserService:" not in evidence.content
+
+
+def test_nested_vendor_directory_is_excluded_at_any_depth(tmp_path: Path) -> None:
+    nested = tmp_path / "a" / "b" / "node_modules" / "pkg" / "index.js"
+    nested.parent.mkdir(parents=True)
+    nested.write_text("module.exports = {};\n", encoding="utf-8")
+    helper = tmp_path / "src" / "node_modules_helper.py"
+    helper.parent.mkdir(parents=True)
+    helper.write_text("print('helper')\n", encoding="utf-8")
+
+    scanner = CodebaseScanner(include=["**/*.js", "**/*.py"])
+
+    assert scanner._is_excluded("a/b/node_modules/pkg/index.js") is True
+    assert scanner._is_excluded("src/node_modules_helper.py") is False
+
+    items = scanner.scan(tmp_path)
+
+    assert [item.path for item in items] == ["src/node_modules_helper.py"]
+
+
+def test_file_glob_exclude_patterns_keep_plain_fnmatch_semantics() -> None:
+    scanner = CodebaseScanner(exclude=["*.lock", "**/*.min.js"])
+
+    assert scanner._is_excluded("uv.lock") is True
+    assert scanner._is_excluded("vendor/some.min.js") is True
+    assert scanner._is_excluded("vendor/some.js") is False
+
+
+def test_rg_and_walk_enumeration_branches_agree_on_exclusions(tmp_path: Path) -> None:
+    if shutil.which("rg") is None:
+        pytest.skip("ripgrep is required to compare both enumeration branches")
+    paths = [
+        "a/b/node_modules/pkg/index.js",
+        "src/node_modules_helper.py",
+        "vendor/dist/bundle.js",
+        "keep/app.py",
+    ]
+    for rel in paths:
+        file_path = tmp_path / rel
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        file_path.write_text("content\n", encoding="utf-8")
+
+    scanner = CodebaseScanner(include=["**/*.js", "**/*.py"])
+
+    rg_paths = {rel for _, rel in scanner._rg_candidate_files(tmp_path)}
+    walk_paths = {rel for _, rel in scanner._walk_candidate_files(tmp_path)}
+
+    assert rg_paths == walk_paths
+    assert "a/b/node_modules/pkg/index.js" not in rg_paths
+    assert "vendor/dist/bundle.js" not in rg_paths
+    assert "src/node_modules_helper.py" in rg_paths
+    assert "keep/app.py" in rg_paths
+
+
+def test_both_enumeration_branches_consult_the_shared_exclusion_predicate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    if shutil.which("rg") is None:
+        pytest.skip("ripgrep is required to exercise both enumeration branches")
+    vendor_dir = tmp_path / "node_modules"
+    vendor_dir.mkdir()
+    (vendor_dir / "pkg.js").write_text("module.exports = {};\n", encoding="utf-8")
+    (tmp_path / "keep.py").write_text("print('ok')\n", encoding="utf-8")
+
+    scanner = CodebaseScanner(include=["**/*.js", "**/*.py"])
+    seen: set[str] = set()
+    original = scanner._is_excluded
+
+    def tracking(rel_path: str) -> bool:
+        seen.add(rel_path)
+        return original(rel_path)
+
+    monkeypatch.setattr(scanner, "_is_excluded", tracking)
+
+    scanner._rg_candidate_files(tmp_path)
+    rg_seen = set(seen)
+    seen.clear()
+    scanner._walk_candidate_files(tmp_path)
+    walk_seen = set(seen)
+
+    assert "node_modules/pkg.js" in rg_seen
+    # The walk branch excludes whole directories during pruning (more efficient
+    # than checking every file inside them), so it consults the shared predicate
+    # on the directory itself rather than on each file underneath it.
+    assert "node_modules" in walk_seen
 
 
 def test_scanner_can_limit_symbols_per_file(tmp_path: Path) -> None:

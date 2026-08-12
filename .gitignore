@@ -1,7 +1,21 @@
 .code-diver/
 .env
-.pytest_cache/
-.venv/
-node_modules/
+
+# Python
 __pycache__/
 *.pyc
+.venv/
+.venv-*/
+.pytest_cache/
+.ruff_cache/
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# Node
+node_modules/
+
+# OS
+.DS_Store

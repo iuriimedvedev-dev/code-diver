@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from ..providers import EmbeddingProvider
 

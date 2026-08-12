@@ -10,8 +10,8 @@ from .env_file_config import EnvFileConfig
 from .evaluation_config import EvaluationConfig
 from .experiments_config import ExperimentsConfig
 from .generation_config import GenerationConfig
-from .graph_file_search_config import GraphFileSearchConfig
 from .graph_config import GraphConfig
+from .graph_file_search_config import GraphFileSearchConfig
 from .hybrid_search_config import HybridSearchConfig
 from .indexing_config import IndexingConfig
 from .llm_rerank_config import LlmRerankConfig

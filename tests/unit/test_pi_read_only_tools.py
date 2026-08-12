@@ -6,7 +6,6 @@ import pytest
 
 from code_diver.config import ConfigLoader
 
-
 pytestmark = pytest.mark.unit
 
 

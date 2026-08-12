@@ -1,15 +1,13 @@
 from __future__ import annotations
 
-from time import perf_counter
-from time import sleep
 from threading import Lock
+from time import perf_counter, sleep
 
 import pytest
 
 from code_diver.agent.parallel_tool_executor import ParallelToolExecutor
 from code_diver.agent.tool_call import ToolCall
 from code_diver.agent.tool_result import ToolResult
-
 
 pytestmark = pytest.mark.unit
 

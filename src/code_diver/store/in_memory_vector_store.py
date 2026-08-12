@@ -51,7 +51,7 @@ class InMemoryVectorStore(VectorStore):
         normalized_query = normalize(query_vector)
         scored = [
             SearchResult(item=item, score=dot(normalized_query, normalize(vector)))
-            for item, vector in zip(self.items, self.vectors)
+            for item, vector in zip(self.items, self.vectors, strict=True)
         ]
         scored.sort(key=lambda result: result.score, reverse=True)
         return scored[:limit]

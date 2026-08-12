@@ -4,7 +4,6 @@ import pytest
 
 from code_diver.cli import main
 
-
 pytestmark = pytest.mark.smoke
 
 

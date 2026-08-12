@@ -35,7 +35,7 @@ class AiIndexResponseParser:
         kind = str(row.get("kind") or "other")
         start_line = self._optional_int(row.get("start_line"))
         end_line = self._optional_int(row.get("end_line"))
-        digest = hashlib.sha1(f"{path}:{title}:{summary}".encode("utf-8")).hexdigest()[:12]
+        digest = hashlib.sha1(f"{path}:{title}:{summary}".encode()).hexdigest()[:12]
         content = "\n".join(
             [
                 f"summary: {summary}",

@@ -11,7 +11,6 @@ from code_diver.services.evaluation_service import EvaluationService
 from code_diver.strategies import RetrievalStrategy
 from code_diver.tracing import TraceLogger
 
-
 pytestmark = pytest.mark.unit
 
 

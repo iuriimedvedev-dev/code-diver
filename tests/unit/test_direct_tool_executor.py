@@ -8,7 +8,6 @@ import pytest
 from code_diver.agent.direct_tool_executor import DirectToolExecutor
 from code_diver.agent.tool_call import ToolCall
 
-
 pytestmark = pytest.mark.unit
 
 

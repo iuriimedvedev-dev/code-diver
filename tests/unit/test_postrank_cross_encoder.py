@@ -7,7 +7,6 @@ from types import SimpleNamespace
 
 from code_diver.reranking.rerank_score import RerankScore
 
-
 SCRIPT_PATH = Path(__file__).resolve().parents[2] / "scripts" / "run_postrank_h2_deterministic.py"
 SPEC = importlib.util.spec_from_file_location("run_postrank_h2_deterministic", SCRIPT_PATH)
 assert SPEC is not None

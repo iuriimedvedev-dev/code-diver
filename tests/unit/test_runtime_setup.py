@@ -4,9 +4,13 @@ from pathlib import Path
 
 import pytest
 
-from code_diver.runtime import EmbeddingRuntimeManager, RuntimeConfig, RuntimeConfigStore, RuntimeSetupWizard
-from code_diver.runtime import embedding_runtime_manager
-
+from code_diver.runtime import (
+    EmbeddingRuntimeManager,
+    RuntimeConfig,
+    RuntimeConfigStore,
+    RuntimeSetupWizard,
+    embedding_runtime_manager,
+)
 
 pytestmark = pytest.mark.unit
 

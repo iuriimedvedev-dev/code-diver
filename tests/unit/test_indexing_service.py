@@ -9,7 +9,6 @@ from code_diver.domain import CodeItem
 from code_diver.services.indexing_options import IndexingOptions
 from code_diver.services.indexing_service import IndexingService
 
-
 pytestmark = pytest.mark.unit
 
 
@@ -209,7 +208,7 @@ def test_indexing_service_traces_index_composition(tmp_path: Path) -> None:
     assert prepared["content_bytes_total"] > 0
     assert prepared["content_bytes_mean"] > 0
     assert prepared["content_bytes_by_kind"]["file_summary"] == len(
-        "docs".encode("utf-8")
+        b"docs"
     )
 
 

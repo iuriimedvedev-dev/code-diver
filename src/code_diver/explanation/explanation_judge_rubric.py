@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, ClassVar
 
 from .explanation_judge_criterion import ExplanationJudgeCriterion
 
 
 class ExplanationJudgeRubric:
-    CRITERIA = [
+    CRITERIA: ClassVar[list[ExplanationJudgeCriterion]] = [
         ExplanationJudgeCriterion("purpose_accuracy", "Purpose accuracy", 0.18),
         ExplanationJudgeCriterion("behavior_accuracy", "Behavior and control-flow accuracy", 0.22),
         ExplanationJudgeCriterion("api_contract", "Inputs, outputs, side effects, and errors", 0.15),

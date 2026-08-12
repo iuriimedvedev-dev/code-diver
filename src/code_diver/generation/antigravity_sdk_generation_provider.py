@@ -48,10 +48,12 @@ class AntigravitySdkGenerationProvider:
             max_delay_seconds=retry_max_delay_seconds,
         )
 
-    def generate_json(self, prompt: str) -> str:
-        return self.generate_json_result(prompt).text
+    def generate_json(self, prompt: str, *, schema: dict[str, Any] | None = None) -> str:
+        return self.generate_json_result(prompt, schema=schema).text
 
-    def generate_json_result(self, prompt: str) -> GenerationResult:
+    # `schema` is accepted and ignored: this backend cannot constrain decoding.
+    # SchemaGuardedGenerationProvider validates and repairs the output instead.
+    def generate_json_result(self, prompt: str, *, schema: dict[str, Any] | None = None) -> GenerationResult:
         return self.retry.run(lambda: self._run_sync(prompt))
 
     def _run_sync(self, prompt: str) -> GenerationResult:

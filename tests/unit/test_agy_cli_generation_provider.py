@@ -9,7 +9,6 @@ from code_diver.config.generation_config import GenerationConfig
 from code_diver.generation.agy_cli_generation_provider import AgyCliGenerationProvider
 from code_diver.generation.generation_provider_factory import create_generation_provider
 
-
 pytestmark = pytest.mark.unit
 
 
@@ -85,6 +84,8 @@ def test_generation_factory_creates_agy_cli_provider() -> None:
 
     provider = create_generation_provider(config)
 
+    # create_generation_provider wraps every backend in the schema guard.
+    provider = provider.provider
     assert isinstance(provider, AgyCliGenerationProvider)
     assert provider.binary == "custom-agy"
     assert provider.timeout_seconds == 123

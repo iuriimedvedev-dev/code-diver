@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -37,7 +37,7 @@ class JsonVectorStore(VectorStore):
         self.artifact.parent.mkdir(parents=True, exist_ok=True)
         payload = {
             SchemaKey.SCHEMA_VERSION.value: SCHEMA_VERSION,
-            SchemaKey.CREATED_AT.value: datetime.now(timezone.utc).isoformat(),
+            SchemaKey.CREATED_AT.value: datetime.now(UTC).isoformat(),
             SchemaKey.ROOT.value: str(root.resolve()),
             SchemaKey.PROVIDER.value: provider,
             SchemaKey.MODEL.value: model,
@@ -47,7 +47,7 @@ class JsonVectorStore(VectorStore):
                     SchemaKey.ITEM.value: item.to_json(),
                     SchemaKey.VECTOR.value: vector,
                 }
-                for item, vector in zip(items, vectors)
+                for item, vector in zip(items, vectors, strict=True)
             ],
         }
         self.artifact.write_text(json.dumps(payload, indent=2), encoding="utf-8")
@@ -68,7 +68,7 @@ class JsonVectorStore(VectorStore):
         _, items, vectors = self.load_items_and_vectors()
         filtered_items: list[CodeItem] = []
         filtered_vectors: list[list[float]] = []
-        for item, vector in zip(items, vectors):
+        for item, vector in zip(items, vectors, strict=True):
             if str(item.metadata.get("index_kind") or "") != index_kind:
                 continue
             filtered_items.append(item)
@@ -85,7 +85,7 @@ class JsonVectorStore(VectorStore):
         normalized_query = normalize(query_vector)
         scored = [
             SearchResult(item=item, score=dot(normalized_query, normalize(vector)))
-            for item, vector in zip(items, vectors)
+            for item, vector in zip(items, vectors, strict=True)
         ]
         scored.sort(key=lambda result: result.score, reverse=True)
         return scored[:limit]

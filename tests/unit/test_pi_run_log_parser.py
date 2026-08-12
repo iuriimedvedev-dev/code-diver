@@ -7,7 +7,6 @@ import pytest
 
 from code_diver.pi import PiRunLogParser
 
-
 pytestmark = pytest.mark.unit
 
 

@@ -5,7 +5,6 @@ from pathlib import Path
 
 import pytest
 
-
 pytestmark = pytest.mark.unit
 
 _SPEC = importlib.util.spec_from_file_location(

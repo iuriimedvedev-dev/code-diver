@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import hashlib
 
-from .embedding_provider import EmbeddingProvider
-from ..settings import Defaults, EmbeddingProviderId
-from ..services.tokenizer import tokenize
 from ..math_utils import normalize
+from ..services.tokenizer import tokenize
+from ..settings import Defaults, EmbeddingProviderId
+from .embedding_provider import EmbeddingProvider
 
 
 class HashEmbeddingProvider(EmbeddingProvider):

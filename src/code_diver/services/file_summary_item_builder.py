@@ -8,15 +8,26 @@ from ..domain import CodeItem, CodeItemIndexKind, CodeItemMetadata, CodeSymbol
 
 IMPORT_RE = re.compile(r"^\s*(?:from\s+[\w.]+\s+import\s+.+|import\s+[\w.,\s]+)\s*$")
 
+TRUNCATION_MARKER = " ...[truncated]"
+
 
 class FileSummaryItemBuilder:
-    def __init__(self, max_imports: int = 24, max_symbols: int = 80, max_head_lines: int = 24):
+    def __init__(
+        self,
+        max_imports: int = 24,
+        max_symbols: int = 80,
+        max_head_lines: int = 24,
+        max_head_line_chars: int = 200,
+        max_head_block_chars: int = 4000,
+    ):
         self.max_imports = max_imports
         self.max_symbols = max_symbols
         self.max_head_lines = max_head_lines
+        self.max_head_line_chars = max_head_line_chars
+        self.max_head_block_chars = max_head_block_chars
 
     def build(self, rel_path: str, text: str, symbols: list[CodeSymbol]) -> CodeItem:
-        digest = hashlib.sha1(f"{rel_path}:file-summary".encode("utf-8")).hexdigest()[:12]
+        digest = hashlib.sha1(f"{rel_path}:file-summary".encode()).hexdigest()[:12]
         content = "\n".join(
             [
                 f"file: {rel_path}",
@@ -57,5 +68,17 @@ class FileSummaryItemBuilder:
         lines = [line.strip() for line in text.splitlines() if line.strip()]
         if not lines:
             return "head: empty"
-        rows = lines[: self.max_head_lines]
-        return "head:\n" + "\n".join(f"- {row}" for row in rows)
+        rows = [self._cap_line(row) for row in lines[: self.max_head_lines]]
+        block = "head:\n" + "\n".join(f"- {row}" for row in rows)
+        return self._cap_block(block)
+
+    def _cap_line(self, line: str) -> str:
+        if len(line) <= self.max_head_line_chars:
+            return line
+        return line[: self.max_head_line_chars] + TRUNCATION_MARKER
+
+    def _cap_block(self, block: str) -> str:
+        if len(block) <= self.max_head_block_chars:
+            return block
+        limit = max(self.max_head_block_chars - len(TRUNCATION_MARKER), 0)
+        return block[:limit] + TRUNCATION_MARKER

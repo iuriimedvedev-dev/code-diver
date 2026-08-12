@@ -7,7 +7,6 @@ import pytest
 from code_diver.domain import CodeItem
 from code_diver.plugins import PluginManager
 
-
 pytestmark = pytest.mark.unit
 
 

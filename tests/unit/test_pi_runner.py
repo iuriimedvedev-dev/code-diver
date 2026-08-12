@@ -9,7 +9,6 @@ from code_diver.config.app_config import AppConfig
 from code_diver.config.pi_config import PiConfig
 from code_diver.pi import PiRunner
 
-
 pytestmark = pytest.mark.unit
 
 
@@ -47,9 +46,11 @@ def test_pi_runner_writes_json_mode_log(monkeypatch, tmp_path: Path) -> None:
         text: bool,
         timeout: int,
         cwd: str,
+        check: bool,
     ):
         commands.append(command)
         assert cwd == str(config.root.resolve())
+        assert check is False
         return SimpleNamespace(returncode=0, stdout='{"type":"agent_end"}\n', stderr="warn\n")
 
     monkeypatch.setattr("subprocess.run", fake_run)
@@ -59,7 +60,7 @@ def test_pi_runner_writes_json_mode_log(monkeypatch, tmp_path: Path) -> None:
 
     assert "--mode" in commands[0]
     assert commands[0][commands[0].index("--mode") + 1] == "json"
-    assert "hello" == commands[0][-1]
+    assert commands[0][-1] == "hello"
     text = log_path.read_text(encoding="utf-8")
     assert '{"type":"agent_end"}' in text
     assert '"type": "runner_stderr"' in text

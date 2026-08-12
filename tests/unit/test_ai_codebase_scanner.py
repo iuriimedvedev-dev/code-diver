@@ -8,7 +8,6 @@ from code_diver.ai_indexing import AiCodebaseScanner
 from code_diver.config.ai_index_config import AiIndexConfig
 from code_diver.services import CodebaseScanner
 
-
 pytestmark = pytest.mark.unit
 
 
@@ -19,7 +18,7 @@ class FakeGenerationProvider:
     def __init__(self) -> None:
         self.prompt = ""
 
-    def generate_json(self, prompt: str) -> str:
+    def generate_json(self, prompt: str, *, schema: dict | None = None) -> str:
         self.prompt = prompt
         return """
 {
@@ -39,7 +38,7 @@ class FakeGenerationProvider:
 
 
 class BrokenGenerationProvider(FakeGenerationProvider):
-    def generate_json(self, prompt: str) -> str:
+    def generate_json(self, prompt: str, *, schema: dict | None = None) -> str:
         self.prompt = prompt
         raise RuntimeError("model unavailable")
 

@@ -48,7 +48,7 @@ class FileBodyEvidenceItemBuilder:
 
     def build(self, rel_path: str, text: str, symbols: list[CodeSymbol]) -> CodeItem:
         digest = hashlib.sha1(
-            f"{rel_path}:file-body-evidence".encode("utf-8")
+            f"{rel_path}:file-body-evidence".encode()
         ).hexdigest()[:12]
         comments = self._comments(text)
         string_hints = self._string_hints(rel_path, text)

@@ -4,7 +4,6 @@ import pytest
 
 from code_diver.agent.json_response_parser import JsonResponseParser
 
-
 pytestmark = pytest.mark.unit
 
 

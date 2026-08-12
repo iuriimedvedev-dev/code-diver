@@ -34,7 +34,7 @@ class CodeItem:
         }
 
     @classmethod
-    def from_json(cls, data: dict[str, Any]) -> "CodeItem":
+    def from_json(cls, data: dict[str, Any]) -> CodeItem:
         item_id = data.get(SchemaKey.ID.value)
         path = data.get(SchemaKey.PATH.value)
         content = data.get(SchemaKey.CONTENT.value)

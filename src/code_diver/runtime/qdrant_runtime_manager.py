@@ -5,6 +5,7 @@ import time
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
+from typing import ClassVar
 from urllib.parse import urlparse
 
 from ..config import AppConfig
@@ -19,7 +20,7 @@ class QdrantRuntimeStatus:
 
 
 class QdrantRuntimeManager:
-    LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
+    LOCAL_HOSTS: ClassVar[set[str]] = {"localhost", "127.0.0.1", "::1"}
 
     def __init__(
         self,

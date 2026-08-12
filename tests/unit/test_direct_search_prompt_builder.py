@@ -6,7 +6,6 @@ import pytest
 
 from code_diver.agent.direct_search_prompt_builder import DirectSearchPromptBuilder
 
-
 pytestmark = pytest.mark.unit
 
 

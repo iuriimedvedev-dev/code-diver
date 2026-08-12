@@ -6,7 +6,6 @@ import pytest
 
 from code_diver.inspection import GrepService, RgService, TreeService
 
-
 pytestmark = pytest.mark.unit
 
 

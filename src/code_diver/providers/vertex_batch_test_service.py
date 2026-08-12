@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from time import perf_counter
-from typing import Any, Callable
+from typing import Any
 
 from ..config import AppConfig
 from ..settings import Defaults, EnvironmentVariable
@@ -131,7 +132,7 @@ class VertexBatchTestService:
         try:
             from google import genai
         except ImportError as exc:  # pragma: no cover - depends on environment
-            raise RuntimeError("Install dependencies with `uv sync` before using Vertex Batch.") from exc
+            raise RuntimeError("Install the Vertex/Gemini extra with `uv sync --extra gemini` before using Vertex Batch.") from exc
         return genai.Client(vertexai=True, project=project, location=location)
 
     def _model(self, config: AppConfig) -> str:

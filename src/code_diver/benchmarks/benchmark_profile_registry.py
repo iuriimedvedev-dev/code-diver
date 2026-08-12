@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .benchmark_profile import BenchmarkProfile
 from .benchmark_preparation import BenchmarkPreparation
+from .benchmark_profile import BenchmarkProfile
 
 
 class BenchmarkProfileRegistry:

@@ -1,7 +1,17 @@
 from __future__ import annotations
 
 import math
+import re
 from collections.abc import Iterable
+
+# Matches proportion-style metric names such as `citation_path_valid_rate` or
+# `hit_rate@5`: a per-case value that is itself a count-over-count ratio and is
+# therefore mathematically bounded to [0, 1]. Deliberately name-pattern based (not a
+# value-range heuristic) so the rule is an explicit, auditable opt-in rather than
+# something that silently reclassifies a metric because its sampled values happen to
+# fall inside [0, 1] this run. Everything else -- durations, raw counts, judge scores
+# on a 0-4/0-5 scale, ... -- keeps its natural, unclamped normal interval.
+_UNIT_RATE_METRIC_PATTERN = re.compile(r"_rate(?:@\d+)?$")
 
 
 class EvaluationStatistics:
@@ -14,9 +24,12 @@ class EvaluationStatistics:
         variance = self._sample_variance(materialized, mean)
         stddev = math.sqrt(variance)
         stderr = stddev / math.sqrt(count) if count else 0.0
-        ci_low, ci_high = (
-            self._wilson_interval(mean, count) if binary else self._normal_interval(mean, stderr)
-        )
+        if binary:
+            ci_low, ci_high = self._wilson_interval(mean, count)
+        else:
+            ci_low, ci_high = self._normal_interval(mean, stderr)
+            if self._is_unit_rate_metric(name):
+                ci_low, ci_high = max(0.0, ci_low), min(1.0, ci_high)
         return {
             f"{name}_variance": variance,
             f"{name}_stddev": stddev,
@@ -25,6 +38,9 @@ class EvaluationStatistics:
             f"{name}_ci95_high": ci_high,
             f"{name}_ci95_width": ci_high - ci_low,
         }
+
+    def _is_unit_rate_metric(self, name: str) -> bool:
+        return bool(_UNIT_RATE_METRIC_PATTERN.search(name))
 
     def _empty(self, name: str) -> dict[str, float]:
         return {

@@ -79,7 +79,5 @@ class FileOutlineService:
 
     def _is_import(self, text: str) -> bool:
         return bool(
-            text.startswith("import ")
-            or text.startswith("from ")
-            or re.match(r"^(?:const|let|var)\s+.+\s+=\s+require\(", text)
+            text.startswith(("import ", "from ")) or re.match(r"^(?:const|let|var)\s+.+\s+=\s+require\(", text)
         )

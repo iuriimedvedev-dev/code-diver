@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+      - run: uv sync --frozen
+      - name: Lint
+        run: uv run ruff check src tests
+
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          python-version: ${{ matrix.python-version }}
+      - run: uv sync --frozen
+      # The protogen suite needs a sibling ../protogen checkout that CI does not have.
+      - name: Tests
+        run: uv run pytest -q -m "not protogen"
+
+  # Guards the class of bug where a module-level third-party import is never declared
+  # as a dependency: it stays invisible in the fat dev env and only breaks real users.
+  # Installs the base wheel alone (no dev group, no extras) and boots the CLI.
+  base-install:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v7
+      - name: Install base wheel only
+        run: |
+          uv venv --python ${{ matrix.python-version }}
+          uv pip install .
+      - name: CLI must start without optional dependencies
+        run: |
+          .venv/bin/code-diver --help
+          .venv/bin/code-diver --help-all
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v7
+      - name: Build sdist and wheel
+        run: uv build
+      - name: Validate distribution metadata
+        run: uvx twine check dist/*
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/

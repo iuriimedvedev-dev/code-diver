@@ -1,27 +1,59 @@
 [build-system]
-requires = ["hatchling>=1.25"]
+requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [project]
 name = "code-diver"
 version = "0.1.0"
-description = "A small Gemini-backed CLI assistant sandbox for codebase RAG experiments."
+description = "Local-first code exploration assistant and retrieval-evaluation sandbox."
 readme = "README.md"
-requires-python = ">=3.10"
-license = { text = "MIT" }
+requires-python = ">=3.11"
+license = "GPL-3.0-only"
+license-files = ["LICENSE"]
+authors = [{ name = "Iurii Medvedev" }]
+keywords = ["code-search", "rag", "retrieval", "cli", "code-navigation", "evaluation"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Software Development :: Documentation",
+  "Topic :: Text Processing :: Indexing",
+]
 dependencies = [
-  "datasets>=2.20.0",
-  "google-genai>=1.0.0",
-  "ijson>=3.3.0",
+  "ijson>=3.5.0",
   "PyYAML>=6.0.2",
-  "qdrant-client>=1.15.0",
+  "qdrant-client>=1.18.0",
   "questionary>=2.1.0",
   "rich>=13.9.0",
 ]
 
+[project.urls]
+Homepage = "https://github.com/iuriimedvedev-dev/code-diver"
+Repository = "https://github.com/iuriimedvedev-dev/code-diver"
+Issues = "https://github.com/iuriimedvedev-dev/code-diver/issues"
+
+[project.optional-dependencies]
+# Hugging Face dataset loading for the explanation/answer benchmark preparers.
+benchmarks = [
+  "datasets>=4.0.0",
+]
+# Gemini Developer API and Vertex AI comparison baselines.
+# google-auth/requests back ADC token minting and GCS upload for Vertex Batch.
+gemini = [
+  "google-genai>=2.6.0",
+  "google-auth>=2.53.0",
+  "requests>=2.32.0",
+]
+
 [dependency-groups]
 dev = [
-  "pytest>=8.0",
+  "pytest>=9.0",
+  "ruff>=0.16.0",
+  "code-diver[benchmarks,gemini]",
 ]
 runtime-vllm = [
   "vllm>=0.11.0 ; sys_platform != 'darwin' or platform_machine != 'arm64'",
@@ -51,3 +83,46 @@ markers = [
   "smoke: fast sanity checks for command wiring and default behavior",
   "protogen: tests that exercise the optional sibling ../protogen repository",
 ]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+  "E",     # pycodestyle errors
+  "F",     # pyflakes
+  "I",     # import sorting
+  "UP",    # pyupgrade
+  "B",     # bugbear
+  "SIM",   # simplify
+  "PIE",   # misc lints
+  "RUF",   # ruff-specific
+  "FLY",   # static string joins
+  "LOG",   # logging misuse
+  "S",     # bandit security
+  "PLW",   # pylint warnings
+  "TRY004",# raise TypeError for type checks
+]
+ignore = [
+  "E501",    # line length is formatter-managed, not gate-managed
+  "S101",    # assert is the pytest idiom
+  "TRY003",  # long messages outside exception classes are intentional here
+  # --- Intentional by design (not defects) ---
+  "S603",    # subprocess calls: launching npm/pi/gemini/rg is the point of this tool
+  "S607",    # partial executable paths: binaries are resolved from PATH by config
+  "S310",    # urlopen: targets are operator-configured local/OpenAI endpoints
+  "S324",    # hashlib md5/sha1: content addressing and cache keys, never security
+  "S608",    # false positive: flags LLM prompt f-strings, not SQL
+  "S105",    # CLICKHOUSE_PASSWORD default is a local-dev value, overridden by env
+  "RUF001",  # ambiguous unicode: deliberate in CLI output and prompt text
+  "PLW2901", # loop-variable rebinding is idiomatic in the normalization helpers here
+  # --- Deferred, tracked in docs/release-checklist.md ---
+  "BLE001",  # 36 blind excepts need per-site error design
+  "TRY004",  # 16 sites should raise TypeError instead of ValueError
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S", "PLW", "RUF012", "LOG015"]
+"scripts/**" = ["S", "PLW", "TRY004"]

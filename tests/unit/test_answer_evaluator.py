@@ -13,14 +13,13 @@ from code_diver.answering import (
     AnswerEvaluator,
     AnswerJudge,
     AnswerJudgeRubric,
+    AnswerQueryPlanner,
     AnswerReportJudge,
     AnswerReportMetrics,
-    AnswerQueryPlanner,
 )
 from code_diver.config import LlmRerankConfig
 from code_diver.domain import CodeItem, SearchResult
 from code_diver.generation import GenerationResult
-
 
 pytestmark = pytest.mark.unit
 
@@ -33,10 +32,10 @@ class FakeGenerationProvider:
         self.responses = list(responses)
         self.prompts: list[str] = []
 
-    def generate_json(self, prompt: str) -> str:
+    def generate_json(self, prompt: str, *, schema: dict | None = None) -> str:
         return self.generate_json_result(prompt).text
 
-    def generate_json_result(self, prompt: str) -> GenerationResult:
+    def generate_json_result(self, prompt: str, *, schema: dict | None = None) -> GenerationResult:
         self.prompts.append(prompt)
         return GenerationResult(
             text=self.responses.pop(0),
@@ -594,11 +593,104 @@ def test_answer_evaluator_can_rerank_merged_planned_query_pool(tmp_path: Path) -
         "specific owner",
     ]
     assert report["results"][0]["retrieved_files"][0] == "src/beta.py"
-    assert report["results"][0]["query_plan"]["final_rerank"]["selected_indices"] == [2, 1]
-    assert report["results"][0]["query_plan"]["final_rerank"]["selected_candidates"][0]["path"] == "src/beta.py"
-    assert report["results"][0]["query_plan"]["final_rerank"]["selected_candidates"][0]["confidence"] == 0.9
+    final_rerank = report["results"][0]["query_plan"]["final_rerank"]
+    assert final_rerank["selected_indices"] == [2, 1]
+    assert final_rerank["selected_candidates"][0]["path"] == "src/beta.py"
+    assert final_rerank["selected_candidates"][0]["confidence"] == 0.9
     assert report["rerank_usage"]["model_calls"] == 1
     assert report["metrics"]["file_mrr"] == 1.0
+    candidate_pool = final_rerank["candidate_pool"]
+    assert final_rerank["candidate_count"] == len(candidate_pool)
+    assert [entry["rank"] for entry in candidate_pool] == list(range(1, len(candidate_pool) + 1))
+    scores = [entry["score"] for entry in candidate_pool]
+    assert scores == sorted(scores, reverse=True)
+    for selected in final_rerank["selected_candidates"]:
+        pool_entry = candidate_pool[selected["index"] - 1]
+        assert pool_entry["rank"] == selected["index"]
+        assert pool_entry["path"] == selected["path"]
+
+
+def test_answer_evaluator_persists_candidate_pool_when_rerank_disabled(tmp_path: Path) -> None:
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "alpha.py").write_text("def alpha_owner():\n    return 'broad'\n", encoding="utf-8")
+    (src / "beta.py").write_text("def beta_owner():\n    return 'specific'\n", encoding="utf-8")
+    alpha = SearchResult(
+        CodeItem(
+            id="src/alpha.py",
+            path="src/alpha.py",
+            title="alpha",
+            content="Broad candidate.",
+            start_line=1,
+        ),
+        0.9,
+    )
+    beta = SearchResult(
+        CodeItem(
+            id="src/beta.py",
+            path="src/beta.py",
+            title="beta",
+            content="Specific candidate.",
+            start_line=1,
+        ),
+        0.1,
+    )
+    main_retrieval = FakeRetrievalStrategy([])
+    probe_retrieval = FakeRetrievalStrategy(
+        {
+            "Where is the exact owner?": [],
+            "broad owner": [alpha],
+            "specific owner": [beta],
+        }
+    )
+    planner_provider = FakeGenerationProvider(
+        [
+            json.dumps(
+                {
+                    "queries": [{"query": "broad owner"}, {"query": "specific owner"}],
+                    "rationale": "Try broad and specific probes.",
+                }
+            )
+        ]
+    )
+    answer_provider = FakeGenerationProvider(
+        [
+            json.dumps(
+                {
+                    "answer": "The exact owner is alpha.",
+                    "citations": [{"path": "src/alpha.py", "lines": "1", "reason": "broad owner"}],
+                }
+            )
+        ]
+    )
+
+    report = AnswerEvaluator(
+        main_retrieval,
+        answer_provider,
+        AnswerContextBuilder(tmp_path, max_files=2, lines_per_file=40),
+        query_planner=AnswerQueryPlanner(planner_provider, max_queries=3),
+        query_retrieval_strategy=probe_retrieval,
+        limit=2,
+        query_workers=2,
+    ).evaluate(
+        [
+            AnswerCase(
+                id="owner",
+                question="Where is the exact owner?",
+                reference="src/alpha.py owns the broad behavior.",
+                expected_paths=["src/alpha.py"],
+            )
+        ]
+    )
+
+    final_rerank = report["results"][0]["query_plan"]["final_rerank"]
+    assert final_rerank["enabled"] is False
+    candidate_pool = final_rerank["candidate_pool"]
+    assert final_rerank["candidate_count"] == len(candidate_pool)
+    assert [entry["rank"] for entry in candidate_pool] == list(range(1, len(candidate_pool) + 1))
+    scores = [entry["score"] for entry in candidate_pool]
+    assert scores == sorted(scores, reverse=True)
+    assert candidate_pool[0]["path"] == "src/alpha.py"
 
 
 def test_answer_judge_rubric_computes_weighted_overall() -> None:

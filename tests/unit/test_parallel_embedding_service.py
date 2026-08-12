@@ -9,7 +9,6 @@ from code_diver.providers import EmbeddingProvider
 from code_diver.services.embedding_text_preparer import EmbeddingTextPreparer
 from code_diver.services.parallel_embedding_service import ParallelEmbeddingService
 
-
 pytestmark = pytest.mark.unit
 
 

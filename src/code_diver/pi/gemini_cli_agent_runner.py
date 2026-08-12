@@ -5,6 +5,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from typing import ClassVar
 
 from rich.console import Console
 from rich.panel import Panel
@@ -16,7 +17,7 @@ from .pi_session_options import PiSessionOptions
 
 
 class GeminiCliAgentRunner:
-    PROVIDERS = {"gemini-cli", "gemini_cli"}
+    PROVIDERS: ClassVar[set[str]] = {"gemini-cli", "gemini_cli"}
 
     def run_interactive(
         self,

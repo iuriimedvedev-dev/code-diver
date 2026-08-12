@@ -45,11 +45,11 @@ class OpenAICompatibleGenerationProviderPool:
         self._lock = Lock()
         self._next_index = 0
 
-    def generate_json(self, prompt: str) -> str:
-        return self.generate_json_result(prompt).text
+    def generate_json(self, prompt: str, *, schema: dict[str, Any] | None = None) -> str:
+        return self.generate_json_result(prompt, schema=schema).text
 
-    def generate_json_result(self, prompt: str) -> GenerationResult:
-        return self._next_provider().generate_json_result(prompt)
+    def generate_json_result(self, prompt: str, *, schema: dict[str, Any] | None = None) -> GenerationResult:
+        return self._next_provider().generate_json_result(prompt, schema=schema)
 
     def _next_provider(self) -> OpenAICompatibleGenerationProvider:
         with self._lock:

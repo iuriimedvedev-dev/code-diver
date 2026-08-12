@@ -7,9 +7,8 @@ from time import sleep
 import pytest
 
 from code_diver.explanation import CodeExplanationEvaluator, ExplanationCase, ExplanationJudge, ExplanationMetrics
-from code_diver.explanation.jsonish_parser import JsonishParser
 from code_diver.generation import GenerationResult
-
+from code_diver.generation.jsonish_parser import JsonishParser
 
 pytestmark = pytest.mark.unit
 
@@ -22,10 +21,10 @@ class FakeProvider:
         self.responses = list(responses)
         self.prompts: list[str] = []
 
-    def generate_json(self, prompt: str) -> str:
+    def generate_json(self, prompt: str, *, schema: dict | None = None) -> str:
         return self.generate_json_result(prompt).text
 
-    def generate_json_result(self, prompt: str) -> GenerationResult:
+    def generate_json_result(self, prompt: str, *, schema: dict | None = None) -> GenerationResult:
         self.prompts.append(prompt)
         return GenerationResult(
             text=self.responses.pop(0),
@@ -44,7 +43,7 @@ class PromptAwareProvider:
         self.prompts: list[str] = []
         self.lock = Lock()
 
-    def generate_json_result(self, prompt: str) -> GenerationResult:
+    def generate_json_result(self, prompt: str, *, schema: dict | None = None) -> GenerationResult:
         with self.lock:
             self.prompts.append(prompt)
         if "slow" in prompt:

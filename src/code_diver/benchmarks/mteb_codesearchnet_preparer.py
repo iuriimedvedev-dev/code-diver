@@ -82,7 +82,7 @@ class MtebCodeSearchNetPreparer:
         except ImportError as exc:
             raise RuntimeError(
                 "The benchmark downloader needs the `datasets` package. "
-                "Install dependencies with `uv sync` and retry."
+                "Install the benchmark extra with `uv sync --extra benchmarks` and retry."
             ) from exc
         return datasets
 

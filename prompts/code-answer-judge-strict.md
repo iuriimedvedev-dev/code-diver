@@ -32,12 +32,21 @@ General rules:
   citation_quality.
 - **critical_issues** must list ALL issues found. Never empty unless ALL
   criteria score 4/4.
+- **Classify `answer_type`**: `substantive` (asserts something about the
+  codebase), `abstention` (explicitly declines — cannot determine the answer,
+  lacks sufficient context, could not find the relevant code — with no
+  substantive claim), or `empty` (blank, whitespace, or no assertion at all).
+- **Abstention is never a good answer** when the reference contains a real
+  answer: score answer_correctness, evidence_grounding, coverage,
+  citation_quality, and specificity all 0. hallucination_control may stay
+  high if nothing was fabricated.
 
 Return JSON only. Do not include markdown.
 
 Required JSON shape:
 
 {
+  "answer_type": "substantive | abstention | empty",
   "criteria": {
     "answer_correctness": {
       "score": 0,

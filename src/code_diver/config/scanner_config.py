@@ -16,6 +16,8 @@ class ScannerConfig:
     symbol_chunks: bool = Defaults.SYMBOL_CHUNKS
     symbol_body: bool = Defaults.SYMBOL_BODY
     file_summary_chunks: bool = Defaults.FILE_SUMMARY_CHUNKS
+    file_summary_head_line_max_chars: int = Defaults.FILE_SUMMARY_HEAD_LINE_MAX_CHARS
+    file_summary_head_block_max_chars: int = Defaults.FILE_SUMMARY_HEAD_BLOCK_MAX_CHARS
     file_manifest_chunks: bool = Defaults.FILE_MANIFEST_CHUNKS
     file_api_manifest_chunks: bool = Defaults.FILE_API_MANIFEST_CHUNKS
     file_body_evidence_chunks: bool = Defaults.FILE_BODY_EVIDENCE_CHUNKS

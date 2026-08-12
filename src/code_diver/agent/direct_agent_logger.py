@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from threading import Lock
-from typing import Any
+from typing import Any, ClassVar
 
 
 class DirectAgentLogger:
-    _artifact_locks: dict[Path, Lock] = {}
+    _artifact_locks: ClassVar[dict[Path, Lock]] = {}
     _artifact_locks_lock: Lock = Lock()
 
     def __init__(self, path: Path, include_prompts: bool = True):
@@ -17,7 +17,7 @@ class DirectAgentLogger:
 
     def write(self, event: str, payload: dict[str, Any]) -> None:
         record = {
-            "ts": datetime.now(timezone.utc).isoformat(),
+            "ts": datetime.now(UTC).isoformat(),
             "event": event,
             "payload": payload,
         }

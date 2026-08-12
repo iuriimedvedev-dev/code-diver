@@ -1,16 +1,19 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
 from time import perf_counter
-from typing import Any, Callable
+from typing import Any
 
 from ..domain import CodeItem, SearchResult
 from .answer_case import AnswerCase
 from .answer_context_builder import AnswerContextBuilder
 from .answer_judge import AnswerJudge
 from .answer_metrics import AnswerMetrics
+from .answer_report_integrity import assert_case_count_matches, stamp_case_counts
+from .unjudgeable_row_policy import synthesize_judgment, unjudgeable_reason
 
 
 @dataclass(slots=True)
@@ -45,11 +48,9 @@ class AnswerReportJudge:
                     executor.submit(self._judge_row, row): index
                     for index, row in enumerate(rows, start=1)
                 }
-                completed = 0
-                for future in as_completed(futures):
+                for completed, future in enumerate(as_completed(futures), start=1):
                     index = futures[future]
                     result = future.result()
-                    completed += 1
                     judged_rows[index - 1] = result["row"]
                     errors += int(result["error"])
                     if result["usage"] is not None:
@@ -58,6 +59,10 @@ class AnswerReportJudge:
         final_rows = [row for row in judged_rows if row is not None]
         metrics = AnswerMetrics().aggregate(final_rows)
         metrics["cases"] = float(len(final_rows))
+        stamp_case_counts(metrics, case_count_requested=len(rows), row_count=len(final_rows))
+        assert_case_count_matches(
+            case_count_requested=len(rows), row_count=len(final_rows), context="AnswerReportJudge.judge_payload"
+        )
         judged = dict(payload)
         judged["results"] = final_rows
         judged["metrics"] = metrics
@@ -75,6 +80,16 @@ class AnswerReportJudge:
 
     def _judge_row(self, row: dict[str, Any]) -> dict[str, Any]:
         updated = dict(row)
+        reason = unjudgeable_reason(row)
+        if reason is not None:
+            judged = synthesize_judgment(reason)
+            metrics = dict(updated.get("metrics") or {})
+            metrics.update(judged["scores"])
+            metrics["judge_duration_ms"] = 0.0
+            updated["metrics"] = metrics
+            updated["judge"] = judged
+            updated.pop("judge_error", None)
+            return {"row": updated, "usage": None, "model": None, "error": 0}
         case = self._case_from_row(row)
         context = self._context_for_row(row)
         prediction = str(row.get("prediction") or "")

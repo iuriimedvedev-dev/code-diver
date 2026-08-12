@@ -9,7 +9,6 @@ from code_diver.strategies.graph_candidate_expander import GraphCandidateExpande
 from code_diver.strategies.graph_expansion_profile_factory import GraphExpansionProfileFactory
 from code_diver.strategies.graph_neighbor_index import GraphNeighborIndex
 
-
 pytestmark = pytest.mark.unit
 
 

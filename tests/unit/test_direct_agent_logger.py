@@ -7,7 +7,6 @@ import pytest
 
 from code_diver.agent.direct_agent_logger import DirectAgentLogger
 
-
 pytestmark = pytest.mark.unit
 
 

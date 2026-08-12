@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
 from collections.abc import Iterator
+from datetime import UTC, datetime
 from pathlib import Path
 
 import ijson
@@ -26,7 +26,7 @@ class CodeGraphStore:
         self.artifact.parent.mkdir(parents=True, exist_ok=True)
         payload = {
             SchemaKey.SCHEMA_VERSION.value: SCHEMA_VERSION,
-            SchemaKey.CREATED_AT.value: datetime.now(timezone.utc).isoformat(),
+            SchemaKey.CREATED_AT.value: datetime.now(UTC).isoformat(),
             SchemaKey.GRAPH.value: graph.to_json(),
         }
         self.artifact.write_text(json.dumps(payload, indent=2), encoding="utf-8")

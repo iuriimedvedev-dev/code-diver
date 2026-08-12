@@ -8,7 +8,6 @@ import pytest
 from code_diver.config.trace_config import TraceConfig
 from code_diver.tracing import TraceLogger
 
-
 pytestmark = pytest.mark.unit
 
 

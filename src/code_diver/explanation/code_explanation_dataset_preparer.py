@@ -15,7 +15,7 @@ class CodeExplanationDatasetPreparer:
         try:
             from datasets import load_dataset
         except ImportError as exc:  # pragma: no cover - environment dependent
-            raise RuntimeError("Install benchmark support with `uv sync`; the `datasets` package is required.") from exc
+            raise RuntimeError("Install the benchmark extra with `uv sync --extra benchmarks`; the `datasets` package is required.") from exc
 
         split = f"test[:{max(limit, 1)}]"
         dataset = load_dataset(self.DATASET_NAME, self.DEFAULT_LANGUAGE, split=split)

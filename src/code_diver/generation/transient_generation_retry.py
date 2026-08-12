@@ -8,7 +8,6 @@ from typing import TypeVar
 
 from ..settings import Defaults
 
-
 T = TypeVar("T")
 
 

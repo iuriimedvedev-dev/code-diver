@@ -1,16 +1,17 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from time import perf_counter
-from typing import Any, Callable
+from typing import Any
 
-from ..generation import GenerationProvider
+from ..generation import EXPLANATION_SCHEMA, GenerationProvider
+from ..generation.jsonish_parser import JsonishParser
 from .explanation_case import ExplanationCase
 from .explanation_judge import ExplanationJudge
 from .explanation_metrics import ExplanationMetrics
-from .jsonish_parser import JsonishParser
 
 
 @dataclass(slots=True)
@@ -90,7 +91,9 @@ class CodeExplanationEvaluator:
         prediction_text = ""
         empty_usage = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
         try:
-            prediction_result = self.provider.generate_json_result(self._explanation_prompt(case))
+            prediction_result = self.provider.generate_json_result(
+                self._explanation_prompt(case), schema=EXPLANATION_SCHEMA
+            )
             prediction_text = prediction_result.text
             prediction_payload = self._parse_json(prediction_text)
             generation_model = prediction_result.model

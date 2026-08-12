@@ -134,7 +134,4 @@ class HybridQueryRouter:
         return bool(PATH_RE.search(query)) or bool(terms & PATH_TERMS) or bool(terms & SYMBOL_TERMS) or self._has_identifier(query)
 
     def _has_identifier(self, query: str) -> bool:
-        for match in IDENTIFIER_RE.findall(query):
-            if "_" in match or any(char.isupper() for char in match[1:]):
-                return True
-        return False
+        return any("_" in match or any(char.isupper() for char in match[1:]) for match in IDENTIFIER_RE.findall(query))

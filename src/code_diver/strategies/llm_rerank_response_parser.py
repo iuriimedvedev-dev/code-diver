@@ -75,10 +75,7 @@ class LlmRerankResponseParser:
     def _selections_from_loose_values(self, values: list[object], candidate_count: int) -> list[LlmRerankSelection]:
         raw_indices: list[int] = []
         for value in values:
-            if isinstance(value, dict):
-                index = self._parse_index(value.get("index"))
-            else:
-                index = self._parse_index(value)
+            index = self._parse_index(value.get("index")) if isinstance(value, dict) else self._parse_index(value)
             if index is not None:
                 raw_indices.append(index)
         return self._dedupe(raw_indices, candidate_count)

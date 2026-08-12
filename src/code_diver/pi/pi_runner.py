@@ -4,9 +4,9 @@ import json
 import os
 import subprocess
 import sys
-from datetime import datetime, timezone
+from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Callable
 
 from rich.console import Console
 from rich.panel import Panel
@@ -179,6 +179,7 @@ class PiRunner:
                     capture_output=True,
                     text=True,
                     timeout=config.pi.timeout_seconds,
+                    check=False,  # returncode drives the model-fallback loop below
                     **self._subprocess_kwargs(config),
                 )
             except subprocess.TimeoutExpired as exc:
@@ -281,6 +282,7 @@ class PiRunner:
                     capture_output=True,
                     text=True,
                     timeout=config.pi.timeout_seconds,
+                    check=False,  # returncode drives the model-fallback loop below
                     **self._subprocess_kwargs(config),
                 )
             except subprocess.TimeoutExpired as exc:
@@ -370,4 +372,4 @@ class PiRunner:
             handle.write("\n")
 
     def _timestamp(self) -> str:
-        return datetime.now(timezone.utc).isoformat()
+        return datetime.now(UTC).isoformat()

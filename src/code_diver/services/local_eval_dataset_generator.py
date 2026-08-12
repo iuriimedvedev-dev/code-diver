@@ -4,7 +4,7 @@ import hashlib
 import json
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 from ..domain import CodeItem
 from ..settings import SchemaKey
@@ -14,7 +14,7 @@ from .codebase_scanner import CodebaseScanner
 class LocalEvalDatasetGenerator:
     _SYMBOL_ROW_RE = re.compile(r"^-\s+(?P<kind>[A-Za-z ]+)\s+(?P<name>[A-Za-z_][\w$.]*):", re.MULTILINE)
     _TOKEN_RE = re.compile(r"[A-Za-z][A-Za-z0-9]*")
-    _STOP_WORDS = {
+    _STOP_WORDS: ClassVar[set[str]] = {
         "src",
         "lib",
         "app",
@@ -87,7 +87,7 @@ class LocalEvalDatasetGenerator:
         return rows
 
     def _row(self, path: str, kind: str, query: str) -> dict[str, Any]:
-        digest = hashlib.sha1(f"{kind}:{path}:{query}".encode("utf-8")).hexdigest()[:12]
+        digest = hashlib.sha1(f"{kind}:{path}:{query}".encode()).hexdigest()[:12]
         return {
             SchemaKey.ID.value: f"local-{digest}",
             SchemaKey.QUERY.value: query,

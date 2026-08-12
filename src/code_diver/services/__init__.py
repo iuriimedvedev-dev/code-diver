@@ -1,8 +1,8 @@
 from .breadcrumb_code_item_enricher import BreadcrumbCodeItemEnricher
 from .candidate_file_scanner import CandidateFileScanner
-from .codebase_scanner import CodebaseScanner
 from .code_item_scanner import CodeItemScanner
 from .code_symbol_extractor import CodeSymbolExtractor
+from .codebase_scanner import CodebaseScanner
 from .dataset_loader import DatasetLoader
 from .documentation_manifest_item_builder import DocumentationManifestItemBuilder
 from .documentation_metadata_extractor import DocumentationMetadataExtractor
@@ -22,16 +22,16 @@ from .indexing_options import IndexingOptions
 from .indexing_service import IndexingService
 from .local_eval_dataset_generator import LocalEvalDatasetGenerator
 from .selected_code_item_builder import SelectedCodeItemBuilder
-from .selected_indexing_service import SelectedIndexingService
 from .selected_index_payload_parser import SelectedIndexPayloadParser
+from .selected_indexing_service import SelectedIndexingService
 from .structural_code_chunker import StructuralCodeChunker
 
 __all__ = [
     "BreadcrumbCodeItemEnricher",
     "CandidateFileScanner",
-    "CodebaseScanner",
     "CodeItemScanner",
     "CodeSymbolExtractor",
+    "CodebaseScanner",
     "DatasetLoader",
     "DocumentationManifestItemBuilder",
     "DocumentationMetadataExtractor",
@@ -51,7 +51,7 @@ __all__ = [
     "IndexingService",
     "LocalEvalDatasetGenerator",
     "SelectedCodeItemBuilder",
-    "SelectedIndexingService",
     "SelectedIndexPayloadParser",
+    "SelectedIndexingService",
     "StructuralCodeChunker",
 ]

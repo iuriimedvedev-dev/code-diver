@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from ..config import AppConfig
-from ..graph import CodeGraphStore
+from ..config.rerank_generation_config import rerank_generation_config
 from ..generation import create_generation_provider
+from ..graph import CodeGraphStore
 from ..orchestration import OrchestratedRetrievalStrategy
 from ..providers import EmbeddingProvider
 from ..reranking import RerankProviderFactory
@@ -57,21 +58,22 @@ class RetrievalStrategyFactory:
                 neighbor_limit=graph.neighbor_limit,
             )
         if strategy_id is RetrievalStrategyId.GRAPH_FILE:
-            return GraphFileRetrievalStrategy(
-                self._hybrid_strategy(config, provider, vector_store),
-                CodeGraphStore(config.graph.artifact),
-                config.graph_file_search,
-            )
+            return self._graph_file_strategy(config, provider, vector_store)
         if strategy_id is RetrievalStrategyId.GRAPH_FILE_RERANK:
-            graph_file = GraphFileRetrievalStrategy(
-                self._hybrid_strategy(config, provider, vector_store),
-                CodeGraphStore(config.graph.artifact),
-                config.graph_file_search,
-            )
             return LlmRerankRetrievalStrategy(
-                graph_file,
-                create_generation_provider(config),
+                self._graph_file_strategy(config, provider, vector_store),
+                create_generation_provider(self._rerank_generation_config(config)),
                 config.llm_rerank,
+                trace_logger=TraceLogger(config.trace),
+            )
+        if strategy_id is RetrievalStrategyId.GRAPH_FILE_CROSS_ENCODER:
+            # Same base as GRAPH_FILE_RERANK, different rerank primitive. The existing
+            # CROSS_ENCODER_RERANK sits on plain hybrid, so swapping to it from the champion
+            # would change the base *and* the reranker and leave neither attributable.
+            return CrossEncoderRerankRetrievalStrategy(
+                self._graph_file_strategy(config, provider, vector_store),
+                RerankProviderFactory().create(config.cross_encoder_rerank),
+                config.cross_encoder_rerank,
                 trace_logger=TraceLogger(config.trace),
             )
         if strategy_id is RetrievalStrategyId.HYBRID:
@@ -80,7 +82,7 @@ class RetrievalStrategyFactory:
             hybrid = self._hybrid_strategy(config, provider, vector_store)
             return LlmRerankRetrievalStrategy(
                 hybrid,
-                create_generation_provider(config),
+                create_generation_provider(self._rerank_generation_config(config)),
                 config.llm_rerank,
                 trace_logger=TraceLogger(config.trace),
             )
@@ -99,6 +101,10 @@ class RetrievalStrategyFactory:
             )
         raise ValueError(f"Unknown retrieval strategy: {strategy}")
 
+    def _rerank_generation_config(self, config: AppConfig) -> AppConfig:
+        """Swap in `llm_rerank.generation` so the rerank stage can run its own model."""
+        return rerank_generation_config(config)
+
     def _hybrid_vector_strategy(
         self,
         config: AppConfig,
@@ -113,6 +119,18 @@ class RetrievalStrategyFactory:
                 config.hybrid_search.vector_kind_multipliers,
             )
         return VectorRetrievalStrategy(provider, vector_store)
+
+    def _graph_file_strategy(
+        self,
+        config: AppConfig,
+        provider: EmbeddingProvider,
+        vector_store: VectorStore,
+    ) -> RetrievalStrategy:
+        return GraphFileRetrievalStrategy(
+            self._hybrid_strategy(config, provider, vector_store),
+            CodeGraphStore(config.graph.artifact),
+            config.graph_file_search,
+        )
 
     def _hybrid_strategy(
         self,

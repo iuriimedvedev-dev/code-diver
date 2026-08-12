@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import subprocess
+from typing import Any
 
 from ..settings import Defaults
 from .generation_result import GenerationResult
@@ -33,10 +34,12 @@ class AgyCliGenerationProvider:
             max_delay_seconds=retry_max_delay_seconds,
         )
 
-    def generate_json(self, prompt: str) -> str:
-        return self.generate_json_result(prompt).text
+    def generate_json(self, prompt: str, *, schema: dict[str, Any] | None = None) -> str:
+        return self.generate_json_result(prompt, schema=schema).text
 
-    def generate_json_result(self, prompt: str) -> GenerationResult:
+    # `schema` is accepted and ignored: this backend cannot constrain decoding.
+    # SchemaGuardedGenerationProvider validates and repairs the output instead.
+    def generate_json_result(self, prompt: str, *, schema: dict[str, Any] | None = None) -> GenerationResult:
         text = self.retry.run(lambda: self._run(prompt)).strip()
         if not text:
             raise RuntimeError("Antigravity CLI returned an empty response.")

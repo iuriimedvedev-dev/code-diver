@@ -20,25 +20,24 @@ from code_diver.cli import (
     direct_search_metrics,
     make_embedding_provider,
     make_ephemeral_search_tool_handler,
+    make_search_agent_runner,
     make_search_tool_handler,
+    normalize_command_homoglyphs,
     prepare_index_collection,
     search_agent_binary_available,
     search_agent_prompt,
-    make_search_agent_runner,
-    normalize_command_homoglyphs,
 )
 from code_diver.config import AppConfig
 from code_diver.config.embedding_config import EmbeddingConfig
 from code_diver.config.graph_config import GraphConfig
 from code_diver.config.pi_config import PiConfig
-from code_diver.config.scanner_config import ScannerConfig
 from code_diver.config.qdrant_config import QdrantConfig
+from code_diver.config.scanner_config import ScannerConfig
 from code_diver.config.storage_config import StorageConfig
 from code_diver.config.trace_config import TraceConfig
 from code_diver.domain import CodeItem, EvalCase, SearchResult
-from code_diver.providers import ProviderCheckResult, VertexBatchTestResult
 from code_diver.pi import AgyCliAgentRunner, GeminiCliAgentRunner, PiRunner
-
+from code_diver.providers import ProviderCheckResult, VertexBatchTestResult
 
 pytestmark = pytest.mark.unit
 
@@ -98,15 +97,7 @@ def test_search_agent_prompt_keeps_external_cli_queries_raw() -> None:
 
 
 def test_gemini_cli_agent_runner_strips_cli_noise() -> None:
-    output = "\n".join(
-        [
-            "e5dcb07510e112e2616de67083a7bd5c",
-            "MCP issues detected. Run /mcp list for status.",
-            "Hook system message: e5dcb07510e112e2616de67083a7bd5c",
-            "",
-            "Actual answer.",
-        ]
-    )
+    output = "e5dcb07510e112e2616de67083a7bd5c\nMCP issues detected. Run /mcp list for status.\nHook system message: e5dcb07510e112e2616de67083a7bd5c\n\nActual answer."
 
     assert GeminiCliAgentRunner()._clean_cli_noise(output) == "Actual answer."
 

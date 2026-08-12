@@ -8,7 +8,6 @@ import pytest
 from code_diver.providers import create_embedding_provider
 from code_diver.providers.sentence_transformers_embedding_provider import SentenceTransformersEmbeddingProvider
 
-
 pytestmark = pytest.mark.unit
 
 

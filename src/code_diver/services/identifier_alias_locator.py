@@ -2,8 +2,7 @@ from __future__ import annotations
 
 import math
 import re
-from collections import Counter
-from collections import defaultdict
+from collections import Counter, defaultdict
 from pathlib import Path
 
 from ..domain import CodeItem, CodeItemIndexKind, CodeItemIndexKindResolver

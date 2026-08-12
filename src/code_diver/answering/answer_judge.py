@@ -4,9 +4,10 @@ import json
 from pathlib import Path
 from typing import Any
 
-from ..generation import GenerationProvider
-from ..explanation.jsonish_parser import JsonishParser
+from ..generation import JUDGE_SCHEMA, GenerationProvider
+from ..generation.jsonish_parser import JsonishParser
 from .answer_case import AnswerCase
+from .answer_judge_payload_validator import validate_judge_payload
 from .answer_judge_rubric import AnswerJudgeRubric
 
 
@@ -28,8 +29,11 @@ class AnswerJudge:
         self.parser = parser or JsonishParser()
 
     def judge(self, case: AnswerCase, prediction: str, context: str) -> dict[str, Any]:
-        result = self.provider.generate_json_result(self._prompt(case, prediction, context))
+        result = self.provider.generate_json_result(
+            self._prompt(case, prediction, context), schema=JUDGE_SCHEMA
+        )
         payload = self.parser.parse_object(result.text)
+        validate_judge_payload(payload)
         scored = self.rubric.score(payload)
         return {
             "scores": scored["scores"],

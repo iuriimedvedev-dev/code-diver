@@ -7,12 +7,12 @@ import pytest
 from code_diver.config import AppConfig
 from code_diver.config.generation_config import GenerationConfig
 from code_diver.generation.generation_provider_factory import create_generation_provider
-from code_diver.generation.openai_generation_provider import OpenAIGenerationProvider
 from code_diver.generation.openai_compatible_generation_provider import OpenAICompatibleGenerationProvider
 from code_diver.generation.openai_compatible_generation_provider_pool import OpenAICompatibleGenerationProviderPool
+from code_diver.generation.openai_generation_provider import OpenAIGenerationProvider
+from code_diver.generation.response_schemas import RERANK_SCHEMA
 from code_diver.providers.openai_compatible_embedding_provider import OpenAICompatibleEmbeddingProvider
 from code_diver.providers.openai_embedding_provider import OpenAIEmbeddingProvider
-
 
 pytestmark = pytest.mark.unit
 
@@ -148,7 +148,28 @@ def test_openai_compatible_generation_provider_can_disable_response_format(monke
     assert "response_format" not in calls[0]
 
 
-def test_openai_compatible_generation_provider_can_use_json_schema_response_format(monkeypatch) -> None:
+def test_openai_compatible_generation_provider_sends_the_task_schema_in_json_schema_mode(monkeypatch) -> None:
+    provider = OpenAICompatibleGenerationProvider(
+        model="local-model",
+        api_key="local",
+        response_format="json_schema",
+    )
+    calls: list[dict] = []
+
+    def fake_post(payload):
+        calls.append(payload)
+        return {"choices": [{"message": {"content": '{"results":[]}'}}]}
+
+    monkeypatch.setattr(provider, "_post", fake_post)
+
+    assert provider.generate_json("rank", schema=RERANK_SCHEMA) == '{"results":[]}'
+    assert calls[0]["response_format"]["type"] == "json_schema"
+    assert calls[0]["response_format"]["json_schema"]["schema"] == RERANK_SCHEMA
+
+
+def test_openai_compatible_generation_provider_falls_back_to_json_object_without_a_schema(monkeypatch) -> None:
+    """json_schema mode with no task schema used to send `{"type": "object"}`, which `{}`
+    satisfies -- the mode was on and enforced nothing. json_object is at least honest."""
     provider = OpenAICompatibleGenerationProvider(
         model="local-model",
         api_key="local",
@@ -163,8 +184,7 @@ def test_openai_compatible_generation_provider_can_use_json_schema_response_form
     monkeypatch.setattr(provider, "_post", fake_post)
 
     assert provider.generate_json("rank") == '{"results":[]}'
-    assert calls[0]["response_format"]["type"] == "json_schema"
-    assert calls[0]["response_format"]["json_schema"]["schema"]["type"] == "object"
+    assert calls[0]["response_format"] == {"type": "json_object"}
 
 
 def test_openai_compatible_generation_provider_sends_extra_body(monkeypatch) -> None:
@@ -172,7 +192,7 @@ def test_openai_compatible_generation_provider_sends_extra_body(monkeypatch) -> 
         model="local-model",
         api_key="local",
         response_format=False,
-        extra_body={"enable_thinking": False},
+        extra_body={"chat_template_kwargs": {"enable_thinking": False}, "top_k": 20},
     )
     calls: list[dict] = []
 
@@ -183,19 +203,57 @@ def test_openai_compatible_generation_provider_sends_extra_body(monkeypatch) -> 
     monkeypatch.setattr(provider, "_post", fake_post)
 
     assert provider.generate_json("rank") == '{"results":[]}'
-    assert calls[0]["enable_thinking"] is False
+    assert calls[0]["chat_template_kwargs"] == {"enable_thinking": False}
+    assert calls[0]["top_k"] == 20
     assert "response_format" not in calls[0]
 
 
-def test_openai_compatible_generation_provider_accepts_reasoning_content(monkeypatch) -> None:
+def test_openai_compatible_generation_provider_rejects_flat_chat_template_options() -> None:
+    """A top-level `enable_thinking` is accepted by every server and applied by none.
+
+    Two Qwen3.5 configs carried the flat form, ran with thinking enabled, and returned
+    empty answers ~10% of the time. Silently accepting it is what hid that for a whole
+    experiment round, so it is now a startup error naming the nested form.
+    """
+    with pytest.raises(ValueError, match="chat_template_kwargs"):
+        OpenAICompatibleGenerationProvider(
+            model="local-model",
+            api_key="local",
+            extra_body={"enable_thinking": False},
+        )
+
+
+def test_openai_compatible_generation_provider_rejects_extra_body_clobbering_reserved_keys() -> None:
+    with pytest.raises(ValueError, match="messages"):
+        OpenAICompatibleGenerationProvider(
+            model="local-model",
+            api_key="local",
+            extra_body={"messages": [{"role": "user", "content": "hijacked"}]},
+        )
+
+
+def test_openai_compatible_generation_provider_rejects_a_reasoning_only_response(monkeypatch) -> None:
+    """`reasoning_content` must never stand in for the answer.
+
+    Returning a thinking trace as content produced JSON parse failures that were
+    attributed to model answer quality; the real cause was thinking mode left enabled.
+    """
     provider = OpenAICompatibleGenerationProvider(model="local-model", api_key="local")
 
     def fake_post(payload):
-        return {"choices": [{"message": {"content": "", "reasoning_content": '{"results":[]}'}}]}
+        return {
+            "choices": [
+                {
+                    "message": {"content": "", "reasoning_content": "Let me think about the ranking..."},
+                    "finish_reason": "length",
+                }
+            ]
+        }
 
     monkeypatch.setattr(provider, "_post", fake_post)
 
-    assert provider.generate_json("rank") == '{"results":[]}'
+    with pytest.raises(RuntimeError, match="only a reasoning trace"):
+        provider.generate_json("rank")
 
 
 def test_openai_compatible_generation_provider_pool_round_robins(monkeypatch) -> None:
@@ -241,9 +299,12 @@ def test_generation_provider_factory_uses_openai_compatible_pool_for_urls() -> N
         )
     )
 
-    assert isinstance(provider, OpenAICompatibleGenerationProviderPool)
-    assert provider.name == "openai_compatible_pool"
-    assert [child.url for child in provider.providers] == [
+    # The factory wraps every backend in the schema guard, so assert on the backend.
+    backend = provider.provider
+    assert isinstance(backend, OpenAICompatibleGenerationProviderPool)
+    assert backend.name == "openai_compatible_pool"
+    assert provider.name == "schema_guarded:openai_compatible_pool"
+    assert [child.url for child in backend.providers] == [
         "http://127.0.0.1:8016/v1/chat/completions",
         "http://127.0.0.1:8017/v1/chat/completions",
     ]

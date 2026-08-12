@@ -14,7 +14,7 @@ class AnswerCase:
     metadata: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
-    def from_json(cls, row: dict[str, Any]) -> "AnswerCase":
+    def from_json(cls, row: dict[str, Any]) -> AnswerCase:
         case_id = str(row.get("id") or row.get("case_id") or "").strip()
         question = str(row.get("question") or row.get("query") or "").strip()
         reference = str(row.get("reference") or row.get("answer") or "").strip()

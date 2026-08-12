@@ -9,7 +9,6 @@ from code_diver.config.qdrant_config import QdrantConfig
 from code_diver.config.storage_config import StorageConfig
 from code_diver.runtime import QdrantRuntimeManager
 
-
 pytestmark = pytest.mark.unit
 
 

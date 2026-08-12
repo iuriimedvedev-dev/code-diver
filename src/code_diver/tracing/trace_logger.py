@@ -36,7 +36,7 @@ class TraceLogger:
         return payload
 
     @classmethod
-    def disabled(cls) -> "TraceLogger":
+    def disabled(cls) -> TraceLogger:
         return cls(TraceConfig(enabled=False, artifact=Path("."), include_prompts=False))
 
     def _write_lock(self) -> Lock:

@@ -15,7 +15,6 @@ from code_diver.config.qdrant_config import QdrantConfig
 from code_diver.config.storage_config import StorageConfig
 from code_diver.pi import PiCommandBuilder, PiSessionOptions
 
-
 pytestmark = pytest.mark.unit
 
 

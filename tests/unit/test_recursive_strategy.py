@@ -5,7 +5,6 @@ import pytest
 from code_diver.domain import CodeItem, SearchResult
 from code_diver.strategies import RecursiveRetrievalStrategy, RetrievalStrategy
 
-
 pytestmark = pytest.mark.unit
 
 

@@ -9,7 +9,6 @@ from code_diver.domain import CodeItem, EvalCase, SearchResult
 from code_diver.experiments import ExperimentRunner
 from code_diver.strategies import RetrievalStrategy
 
-
 pytestmark = pytest.mark.unit
 
 

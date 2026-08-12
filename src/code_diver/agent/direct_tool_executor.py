@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from pathlib import Path
 from time import perf_counter
-from typing import Any, Callable
+from typing import Any
 
-from ..inspection.path_guard import PathGuard
 from ..inspection import FileOutlineService, GrepService, ReadExcerptService, RgService, SymbolsService, TreeService
+from ..inspection.path_guard import PathGuard
 from .candidate_scoped_search import CandidateScopedSearch
 from .tool_call import ToolCall
 from .tool_manifest_builder import ToolManifestBuilder

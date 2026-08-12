@@ -11,4 +11,6 @@ def normalize(vector: list[float]) -> list[float]:
 
 
 def dot(left: list[float], right: list[float]) -> float:
-    return sum(a * b for a, b in zip(left, right))
+    if len(left) != len(right):
+        raise ValueError(f"Vector dimension mismatch: {len(left)} != {len(right)}")
+    return sum(a * b for a, b in zip(left, right, strict=True))

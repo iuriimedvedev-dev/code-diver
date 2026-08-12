@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from ..config import AppConfig
@@ -93,4 +93,4 @@ class ExperimentMetricsMapper:
         return metric_rows, case_rows
 
     def _event_time(self) -> str:
-        return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+        return datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]

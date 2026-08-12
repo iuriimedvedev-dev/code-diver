@@ -4,7 +4,6 @@ import pytest
 
 from code_diver.ai_indexing.ai_index_response_parser import AiIndexResponseParser
 
-
 pytestmark = pytest.mark.unit
 
 

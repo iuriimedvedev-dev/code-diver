@@ -72,6 +72,11 @@ class H3SearchToolHandler:
                 "outlineCalls": probe_metrics["outlineCalls"],
                 "symbolCalls": probe_metrics["symbolCalls"],
                 "rgCalls": probe_metrics["rgCalls"],
+                "probeFailures": (
+                    probe_metrics["outlineFailures"]
+                    + probe_metrics["symbolFailures"]
+                    + probe_metrics["rgFailures"]
+                ),
                 "source": f"h3_manifest_union:{mode}",
                 "elapsedMs": elapsed_ms,
             },
@@ -226,8 +231,19 @@ class H3SearchToolHandler:
         ]
 
     def _probe_candidates(self, query: str, rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], dict[str, int]]:
+        # Probing is best-effort per file: one unreadable file must not abort the sweep.
+        # Failures are counted rather than swallowed so a systemic fault (a missing `rg`
+        # binary, an unreadable tree) shows up in the metrics instead of silently
+        # degrading recall to zero probe candidates.
         candidates: list[dict[str, Any]] = []
-        metrics = {"outlineCalls": 0, "symbolCalls": 0, "rgCalls": 0}
+        metrics = {
+            "outlineCalls": 0,
+            "symbolCalls": 0,
+            "rgCalls": 0,
+            "outlineFailures": 0,
+            "symbolFailures": 0,
+            "rgFailures": 0,
+        }
         pattern = "|".join(re.escape(term) for term in self._terms(query)[:5])
         for candidate in rows:
             path = str(candidate.get("path") or "")
@@ -237,21 +253,21 @@ class H3SearchToolHandler:
                 outline_payload = self.outline.structured(path, symbol_limit=80, import_limit=30)
                 metrics["outlineCalls"] += 1
                 candidates.extend(self._outline_candidates(outline_payload))
-            except Exception:
-                pass
+            except Exception:  # best-effort probe; failure is counted, not swallowed
+                metrics["outlineFailures"] += 1
             try:
                 symbol_payload = self.symbols.structured(path=path, limit=40, query=query)
                 metrics["symbolCalls"] += 1
                 candidates.extend(self._tool_candidates(symbol_payload, "symbols"))
-            except Exception:
-                pass
+            except Exception:  # best-effort probe; failure is counted, not swallowed
+                metrics["symbolFailures"] += 1
             if pattern:
                 try:
                     rg_payload = self.rg.structured(pattern, path=path, limit=20, include_text=False)
                     metrics["rgCalls"] += 1
                     candidates.extend(self._tool_candidates(rg_payload, "rg"))
-                except Exception:
-                    pass
+                except Exception:  # best-effort probe; failure is counted, not swallowed
+                    metrics["rgFailures"] += 1
         return candidates, metrics
 
     def _alias_candidates(self, query: str, limit: int) -> list[dict[str, Any]]:

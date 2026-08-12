@@ -12,7 +12,6 @@ from code_diver.generation.antigravity_sdk_generation_provider import (
 )
 from code_diver.generation.generation_provider_factory import create_generation_provider
 
-
 pytestmark = pytest.mark.unit
 
 
@@ -131,6 +130,8 @@ def test_generation_factory_creates_antigravity_sdk_provider() -> None:
 
     provider = create_generation_provider(config)
 
+    # create_generation_provider wraps every backend in the schema guard.
+    provider = provider.provider
     assert isinstance(provider, AntigravitySdkGenerationProvider)
     assert provider.model == "gemini-3.5-flash"
     assert provider.timeout_seconds == 123

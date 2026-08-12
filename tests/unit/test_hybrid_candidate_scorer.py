@@ -11,7 +11,6 @@ from code_diver.strategies.hybrid_candidate_scorer import HybridCandidateScorer
 from code_diver.strategies.hybrid_item_profiler import HybridItemProfiler
 from code_diver.strategies.hybrid_query import HybridQuery
 
-
 pytestmark = pytest.mark.unit
 
 

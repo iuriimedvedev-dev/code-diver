@@ -4,7 +4,6 @@ import pytest
 
 from code_diver.reranking.llama_cpp_rerank_provider import LlamaCppRerankProvider
 
-
 pytestmark = pytest.mark.unit
 
 

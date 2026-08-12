@@ -11,7 +11,6 @@ from code_diver.strategies.file_graph_candidate_expander import (
 )
 from code_diver.strategies.graph_expansion_profile import GraphExpansionProfile
 
-
 pytestmark = pytest.mark.unit
 
 

@@ -24,7 +24,7 @@ class FileGraphCatalog:
         cls,
         items: Iterable[CodeItem],
         edges: Iterable[GraphEdge],
-    ) -> "FileGraphCatalog":
+    ) -> FileGraphCatalog:
         resolver = CodeItemIndexKindResolver()
         item_paths: dict[str, str] = {}
         representatives_by_path: dict[str, dict[str, CodeItem]] = defaultdict(dict)
@@ -68,7 +68,7 @@ class FileGraphCatalog:
         }
 
     @classmethod
-    def from_json(cls, data: dict[str, Any]) -> "FileGraphCatalog":
+    def from_json(cls, data: dict[str, Any]) -> FileGraphCatalog:
         return cls(
             items_by_id={
                 item_id: CodeItem.from_json(item)

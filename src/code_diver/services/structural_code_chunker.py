@@ -57,16 +57,16 @@ class StructuralCodeChunker:
             and getattr(node, "lineno", 0)
             and getattr(node, "end_lineno", 0)
         ]
-        if top_level_nodes and int(getattr(top_level_nodes[0], "lineno")) > 1:
-            spans.append(StructuralSpan("module preamble", "preamble", 1, int(getattr(top_level_nodes[0], "lineno")) - 1))
+        if top_level_nodes and int(top_level_nodes[0].lineno) > 1:
+            spans.append(StructuralSpan("module preamble", "preamble", 1, int(top_level_nodes[0].lineno) - 1))
         for node in top_level_nodes:
             kind = "class" if isinstance(node, ast.ClassDef) else "function"
             spans.append(
                 StructuralSpan(
-                    title=str(getattr(node, "name")),
+                    title=str(node.name),
                     kind=kind,
-                    start_line=int(getattr(node, "lineno")),
-                    end_line=min(int(getattr(node, "end_lineno")), line_count),
+                    start_line=int(node.lineno),
+                    end_line=min(int(node.end_lineno), line_count),
                 )
             )
         return self._normalized_spans(spans, line_count)
@@ -109,7 +109,7 @@ class StructuralCodeChunker:
             title = f"{rel_path}::{span.title}" if span.title else f"{rel_path}:{start_line}-{end_line}"
             if span.start_line != start_line or span.end_line != end_line:
                 title = f"{title}:{start_line}-{end_line}"
-            digest = hashlib.sha1(f"{rel_path}:{span.title}:{start_line}:{end_line}".encode("utf-8")).hexdigest()[:12]
+            digest = hashlib.sha1(f"{rel_path}:{span.title}:{start_line}:{end_line}".encode()).hexdigest()[:12]
             items.append(
                 CodeItem(
                     id=f"{rel_path}::structural#{digest}",

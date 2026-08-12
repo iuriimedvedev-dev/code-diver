@@ -8,7 +8,6 @@ from code_diver.config.generation_config import GenerationConfig
 from code_diver.generation import GenerationResult
 from code_diver.providers import ProviderTestOptions, ProviderTestService
 
-
 pytestmark = pytest.mark.unit
 
 
@@ -18,10 +17,10 @@ class FakeGenerationProvider:
     def __init__(self, model: str):
         self.model = model
 
-    def generate_json(self, prompt: str) -> str:
+    def generate_json(self, prompt: str, *, schema: dict | None = None) -> str:
         return self.generate_json_result(prompt).text
 
-    def generate_json_result(self, prompt: str) -> GenerationResult:
+    def generate_json_result(self, prompt: str, *, schema: dict | None = None) -> GenerationResult:
         if self.model == ProviderTestService.INVALID_PRIMARY_MODEL:
             raise RuntimeError("invalid model")
         return GenerationResult(
@@ -36,7 +35,7 @@ class FakeGenerationProvider:
 class FakeFallbackGenerationProvider(FakeGenerationProvider):
     fallback_model: str
 
-    def generate_json_result(self, prompt: str) -> GenerationResult:
+    def generate_json_result(self, prompt: str, *, schema: dict | None = None) -> GenerationResult:
         if self.model == ProviderTestService.INVALID_PRIMARY_MODEL:
             return GenerationResult(text='{"ok":true}', model=self.fallback_model, total_tokens=7)
         return super().generate_json_result(prompt)
@@ -107,7 +106,7 @@ def test_provider_test_service_can_force_fallback_chain() -> None:
 
 def test_provider_test_service_marks_invalid_json_generation_as_failed() -> None:
     class BadJsonProvider(FakeGenerationProvider):
-        def generate_json_result(self, prompt: str) -> GenerationResult:
+        def generate_json_result(self, prompt: str, *, schema: dict | None = None) -> GenerationResult:
             return GenerationResult(text="not json", model=self.model)
 
     config = AppConfig(generation=GenerationConfig(provider="fake", model="bad-json"))

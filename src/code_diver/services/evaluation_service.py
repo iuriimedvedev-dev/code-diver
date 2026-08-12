@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-import math
 import fnmatch
-from collections import Counter
-from collections import defaultdict
+import math
+from collections import Counter, defaultdict
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from time import perf_counter
-from typing import Any, Callable
+from typing import Any
 
 from ..domain import CodeItemIndexKindResolver, EvalCase, EvalResult
 from ..strategies import RetrievalStrategy
@@ -65,8 +65,7 @@ class EvaluationService:
                     for index, case in enumerate(cases)
                 }
                 rows_by_index: list[tuple[EvalResult, float] | None] = [None] * len(cases)
-                completed = 0
-                for future in as_completed(futures):
+                for completed, future in enumerate(as_completed(futures), start=1):
                     index, case = futures[future]
                     try:
                         row, failure = future.result()
@@ -78,7 +77,6 @@ class EvaluationService:
                         rows_by_index[index] = row
                     if failure is not None:
                         failures.append(failure)
-                    completed += 1
                     self._trace_progress(completed, len(cases), started)
                     if progress_callback is not None:
                         progress_callback(completed, len(cases))
@@ -386,16 +384,16 @@ class EvaluationService:
         normalized = expected.strip()
         if normalized.startswith("glob:"):
             pattern = normalized.removeprefix("glob:")
-            return fnmatch.fnmatchcase(str(getattr(item, "path")), pattern) or fnmatch.fnmatchcase(str(getattr(item, "id")), pattern)
+            return fnmatch.fnmatchcase(str(item.path), pattern) or fnmatch.fnmatchcase(str(item.id), pattern)
         return (
-            getattr(item, "id") == normalized
-            or getattr(item, "path") == normalized
-            or getattr(item, "path").startswith(normalized.rstrip("/") + "/")
-            or getattr(item, "id").startswith(normalized + "#")
+            item.id == normalized
+            or item.path == normalized
+            or item.path.startswith(normalized.rstrip("/") + "/")
+            or item.id.startswith(normalized + "#")
         )
 
     def _file_metrics(self, search_results: list[Any], expected: list[str], limit: int) -> dict[str, Any]:
-        files = self._dedupe_files(getattr(result.item, "path") for result in search_results[:limit])
+        files = self._dedupe_files(result.item.path for result in search_results[:limit])
         matched_ranks = [
             rank
             for rank, path in enumerate(files, start=1)
@@ -479,11 +477,7 @@ class EvaluationService:
 
     def _matches_path_or_id(self, value: str, expected: list[str]) -> bool:
         return any(
-            (item.startswith("glob:") and fnmatch.fnmatchcase(value.split("#", 1)[0].split("::", 1)[0], item.removeprefix("glob:")))
-            or value == item
-            or value.startswith(item + "#")
-            or value.startswith(item + "::")
-            or value.startswith(item.rstrip("/") + "/")
+            (item.startswith("glob:") and fnmatch.fnmatchcase(value.split("#", 1)[0].split("::", 1)[0], item.removeprefix("glob:"))) or value == item or value.startswith((item + "#", item + "::", item.rstrip("/") + "/"))
             for item in expected
         )
 
@@ -497,7 +491,7 @@ class EvaluationService:
         if not values:
             return 0.0
         ordered = sorted(values)
-        index = min(int(round((len(ordered) - 1) * quantile)), len(ordered) - 1)
+        index = min(round((len(ordered) - 1) * quantile), len(ordered) - 1)
         return ordered[index]
 
     def _per_second(self, value: float, seconds: float) -> float:

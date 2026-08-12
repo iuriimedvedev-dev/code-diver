@@ -10,6 +10,8 @@ LINK_RE = re.compile(r"\[([^\]]+)]\(([^)]+)\)")
 CODE_FENCE_RE = re.compile(r"^\s*```([A-Za-z0-9_+.-]*)")
 COMMAND_RE = re.compile(r"^\s*(?:[$>]?\s*)?(uv|python|pip|npm|pnpm|yarn|go|cargo|docker|kubectl|make|pytest|ruff)\b")
 
+TRUNCATION_MARKER = " ...[truncated]"
+
 
 class DocumentationMetadataExtractor:
     def __init__(
@@ -20,12 +22,14 @@ class DocumentationMetadataExtractor:
         max_commands: int = 32,
         max_facts: int = 64,
         max_summary_chars: int = 3600,
+        max_line_chars: int = 200,
     ):
         self.max_headings = max_headings
         self.max_links = max_links
         self.max_commands = max_commands
         self.max_facts = max_facts
         self.max_summary_chars = max_summary_chars
+        self.max_line_chars = max_line_chars
 
     def is_documentation_path(self, rel_path: str) -> bool:
         path = Path(rel_path)
@@ -103,9 +107,7 @@ class DocumentationMetadataExtractor:
                 in_code = not in_code
                 continue
             stripped = line.strip().lstrip("$>").strip()
-            if in_code and COMMAND_RE.match(stripped):
-                commands.append(stripped)
-            elif COMMAND_RE.match(stripped):
+            if (in_code and COMMAND_RE.match(stripped)) or COMMAND_RE.match(stripped):
                 commands.append(stripped)
         return self._unique(commands)
 
@@ -139,9 +141,17 @@ class DocumentationMetadataExtractor:
         rows: list[str] = []
         for value in values:
             row = " ".join(value.split())
+            if not row:
+                continue
+            row = self._cap_line(row)
             key = row.lower()
-            if not row or key in seen:
+            if key in seen:
                 continue
             seen.add(key)
             rows.append(row)
         return rows
+
+    def _cap_line(self, row: str) -> str:
+        if len(row) <= self.max_line_chars:
+            return row
+        return row[: self.max_line_chars] + TRUNCATION_MARKER

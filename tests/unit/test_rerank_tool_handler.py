@@ -8,7 +8,6 @@ from code_diver.agent.rerank_tool_handler import RerankToolHandler
 from code_diver.config.llm_rerank_config import LlmRerankConfig
 from code_diver.generation import GenerationResult
 
-
 pytestmark = pytest.mark.unit
 
 
@@ -20,7 +19,7 @@ class FakeGenerationProvider:
         self.response = response
         self.prompts: list[str] = []
 
-    def generate_json_result(self, prompt: str) -> GenerationResult:
+    def generate_json_result(self, prompt: str, *, schema: dict | None = None) -> GenerationResult:
         self.prompts.append(prompt)
         return GenerationResult(
             text=self.response,
@@ -30,7 +29,7 @@ class FakeGenerationProvider:
             total_tokens=55,
         )
 
-    def generate_json(self, prompt: str) -> str:
+    def generate_json(self, prompt: str, *, schema: dict | None = None) -> str:
         return self.generate_json_result(prompt).text
 
 

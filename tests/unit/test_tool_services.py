@@ -5,14 +5,13 @@ from pathlib import Path
 
 import pytest
 
-from code_diver.inspection.grep_service import GrepService
 from code_diver.inspection.file_outline_service import FileOutlineService
+from code_diver.inspection.grep_service import GrepService
 from code_diver.inspection.path_guard import PathGuard
 from code_diver.inspection.read_excerpt_service import ReadExcerptService
 from code_diver.inspection.rg_service import RgService
 from code_diver.inspection.symbols_service import SymbolsService
 from code_diver.inspection.tree_service import TreeService
-
 
 pytestmark = pytest.mark.unit
 

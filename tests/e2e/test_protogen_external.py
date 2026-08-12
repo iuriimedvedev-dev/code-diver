@@ -8,7 +8,6 @@ import pytest
 from code_diver.cli import main
 from code_diver.config import ConfigLoader
 
-
 pytestmark = [pytest.mark.e2e, pytest.mark.protogen]
 
 CONFIG_PATH = Path("configs/protogen.yml")

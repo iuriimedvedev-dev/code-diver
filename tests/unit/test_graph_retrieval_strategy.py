@@ -9,7 +9,6 @@ from code_diver.graph import CodeGraph, CodeGraphStore, GraphEdge
 from code_diver.settings import EdgeKind
 from code_diver.strategies import GraphRetrievalStrategy, RetrievalStrategy
 
-
 pytestmark = pytest.mark.unit
 
 

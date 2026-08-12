@@ -9,7 +9,6 @@ import pytest
 from code_diver.benchmarks import BenchmarkPreparation
 from code_diver.benchmarks.mteb_codesearchnet_preparer import MtebCodeSearchNetPreparer
 
-
 pytestmark = pytest.mark.unit
 
 

@@ -27,7 +27,7 @@ class VertexGenerationProvider(GeminiGenerationProvider):
             from google import genai
             from google.genai import types
         except ImportError as exc:  # pragma: no cover - depends on environment
-            raise RuntimeError("Install dependencies with `uv sync` before using Vertex generation.") from exc
+            raise RuntimeError("Install the Vertex/Gemini extra with `uv sync --extra gemini` before using Vertex generation.") from exc
 
         self.name = Defaults.VERTEX_PROVIDER
         self.model = model

@@ -5,7 +5,7 @@ from time import perf_counter, sleep
 from ..agent.model_cost_estimator import ModelCostEstimator
 from ..config.llm_rerank_config import LlmRerankConfig
 from ..domain import SearchResult
-from ..generation import GenerationProvider
+from ..generation import RERANK_SCHEMA, GenerationProvider
 from ..tracing import TraceLogger
 from .llm_rerank_prompt_builder import LlmRerankPromptBuilder
 from .llm_rerank_response_parser import LlmRerankResponseParser
@@ -33,7 +33,69 @@ class LlmRerankRetrievalStrategy(RetrievalStrategy):
         candidates = self.base_strategy.search(query, max(limit, self.config.candidate_limit))
         if len(candidates) <= 1:
             return candidates[:limit]
+        # Chunking is a pre-reduction: it shortens the candidate list, then the final stage below
+        # runs exactly as it always has. Keeping it out of the main path is deliberate -- the
+        # single-shot behaviour has to stay identical for the champion to remain comparable.
+        if self._chunking_applies(len(candidates)):
+            candidates = self._chunk_survivors(query, candidates)
+            if len(candidates) <= 1:
+                return candidates[:limit]
         rerank_limit = self._rerank_limit(limit)
+        return self._ranked(
+            query,
+            candidates,
+            rerank_limit=rerank_limit,
+            limit=limit,
+            preserve_top=self.config.preserve_top_candidate,
+            stage="final",
+        )
+
+    def _chunking_applies(self, candidate_count: int) -> bool:
+        chunk_size = self.config.chunk_size
+        # A list that already fits in one chunk gains nothing: chunking it would spend the same
+        # single call and then a second one to rank the survivors of that call.
+        return chunk_size is not None and chunk_size > 0 and candidate_count > chunk_size
+
+    def _chunk_survivors(self, query: str, candidates: list[SearchResult]) -> list[SearchResult]:
+        chunk_size = self.config.chunk_size or len(candidates)
+        keep = self._chunk_keep()
+        survivors: list[SearchResult] = []
+        for start in range(0, len(candidates), chunk_size):
+            chunk = candidates[start : start + chunk_size]
+            # A trailing chunk no longer than `keep` has nothing to select: every member would
+            # survive, so the call would be pure cost. Base order carries them through.
+            if len(chunk) <= keep:
+                survivors.extend(chunk)
+                continue
+            survivors.extend(
+                self._ranked(
+                    query,
+                    chunk,
+                    rerank_limit=keep,
+                    limit=keep,
+                    # `preserve_top_candidate` compares against the top of the list it is given.
+                    # Inside a chunk that top is an artefact of where the split fell, so the
+                    # guard belongs to the final stage only.
+                    preserve_top=False,
+                    stage="chunk",
+                )
+            )
+        return survivors
+
+    def _chunk_keep(self) -> int:
+        if self.config.chunk_keep is not None:
+            return max(1, self.config.chunk_keep)
+        return max(1, self.config.rerank_limit)
+
+    def _ranked(
+        self,
+        query: str,
+        candidates: list[SearchResult],
+        rerank_limit: int,
+        limit: int,
+        preserve_top: bool,
+        stage: str,
+    ) -> list[SearchResult]:
         prompt = self.prompt_builder.build(query, candidates, rerank_limit)
         self.trace_logger.write(
             "llm_rerank_prompt",
@@ -45,6 +107,7 @@ class LlmRerankRetrievalStrategy(RetrievalStrategy):
                 "limit": rerank_limit,
                 "final_limit": limit,
                 "mode": self.config.mode,
+                "stage": stage,
                 **self.trace_logger.prompt_payload(prompt),
             },
         )
@@ -52,7 +115,7 @@ class LlmRerankRetrievalStrategy(RetrievalStrategy):
         for attempt in range(1, attempts + 1):
             started = perf_counter()
             try:
-                response = self.generation_provider.generate_json_result(prompt)
+                response = self.generation_provider.generate_json_result(prompt, schema=RERANK_SCHEMA)
                 duration_ms = (perf_counter() - started) * 1000
                 selections = self.response_parser.parse_selections(response.text, len(candidates))
                 selected_indices = [selection.index for selection in selections]
@@ -71,12 +134,13 @@ class LlmRerankRetrievalStrategy(RetrievalStrategy):
                         "selected_indices": selected_indices,
                         "selected_candidates": self._selected_candidates(candidates, selections),
                         "mode": self.config.mode,
+                        "stage": stage,
                         "attempt": attempt,
                         "response_chars": len(response.text),
                         "response": response.text,
                     },
                 )
-                return self._reranked(candidates, selected_indices[:rerank_limit], limit)
+                return self._reranked(candidates, selected_indices[:rerank_limit], limit, preserve_top)
             except Exception as exc:
                 duration_ms = (perf_counter() - started) * 1000
                 final_attempt = attempt >= attempts
@@ -88,6 +152,7 @@ class LlmRerankRetrievalStrategy(RetrievalStrategy):
                         "query": query,
                         "duration_ms": duration_ms,
                         "mode": self.config.mode,
+                        "stage": stage,
                         "attempt": attempt,
                         "max_attempts": attempts,
                         "will_retry": not final_attempt,
@@ -99,13 +164,19 @@ class LlmRerankRetrievalStrategy(RetrievalStrategy):
                     return candidates[:limit]
                 sleep(self._retry_delay_seconds(attempt))
 
-    def _reranked(self, candidates: list[SearchResult], selected_indices: list[int], limit: int) -> list[SearchResult]:
+    def _reranked(
+        self,
+        candidates: list[SearchResult],
+        selected_indices: list[int],
+        limit: int,
+        preserve_top: bool,
+    ) -> list[SearchResult]:
         selected_positions = {index - 1 for index in selected_indices}
         reranked = [candidates[index - 1] for index in selected_indices]
         reranked.extend(
             candidate for index, candidate in enumerate(candidates) if index not in selected_positions
         )
-        if self._should_preserve_top(candidates, reranked):
+        if preserve_top and self._should_preserve_top(candidates, reranked):
             reranked = [
                 candidates[0],
                 *(candidate for candidate in reranked if candidate.item.id != candidates[0].item.id),
@@ -113,7 +184,7 @@ class LlmRerankRetrievalStrategy(RetrievalStrategy):
         return reranked[:limit]
 
     def _should_preserve_top(self, candidates: list[SearchResult], reranked: list[SearchResult]) -> bool:
-        if not self.config.preserve_top_candidate or not candidates or not reranked:
+        if not candidates or not reranked:
             return False
         if reranked[0].item.id == candidates[0].item.id:
             return False

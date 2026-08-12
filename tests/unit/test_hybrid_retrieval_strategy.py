@@ -1,19 +1,19 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
 
 from code_diver.config import HybridSearchConfig
+from code_diver.config.trace_config import TraceConfig
 from code_diver.domain import CodeItem, SearchResult
 from code_diver.graph import CodeGraph, CodeGraphStore, GraphEdge
-from code_diver.strategies.hybrid_lexical_index import HybridLexicalIndex
-from code_diver.strategies.hybrid_item_profiler import HybridItemProfiler
 from code_diver.strategies import HybridRetrievalStrategy, RetrievalStrategy
+from code_diver.strategies.hybrid_item_profiler import HybridItemProfiler
+from code_diver.strategies.hybrid_lexical_index import HybridLexicalIndex
 from code_diver.tracing import TraceLogger
-from code_diver.config.trace_config import TraceConfig
-
 
 pytestmark = pytest.mark.unit
 
@@ -484,6 +484,112 @@ def test_hybrid_strategy_does_not_preserve_vector_top_without_margin(tmp_path: P
     results = strategy.search("authorization token", limit=2)
 
     assert results[0].item.id == "lexical-top"
+
+
+def test_hybrid_strategy_skips_graph_expansion_when_weight_is_zero(tmp_path: Path) -> None:
+    seed_item = CodeItem(id="seed", path="src/seed.py", title="seed", content="seed content")
+    neighbor_item = CodeItem(id="neighbor", path="src/neighbor.py", title="neighbor", content="neighbor content")
+    graph_store = _graph_store(
+        tmp_path,
+        [seed_item, neighbor_item],
+        [GraphEdge(source=seed_item.id, target=neighbor_item.id, kind="calls", weight=0.9)],
+    )
+    strategy = HybridRetrievalStrategy(
+        FakeRetrievalStrategy([SearchResult(seed_item, 0.8)]),
+        graph_store,
+        HybridSearchConfig(
+            candidate_limit=5,
+            lexical_candidate_limit=5,
+            vector_weight=1.0,
+            lexical_weight=0.0,
+            path_weight=0.0,
+            symbol_weight=0.0,
+            graph_weight=0.0,
+        ),
+    )
+    call_count = _spy_on_graph_scores(strategy)
+
+    strategy.search("seed", limit=2)
+
+    assert call_count() == 0
+
+
+def test_hybrid_strategy_computes_graph_expansion_when_weight_is_positive(tmp_path: Path) -> None:
+    seed_item = CodeItem(id="seed", path="src/seed.py", title="seed", content="seed content")
+    neighbor_item = CodeItem(id="neighbor", path="src/neighbor.py", title="neighbor", content="neighbor content")
+    graph_store = _graph_store(
+        tmp_path,
+        [seed_item, neighbor_item],
+        [GraphEdge(source=seed_item.id, target=neighbor_item.id, kind="calls", weight=0.9)],
+    )
+    strategy = HybridRetrievalStrategy(
+        FakeRetrievalStrategy([SearchResult(seed_item, 0.8)]),
+        graph_store,
+        HybridSearchConfig(
+            candidate_limit=5,
+            lexical_candidate_limit=5,
+            vector_weight=0.5,
+            lexical_weight=0.0,
+            path_weight=0.0,
+            symbol_weight=0.0,
+            graph_weight=0.5,
+            graph_depth=1,
+            graph_neighbor_limit=5,
+        ),
+    )
+    call_count = _spy_on_graph_scores(strategy)
+
+    results = strategy.search("seed", limit=2)
+
+    assert call_count() == 1
+    assert "src/neighbor.py" in [result.item.path for result in results]
+
+
+def test_hybrid_strategy_zero_graph_weight_ignores_graph_edges(tmp_path: Path) -> None:
+    seed_item = CodeItem(id="seed", path="src/seed.py", title="seed", content="seed content")
+    neighbor_item = CodeItem(id="neighbor", path="src/neighbor.py", title="neighbor", content="neighbor content")
+    config = HybridSearchConfig(
+        candidate_limit=5,
+        lexical_candidate_limit=5,
+        vector_weight=1.0,
+        lexical_weight=0.0,
+        path_weight=0.0,
+        symbol_weight=0.0,
+        graph_weight=0.0,
+    )
+    strategy_without_edges = HybridRetrievalStrategy(
+        FakeRetrievalStrategy([SearchResult(seed_item, 0.8)]),
+        _graph_store(tmp_path / "without-edges", [seed_item, neighbor_item], []),
+        config,
+    )
+    strategy_with_edges = HybridRetrievalStrategy(
+        FakeRetrievalStrategy([SearchResult(seed_item, 0.8)]),
+        _graph_store(
+            tmp_path / "with-edges",
+            [seed_item, neighbor_item],
+            [GraphEdge(source=seed_item.id, target=neighbor_item.id, kind="calls", weight=0.9)],
+        ),
+        config,
+    )
+
+    results_without_edges = strategy_without_edges.search("seed", limit=2)
+    results_with_edges = strategy_with_edges.search("seed", limit=2)
+
+    assert [(result.item.id, result.score) for result in results_without_edges] == [
+        (result.item.id, result.score) for result in results_with_edges
+    ]
+
+
+def _spy_on_graph_scores(strategy: HybridRetrievalStrategy) -> Callable[[], int]:
+    original = strategy._graph_scores
+    calls = {"count": 0}
+
+    def counting(*args: object, **kwargs: object) -> dict[str, float]:
+        calls["count"] += 1
+        return original(*args, **kwargs)
+
+    strategy._graph_scores = counting  # type: ignore[method-assign]
+    return lambda: calls["count"]
 
 
 def _graph_store(tmp_path: Path, items: list[CodeItem], edges: list[GraphEdge]) -> CodeGraphStore:

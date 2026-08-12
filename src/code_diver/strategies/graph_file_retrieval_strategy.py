@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass
+from threading import RLock
 
 from ..config import GraphFileSearchConfig
 from ..domain import CodeItem, SearchResult
@@ -10,6 +11,7 @@ from ..services.tokenizer import tokenize
 from .file_graph_catalog import FileGraphCatalog
 from .file_graph_catalog_store import FileGraphCatalogStore
 from .hybrid_candidate_scorer import HybridCandidateScorer
+from .hybrid_item_profile import HybridItemProfile
 from .hybrid_item_profiler import HybridItemProfiler
 from .hybrid_query import HybridQuery
 from .retrieval_strategy import RetrievalStrategy
@@ -48,6 +50,10 @@ class GraphFileRetrievalStrategy(RetrievalStrategy):
         self.profiler = HybridItemProfiler()
         self._catalog: FileGraphCatalog | None = None
         self._items_by_path: dict[str, list[CodeItem]] | None = None
+        self._item_profiles: dict[str, HybridItemProfile] = {}
+        # answer_evaluator.py runs concurrent probe queries against one shared strategy
+        # instance, so the profile cache must be safe for concurrent read/populate.
+        self._cache_lock = RLock()
 
     def search(self, query: str, limit: int) -> list[SearchResult]:
         catalog = self._load_catalog()
@@ -96,7 +102,12 @@ class GraphFileRetrievalStrategy(RetrievalStrategy):
             scores.setdefault(path, FileScore(path=path, item=item)).vector_score = vector_score
 
         query_model = HybridQuery(text=query, terms=self._query_terms(query))
-        scorer = HybridCandidateScorer(query_model, self.profiler)
+        scorer = HybridCandidateScorer(
+            query_model,
+            self.profiler,
+            self._item_profiles,
+            profile_lock=self._cache_lock,
+        )
         lexical_candidates: list[FileScore] = []
         if self.config.lexical_seed_limit > 0:
             for item in catalog.items_by_id.values():
@@ -132,6 +143,9 @@ class GraphFileRetrievalStrategy(RetrievalStrategy):
         seed_file_scores: dict[str, float],
     ) -> dict[str, float]:
         accumulated: dict[str, float] = defaultdict(float)
+        frontier_limit = (
+            self.config.neighbor_limit if self.config.frontier_limit is None else self.config.frontier_limit
+        )
         frontier = dict(sorted(seed_file_scores.items(), key=lambda item: item[1], reverse=True)[: self.config.seed_limit])
         for depth in range(max(self.config.depth, 0)):
             next_frontier: dict[str, float] = defaultdict(float)
@@ -145,9 +159,7 @@ class GraphFileRetrievalStrategy(RetrievalStrategy):
                     next_frontier[neighbor_path] = max(next_frontier[neighbor_path], score)
             if not next_frontier:
                 break
-            frontier = dict(
-                sorted(next_frontier.items(), key=lambda item: item[1], reverse=True)[: self.config.neighbor_limit]
-            )
+            frontier = dict(sorted(next_frontier.items(), key=lambda item: item[1], reverse=True)[:frontier_limit])
         return dict(accumulated)
 
     def _query_terms(self, query: str) -> tuple[str, ...]:

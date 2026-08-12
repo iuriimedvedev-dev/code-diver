@@ -4,8 +4,7 @@ from collections import Counter
 from pathlib import Path
 
 from ..inspection import TreeService
-from ..services import CodebaseScanner
-from ..services import CodeSymbolExtractor
+from ..services import CodebaseScanner, CodeSymbolExtractor
 
 
 class RepositoryInventory:

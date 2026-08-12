@@ -7,7 +7,6 @@ from code_diver.domain import EvalResult
 from code_diver.experiments import ExperimentRun, StrategyExperimentResult
 from code_diver.metrics import ExperimentMetricsMapper
 
-
 pytestmark = pytest.mark.unit
 
 

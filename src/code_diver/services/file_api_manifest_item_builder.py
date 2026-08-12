@@ -49,7 +49,7 @@ class FileApiManifestItemBuilder:
         self.max_doc_hint_chars = max_doc_hint_chars
 
     def build(self, rel_path: str, text: str, symbols: list[CodeSymbol]) -> CodeItem:
-        digest = hashlib.sha1(f"{rel_path}:file-api-manifest".encode("utf-8")).hexdigest()[:12]
+        digest = hashlib.sha1(f"{rel_path}:file-api-manifest".encode()).hexdigest()[:12]
         call_terms = self._call_terms(rel_path, text)
         attribute_terms = self._attribute_terms(rel_path, text)
         resource_terms = self._resource_terms(text)

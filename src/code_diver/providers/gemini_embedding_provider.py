@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 import time
-from typing import Iterable
+from collections.abc import Iterable
 
 from ..settings import Defaults, EmbeddingProviderId, EnvironmentVariable
 from .embedding_provider import EmbeddingProvider
@@ -25,7 +25,7 @@ class GeminiEmbeddingProvider(EmbeddingProvider):
             from google import genai
             from google.genai import types
         except ImportError as exc:  # pragma: no cover - depends on environment
-            raise RuntimeError("Install dependencies with `uv sync` before using Gemini embeddings.") from exc
+            raise RuntimeError("Install the Vertex/Gemini extra with `uv sync --extra gemini` before using Gemini embeddings.") from exc
 
         self.name = EmbeddingProviderId.GEMINI.value
         self.model = model

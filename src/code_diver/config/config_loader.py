@@ -7,18 +7,18 @@ from typing import Any
 import yaml
 
 from ..settings import Defaults
+from .ai_index_config import AiIndexConfig
 from .app_config import AppConfig
 from .cross_encoder_rerank_config import CrossEncoderRerankConfig
 from .editor_config import EditorConfig
 from .embedding_config import EmbeddingConfig
 from .env_file_config import EnvFileConfig
-from .experiment_hypothesis_config import ExperimentHypothesisConfig
 from .evaluation_config import EvaluationConfig
+from .experiment_hypothesis_config import ExperimentHypothesisConfig
 from .experiments_config import ExperimentsConfig
 from .generation_config import GenerationConfig
-from .graph_file_search_config import GraphFileSearchConfig
 from .graph_config import GraphConfig
-from .ai_index_config import AiIndexConfig
+from .graph_file_search_config import GraphFileSearchConfig
 from .hybrid_search_config import HybridSearchConfig
 from .indexing_config import IndexingConfig
 from .llm_rerank_config import LlmRerankConfig
@@ -41,7 +41,7 @@ class ConfigLoader:
         generation = self._generation(data.get("generation"))
         graph_file_search = self._graph_file_search(data.get("graph_file_search"))
         hybrid_search = self._hybrid_search(data.get("hybrid_search"))
-        llm_rerank = self._llm_rerank(data.get("llm_rerank"))
+        llm_rerank = self._llm_rerank(data.get("llm_rerank"), generation=generation)
         cross_encoder_rerank = self._cross_encoder_rerank(data.get("cross_encoder_rerank"))
         return AppConfig(
             root=Path(data.get("root", Defaults.ROOT)),
@@ -279,6 +279,12 @@ class ConfigLoader:
             symbol_chunks=bool(mapping.get("symbol_chunks", Defaults.SYMBOL_CHUNKS)),
             symbol_body=bool(mapping.get("symbol_body", Defaults.SYMBOL_BODY)),
             file_summary_chunks=bool(mapping.get("file_summary_chunks", Defaults.FILE_SUMMARY_CHUNKS)),
+            file_summary_head_line_max_chars=int(
+                mapping.get("file_summary_head_line_max_chars", Defaults.FILE_SUMMARY_HEAD_LINE_MAX_CHARS)
+            ),
+            file_summary_head_block_max_chars=int(
+                mapping.get("file_summary_head_block_max_chars", Defaults.FILE_SUMMARY_HEAD_BLOCK_MAX_CHARS)
+            ),
             file_manifest_chunks=bool(mapping.get("file_manifest_chunks", Defaults.FILE_MANIFEST_CHUNKS)),
             file_api_manifest_chunks=bool(
                 mapping.get("file_api_manifest_chunks", Defaults.FILE_API_MANIFEST_CHUNKS)
@@ -484,6 +490,9 @@ class ConfigLoader:
             neighbor_limit=int(
                 mapping.get("neighbor_limit", base.neighbor_limit if base is not None else Defaults.GRAPH_FILE_NEIGHBOR_LIMIT)
             ),
+            frontier_limit=self._optional_int(
+                mapping.get("frontier_limit", base.frontier_limit if base is not None else None)
+            ),
             decay=float(mapping.get("decay", base.decay if base is not None else Defaults.GRAPH_FILE_DECAY)),
             min_token_length=int(
                 mapping.get(
@@ -495,9 +504,17 @@ class ConfigLoader:
             or list(base.stop_words if base is not None else Defaults.GRAPH_FILE_STOP_WORDS),
         )
 
-    def _llm_rerank(self, data: Any, base: LlmRerankConfig | None = None) -> LlmRerankConfig:
+    def _llm_rerank(
+        self,
+        data: Any,
+        base: LlmRerankConfig | None = None,
+        generation: GenerationConfig | None = None,
+    ) -> LlmRerankConfig:
         mapping = self._mapping(data)
         return LlmRerankConfig(
+            generation=self._generation(mapping["generation"], base=generation)
+            if mapping.get("generation") is not None
+            else (base.generation if base is not None else None),
             candidate_limit=int(
                 mapping.get(
                     "candidate_limit",
@@ -509,6 +526,12 @@ class ConfigLoader:
                     "rerank_limit",
                     base.rerank_limit if base is not None else Defaults.LLM_RERANK_RERANK_LIMIT,
                 )
+            ),
+            chunk_size=self._optional_int(
+                mapping.get("chunk_size", base.chunk_size if base is not None else None)
+            ),
+            chunk_keep=self._optional_int(
+                mapping.get("chunk_keep", base.chunk_keep if base is not None else None)
             ),
             max_preview_chars=int(
                 mapping.get(
@@ -679,6 +702,7 @@ class ConfigLoader:
             dataset=Path(mapping.get("dataset", Defaults.DATASET)),
             limit=int(mapping.get("limit", Defaults.SEARCH_LIMIT)),
             workers=int(mapping.get("workers", Defaults.EVALUATION_WORKERS)),
+            restrict_citations_to_context=bool(mapping.get("restrict_citations_to_context", False)),
         )
 
     def _experiments(
@@ -746,7 +770,11 @@ class ConfigLoader:
                     hybrid_search=self._hybrid_search(mapping.get("hybrid_search"), base=hybrid_search)
                     if mapping.get("hybrid_search") is not None
                     else None,
-                    llm_rerank=self._llm_rerank(mapping.get("llm_rerank"), base=llm_rerank)
+                    llm_rerank=self._llm_rerank(
+                        mapping.get("llm_rerank"),
+                        base=llm_rerank,
+                        generation=generation,
+                    )
                     if mapping.get("llm_rerank") is not None
                     else None,
                     cross_encoder_rerank=self._cross_encoder_rerank(

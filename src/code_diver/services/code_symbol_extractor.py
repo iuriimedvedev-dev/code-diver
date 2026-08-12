@@ -4,6 +4,7 @@ import ast
 import re
 import warnings
 from pathlib import Path
+from typing import ClassVar
 
 from ..domain import CodeSymbol
 
@@ -27,7 +28,7 @@ class CodeSymbolExtractor:
         r"^\s*(?:(?:public|private|protected|static|final|abstract|synchronized|native|strictfp|default)\s+)*"
         r"(?:<[^>]+>\s*)?(?:[A-Za-z_][\w$<>\[\].?,]*\s+)+(?P<name>[A-Za-z_][\w$]*)\s*\("
     )
-    _CONTROL_WORDS = {"if", "for", "while", "switch", "catch", "when", "return", "throw", "new"}
+    _CONTROL_WORDS: ClassVar[set[str]] = {"if", "for", "while", "switch", "catch", "when", "return", "throw", "new"}
 
     def extract(self, rel_path: str, text: str) -> list[CodeSymbol]:
         suffix = Path(rel_path).suffix.lower()

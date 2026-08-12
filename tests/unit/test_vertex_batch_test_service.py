@@ -11,7 +11,6 @@ from code_diver.providers.vertex_batch_jsonl_builder import VertexBatchJsonlBuil
 from code_diver.providers.vertex_batch_test_options import VertexBatchTestOptions
 from code_diver.providers.vertex_batch_test_service import VertexBatchTestService
 
-
 pytestmark = pytest.mark.unit
 
 

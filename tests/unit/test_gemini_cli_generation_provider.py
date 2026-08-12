@@ -10,7 +10,6 @@ from code_diver.config.generation_config import GenerationConfig
 from code_diver.generation.gemini_cli_generation_provider import GeminiCliGenerationProvider
 from code_diver.generation.generation_provider_factory import create_generation_provider
 
-
 pytestmark = pytest.mark.unit
 
 
@@ -89,6 +88,8 @@ def test_generation_factory_creates_gemini_cli_provider() -> None:
 
     provider = create_generation_provider(config)
 
+    # create_generation_provider wraps every backend in the schema guard.
+    provider = provider.provider
     assert isinstance(provider, GeminiCliGenerationProvider)
     assert provider.binary == "custom-gemini"
     assert provider.timeout_seconds == 123

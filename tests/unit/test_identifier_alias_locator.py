@@ -6,7 +6,6 @@ from code_diver.domain import CodeItem
 from code_diver.graph import CodeGraph
 from code_diver.services import IdentifierAliasLocator
 
-
 pytestmark = pytest.mark.unit
 
 

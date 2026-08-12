@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import importlib.util
+from collections.abc import Iterable
 from pathlib import Path
 from types import ModuleType
-from typing import Any, Iterable
+from typing import Any
 
 from ..domain import CodeItem
 from ..settings import PluginHook, SchemaKey

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from ..explanation.jsonish_parser import JsonishParser
-from ..generation import GenerationProvider
+from ..generation import SUMMARY_SCHEMA, GenerationProvider
+from ..generation.jsonish_parser import JsonishParser
 
 
 class RepositoryReadmeSummarizer:
@@ -23,7 +23,7 @@ Source: {source_name}
 README:
 {text[: self.max_input_chars]}
 """.strip()
-        result = self.provider.generate_json_result(prompt)
+        result = self.provider.generate_json_result(prompt, schema=SUMMARY_SCHEMA)
         payload = self.parser.parse_object(result.text)
         summary = str(payload.get("summary") or "").strip()
         if not summary:

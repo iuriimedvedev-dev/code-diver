@@ -34,7 +34,7 @@ class IgnoreMatcher:
         if gitignore.exists():
             for line in gitignore.read_text(encoding="utf-8", errors="replace").splitlines():
                 stripped = line.strip()
-                if not stripped or stripped.startswith("#") or stripped.startswith("!"):
+                if not stripped or stripped.startswith(("#", "!")):
                     continue
                 patterns.append(stripped.lstrip("/"))
         return patterns

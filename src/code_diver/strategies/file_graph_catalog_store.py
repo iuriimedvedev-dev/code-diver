@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from .file_graph_catalog import FileGraphCatalog
@@ -14,7 +14,7 @@ class FileGraphCatalogStore:
         self.artifact = artifact
 
     @classmethod
-    def for_graph_artifact(cls, graph_artifact: Path) -> "FileGraphCatalogStore":
+    def for_graph_artifact(cls, graph_artifact: Path) -> FileGraphCatalogStore:
         return cls(graph_artifact.with_name(f"{graph_artifact.stem}.file-graph-catalog.json"))
 
     def exists(self) -> bool:
@@ -35,7 +35,7 @@ class FileGraphCatalogStore:
         self.artifact.parent.mkdir(parents=True, exist_ok=True)
         payload = {
             "schema_version": SCHEMA_VERSION,
-            "created_at": datetime.now(timezone.utc).isoformat(),
+            "created_at": datetime.now(UTC).isoformat(),
             "catalog": catalog.to_json(),
         }
         self.artifact.write_text(json.dumps(payload, separators=(",", ":")), encoding="utf-8")

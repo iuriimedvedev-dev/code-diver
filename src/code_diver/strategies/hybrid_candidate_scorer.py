@@ -3,8 +3,7 @@ from __future__ import annotations
 from contextlib import nullcontext
 from typing import Any
 
-from ..domain import CodeItem
-from ..domain import CodeItemMetadata
+from ..domain import CodeItem, CodeItemMetadata
 from .hybrid_candidate_score import HybridCandidateScore
 from .hybrid_item_profile import HybridItemProfile
 from .hybrid_item_profiler import HybridItemProfiler

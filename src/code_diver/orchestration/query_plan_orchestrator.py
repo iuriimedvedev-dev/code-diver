@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from ..generation import GenerationProvider
+from ..generation import QUERY_VARIANTS_SCHEMA, GenerationProvider
 from ..tracing import TraceLogger
 from .json_response import JsonResponse
 
@@ -47,7 +47,7 @@ Index metadata: {metadata}
             },
         )
         try:
-            response = self.generation_provider.generate_json(prompt)
+            response = self.generation_provider.generate_json(prompt, schema=QUERY_VARIANTS_SCHEMA)
             self.trace_logger.write(
                 "query_plan_response",
                 {

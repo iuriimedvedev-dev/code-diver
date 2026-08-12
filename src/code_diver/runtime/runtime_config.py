@@ -57,7 +57,7 @@ class RuntimeConfig:
         }
 
     @classmethod
-    def from_yaml_data(cls, data: dict[str, Any]) -> "RuntimeConfig":
+    def from_yaml_data(cls, data: dict[str, Any]) -> RuntimeConfig:
         return cls(
             embedding_profile=str(data["embedding_profile"]),
             install_dir=Path(

@@ -7,7 +7,6 @@ import pytest
 
 from code_diver.services import CodebaseScanner, LocalEvalDatasetGenerator
 
-
 pytestmark = pytest.mark.unit
 
 

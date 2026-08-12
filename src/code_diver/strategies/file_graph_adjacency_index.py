@@ -4,8 +4,7 @@ from collections import defaultdict
 from collections.abc import Iterable
 from typing import Any
 
-from ..graph import GraphEdge
-from ..graph import CodeGraph
+from ..graph import CodeGraph, GraphEdge
 from .graph_expansion_profile import GraphExpansionProfile
 
 
@@ -14,7 +13,7 @@ class FileGraphAdjacencyIndex:
         self.adjacency = adjacency
 
     @classmethod
-    def from_graph(cls, graph: CodeGraph) -> "FileGraphAdjacencyIndex":
+    def from_graph(cls, graph: CodeGraph) -> FileGraphAdjacencyIndex:
         return cls.from_item_paths_and_edges(
             {item_id: item.path for item_id, item in graph.items.items()},
             graph.edges,
@@ -25,7 +24,7 @@ class FileGraphAdjacencyIndex:
         cls,
         item_paths: dict[str, str],
         edges: Iterable[GraphEdge],
-    ) -> "FileGraphAdjacencyIndex":
+    ) -> FileGraphAdjacencyIndex:
         adjacency: dict[str, dict[str, float]] = defaultdict(dict)
         for edge in edges:
             source_path = item_paths.get(edge.source)
@@ -84,7 +83,7 @@ class FileGraphAdjacencyIndex:
         }
 
     @classmethod
-    def from_json(cls, data: dict[str, Any]) -> "FileGraphAdjacencyIndex":
+    def from_json(cls, data: dict[str, Any]) -> FileGraphAdjacencyIndex:
         return cls(
             {
                 path: [

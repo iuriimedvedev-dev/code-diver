@@ -45,7 +45,7 @@ class SelectedCodeItemBuilder:
             raise ValueError("selected range is empty")
         rel_path = path.relative_to(self.root).as_posix()
         title = selection.title or f"{rel_path}:{start_line}-{end_line}"
-        digest = hashlib.sha1(f"{rel_path}:{start_line}:{end_line}:{title}".encode("utf-8")).hexdigest()[:12]
+        digest = hashlib.sha1(f"{rel_path}:{start_line}:{end_line}:{title}".encode()).hexdigest()[:12]
         metadata = {
             "source": "ai_selected",
             "selection_reason": selection.reason,

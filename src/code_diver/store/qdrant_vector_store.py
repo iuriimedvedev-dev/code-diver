@@ -79,7 +79,7 @@ class QdrantVectorStore(VectorStore):
         except StopIteration:
             resolved_dimensions = self._resolved_dimensions(dimensions)
             if resolved_dimensions <= 0:
-                raise ValueError("Cannot create an empty Qdrant collection without positive dimensions.")
+                raise ValueError("Cannot create an empty Qdrant collection without positive dimensions.") from None
             first_items, first_vectors = [], []
         if len(first_items) != len(first_vectors):
             raise ValueError(f"Item/vector mismatch: {len(first_items)} items, {len(first_vectors)} vectors")
@@ -318,6 +318,10 @@ class QdrantVectorStore(VectorStore):
                         SchemaKey.DIMENSIONS.value: dimensions,
                     },
                 )
-                for item, vector in zip(items[offset : offset + self.batch_size], vectors[offset : offset + self.batch_size])
+                for item, vector in zip(
+                    items[offset : offset + self.batch_size],
+                    vectors[offset : offset + self.batch_size],
+                    strict=True,
+                )
             ]
             self.client.upsert(collection_name=collection, points=points)

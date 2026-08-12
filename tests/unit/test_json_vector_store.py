@@ -7,7 +7,6 @@ import pytest
 from code_diver.domain import CodeItem
 from code_diver.store import IndexStoreError, JsonVectorStore
 
-
 pytestmark = pytest.mark.unit
 
 

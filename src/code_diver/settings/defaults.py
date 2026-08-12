@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import ClassVar
 
 
 class Defaults:
@@ -37,11 +38,11 @@ class Defaults:
     HASH_MODEL = "hash-token-v1"
 
     PI_BINARY = "npm"
-    PI_LAUNCHER_ARGS = ["exec", "--", "pi"]
+    PI_LAUNCHER_ARGS: ClassVar[list[str]] = ["exec", "--", "pi"]
     PI_EXTENSION = Path(".pi/extensions/code-diver-rag.ts")
     PI_PROMPT_TEMPLATE = Path(".pi/prompts/code-diver-rag.md")
     PI_PROVIDER = "code-diver-local"
-    PI_MODEL = "gemma-4-26B-A4B-it-qat-UD-Q4_K_XL"
+    PI_MODEL = "mlx-community/Qwen3.5-4B-OptiQ-4bit"
     PI_TIMEOUT_SECONDS = 180
     PI_SESSION_DIR = Path(".code-diver/pi-sessions")
     PI_REPO_CONTEXT_ENABLED = True
@@ -52,8 +53,8 @@ class Defaults:
     PI_REPO_CONTEXT_DOCS_LIMIT = 8
 
     GENERATION_PROVIDER = "openai_compatible"
-    GENERATION_MODEL = "gemma-4-26B-A4B-it-qat-UD-Q4_K_XL"
-    GENERATION_FALLBACK_MODELS = []
+    GENERATION_MODEL = "mlx-community/Qwen3.5-4B-OptiQ-4bit"
+    GENERATION_FALLBACK_MODELS: ClassVar[list[str]] = []
     GENERATION_TEMPERATURE = 0.0
     GENERATION_THINKING_BUDGET = None
     GENERATION_API_VERSION = None
@@ -80,7 +81,7 @@ class Defaults:
     OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
     OPENAI_CHAT_COMPLETIONS_URL = "https://api.openai.com/v1/chat/completions"
     OPENAI_EMBEDDINGS_URL = "https://api.openai.com/v1/embeddings"
-    LOCAL_OPENAI_BASE_URL = "http://127.0.0.1:8016/v1"
+    LOCAL_OPENAI_BASE_URL = "http://127.0.0.1:8012/v1"
     OPENAI_TIMEOUT_SECONDS = 60.0
 
     INDEXING_MODE = "scanner"
@@ -93,7 +94,7 @@ class Defaults:
     AI_INDEX_TREE_DEPTH = 4
     AI_INDEX_TREE_LIMIT = 500
     AI_INDEX_DISCOVERY_LIMIT = 200
-    AI_INDEX_DISCOVERY_PATTERNS = [
+    AI_INDEX_DISCOVERY_PATTERNS: ClassVar[list[str]] = [
         "class ",
         "def ",
         "async def ",
@@ -116,6 +117,8 @@ class Defaults:
     SYMBOL_CHUNKS = False
     SYMBOL_BODY = False
     FILE_SUMMARY_CHUNKS = True
+    FILE_SUMMARY_HEAD_LINE_MAX_CHARS = 200
+    FILE_SUMMARY_HEAD_BLOCK_MAX_CHARS = 4000
     FILE_MANIFEST_CHUNKS = True
     FILE_API_MANIFEST_CHUNKS = False
     FILE_BODY_EVIDENCE_CHUNKS = False
@@ -139,8 +142,8 @@ class Defaults:
     HYBRID_GRAPH_WEIGHT = 0.08333333333333334
     HYBRID_FILE_VOTE_WEIGHT = 0.0
     HYBRID_GRAPH_SCOPE = "item"
-    HYBRID_VECTOR_KIND_LIMITS = {"file_summary": 170, "file_manifest": 170}
-    HYBRID_VECTOR_KIND_MULTIPLIERS = {"file_summary": 1.0, "file_manifest": 1.08}
+    HYBRID_VECTOR_KIND_LIMITS: ClassVar[dict[str, int]] = {"file_summary": 170, "file_manifest": 170}
+    HYBRID_VECTOR_KIND_MULTIPLIERS: ClassVar[dict[str, float]] = {"file_summary": 1.0, "file_manifest": 1.08}
     HYBRID_GRAPH_DEPTH = 0
     HYBRID_GRAPH_NEIGHBOR_LIMIT = 0
     HYBRID_LEXICAL_SCORING = "bm25"
@@ -151,10 +154,10 @@ class Defaults:
     HYBRID_ROUTING_ENABLED = True
     HYBRID_PRESERVE_VECTOR_TOP = True
     HYBRID_VECTOR_TOP_SCORE_MARGIN = 0.03
-    HYBRID_ITEM_KIND_WEIGHTS = {"file_summary": 1.0, "file_manifest": 1.08}
+    HYBRID_ITEM_KIND_WEIGHTS: ClassVar[dict[str, float]] = {"file_summary": 1.0, "file_manifest": 1.08}
     HYBRID_MIN_TOKEN_LENGTH = 3
     HYBRID_QUERY_EXPANSION_ENABLED = False
-    HYBRID_QUERY_EXPANSION_ALIASES = {
+    HYBRID_QUERY_EXPANSION_ALIASES: ClassVar[dict[str, list[str]]] = {
         "auth": ["authorization", "authenticate", "authentication", "token", "permission"],
         "authorization": ["auth", "authenticate", "authentication", "token", "permission"],
         "config": ["configuration", "settings", "options", "env"],
@@ -171,7 +174,7 @@ class Defaults:
         "file": ["path", "read", "write", "upload", "download"],
         "stream": ["download", "upload", "read", "write"],
     }
-    HYBRID_STOP_WORDS = [
+    HYBRID_STOP_WORDS: ClassVar[list[str]] = [
         "where",
         "what",
         "which",
@@ -237,10 +240,10 @@ class Defaults:
     UI_PAGER = "auto"
     UI_LINKS = True
     EDITOR_COMMAND = "code"
-    EDITOR_ARGS = ["-g", "{path}:{line}"]
+    EDITOR_ARGS: ClassVar[list[str]] = ["-g", "{path}:{line}"]
 
     EXPERIMENT_SUITE = "local"
-    EXPERIMENT_STRATEGIES = ["vector", "recursive", "graph"]
+    EXPERIMENT_STRATEGIES: ClassVar[list[str]] = ["vector", "recursive", "graph"]
 
     METRICS_ENABLED = False
     CLICKHOUSE_URL = "http://localhost:8123"

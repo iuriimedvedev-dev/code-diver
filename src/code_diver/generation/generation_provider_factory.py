@@ -6,18 +6,29 @@ from ..config import AppConfig
 from ..settings import Defaults
 from .agy_cli_generation_provider import AgyCliGenerationProvider
 from .antigravity_sdk_generation_provider import AntigravitySdkGenerationProvider
-from .generation_provider import GenerationProvider
 from .gemini_cli_generation_provider import GeminiCliGenerationProvider
 from .gemini_generation_provider import GeminiGenerationProvider
+from .generation_provider import GenerationProvider
 from .openai_compatible_generation_provider import OpenAICompatibleGenerationProvider
 from .openai_compatible_generation_provider_pool import (
     OpenAICompatibleGenerationProviderPool,
 )
 from .openai_generation_provider import OpenAIGenerationProvider
+from .schema_guarded_generation_provider import SchemaGuardedGenerationProvider
 from .vertex_generation_provider import VertexGenerationProvider
 
 
 def create_generation_provider(config: AppConfig) -> GenerationProvider:
+    """Build the configured provider, wrapped so that a response schema is enforced.
+
+    The guard wraps every backend rather than only the ones that ignore
+    `response_format`, because "the server said it enforced the schema" and "the output
+    matches the schema" are different claims, and only the second one is checkable here.
+    """
+    return SchemaGuardedGenerationProvider(_create_backend(config))
+
+
+def _create_backend(config: AppConfig) -> GenerationProvider:
     generation = config.generation
     if generation.provider == "gemini":
         return GeminiGenerationProvider(

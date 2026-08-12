@@ -6,7 +6,6 @@ import pytest
 
 from code_diver.generation import GeminiGenerationProvider, TransientGenerationRetry
 
-
 pytestmark = pytest.mark.unit
 
 

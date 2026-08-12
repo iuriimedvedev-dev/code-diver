@@ -24,7 +24,7 @@ class FileManifestItemBuilder:
         self.max_config_keys = max_config_keys
 
     def build(self, rel_path: str, text: str, symbols: list[CodeSymbol]) -> CodeItem:
-        digest = hashlib.sha1(f"{rel_path}:file-manifest".encode("utf-8")).hexdigest()[:12]
+        digest = hashlib.sha1(f"{rel_path}:file-manifest".encode()).hexdigest()[:12]
         content = "\n".join(
             [
                 f"file: {rel_path}",

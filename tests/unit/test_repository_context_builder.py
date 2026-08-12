@@ -9,7 +9,6 @@ from code_diver.config.pi_config import PiConfig
 from code_diver.config.pi_repo_context_config import PiRepoContextConfig
 from code_diver.pi import RepositoryContextBuilder
 
-
 pytestmark = pytest.mark.unit
 
 

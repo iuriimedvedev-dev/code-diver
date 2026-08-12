@@ -25,7 +25,6 @@ from code_diver.config.storage_config import StorageConfig
 from code_diver.config.trace_config import TraceConfig
 from code_diver.runtime import RuntimeConfig
 
-
 pytestmark = pytest.mark.unit
 
 
@@ -438,7 +437,7 @@ def test_builtin_h5_profile_sets_manifest_hybrid_rerank_defaults() -> None:
     assert config.llm_rerank.rerank_limit == 10
     assert config.llm_rerank.mode == "precision"
     assert config.generation.provider == "openai_compatible"
-    assert config.generation.model == "gemma-4-26B-A4B-it-qat-UD-Q4_K_XL"
+    assert config.generation.model == "mlx-community/Qwen3.5-4B-OptiQ-4bit"
 
 
 def test_benchmark_asset_service_skips_existing_assets(tmp_path: Path) -> None:

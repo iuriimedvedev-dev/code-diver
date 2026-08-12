@@ -8,14 +8,14 @@ from ..config import HybridSearchConfig
 from ..domain import CodeItem, CodeItemIndexKindResolver, SearchResult
 from ..graph import CodeGraph, CodeGraphStore
 from ..tracing import TraceLogger
+from .file_graph_adjacency_index import FileGraphAdjacencyIndex
+from .file_graph_candidate_expander import FileGraphCandidateExpander
+from .file_graph_catalog import FileGraphCatalog
+from .file_graph_catalog_store import FileGraphCatalogStore
 from .graph_candidate_expander import GraphCandidateExpander
 from .graph_expansion_profile import GraphExpansionProfile
 from .graph_expansion_profile_factory import GraphExpansionProfileFactory
 from .graph_neighbor_index import GraphNeighborIndex
-from .file_graph_adjacency_index import FileGraphAdjacencyIndex
-from .file_graph_catalog import FileGraphCatalog
-from .file_graph_catalog_store import FileGraphCatalogStore
-from .file_graph_candidate_expander import FileGraphCandidateExpander
 from .hybrid_candidate_score import HybridCandidateScore
 from .hybrid_candidate_scorer import HybridCandidateScorer
 from .hybrid_item_profile import HybridItemProfile
@@ -119,7 +119,14 @@ class HybridRetrievalStrategy(RetrievalStrategy):
             depth=active_config.graph_depth,
             neighbor_limit=active_config.graph_neighbor_limit,
         )
-        graph_scores = self._graph_scores(vector_results, graph, graph_profile, active_config)
+        # graph_score is multiplied by graph_weight in both the weighted-total path
+        # (FileScore.total/_weighted_total) and RRF (_add_rrf returns early when weight <= 0),
+        # so the expansion below has no effect on ranking once graph_weight is non-positive.
+        graph_scores = (
+            self._graph_scores(vector_results, graph, graph_profile, active_config)
+            if active_config.graph_weight > 0
+            else {}
+        )
         for item_id, graph_score in graph_scores.items():
             item = graph.items.get(item_id)
             if item is None:
