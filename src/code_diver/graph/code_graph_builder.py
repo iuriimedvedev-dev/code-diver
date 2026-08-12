@@ -14,6 +14,12 @@ from .graph_edge import GraphEdge
 from .python_ast_call_graph_builder import PythonAstCallGraphBuilder
 
 TS_IMPORT_RE = re.compile(r"""from\s+['"]([^'"]+)['"]|import\s*\([^)]*['"]([^'"]+)['"][^)]*\)""")
+JVM_IMPORT_RE = re.compile(r"^\s*import\s+(?:static\s+)?([A-Za-z_][\w.]*)", re.MULTILINE)
+JVM_SUFFIXES = (".java", ".kt", ".kts")
+# A no-op on every corpus measured so far (protogen's most import-heavy file resolves 31
+# in-repo targets) and a bound on the monorepo tail: without it a 75k-file Java repository
+# produces millions of edges and an artifact that cannot be loaded.
+IMPORT_TARGETS_PER_FILE = 64
 IDENTIFIER_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 MARKDOWN_LINK_RE = re.compile(r"\[[^\]]+]\(([^)#]+)(?:#[^)]+)?\)")
 BACKTICK_PATH_RE = re.compile(r"`([^`\n]+\.[A-Za-z0-9]{1,8})`")
@@ -130,9 +136,10 @@ class CodeGraphBuilder:
     def _import_edges(self, root: Path, by_path: dict[str, list[CodeItem]]) -> list[GraphEdge]:
         edges: list[GraphEdge] = []
         known_paths = set(by_path)
+        jvm_index = self._jvm_class_index(known_paths)
         for path, chunks in by_path.items():
-            imports = self._imports_for_file(root, path)
-            target_paths = [target for target in imports if target in known_paths]
+            imports = self._imports_for_file(root, path, jvm_index)
+            target_paths = [target for target in imports if target in known_paths][:IMPORT_TARGETS_PER_FILE]
             target_items = [self._path_representative(by_path[target_path]) for target_path in target_paths]
             for source in chunks:
                 for target in target_items:
@@ -176,7 +183,9 @@ class CodeGraphBuilder:
             return Path(reference.lstrip("/")).as_posix()
         return (Path(source_path).parent / reference).as_posix()
 
-    def _imports_for_file(self, root: Path, rel_path: str) -> set[str]:
+    def _imports_for_file(
+        self, root: Path, rel_path: str, jvm_index: dict[str, list[str]] | None = None
+    ) -> set[str]:
         path = root / rel_path
         try:
             text = path.read_text(encoding="utf-8", errors="replace")
@@ -187,7 +196,58 @@ class CodeGraphBuilder:
             return self._python_imports(rel_path, text)
         if suffix in {".ts", ".tsx", ".js", ".jsx"}:
             return self._ts_imports(rel_path, text)
+        if suffix in JVM_SUFFIXES:
+            return self._jvm_imports(text, jvm_index or {})
         return set()
+
+    def _jvm_class_index(self, known_paths: set[str]) -> dict[str, list[str]]:
+        """Simple class name -> repository paths that could define it.
+
+        A JVM import names a package, not a file, and the package root is not recoverable
+        from the layout (``platform/util/src/com/intellij/util/Foo.java`` holds package
+        ``com.intellij.util``), so resolution runs backwards: look the class name up, then
+        keep only candidates whose path tail matches the imported package.
+        """
+        index: dict[str, list[str]] = {}
+        for path in known_paths:
+            if not path.endswith(JVM_SUFFIXES):
+                continue
+            stem = path.rsplit("/", 1)[-1].rsplit(".", 1)[0]
+            index.setdefault(stem, []).append(path)
+        return index
+
+    def _jvm_imports(self, text: str, jvm_index: dict[str, list[str]]) -> set[str]:
+        targets: set[str] = set()
+        for dotted in JVM_IMPORT_RE.findall(text):
+            targets.update(self._resolve_jvm_import(dotted, jvm_index))
+        return targets
+
+    def _resolve_jvm_import(self, dotted: str, jvm_index: dict[str, list[str]]) -> set[str]:
+        """Resolve one ``import`` statement to the files it could name.
+
+        Walks the capitalised segments from right to left so that a static member import
+        (``a.b.StringUtil.isEmpty``) and a nested class (``a.b.Foo.Bar``) both fall back to
+        the enclosing top-level class. Wildcard imports carry no class name and are skipped
+        rather than expanded to a whole package.
+        """
+        segments = dotted.split(".")
+        for position in range(len(segments) - 1, -1, -1):
+            if not segments[position][:1].isupper():
+                continue
+            package_path = "/".join(segments[: position + 1])
+            resolved = {
+                candidate
+                for candidate in jvm_index.get(segments[position], ())
+                if self._path_holds_package(candidate, package_path)
+            }
+            if resolved:
+                return resolved
+        return set()
+
+    @staticmethod
+    def _path_holds_package(candidate: str, package_path: str) -> bool:
+        without_suffix = candidate.rsplit(".", 1)[0]
+        return without_suffix == package_path or without_suffix.endswith("/" + package_path)
 
     def _python_imports(self, rel_path: str, text: str) -> set[str]:
         try:

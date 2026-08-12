@@ -316,3 +316,97 @@ def test_code_graph_builder_links_documentation_path_references_to_code_file(tmp
         and edge.kind == EdgeKind.REFERENCES.value
         for edge in graph.edges
     )
+
+
+def _jvm_repo(tmp_path: Path) -> list[CodeItem]:
+    """A two-module JVM layout: the package root is buried under a source root."""
+    util = tmp_path / "platform/util/src/com/intellij/util"
+    api = tmp_path / "platform/core-api/src/com/intellij/openapi/project"
+    util.mkdir(parents=True)
+    api.mkdir(parents=True)
+    (util / "ArrayUtil.java").write_text("package com.intellij.util;\nclass ArrayUtil {}\n", encoding="utf-8")
+    (api / "Project.kt").write_text("package com.intellij.openapi.project\nclass Project\n", encoding="utf-8")
+    consumer = tmp_path / "platform/lang-impl/src/com/intellij/lang"
+    consumer.mkdir(parents=True)
+    (consumer / "Consumer.java").write_text(
+        "package com.intellij.lang;\n\n"
+        "import com.intellij.util.ArrayUtil;\n"
+        "import com.intellij.openapi.project.Project;\n"
+        "import java.util.List;\n"
+        "import com.intellij.util.*;\n\n"
+        "class Consumer {}\n",
+        encoding="utf-8",
+    )
+    return [
+        CodeItem("util", "platform/util/src/com/intellij/util/ArrayUtil.java", "ArrayUtil", "x"),
+        CodeItem("project", "platform/core-api/src/com/intellij/openapi/project/Project.kt", "Project", "x"),
+        CodeItem("consumer", "platform/lang-impl/src/com/intellij/lang/Consumer.java", "Consumer", "x"),
+    ]
+
+
+def test_code_graph_builder_creates_jvm_import_edges_across_source_roots(tmp_path: Path) -> None:
+    # Before this existed the builder returned an empty set for every .java/.kt file, so a
+    # 75k-file JVM monorepo produced a graph with zero cross-file edges -- and nothing failed,
+    # it just silently had no graph to search over.
+    items = _jvm_repo(tmp_path)
+
+    graph = CodeGraphBuilder().build(tmp_path, items)
+    imports = {(e.source, e.target) for e in graph.edges if e.kind == EdgeKind.IMPORTS.value}
+
+    assert ("consumer", "util") in imports
+    assert ("consumer", "project") in imports
+
+
+def test_code_graph_builder_ignores_jvm_imports_outside_the_repository(tmp_path: Path) -> None:
+    items = _jvm_repo(tmp_path)
+
+    graph = CodeGraphBuilder().build(tmp_path, items)
+    targets = {e.target for e in graph.edges if e.kind == EdgeKind.IMPORTS.value and e.source == "consumer"}
+
+    # `java.util.List` resolves to nothing in-repo, and the wildcard `com.intellij.util.*`
+    # names no class, so neither may invent an edge.
+    assert targets == {"util", "project"}
+
+
+def test_code_graph_builder_resolves_static_and_nested_jvm_imports(tmp_path: Path) -> None:
+    util = tmp_path / "platform/util/src/com/intellij/util"
+    util.mkdir(parents=True)
+    (util / "StringUtil.java").write_text("package com.intellij.util;\nclass StringUtil {}\n", encoding="utf-8")
+    consumer = tmp_path / "src/com/intellij/lang"
+    consumer.mkdir(parents=True)
+    (consumer / "Consumer.java").write_text(
+        "import static com.intellij.util.StringUtil.isEmpty;\n"
+        "import com.intellij.util.StringUtil.Inner;\n",
+        encoding="utf-8",
+    )
+    items = [
+        CodeItem("util", "platform/util/src/com/intellij/util/StringUtil.java", "StringUtil", "x"),
+        CodeItem("consumer", "src/com/intellij/lang/Consumer.java", "Consumer", "x"),
+    ]
+
+    graph = CodeGraphBuilder().build(tmp_path, items)
+
+    # Both the static member and the nested class fall back to the enclosing top-level file.
+    assert any(e.source == "consumer" and e.target == "util" for e in graph.edges)
+
+
+def test_code_graph_builder_does_not_match_a_same_named_class_in_another_package(tmp_path: Path) -> None:
+    right = tmp_path / "a/src/com/intellij/util"
+    wrong = tmp_path / "b/src/org/other/util"
+    right.mkdir(parents=True)
+    wrong.mkdir(parents=True)
+    (right / "Ref.java").write_text("package com.intellij.util;\n", encoding="utf-8")
+    (wrong / "Ref.java").write_text("package org.other.util;\n", encoding="utf-8")
+    consumer = tmp_path / "c/src/com/x"
+    consumer.mkdir(parents=True)
+    (consumer / "Consumer.java").write_text("import com.intellij.util.Ref;\n", encoding="utf-8")
+    items = [
+        CodeItem("right", "a/src/com/intellij/util/Ref.java", "Ref", "x"),
+        CodeItem("wrong", "b/src/org/other/util/Ref.java", "Ref", "x"),
+        CodeItem("consumer", "c/src/com/x/Consumer.java", "Consumer", "x"),
+    ]
+
+    graph = CodeGraphBuilder().build(tmp_path, items)
+    targets = {e.target for e in graph.edges if e.kind == EdgeKind.IMPORTS.value and e.source == "consumer"}
+
+    assert targets == {"right"}
