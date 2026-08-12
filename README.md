@@ -4,6 +4,8 @@
 
 ## Setup
 
+Requires Python 3.11 or newer.
+
 ```bash
 uv sync
 uv run code-diver init --platform apple-metal --embedding qwen3-0.6b --yes --start
@@ -32,6 +34,25 @@ The default profile is local-first:
 - best measured local quality embedding in research configs: EmbeddingGemma-300M;
 - chat/explanation/rerank experiments: local Gemma 4 26B-A4B QAT through an OpenAI-compatible llama.cpp server;
 - repository context: generated automatically before chat/search and appended as a stable system prompt prefix.
+
+### Optional extras
+
+The base install carries only what the local-first path needs. Two extras cover the
+optional surfaces, and every command behind them fails with a message naming the extra
+if it is missing:
+
+| Extra | Installs | Needed for |
+| --- | --- | --- |
+| `benchmarks` | `datasets` | Hugging Face dataset preparers (`evaluate explanations`, answer benchmarks) |
+| `gemini` | `google-genai`, `google-auth`, `requests` | Gemini/Vertex API baselines and Vertex Batch |
+
+```bash
+uv sync --extra benchmarks --extra gemini    # in a checkout
+pip install 'code-diver[benchmarks,gemini]'  # from a distribution
+```
+
+`uv sync` already includes both for development. Skipping them keeps the install at
+~94 MB instead of ~314 MB, because `datasets` pulls in `pyarrow`, `pandas`, and `numpy`.
 
 Gemini/Vertex and OpenAI providers are still supported for comparison runs, but
 they are optional. Use them only when you explicitly want an API baseline:
