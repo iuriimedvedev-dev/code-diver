@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import re
 import time
 import uuid
+from collections.abc import Iterable
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
@@ -33,6 +35,65 @@ from code_diver.reranking import RerankProviderFactory
 from code_diver.services import DatasetLoader, IdentifierAliasLocator
 from code_diver.store import create_vector_store
 from code_diver.agent.model_cost_estimator import ModelCostEstimator
+
+DEFAULT_REPORT_DIR = Path(".code-diver/reports")
+DEFAULT_POSTRANK_RERANKER = "llm"
+
+# Loaded by path (not a flat `import clobber_guard`) so this keeps working whether the
+# script is run directly or loaded by path the way this repo's tests load scripts under
+# test -- see the module docstring in scripts/clobber_guard.py for why.
+_CLOBBER_GUARD_PATH = Path(__file__).resolve().parent / "clobber_guard.py"
+_clobber_guard_spec = importlib.util.spec_from_file_location("clobber_guard", _CLOBBER_GUARD_PATH)
+assert _clobber_guard_spec is not None and _clobber_guard_spec.loader is not None
+clobber_guard = importlib.util.module_from_spec(_clobber_guard_spec)
+_clobber_guard_spec.loader.exec_module(clobber_guard)
+
+RefuseToClobberError = clobber_guard.RefuseToClobberError
+allow_overwrite_from_env = clobber_guard.allow_overwrite_from_env
+guard_against_clobber = clobber_guard.guard_against_clobber
+
+
+def default_report_stem(cases: int, postrank_reranker: str) -> str:
+    """Derive the shared `--output`/`--report` filename stem from the parameters that
+    change the report's content but were previously absent from the (literal) default
+    filename.
+
+    `cases` is the fix for the incident this module addresses: the old default
+    (`intellij-postrank-h2-deterministic-100.json`) hard-coded `-100` independently of
+    `--cases`, so a `--cases 10` run with no explicit `--output` silently overwrote a
+    100-case report.
+
+    `postrank_reranker` is included too: switching `--postrank-reranker` between `llm` and
+    `cross_encoder` runs an entirely different reranking pipeline and produces materially
+    different results, but the old default named after neither, so two runs with the same
+    `--cases` but different rerankers would otherwise collide as well. Only appended when
+    it differs from `DEFAULT_POSTRANK_RERANKER`, so the common case's filename is unchanged
+    from before.
+    """
+    suffix = "full" if cases <= 0 else str(cases)
+    if postrank_reranker != DEFAULT_POSTRANK_RERANKER:
+        suffix = f"{suffix}-{postrank_reranker.replace('_', '')}"
+    return f"intellij-postrank-h2-deterministic-{suffix}"
+
+
+def default_output_path(cases: int, postrank_reranker: str) -> Path:
+    return DEFAULT_REPORT_DIR / f"{default_report_stem(cases, postrank_reranker)}.json"
+
+
+def default_report_path(cases: int, postrank_reranker: str) -> Path:
+    return DEFAULT_REPORT_DIR / f"{default_report_stem(cases, postrank_reranker)}.html"
+
+
+def partial_output_paths(partial_dir: Path | None, hypotheses: Iterable[Any]) -> list[Path]:
+    """The `.partial.json` sibling(s) this script writes: one per hypothesis, under
+    `--partial-dir`. `_write_partial()` names each file after the hypothesis alone (no
+    `--cases`/`--postrank-reranker` suffix), so two unrelated runs of the same hypothesis
+    against the same `--partial-dir` collide unconditionally -- this must be guarded
+    exactly like `--output`/`--report`.
+    """
+    if partial_dir is None:
+        return []
+    return [partial_dir / f"{hypothesis.name}.partial.json" for hypothesis in hypotheses]
 
 
 @dataclass(slots=True)
@@ -1289,10 +1350,55 @@ def main() -> int:
     parser.add_argument("--run-id", default="")
     parser.add_argument("--trace-artifact", type=Path, default=None)
     parser.add_argument("--disable-trace", action="store_true")
-    parser.add_argument("--output", type=Path, default=Path(".code-diver/reports/intellij-postrank-h2-deterministic-100.json"))
-    parser.add_argument("--report", type=Path, default=Path(".code-diver/reports/intellij-postrank-h2-deterministic-100.html"))
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=None,
+        help=(
+            "Defaults to .code-diver/reports/intellij-postrank-h2-deterministic-<cases>.json "
+            "(see default_output_path())."
+        ),
+    )
+    parser.add_argument(
+        "--report",
+        type=Path,
+        default=None,
+        help=(
+            "Defaults to .code-diver/reports/intellij-postrank-h2-deterministic-<cases>.html "
+            "(see default_report_path())."
+        ),
+    )
+    parser.add_argument(
+        "--allow-overwrite",
+        action="store_true",
+        default=allow_overwrite_from_env(),
+        help=(
+            "Permit overwriting an existing --output/--report/--partial-dir file. Defaults "
+            "to the ALLOW_OVERWRITE env var (unset/'0'/'false' means disallow)."
+        ),
+    )
     args = parser.parse_args()
-    result = DeterministicPostrankH2(args).run()
+    # Resolved AFTER parsing so the default tracks the real --cases/--postrank-reranker
+    # values, not a literal that silently drifts out of sync with them (the root cause of
+    # the incident).
+    if args.output is None:
+        args.output = default_output_path(args.cases, args.postrank_reranker)
+    if args.report is None:
+        args.report = default_report_path(args.cases, args.postrank_reranker)
+
+    runner = DeterministicPostrankH2(args)
+    relevant_hypotheses = [
+        hypothesis
+        for hypothesis in search_tool_hypotheses(runner.config, args.hypothesis)
+        if runner._scenario(hypothesis.name) != "unknown"
+    ]
+    guard_against_clobber(
+        args.output,
+        args.report,
+        *partial_output_paths(args.partial_dir, relevant_hypotheses),
+        allow_overwrite=args.allow_overwrite,
+    )
+    result = runner.run()
     print(json.dumps({"run_id": result["run_id"], "output": str(args.output), "report": str(args.report)}, indent=2))
     return 0
 

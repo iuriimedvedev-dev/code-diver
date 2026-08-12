@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import replace
@@ -10,12 +11,29 @@ from typing import Any
 
 from code_diver.answering.answer_case import AnswerCase
 from code_diver.answering.answer_judge import AnswerJudge
+from code_diver.answering.answer_metrics import AnswerMetrics
+from code_diver.answering.answer_report_integrity import assert_case_count_matches, stamp_case_counts
+from code_diver.answering.unjudgeable_row_policy import synthesize_judgment, unjudgeable_reason
 from code_diver.config import ConfigLoader
 from code_diver.generation import create_generation_provider
+
+# Loaded by path (not a flat `import clobber_guard`) so this keeps working whether the
+# script is run directly or loaded by path the way this repo's tests load scripts under
+# test -- see the module docstring in scripts/clobber_guard.py for why.
+_CLOBBER_GUARD_PATH = Path(__file__).resolve().parent / "clobber_guard.py"
+_clobber_guard_spec = importlib.util.spec_from_file_location("clobber_guard", _CLOBBER_GUARD_PATH)
+assert _clobber_guard_spec is not None and _clobber_guard_spec.loader is not None
+clobber_guard = importlib.util.module_from_spec(_clobber_guard_spec)
+_clobber_guard_spec.loader.exec_module(clobber_guard)
+
+RefuseToClobberError = clobber_guard.RefuseToClobberError
+allow_overwrite_from_env = clobber_guard.allow_overwrite_from_env
+guard_against_clobber = clobber_guard.guard_against_clobber
 
 
 def main() -> int:
     args = parse_args()
+    guard_against_clobber(args.output, args.partial_output, allow_overwrite=args.allow_overwrite)
     source = json.loads(args.input.read_text(encoding="utf-8"))
 
     # Build per-case context lookup from report rows
@@ -65,7 +83,11 @@ def main() -> int:
         updated.pop("judge_error", None)
         prediction = str(updated.get("prediction") or "").strip()
         case_id = str(updated.get("case_id") or "")
-        if not prediction or updated.get("error"):
+        reason = unjudgeable_reason(updated)
+        if reason is not None:
+            judged = synthesize_judgment(reason)
+            updated["judge"] = judged
+            metrics.update(judged["scores"])
             return {"index": index, "row": updated, "usage": None, "model": None, "judge_error": 0}
         context = contexts.get(case_id, "")
         if not context:
@@ -114,15 +136,18 @@ def main() -> int:
                 write_partial(args.partial_output, args.output, completed, rows, partial_rows, usage, judge_error_count)
                 print(f"rejudged {completed}/{len(rows)} {rows[index].get('case_id')}", flush=True)
 
+    # Aggregate the FULL merged row set (deterministic metrics + judge_* scores), not just
+    # the judge_* keys, so a rejudged report is self-contained for primary-metric reporting
+    # and carries the same confidence intervals as a live evaluator run. This must route
+    # through AnswerMetrics().aggregate() -- the same call AnswerReportJudge.judge_payload()
+    # makes -- so the two paths produce identical numbers on identical input.
     final_rows = [row for row in output_rows if row is not None]
-    judge_keys = sorted({
-        key for row in final_rows for key in (row.get("metrics") or {}) if key.startswith("judge_")
-    })
-    metrics: dict[str, Any] = {}
-    for key in judge_keys:
-        vals = [float((row.get("metrics") or {}).get(key, 0.0)) for row in final_rows]
-        metrics[key] = sum(vals) / max(len(vals), 1)
+    metrics = AnswerMetrics().aggregate(final_rows)
     metrics["cases"] = float(len(final_rows))
+    stamp_case_counts(metrics, case_count_requested=len(rows), row_count=len(final_rows))
+    assert_case_count_matches(
+        case_count_requested=len(rows), row_count=len(final_rows), context="rejudge_answer_report.main"
+    )
     metrics["duration_ms"] = (perf_counter() - started) * 1000
 
     payload: dict[str, Any] = {**source, "judge": {
@@ -150,6 +175,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--partial-output", type=Path, default=None)
     parser.add_argument("--workers", type=int, default=1)
+    parser.add_argument(
+        "--allow-overwrite",
+        action="store_true",
+        default=allow_overwrite_from_env(),
+        help=(
+            "Permit overwriting an existing --output/--partial-output file. Defaults to the "
+            "ALLOW_OVERWRITE env var (unset/'0'/'false' means disallow)."
+        ),
+    )
     return parser.parse_args()
 
 

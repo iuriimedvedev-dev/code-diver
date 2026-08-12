@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import os
 import signal
@@ -11,6 +12,51 @@ import urllib.request
 import uuid
 from pathlib import Path
 from typing import Any
+
+DEFAULT_DATASET = Path("datasets/intellij_eval_1000.jsonl")
+DEFAULT_REPORT_DIR = Path(".code-diver/reports")
+
+# Loaded by path (not a flat `import clobber_guard`) so this keeps working whether the
+# script is run directly or loaded by path the way this repo's tests load scripts under
+# test -- see the module docstring in scripts/clobber_guard.py for why.
+_CLOBBER_GUARD_PATH = Path(__file__).resolve().parent / "clobber_guard.py"
+_clobber_guard_spec = importlib.util.spec_from_file_location("clobber_guard", _CLOBBER_GUARD_PATH)
+assert _clobber_guard_spec is not None and _clobber_guard_spec.loader is not None
+clobber_guard = importlib.util.module_from_spec(_clobber_guard_spec)
+_clobber_guard_spec.loader.exec_module(clobber_guard)
+
+RefuseToClobberError = clobber_guard.RefuseToClobberError
+allow_overwrite_from_env = clobber_guard.allow_overwrite_from_env
+guard_against_clobber = clobber_guard.guard_against_clobber
+
+
+def default_report_stem(cases: int, dataset: Path) -> str:
+    """Derive the shared `--output`/`--report` filename stem from the parameters that
+    change the report's content but were previously absent from the (literal) default
+    filename.
+
+    `cases` is the fix for the incident this module addresses: the old default
+    (`intellij-postrank-h2-100.json`) hard-coded `-100` independently of `--cases`, so a
+    `--cases 10` run with no explicit `--output` silently overwrote a 100-case report.
+
+    `dataset` is included too: swapping `--dataset` for a different file changes the report
+    content just as much as `--cases` does, and the old default named after neither, so two
+    runs against different datasets at the same `--cases` would otherwise collide as well.
+    Only appended when it differs from `DEFAULT_DATASET`, so the common case's filename is
+    unchanged from before.
+    """
+    suffix = "full" if cases <= 0 else str(cases)
+    if dataset != DEFAULT_DATASET:
+        suffix = f"{suffix}-{dataset.stem}"
+    return f"intellij-postrank-h2-{suffix}"
+
+
+def default_output_path(cases: int, dataset: Path) -> Path:
+    return DEFAULT_REPORT_DIR / f"{default_report_stem(cases, dataset)}.json"
+
+
+def default_report_path(cases: int, dataset: Path) -> Path:
+    return DEFAULT_REPORT_DIR / f"{default_report_stem(cases, dataset)}.html"
 
 
 class ManagedServer:
@@ -243,8 +289,18 @@ def main() -> int:
     parser.add_argument("--config", type=Path, default=Path("configs/intellij-postrank-h2.yml"))
     parser.add_argument("--dataset", type=Path, default=Path("datasets/intellij_eval_1000.jsonl"))
     parser.add_argument("--cases", type=int, default=100, help="Use first N cases; pass 0 for the full dataset.")
-    parser.add_argument("--output", type=Path, default=Path(".code-diver/reports/intellij-postrank-h2-100.json"))
-    parser.add_argument("--report", type=Path, default=Path(".code-diver/reports/intellij-postrank-h2-100.html"))
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=None,
+        help="Defaults to .code-diver/reports/intellij-postrank-h2-<cases>.json (see default_output_path()).",
+    )
+    parser.add_argument(
+        "--report",
+        type=Path,
+        default=None,
+        help="Defaults to .code-diver/reports/intellij-postrank-h2-<cases>.html (see default_report_path()).",
+    )
     parser.add_argument("--run-id", default="")
     parser.add_argument("--log-dir", type=Path, default=Path(".code-diver/logs/postrank-h2"))
     parser.add_argument("--embedding-port", type=int, default=8001)
@@ -258,7 +314,23 @@ def main() -> int:
     parser.add_argument("--startup-timeout-seconds", type=int, default=1200)
     parser.add_argument("--no-start-embedding", action="store_true")
     parser.add_argument("--no-start-generation", action="store_true")
+    parser.add_argument(
+        "--allow-overwrite",
+        action="store_true",
+        default=allow_overwrite_from_env(),
+        help=(
+            "Permit overwriting an existing --output/--report file. Defaults to the "
+            "ALLOW_OVERWRITE env var (unset/'0'/'false' means disallow)."
+        ),
+    )
     args = parser.parse_args()
+    # Resolved AFTER parsing so the default tracks the real --cases/--dataset values, not a
+    # literal that silently drifts out of sync with them (the root cause of the incident).
+    if args.output is None:
+        args.output = default_output_path(args.cases, args.dataset)
+    if args.report is None:
+        args.report = default_report_path(args.cases, args.dataset)
+    guard_against_clobber(args.output, args.report, allow_overwrite=args.allow_overwrite)
     result = PostrankH2Benchmark(args).run()
     print(json.dumps({"run_id": result.get("run_id"), "output": str(args.output), "report": str(args.report)}, indent=2))
     return 0
