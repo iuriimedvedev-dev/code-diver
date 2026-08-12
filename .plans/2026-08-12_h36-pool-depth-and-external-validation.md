@@ -276,3 +276,130 @@ not further protogen tuning -- the thing worth spending GPU on.
    index. Prices the reranker exactly on a corpus where the graph is inert. ~15 min.
 3. Only after 1-2: decide whether `neighbor_limit` needs to be degree-aware (hub truncation at
    40 out of 15 566 is arbitrary and untested).
+
+## Finding 65 -- why the champion lost: five hypotheses, tested (2026-08-12)
+
+Method: `/tmp/dsx/h38_probe.py` runs four variants over the SAME cases through the SAME
+pipeline, sharing one loaded catalog and one warm profile cache so timings are steady-state.
+Analysis (`/tmp/dsx/h38_analyze.py`) is paired -- an exact two-sided sign test over the
+discordant pairs only. At n=150 the means have stderr ~0.03 and prove nothing; the paired
+flips are the powerful read-out.
+
+Variants: `champion` (as shipped), `graph0` (graph_weight 0), `depth0` (no propagation),
+`lexseed0` (no full-corpus lexical scan). Corpora: IntelliJ 150 and CodeSearchNet 150, both
+the first 150 cases -- NOT a random sample.
+
+### Verdicts
+
+| # | Hypothesis | Verdict |
+|---|---|---|
+| H38 | Graph propagation floods the top-10 with topologically-near, semantically-wrong files | **CONFIRMED** (IntelliJ) |
+| H39 | The full-corpus lexical seed scan is the latency villain | **REFUTED** in magnitude, and it is load-bearing |
+| H40 | The 34-candidate pool is too narrow | **REFUTED** on both corpora |
+| H41 | The cross-encoder ranks badly at fixed width | **CONFIRMED but inverted** |
+| H42 | On CSN the cost is the cross-encoder, not the scan | **CONFIRMED** (direction), prediction off in magnitude |
+
+### IntelliJ 150 -- the graph is the problem
+
+- `graph0` **+0.0671** recall@10 (14 better / 3 worse, p=0.01273). `depth0` identical to
+  `graph0`, so the graph contributes nothing positive at any depth.
+- Mechanism, measured: **31.3%** of champion top-10 slots hold a file that `graph0` does not
+  rank anywhere in its 34-candidate pool -- it is there on graph score alone. Those slots carry
+  **0.020** expected files per case, ~0.6% precision against ~10.7% overall: **~18x worse than
+  the slots they displaced.** 41/150 cases hand the graph half the top-10 or more.
+- Root cause is structural, in `graph_file_retrieval_strategy.py`: `_normalize` on the
+  propagated scores guarantees the top graph-only file receives the full `graph_weight` (0.45),
+  which exceeds the 0.25 a *perfect* pure-vector match can earn. The graph does not tie-break;
+  it outranks.
+- H39: the scan costs **732 ms, 22% of base** -- not the villain -- and removing it costs
+  **-0.1889** recall (p=5.54e-06). Load-bearing.
+- H40: ranking loses only **2.7%** of the pool ceiling.
+- H41: the cross-encoder adds **+0.0748** (p=0.019) to the polluted champion pool but only
+  **+0.0242** (p=0.2266, n.s.) once the graph is off. It is mostly repairing the graph's damage.
+- Latency: cross-encoder **2247 ms of 5567 ms (40%)**. Graph propagation is free (-43 ms, noise)
+  -- it costs only quality.
+- Derived Pareto move: graph off + rerank off = **0.8380 at 3344 ms** vs champion 0.7951 at
+  5567 ms. Better and 40% faster.
+
+### CodeSearchNet 150 -- the graph is inert, the reranker is the whole bill
+
+| variant | base_ms | rerank_ms | total_ms | pool@34 | top10 raw | top10 reranked |
+|---|---|---|---|---|---|---|
+| champion | 998 | 2015 | 3013 | 0.9655 | 0.9483 | 0.9655 |
+| graph0 | 1104 | 2034 | 3138 | 0.9655 | 0.9483 | 0.9655 |
+| depth0 | 1093 | 2010 | 3103 | 0.9655 | 0.9483 | 0.9655 |
+| lexseed0 | 1097 | 1951 | 3048 | 0.9828 | 0.9397 | 0.9828 |
+
+- `graph0` and `depth0` are **identical to the champion in all 116 analysed cases** -- 0
+  graph-injected files, 0 flips. Cause found: the CSN graph artifact has 2000 items and
+  **1000 edges, every one of kind `summarizes` connecting a file to itself**
+  (`file_summary -> file_manifest`, same path). There is not a single cross-file edge, so
+  propagation cannot move mass anywhere. `graph_weight` is dead code on this corpus.
+- H42 CONFIRMED in direction: cross-encoder **2015 ms of 3013 ms (67%)**. The pre-registered
+  prediction (`rerank_ms` ~1700, `base_ms` ~550) was directionally right and quantitatively
+  off -- base is 998 ms, ~1.8x the predicted figure.
+- The lexical scan is free here (-99 ms, i.e. noise) -- consistent with H39's finding that its
+  cost scales with corpus size (149 614 items on IntelliJ vs ~2 000 here).
+- H40 again refuted, harder: **0.0% of the pool ceiling is lost in ranking.** With one expected
+  file per case and a 34-wide pool, if the file is in the pool it is in the top-10.
+- The cross-encoder buys **+0.0172** (2 helped / 0 hurt / 114 tied, p=0.5, not significant) for
+  67% of the latency. Dropping it is ~3x faster for no measurable recall loss.
+- `lexseed0` *raises* pool recall here (0.9828 vs 0.9655), the opposite sign to IntelliJ, on 2
+  discordant pairs (p=0.5). Suggestive only.
+
+### Finding 66: the reranker has a 512-token ceiling and fails silently
+
+Not a transient error -- a deterministic, reproducible defect found while running the above.
+
+```
+E srv send_error: task id = 473278, error: input (564 tokens) is too large to process.
+                  increase the physical batch size (current batch size: 512)
+```
+
+At startup llama-server logs `embeddings enabled with n_batch (2048) > n_ubatch (512) ...
+setting n_batch = n_ubatch = 512 to avoid assertion failure`. Non-causal pooling needs the whole
+sequence in one physical batch, so **any query+document pair over 512 tokens fails the entire
+/rerank request** -- all 34 documents, not just the long one. `max_document_chars: 850` (~250
+tokens) plus a long CSN docstring query crosses it.
+
+- Rate on CSN: **33/150 cases (22.0%)**, deterministic per query (all 4 variants, 3 retries each).
+- Rate on IntelliJ: **zero** -- the earlier 150-case probe had no try/except at all, so its clean
+  completion proves it. IntelliJ queries are short questions, not docstrings.
+- `CrossEncoderRerankRetrievalStrategy.search()` swallows every rerank exception and returns
+  base order. With `trace.enabled: false` this leaves **no evidence whatsoever** -- an unreranked
+  run is indistinguishable from a reranked one.
+- Impact on the completed 1000-case CSN arm (0.9700): ~22% of cases were never reranked, and
+  reranking is worth +0.0172 where it works, so the arm understates its own configuration by
+  roughly **0.004**. It stays off the Pareto frontier either way. The earlier check (21/25 top-10s
+  differ from base order) proved reranking happened on most sampled cases; it did not prove it
+  happened on all of them.
+
+Tracked as task #36. Two fixes: relaunch :8081 with explicit `-b/-ub`, and make the swallowed
+exception visible (warn regardless of trace, and carry a rerank-failure count into the report)
+so no future arm can report base-order results as reranked.
+
+### What this changes
+
+Both corpora point the same way: the champion's two expensive additions are net-negative or
+negligible off protogen. The graph either actively hurts (IntelliJ, -0.067) or is structurally
+incapable of doing anything (CSN, no cross-file edges). The cross-encoder is the dominant
+latency cost on both (40% / 67%) and, once the graph is off, buys nothing significant on either.
+
+The next arms should therefore *subtract*, not add. Ranked by evidence strength:
+
+1. **IntelliJ 1000, `graph_weight: 0.0`, one variable changed.** Confirms H38 outside the first
+   150 cases. ~1.6 h exclusive GPU -- **needs a go-ahead before launching.**
+2. **CSN, cross-encoder off.** ~15 min, prices the reranker exactly where the graph is inert.
+3. Fix #36 before any further CSN measurement, or 22% of every future CSN arm is unreranked.
+4. `neighbor_limit` degree-awareness is now lower priority: on IntelliJ the fix is to stop the
+   graph outranking vector evidence, not to truncate hubs more cleverly.
+
+### Caveats, stated plainly
+
+- Both probes use the **first 150 cases, not a random sample.** The IntelliJ subset is harder
+  than average (champion 0.795 here vs 0.8397 on the full 1000). Paired deltas are valid; the
+  absolute levels are not comparable to the 1000-case numbers, and the implied ~0.907 for
+  graph-off is a **prediction, not a measurement**.
+- CSN figures exclude the 34 rerank-failed cases (22.7%). Those cases are not missing at random
+  -- they are the long-query cases -- so the CSN numbers describe the short-query subset.
+- CSN has one expected file per case, so recall@10 is a hit rate and moves in steps of 1/116.

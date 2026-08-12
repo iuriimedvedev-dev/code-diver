@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from time import perf_counter
 
 from ..config.cross_encoder_rerank_config import CrossEncoderRerankConfig
@@ -7,6 +8,8 @@ from ..domain import SearchResult
 from ..reranking import RerankProvider
 from ..tracing import TraceLogger
 from .retrieval_strategy import RetrievalStrategy
+
+logger = logging.getLogger(__name__)
 
 
 class CrossEncoderRerankRetrievalStrategy(RetrievalStrategy):
@@ -21,6 +24,9 @@ class CrossEncoderRerankRetrievalStrategy(RetrievalStrategy):
         self.rerank_provider = rerank_provider
         self.config = config
         self.trace_logger = trace_logger or TraceLogger.disabled()
+        # A rerank failure degrades silently to base order. Counted so a run can report how
+        # many of its results were never actually reranked.
+        self.rerank_failure_count = 0
 
     def search(self, query: str, limit: int) -> list[SearchResult]:
         candidates = self.base_strategy.search(query, max(limit, self.config.candidate_limit))
@@ -78,6 +84,7 @@ class CrossEncoderRerankRetrievalStrategy(RetrievalStrategy):
             return self._reranked(rerank_candidates, tail_candidates, scores, limit)
         except Exception as exc:
             duration_ms = (perf_counter() - started) * 1000
+            self.rerank_failure_count += 1
             self.trace_logger.write(
                 "cross_encoder_rerank_error",
                 {
@@ -88,6 +95,18 @@ class CrossEncoderRerankRetrievalStrategy(RetrievalStrategy):
                     "error_type": type(exc).__name__,
                     "error": str(exc),
                 },
+            )
+            # Falling back to base order is a silent quality change: the caller gets results
+            # that look reranked but are not. Trace is usually disabled, so warn unconditionally
+            # -- otherwise an unreranked run is indistinguishable from a reranked one.
+            logger.warning(
+                "cross-encoder rerank failed (%s of %s candidates, failure #%d), "
+                "falling back to base order: %s: %s",
+                len(rerank_candidates),
+                len(candidates),
+                self.rerank_failure_count,
+                type(exc).__name__,
+                exc,
             )
             return candidates[:limit]
 
