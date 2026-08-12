@@ -1,0 +1,150 @@
+# H37 external validation: the protogen champion's retrieval stack, on CodeSearchNet Python.
+#
+# Second of the two external corpora (see configs/intellij/intellij-h37-champion-xenc.yml).
+# MTEB CodeSearchNetRetrieval, 1000 Python cases, one expected file each.
+#
+# Measures the SEARCH axis only -- one query in, top-10 files out. No agentic query planner,
+# no answer generation.
+#
+# This corpus has NO graph and cannot be given one. It is 1000 standalone functions, one per
+# synthetic file, with no imports between them: the artifact holds 1000 `summarizes` edges
+# (each file's summary to its own manifest) and zero cross-file edges, so file-level
+# adjacency is empty. Unlike IntelliJ that is intrinsic, not a build oversight.
+#
+# `graph_weight: 0.45` is therefore inert here -- and, importantly, harmlessly so. Every
+# candidate receives the same zero graph contribution, so it is an additive constant that
+# cannot reorder anything. The champion on this corpus is exactly the champion with
+# graph_weight 0. The block is kept verbatim rather than rebalanced so this file is a port of
+# the champion and not a fifth variant of it.
+#
+# What this corpus DOES test: the vector/lexical/path seed mixture and the cross-encoder --
+# i.e. everything Finding 62 identified as the binding constraint, on a corpus that never
+# informed a single tuning decision.
+
+root: .code-diver/benchmarks/mteb-codesearchnet-python/corpus
+artifact: .code-diver/benchmarks/mteb-codesearchnet-python/index-h10-graph-file-qwen3-0_6b-quality.json
+
+storage:
+  provider: json
+
+# Verbatim from codesearchnet-h10-graph-file-qwen-quality-100.yml -- must match how the
+# index was embedded. Note these prefixes differ from the champion's; the prefix belongs to
+# the index, not to the search strategy.
+embedding:
+  provider: openai_compatible
+  model: mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ
+  dimensions:
+  url: http://127.0.0.1:8001/v1/embeddings
+  api_key: local
+  batch_size: 128
+  workers: 1
+  max_input_chars: 900
+  query_prefix: "Represent this code search query for retrieving relevant files: "
+  document_prefix: "Represent this code file metadata for retrieval: "
+
+search:
+  limit: 10
+  preview_lines: 8
+  strategy: graph_file_cross_encoder
+
+# Unused on the search axis, kept so the file loads standalone.
+generation:
+  provider: openai_compatible
+  model: mlx-community/Qwen3.5-4B-OptiQ-4bit
+  url: http://127.0.0.1:8012/v1/chat/completions
+  api_key: local
+  temperature: 0
+  max_tokens: 2048
+  timeout_ms: 240000
+
+indexing:
+  mode: scanner
+
+scanner:
+  include:
+    - "**/*.py"
+  max_file_bytes: 200000
+  line_chunks: false
+  chunk_lines: 220
+  structural_chunks: false
+  symbol_chunks: false
+  symbol_body: false
+  file_summary_chunks: true
+  file_manifest_chunks: true
+  max_symbols_per_file: 96
+
+# Champion weights, minus the doc_* kinds this index does not contain.
+hybrid_search:
+  candidate_limit: 360
+  lexical_candidate_limit: 1000
+  vector_weight: 0.42
+  lexical_weight: 0.26
+  path_weight: 0.12
+  symbol_weight: 0.10
+  symbol_match_weight: 0.10
+  graph_weight: 0.0
+  file_vote_weight: 0.06
+  graph_depth: 0
+  graph_neighbor_limit: 0
+  vector_kind_limits:
+    file_summary: 170
+    file_manifest: 170
+  vector_kind_multipliers:
+    file_summary: 1.0
+    file_manifest: 1.08
+  routing_enabled: true
+  lexical_scoring: bm25
+  fusion: weighted
+  preserve_vector_top: true
+  vector_top_score_margin: 0.03
+  item_kind_weights:
+    file_summary: 1.0
+    file_manifest: 1.08
+  min_token_length: 3
+
+# Champion block, verbatim. The h10 config this corpus previously used spelled several of
+# these fields differently (`graph_depth`, `propagation_weight`, `exact_path_boost`,
+# `preserve_seed_top`); none of those are GraphFileSearchConfig fields, so they were loaded
+# and silently discarded. These are the live names.
+graph_file_search:
+  seed_limit: 140
+  lexical_seed_limit: 280
+  vector_weight: 0.25
+  lexical_weight: 0.25
+  path_weight: 0.20
+  symbol_weight: 0.10
+  graph_weight: 0.45
+  depth: 2
+  neighbor_limit: 40
+  decay: 0.65
+  min_token_length: 3
+
+# Champion block, verbatim.
+cross_encoder_rerank:
+  provider: llama_cpp
+  model: Qwen3-Reranker-0.6B
+  url: http://127.0.0.1:8081/v1/rerank
+  candidate_limit: 34
+  max_document_chars: 850
+  preserve_top_candidate: false
+  timeout_ms: 60000
+
+graph:
+  enabled: true
+  artifact: .code-diver/benchmarks/mteb-codesearchnet-python/graph-h10-graph-file-qwen3-0_6b-quality.json
+  ast_enabled: false
+  reference_edges_enabled: true
+  call_edges_enabled: false
+  expansion_depth: 2
+  neighbor_limit: 40
+
+trace:
+  enabled: false
+
+evaluation:
+  dataset: .code-diver/benchmarks/mteb-codesearchnet-python/codesearchnet_python_1000.jsonl
+  limit: 10
+  workers: 1
+
+metrics:
+  enabled: false
