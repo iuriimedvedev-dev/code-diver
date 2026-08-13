@@ -31,19 +31,22 @@ from .agent.h3_search_tool_handler import H3SearchToolHandler
 from .agent.rerank_tool_handler import RerankToolHandler
 from .ai_indexing import AiCodebaseScanner, HybridCodebaseScanner
 from .answering import (
-    AnswerCandidateRerankerFactory,
-    AnswerContextBuilder,
     AnswerDatasetLoader,
     AnswerEvaluator,
     AnswerJudge,
     AnswerPairwiseJudge,
     AnswerPairwiseReport,
-    AnswerQueryPlanner,
     AnswerReportJudge,
     AnswerReportMetrics,
     SweQaProDatasetPreparer,
 )
+from .answering.answer_pipeline_factory import (
+    AnswerPipelineFactory,
+    search_uses_llm_rerank,
+)
+from .answering.answer_pipeline_options import AnswerPipelineOptions
 from .answering.answer_report_metrics import DURATION_METRICS, JUDGE_METRICS, PRIMARY_METRICS
+from .answering.answer_service import AnswerService
 from .benchmarks import (
     BenchmarkAssetService,
     BenchmarkProfile,
@@ -69,6 +72,7 @@ from .inspection import (
     SymbolsService,
     TreeService,
 )
+from .inspection.exclude_patterns import inspection_exclude_patterns
 from .metrics import (
     ClickHouseClient,
     ClickHouseDockerClient,
@@ -82,9 +86,8 @@ from .pi import (
     PiRunner,
     PiRuntimeManager,
     PiSessionOptions,
-    RepositoryContextBuilder,
-    RepositoryReadmeSummarizer,
 )
+from .pi.repository_context_resolver import build_repository_context
 from .plugins import PluginManager
 from .providers import (
     ProviderCheckResult,
@@ -93,10 +96,11 @@ from .providers import (
     VertexBatchTestOptions,
     VertexBatchTestResult,
     VertexBatchTestService,
-    create_embedding_provider,
+)
+from .providers.embedding_provider_builder import (
+    make_embedding_provider,
 )
 from .runtime import (
-    EmbeddingRuntimeManager,
     QdrantRuntimeManager,
     RuntimeConfigStore,
     RuntimeSetupWizard,
@@ -116,7 +120,6 @@ from .services import (
     SelectedIndexingService,
     SelectedIndexPayloadParser,
 )
-from .services.codebase_scanner import DEFAULT_EXCLUDES
 from .services.eval_case_bucket_classifier import EvalCaseBucketClassifier
 from .services.evaluation_service import EvaluationService
 from .services.evaluation_statistics import EvaluationStatistics
@@ -131,6 +134,7 @@ from .settings import (
 )
 from .store import create_vector_store
 from .strategies import RetrievalStrategyFactory
+from .strategies.retrieval_strategy_builder import make_retrieval_strategy
 from .tracing import TraceLogger
 from .ui import (
     EditorOpener,
@@ -280,7 +284,7 @@ def build_parser(include_advanced: bool = False) -> argparse.ArgumentParser:
         help="Show advanced inspection, agent, and research commands.",
     )
     command_metavar = (
-        None if include_advanced else "{init,index,search,evaluate,provider}"
+        None if include_advanced else "{init,index,search,answer,evaluate,provider}"
     )
     subparsers = parser.add_subparsers(
         dest="command", required=True, metavar=command_metavar
@@ -381,6 +385,17 @@ def build_parser(include_advanced: bool = False) -> argparse.ArgumentParser:
         help="Open an interactive Search agent.",
     )
     search.set_defaults(func=cmd_search)
+
+    # The measured pipeline, reachable directly. `search` returns places; `answer` explains.
+    # Deliberately a primary command rather than an advanced one: it is the product's main
+    # verb, and every quality number we publish describes exactly this code path.
+    answer = subparsers.add_parser(
+        CommandName.ANSWER.value,
+        help="Answer a question about the repository, with citations.",
+    )
+    answer.add_argument("query", nargs="*")
+    add_answer_arguments(answer)
+    answer.set_defaults(func=cmd_answer)
 
     evaluate = subparsers.add_parser(
         CommandName.EVALUATE.value, help="Evaluate retrieval on the configured dataset."
@@ -569,9 +584,18 @@ def add_advanced_parsers(
     chat.set_defaults(func=cmd_chat)
 
     ask = subparsers.add_parser(
-        CommandName.ASK.value, help="Ask the Search agent once."
+        CommandName.ASK.value, help="Ask a question once, through the answering pipeline."
     )
     ask.add_argument("query", nargs="+")
+    # `ask` answers through the core by default. It used to launch the pi agent, which composes
+    # its own answer from raw search hits -- a different pipeline from every number we publish.
+    # The agent is still reachable, but now you have to ask for it.
+    ask.add_argument(
+        "--agent",
+        action="store_true",
+        help="Run the pi Search agent instead of the answering pipeline.",
+    )
+    add_answer_arguments(ask)
     ask.add_argument(OptionName.TOOLSET.value, default=None)
     ask.add_argument(OptionName.HYPOTHESIS.value, default=None)
     ask.set_defaults(func=cmd_ask)
@@ -2027,7 +2051,142 @@ def cmd_open(args: argparse.Namespace, config: AppConfig) -> int:
     return 0
 
 
+def cmd_answer(args: argparse.Namespace, config: AppConfig) -> int:
+    query = normalize_query(args.query)
+    if not query:
+        print("error: answer requires a question.", file=sys.stderr)
+        return 1
+    vector_store = make_vector_store(config, progress=not bool(args.json))
+    # Fail loudly. `evaluate` silently indexes when the store is missing, which turns a
+    # forgotten `index` into a surprise hour-long build in the middle of a question.
+    if not vector_store.exists():
+        close_vector_store(vector_store)
+        print(
+            "error: no index found for this config. Run `code-diver index` first.",
+            file=sys.stderr,
+        )
+        return 1
+    try:
+        with render_activity(
+            "answering: retrieving candidates, building context, generating",
+            enabled=not bool(args.json),
+            style="green",
+        ):
+            pipeline = AnswerPipelineFactory().create(
+                config,
+                vector_store,
+                answer_pipeline_options(args, config),
+                on_notice=None
+                if args.json
+                else (lambda text: status_console().print(f"[yellow]{text}[/yellow]")),
+            )
+            service = AnswerService.from_pipeline(
+                pipeline,
+                restrict_citations_to_context=pipeline.config.evaluation.restrict_citations_to_context,
+            )
+            outcome = service.answer(query)
+    finally:
+        close_vector_store(vector_store)
+    if args.json:
+        print(json.dumps(answer_outcome_to_json(outcome, args.show_context), indent=2))
+        return 0 if outcome.parse_error is None else 1
+    return render_answer(outcome, pipeline, args.show_context)
+
+
+def answer_outcome_to_json(outcome: Any, include_context: bool) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "question": outcome.question,
+        "answer": outcome.answer,
+        "citations": outcome.citations,
+        "confidence": outcome.confidence,
+        "retrieved_files": outcome.retrieved_files,
+        "context_files": outcome.context.files if outcome.context else [],
+        "generation_model": outcome.generation_model,
+        "usage": outcome.usage,
+        "durations_ms": {
+            "retrieval": outcome.retrieval_duration_ms,
+            "context": outcome.context_duration_ms,
+            "generation": outcome.generation_duration_ms,
+        },
+    }
+    if outcome.parse_error is not None:
+        payload["parse_error"] = outcome.parse_error
+        payload["raw_prediction"] = outcome.raw_prediction
+    if include_context and outcome.context is not None:
+        payload["context_text"] = outcome.context.text
+    return payload
+
+
+def render_answer(outcome: Any, pipeline: Any, show_context: bool) -> int:
+    console = Console()
+    if outcome.parse_error is not None:
+        render_status_panel(
+            "Answer Not Parseable",
+            [
+                ("error", outcome.parse_error),
+                ("model", outcome.generation_model),
+                ("raw", compact_preview(outcome.raw_prediction, 400)),
+            ],
+            border_style="red",
+        )
+        return 1
+    console.print(
+        Panel(
+            outcome.answer or "(empty answer)",
+            title=outcome.question,
+            border_style="cyan",
+        )
+    )
+    if outcome.citations:
+        table = Table(title="Citations", show_lines=False)
+        table.add_column("path", style="bold")
+        table.add_column("lines", no_wrap=True)
+        table.add_column("reason")
+        for citation in outcome.citations:
+            if not isinstance(citation, dict):
+                continue
+            table.add_row(
+                str(citation.get("path") or ""),
+                str(citation.get("lines") or ""),
+                str(citation.get("reason") or ""),
+            )
+        console.print(table)
+    total_ms = (
+        outcome.retrieval_duration_ms
+        + outcome.context_duration_ms
+        + outcome.generation_duration_ms
+    )
+    render_status_panel(
+        "Answer Trace",
+        [
+            ("strategy", pipeline.config.search.strategy),
+            ("model", outcome.generation_model),
+            ("candidates", len(outcome.retrieved_files)),
+            (
+                "context files",
+                len(outcome.context.files) if outcome.context else 0,
+            ),
+            ("confidence", outcome.confidence if outcome.confidence is not None else "-"),
+            (
+                "timing",
+                f"retrieval {outcome.retrieval_duration_ms:.0f}ms | "
+                f"context {outcome.context_duration_ms:.0f}ms | "
+                f"generation {outcome.generation_duration_ms:.0f}ms | "
+                f"total {total_ms:.0f}ms",
+            ),
+        ],
+    )
+    if show_context and outcome.context is not None:
+        console.print(
+            Panel(outcome.context.text, title="Retrieved context", border_style="blue")
+        )
+    return 0
+
+
 def cmd_ask(args: argparse.Namespace, config: AppConfig) -> int:
+    if not getattr(args, "agent", False):
+        # The default: one question, one grounded answer, through the measured pipeline.
+        return cmd_answer(args, config)
     build_repository_context(config)
     return make_search_agent_runner(config).run_print(
         config,
@@ -2036,17 +2195,6 @@ def cmd_ask(args: argparse.Namespace, config: AppConfig) -> int:
         toolset=args.toolset,
         hypothesis=args.hypothesis,
     )
-
-
-def build_repository_context(
-    config: AppConfig,
-    generation_provider: Any | None = None,
-) -> Any:
-    summarizer = None
-    if config.pi.repo_context.mode == "llm_readme_summary":
-        provider = generation_provider or create_generation_provider(config)
-        summarizer = RepositoryReadmeSummarizer(provider).summarize
-    return RepositoryContextBuilder().build(config, readme_summarizer=summarizer)
 
 
 def cmd_chat(args: argparse.Namespace, config: AppConfig) -> int:
@@ -2296,13 +2444,6 @@ def final_rerank_settings(reranker: object | None) -> dict[str, Any]:
         "final_rerank_provider": getattr(provider, "name", None),
         "final_rerank_model": getattr(provider, "model", None),
         "final_rerank_candidate_limit": getattr(reranker, "candidate_limit", None),
-    }
-
-
-def search_uses_llm_rerank(config: AppConfig) -> bool:
-    return config.search.strategy in {
-        RetrievalStrategyId.HYBRID_RERANK.value,
-        RetrievalStrategyId.GRAPH_FILE_RERANK.value,
     }
 
 
@@ -2796,6 +2937,68 @@ def cmd_evaluate_explanations(args: argparse.Namespace, config: AppConfig) -> in
     return 0
 
 
+def add_answer_arguments(parser: argparse.ArgumentParser) -> None:
+    """The answering knobs, defined once.
+
+    `answer` and `ask` run the same pipeline, so they must expose the same flags with the same
+    defaults; two copies of this list is how a front-end silently stops matching the eval.
+    """
+    parser.add_argument(OptionName.LIMIT.value, type=int, default=None)
+    parser.add_argument(
+        "--context-files",
+        type=int,
+        default=None,
+        help="Files to read into answer context. Defaults to 4 for hybrid_rerank, 8 otherwise.",
+    )
+    parser.add_argument("--context-lines", type=int, default=160)
+    parser.add_argument(
+        "--agentic-queries",
+        action="store_true",
+        help="Let the LLM generate multiple search queries before retrieval.",
+    )
+    parser.add_argument(
+        "--query-count", type=int, default=4, help="Maximum LLM-generated search queries."
+    )
+    parser.add_argument(
+        "--query-workers",
+        type=int,
+        default=4,
+        help="Parallel retrieval workers for planned queries.",
+    )
+    parser.add_argument(
+        "--agentic-query-rerank",
+        action="store_true",
+        help="Rerank the merged multi-query candidate pool before answering.",
+    )
+    parser.add_argument(
+        "--show-context",
+        action="store_true",
+        help="Print the retrieved context that was sent to the model.",
+    )
+    parser.add_argument(
+        "-j", OptionName.JSON.value, action="store_true", help="Emit the answer as JSON."
+    )
+
+
+def answer_pipeline_options(
+    args: argparse.Namespace, config: AppConfig
+) -> AnswerPipelineOptions:
+    # Shared by `answer` and `evaluate-answers` so the product cannot drift from the eval.
+    # `limit=None` means "take config.evaluation.limit" -- resolved in the factory, once.
+    return AnswerPipelineOptions(
+        limit=args.limit,
+        context_files=args.context_files,
+        context_lines=args.context_lines,
+        agentic_queries=bool(args.agentic_queries),
+        agentic_query_rerank=bool(args.agentic_query_rerank),
+        agentic_query_search_strategy=getattr(
+            args, "agentic_query_search_strategy", None
+        ),
+        query_count=args.query_count,
+        query_workers=args.query_workers,
+    )
+
+
 def cmd_evaluate_answers(args: argparse.Namespace, config: AppConfig) -> int:
     if args.agentic_query_rerank and not args.agentic_queries:
         print(
@@ -2840,63 +3043,26 @@ def cmd_evaluate_answers(args: argparse.Namespace, config: AppConfig) -> int:
             cmd_index(args, config)
         vector_store = make_vector_store(config, progress=not bool(args.json))
 
-    limit = args.limit or config.evaluation.limit
-    context_files = int(args.context_files or default_answer_context_files(config))
-    answer_provider = create_generation_provider(config)
-    repository_context_result = build_repository_context(config, answer_provider)
-    repository_context = ""
-    if repository_context_result is not None:
-        repository_context = repository_context_result.path.read_text(
-            encoding="utf-8", errors="replace"
-        )
-        if config.llm_rerank.repository_context_path is None:
-            config = replace(
-                config,
-                llm_rerank=replace(
-                    config.llm_rerank,
-                    repository_context_path=repository_context_result.path,
-                ),
-            )
-    provider = make_embedding_provider(config, vector_store.metadata())
-    strategy = make_retrieval_strategy(config, provider, vector_store)
-    query_planner = (
-        AnswerQueryPlanner(
-            answer_provider,
-            max_queries=args.query_count,
-            repository_context=repository_context,
-        )
-        if args.agentic_queries
-        else None
+    pipeline = AnswerPipelineFactory().create(
+        config,
+        vector_store,
+        answer_pipeline_options(args, config),
+        on_notice=None
+        if args.json
+        else (lambda text: status_console().print(f"[yellow]{text}[/yellow]")),
     )
-    query_retrieval_strategy = None
-    agentic_query_search_strategy = args.agentic_query_search_strategy
-    if (
-        args.agentic_queries
-        and args.agentic_query_rerank
-        and not agentic_query_search_strategy
-        and config.search.strategy == RetrievalStrategyId.HYBRID_RERANK.value
-    ):
-        agentic_query_search_strategy = RetrievalStrategyId.HYBRID.value
-        if not args.json:
-            status_console().print(
-                "[yellow]Using hybrid probe search before the shared LLM rerank to avoid nested per-query reranking.[/yellow]"
-            )
-    if args.agentic_queries and agentic_query_search_strategy:
-        query_config = replace(
-            config,
-            search=replace(config.search, strategy=agentic_query_search_strategy),
-        )
-        query_retrieval_strategy = make_retrieval_strategy(
-            query_config, provider, vector_store
-        )
-    # Which primitive does the final rerank follows from `search.strategy`, not from the probe
-    # strategy passed on the command line. Building it here rather than hard-coding
-    # AnswerCandidateReranker is what makes a cross-encoder arm a config diff.
-    query_result_reranker = (
-        AnswerCandidateRerankerFactory().create(config, answer_provider)
-        if args.agentic_queries and args.agentic_query_rerank
-        else None
-    )
+    # The factory may back-fill llm_rerank.repository_context_path, so adopt its config.
+    config = pipeline.config
+    limit = pipeline.limit
+    context_files = pipeline.context_files
+    answer_provider = pipeline.answer_provider
+    strategy = pipeline.retrieval_strategy
+    repository_context = pipeline.repository_context
+    query_planner = pipeline.query_planner
+    query_retrieval_strategy = pipeline.query_retrieval_strategy
+    query_result_reranker = pipeline.query_result_reranker
+    agentic_query_search_strategy = pipeline.query_search_strategy
+    repository_context_result = pipeline.repository_context_result
     judge = None
     judge_config = None
     if args.judge:
@@ -2996,13 +3162,7 @@ def cmd_evaluate_answers(args: argparse.Namespace, config: AppConfig) -> int:
         report = AnswerEvaluator(
             strategy,
             answer_provider,
-            AnswerContextBuilder(
-                config.root,
-                max_files=context_files,
-                lines_per_file=args.context_lines,
-                exclude=inspection_exclude_patterns(config),
-                max_file_bytes=config.scanner.max_file_bytes,
-            ),
+            pipeline.context_builder,
             repository_context=repository_context,
             judge=judge,
             query_planner=query_planner,
@@ -3533,10 +3693,6 @@ def render_answer_metrics_table(metrics: dict[str, Any]) -> None:
     )
 
 
-def default_answer_context_files(config: AppConfig) -> int:
-    return 4 if search_uses_llm_rerank(config) else 8
-
-
 def cmd_experiment(args: argparse.Namespace, config: AppConfig) -> int:
     if args.hypothesis:
         selected = set(args.hypothesis)
@@ -3730,116 +3886,6 @@ def make_plugin_manager(config: AppConfig) -> PluginManager:
 
 def make_trace_logger(config: AppConfig) -> TraceLogger:
     return TraceLogger(config.trace)
-
-
-def make_embedding_provider(config: AppConfig, payload: dict[str, Any] | None = None):
-    ensure_configured_embedding_runtime(config)
-    embedding = config.embedding
-    if payload:
-        validate_embedding_metadata(config, payload)
-    provider_name = embedding.provider or str(
-        (payload or {}).get(SchemaKey.PROVIDER.value, Defaults.EMBEDDING_PROVIDER)
-    )
-    model = embedding.model or (payload or {}).get(SchemaKey.MODEL.value)
-    dimensions = embedding.dimensions
-    if (
-        dimensions is None
-        and provider_name != EmbeddingProviderId.OPENAI_COMPATIBLE.value
-    ):
-        dimensions = (payload or {}).get(SchemaKey.DIMENSIONS.value)
-    return create_embedding_provider(
-        provider_name,
-        model=model,
-        dimensions=int(dimensions) if dimensions else None,
-        api_key=embedding.api_key,
-        url=embedding.url,
-        project=embedding.project,
-        location=embedding.location,
-        batch_size=embedding.batch_size,
-        retry_attempts=embedding.retry_attempts,
-        retry_delay_seconds=embedding.retry_delay_seconds,
-        document_prefix=embedding.document_prefix,
-        query_prefix=embedding.query_prefix,
-        max_input_chars=embedding.max_input_chars,
-    )
-
-
-def validate_embedding_metadata(config: AppConfig, payload: dict[str, Any]) -> None:
-    expected_provider = config.embedding.provider
-    actual_provider = str(payload.get(SchemaKey.PROVIDER.value) or "")
-    if expected_provider and actual_provider and expected_provider != actual_provider:
-        raise ValueError(
-            "Index embedding provider mismatch: "
-            f"config expects {expected_provider!r}, artifact has {actual_provider!r}. "
-            "Rebuild the index with `--reindex` or select the matching config."
-        )
-
-    expected_model = config.embedding.model
-    actual_model = str(payload.get(SchemaKey.MODEL.value) or "")
-    if expected_model and actual_model and expected_model != actual_model:
-        raise ValueError(
-            "Index embedding model mismatch: "
-            f"config expects {expected_model!r}, artifact has {actual_model!r}. "
-            "Rebuild the index with `--reindex` or select the matching config."
-        )
-
-    expected_dimensions = config.embedding.dimensions
-    actual_dimensions = payload.get(SchemaKey.DIMENSIONS.value)
-    if (
-        expected_dimensions is not None
-        and actual_dimensions is not None
-        and int(expected_dimensions) != int(actual_dimensions)
-    ):
-        raise ValueError(
-            "Index embedding dimensions mismatch: "
-            f"config expects {expected_dimensions}, artifact has {actual_dimensions}. "
-            "Rebuild the index with `--reindex` or select the matching config."
-        )
-
-
-def ensure_configured_embedding_runtime(config: AppConfig) -> None:
-    profile_key = local_embedding_profile_key(config)
-    if profile_key is None:
-        return
-    store = RuntimeConfigStore()
-    if not store.exists():
-        profile = EmbeddingProfileRegistry().get(profile_key)
-        platform = next(
-            (item for item in profile.platforms if item not in {"external", "api"}),
-            "external",
-        )
-        raise RuntimeError(
-            "Local embedding runtime is not configured. Run "
-            f"`uv run code-diver init --platform {platform} --embedding {profile_key} --yes --start` first."
-        )
-    runtime = store.load()
-    if runtime.embedding_profile != profile_key:
-        raise RuntimeError(
-            "Configured local embedding runtime does not match this embedding model. "
-            f"runtime={runtime.embedding_profile}, requested={profile_key}. "
-            f"Run `uv run code-diver init --embedding {profile_key}`."
-        )
-    EmbeddingRuntimeManager(runtime).ensure_running()
-
-
-def local_embedding_profile_key(config: AppConfig) -> str | None:
-    embedding = config.embedding
-    if embedding.provider != EmbeddingProviderId.OPENAI_COMPATIBLE.value:
-        return None
-    registry = EmbeddingProfileRegistry()
-    for profile in registry.profiles():
-        candidate = profile.config
-        if candidate.provider != EmbeddingProviderId.OPENAI_COMPATIBLE.value:
-            continue
-        if candidate.model == embedding.model and candidate.url == embedding.url:
-            return profile.key
-    return None
-
-
-def make_retrieval_strategy(config: AppConfig, provider: Any, vector_store: Any):
-    return RetrievalStrategyFactory().create(
-        config.search.strategy, config, provider, vector_store
-    )
 
 
 def indexing_hypotheses(config: AppConfig, names: list[str] | None = None):
@@ -4092,10 +4138,6 @@ def compact_preview(text: str, limit: int) -> str:
     if len(compact) <= limit:
         return compact
     return compact[:limit].rstrip() + "..."
-
-
-def inspection_exclude_patterns(config: AppConfig) -> list[str]:
-    return [*DEFAULT_EXCLUDES, *config.scanner.exclude]
 
 
 def direct_search_eval_result(case: Any, retrieved: list[str], limit: int):

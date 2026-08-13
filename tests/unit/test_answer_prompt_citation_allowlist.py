@@ -4,16 +4,18 @@ from pathlib import Path
 
 import pytest
 
-from code_diver.answering import AnswerCase, AnswerEvaluator
+from code_diver.answering import AnswerCase
 from code_diver.answering.answer_context import AnswerContext
+from code_diver.answering.answer_service import AnswerService
 from code_diver.config import ConfigLoader
 
 pytestmark = pytest.mark.unit
 
 
-def _evaluator(*, restrict: bool) -> AnswerEvaluator:
-    # Only `_answer_prompt` is exercised, so the collaborators it never touches stay None.
-    return AnswerEvaluator(
+def _service(*, restrict: bool) -> AnswerService:
+    # The prompt lives on AnswerService now: it is part of answering, not of scoring.
+    # Only `answer_prompt` is exercised, so the collaborators it never touches stay None.
+    return AnswerService(
         retrieval_strategy=None,  # type: ignore[arg-type]
         answer_provider=None,  # type: ignore[arg-type]
         context_builder=None,  # type: ignore[arg-type]
@@ -39,7 +41,7 @@ def _context() -> AnswerContext:
 
 
 def test_the_default_prompt_is_unchanged_so_earlier_runs_stay_comparable() -> None:
-    prompt = _evaluator(restrict=False)._answer_prompt(_case(), _context())
+    prompt = _service(restrict=False).answer_prompt(_case(), _context())
 
     assert "Citable files" not in prompt
     # The pre-existing weak instruction is still the only citation boundary in this mode.
@@ -47,7 +49,7 @@ def test_the_default_prompt_is_unchanged_so_earlier_runs_stay_comparable() -> No
 
 
 def test_the_allowlist_names_every_context_file_and_forbids_the_rest() -> None:
-    prompt = _evaluator(restrict=True)._answer_prompt(_case(), _context())
+    prompt = _service(restrict=True).answer_prompt(_case(), _context())
 
     assert "Citable files" in prompt
     assert "  - src/agents/base/factory.py" in prompt
@@ -61,7 +63,7 @@ def test_the_allowlist_names_every_context_file_and_forbids_the_rest() -> None:
 def test_an_empty_bundle_gets_no_allowlist_rather_than_an_empty_one() -> None:
     # An empty list would read as "cite nothing", which is not the intended instruction for a
     # case where retrieval returned nothing -- that case should still explain what is missing.
-    prompt = _evaluator(restrict=True)._answer_prompt(_case(), AnswerContext(text="", files=[]))
+    prompt = _service(restrict=True).answer_prompt(_case(), AnswerContext(text="", files=[]))
 
     assert "Citable files" not in prompt
 
@@ -72,7 +74,7 @@ def test_the_allowlist_is_exactly_the_set_the_fabrication_metric_scores_against(
     from code_diver.answering.answer_grounding_metrics import AnswerGroundingMetrics
 
     context = _context()
-    prompt = _evaluator(restrict=True)._answer_prompt(_case(), context)
+    prompt = _service(restrict=True).answer_prompt(_case(), context)
     for path in context.files:
         assert f"  - {path}" in prompt
 

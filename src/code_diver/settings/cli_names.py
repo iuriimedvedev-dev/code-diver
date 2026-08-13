@@ -4,6 +4,7 @@ from enum import StrEnum
 
 
 class CommandName(StrEnum):
+    ANSWER = "answer"
     ANSWER_PAIRWISE = "answer-pairwise"
     ANSWER_REPORT = "answer-report"
     ASK = "ask"

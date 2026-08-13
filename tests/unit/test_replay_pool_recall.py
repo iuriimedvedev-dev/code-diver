@@ -11,7 +11,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from code_diver.answering import AnswerCase, AnswerContextBuilder, AnswerEvaluator, AnswerQueryPlanner
-from code_diver.answering import answer_evaluator as answer_evaluator_module
+from code_diver.answering import answer_service as answer_service_module
 from code_diver.answering.answer_query_merge import merge_query_results
 from code_diver.config import CrossEncoderRerankConfig, LlmRerankConfig
 from code_diver.domain import CodeItem, SearchResult
@@ -270,11 +270,12 @@ def test_case_detail_reports_found_ranks_and_missing_paths() -> None:
 
 
 def test_answer_evaluator_still_delegates_to_the_shared_merge_helper(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Guards against `AnswerEvaluator` and this script drifting apart: if a future refactor
-    stops routing `AnswerEvaluator`'s probe-query merge through `merge_query_results`, this
-    test fails even though `AnswerEvaluator`'s own behavioral tests would not notice."""
+    """Guards against the answering pipeline and this script drifting apart: if a future
+    refactor stops routing the probe-query merge through `merge_query_results`, this test fails
+    even though the behavioral tests would not notice. Driven through `AnswerEvaluator` on
+    purpose, so it also pins the evaluator -> `AnswerService` -> merge chain."""
     spy = MagicMock(side_effect=merge_query_results)
-    monkeypatch.setattr(answer_evaluator_module, "merge_query_results", spy)
+    monkeypatch.setattr(answer_service_module, "merge_query_results", spy)
 
     retrieval = FakeRetrievalStrategy(
         {
