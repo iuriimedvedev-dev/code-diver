@@ -415,6 +415,40 @@ def test_nested_vendor_directory_is_excluded_at_any_depth(tmp_path: Path) -> Non
     assert [item.path for item in items] == ["src/node_modules_helper.py"]
 
 
+def test_sibling_virtualenvs_are_excluded_not_only_dot_venv(tmp_path: Path) -> None:
+    """A second interpreter is always named `.venv-something`, and it must not be indexed.
+
+    This repo's own index came out at ~60x its source size because
+    `.venv-vllm-metal-official` was scanned: the failure is silent, the codebase simply
+    drowns in its own dependencies. `venv_helper.py` guards the fix against over-reach --
+    the wildcard must widen the directory name, not swallow files that merely start with it.
+    """
+    for relative in (
+        ".venv/lib/site.py",
+        ".venv-vllm-metal-official/lib/vllm/engine.py",
+        "venv311/lib/site.py",
+        "tools/.venv-scratch/lib/thing.py",
+    ):
+        path = tmp_path / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("x = 1\n", encoding="utf-8")
+    keeper = tmp_path / "src" / "venv_helper.py"
+    keeper.parent.mkdir(parents=True)
+    keeper.write_text("print('helper')\n", encoding="utf-8")
+
+    scanner = CodebaseScanner(include=["**/*.py"])
+
+    assert scanner._is_excluded(".venv/lib/site.py") is True
+    assert scanner._is_excluded(".venv-vllm-metal-official/lib/vllm/engine.py") is True
+    assert scanner._is_excluded("venv311/lib/site.py") is True
+    assert scanner._is_excluded("tools/.venv-scratch/lib/thing.py") is True
+    assert scanner._is_excluded("src/venv_helper.py") is False
+
+    items = scanner.scan(tmp_path)
+
+    assert [item.path for item in items] == ["src/venv_helper.py"]
+
+
 def test_doublestar_prefixed_directory_patterns_exclude_at_any_depth() -> None:
     # The `**/dir/**` form is what real configs are written in (every IntelliJ
     # exclusion uses it). It regressed silently once because the exclusion
@@ -430,7 +464,10 @@ def test_doublestar_prefixed_directory_patterns_exclude_at_any_depth() -> None:
     assert scanner._is_excluded("java/java-tests/testData/inspection/x.java") is True
     assert scanner._is_excluded("plugins/x/node_modules/y/index.js") is True
     # The directory itself, as the walk branch sees it during pruning.
-    assert scanner._is_excluded("RegExpSupport/test") is True
+    assert scanner._is_excluded("RegExpSupport/test", is_dir=True) is True
+    # The same path as a *file* is not excluded: `dir/**` excludes a directory's
+    # contents, so a file that merely shares the name is not a match.
+    assert scanner._is_excluded("RegExpSupport/test") is False
     # Neither a same-named prefix nor a same-named file suffix is a match.
     assert scanner._is_excluded("platform/testFramework/Runner.java") is False
     assert scanner._is_excluded("platform/util/src/GenUtil.java") is False

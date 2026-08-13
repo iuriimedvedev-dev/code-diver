@@ -25,8 +25,13 @@ DEFAULT_EXCLUDES = (
     ".svn/**",
     ".code-diver/**",
     ".pi/npm/**",
-    ".venv/**",
-    "venv/**",
+    # Wildcarded on purpose: a repo that needs two interpreters names the second one
+    # `.venv-something`, and only `.venv` was excluded. Indexing this repo picked up
+    # `.venv-vllm-metal-official` -- 21,413 indexable files, ~60x the real source tree --
+    # which does not fail, it just buries the codebase under its own dependencies.
+    # Exclude-pattern segments are fnmatch'd, so one wildcard covers every variant.
+    ".venv*/**",
+    "venv*/**",
     "node_modules/**",
     "dist/**",
     "build/**",
@@ -196,7 +201,9 @@ class CodebaseScanner:
             dir_names[:] = [
                 name
                 for name in sorted(dir_names)
-                if not self._is_excluded((current_path / name).relative_to(root).as_posix())
+                if not self._is_excluded(
+                    (current_path / name).relative_to(root).as_posix(), is_dir=True
+                )
             ]
             for file_name in sorted(file_names):
                 path = current_path / file_name
@@ -265,17 +272,27 @@ class CodebaseScanner:
             return True
         return bool(not self.include and path.suffix.lower() not in DEFAULT_INCLUDE_SUFFIXES)
 
-    def _is_excluded(self, rel_path: str) -> bool:
+    def _is_excluded(self, rel_path: str, *, is_dir: bool = False) -> bool:
         """Single exclusion predicate shared by the rg and os.walk enumeration paths.
 
         A pattern ending in ``/**`` excludes the directory (and everything under
         it) at any depth, not just when it is rooted at ``rel_path``'s top level.
         Any other pattern (e.g. ``*.lock``, ``**/*.min.js``) is treated as a plain
         file glob via ``fnmatch``, unchanged.
-        """
-        return any(self._matches_exclude_pattern(rel_path, pattern) for pattern in self.exclude)
 
-    def _matches_exclude_pattern(self, rel_path: str, pattern: str) -> bool:
+        ``is_dir`` says whether ``rel_path`` names a directory. The walk branch prunes
+        directories and so passes it; the file branch does not. It matters because a
+        directory pattern must not match a *file* whose own name fits it: ``venv*/**``
+        means "any venv directory", never ``src/venv_helper.py``.
+        """
+        return any(
+            self._matches_exclude_pattern(rel_path, pattern, is_dir=is_dir)
+            for pattern in self.exclude
+        )
+
+    def _matches_exclude_pattern(
+        self, rel_path: str, pattern: str, *, is_dir: bool = False
+    ) -> bool:
         normalized = pattern.rstrip("/")
         if not normalized.endswith("/**"):
             return self._matches_any(rel_path, [pattern])
@@ -289,7 +306,12 @@ class CodebaseScanner:
         if not base:
             return True
         if any_depth or "/" not in base:
-            return self._contains_segment_run(rel_path.split("/"), base.split("/"))
+            segments = rel_path.split("/")
+            # For a file path the run has to end above the file itself -- the pattern
+            # excludes a directory's contents, so the last segment is never the match.
+            # For a directory path (walk pruning) the run may end at the directory.
+            searchable = segments if is_dir else segments[:-1]
+            return self._contains_segment_run(searchable, base.split("/"))
         return rel_path == base or rel_path.startswith(base + "/")
 
     @staticmethod
