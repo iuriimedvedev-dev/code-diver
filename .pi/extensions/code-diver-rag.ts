@@ -131,6 +131,49 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.registerTool({
+    name: "code_diver_answer",
+    label: "Code Diver Answer",
+    description:
+      "Answer a repository question through the Code Diver answering pipeline: retrieval, context assembly, grounded generation with file/line citations. Prefer this over composing an answer yourself from raw search hits -- this is the measured pipeline, and its citations are constrained to files it actually read.",
+    ...compactToolUi("answer"),
+    parameters: Type.Object({
+      question: Type.String({ description: "The developer's question about this repository." }),
+      limit: Type.Optional(
+        Type.Integer({ minimum: 1, maximum: 50, description: "Candidate files to retrieve before context assembly." }),
+      ),
+      contextFiles: Type.Optional(
+        Type.Integer({ minimum: 1, maximum: 20, description: "How many retrieved files to put in the answer context." }),
+      ),
+      agenticQueries: Type.Optional(
+        Type.Boolean({
+          description:
+            "Plan several search queries with an LLM instead of searching once. Slower; helps on broad or multi-part questions.",
+        }),
+      ),
+    }),
+    execute: async (
+      _toolCallId,
+      params: { question: string; limit?: number; contextFiles?: number; agenticQueries?: boolean },
+      signal,
+      _onUpdate,
+      ctx: ToolContext,
+    ) => {
+      const args = ["answer", params.question, "--json"];
+      if (params.limit) {
+        args.push("--limit", String(params.limit));
+      }
+      if (params.contextFiles) {
+        args.push("--context-files", String(params.contextFiles));
+      }
+      if (params.agenticQueries) {
+        args.push("--agentic-queries");
+      }
+      const result = await runCodeDiver(ctx.cwd, args, signal);
+      return textResult(result.stdout || result.stderr);
+    },
+  });
+
+  pi.registerTool({
     name: "code_diver_inspect",
     label: "Code Diver Inspect",
     description:
@@ -488,8 +531,13 @@ export default function (pi: ExtensionAPI) {
 
 function registerLocalModelProvider(pi: ExtensionAPI) {
   const provider = process.env.CODE_DIVER_LOCAL_LLM_PROVIDER || "code-diver-local";
-  const model = process.env.CODE_DIVER_LOCAL_LLM_MODEL || "gemma-4-26B-A4B-it-qat-UD-Q4_K_XL";
-  const baseUrl = process.env.CODE_DIVER_LOCAL_LLM_BASE_URL || "http://127.0.0.1:8016/v1";
+  // Defaults must name a server this repo can actually start. The previous defaults
+  // (`gemma-4-26B-A4B-it-qat-UD-Q4_K_XL` on :8016) exist in no config, no script and no source
+  // file -- so without env vars pi had no model to talk to at all, which is the simplest
+  // explanation for why this surface has been used twice ever. This is the generator that
+  // `scripts/serve_generator.sh` starts and that every published answer number was measured on.
+  const model = process.env.CODE_DIVER_LOCAL_LLM_MODEL || "mlx-community/Qwen3.5-4B-OptiQ-4bit";
+  const baseUrl = process.env.CODE_DIVER_LOCAL_LLM_BASE_URL || "http://127.0.0.1:8012/v1";
   const apiKey = process.env.CODE_DIVER_LOCAL_LLM_API_KEY || "local";
   pi.registerProvider(provider, {
     name: "Code Diver Local",
@@ -503,7 +551,7 @@ function registerLocalModelProvider(pi: ExtensionAPI) {
     models: [
       {
         id: model,
-        name: "Gemma 4 26B-A4B local",
+        name: "Code Diver local generator",
         reasoning: false,
         input: ["text"],
         contextWindow: 32768,
@@ -706,13 +754,17 @@ function runCodeDiver(cwd: string, args: string[], signal?: AbortSignal, input?:
   const config = process.env.CODE_DIVER_CONFIG || "code-diver.yml";
   const root = process.env.CODE_DIVER_ROOT;
   const packageRoot = process.env.CODE_DIVER_PACKAGE_ROOT || cwd;
-  const childArgs = ["run", "code-diver", "--config", config];
+  // The venv entry point, never `uv run`. `uv run` re-resolves dependencies on every
+  // invocation, which reaches GitHub for the vllm-metal wheel -- that network round trip has
+  // already killed long-running arms mid-flight. The console script needs no resolution.
+  const binary = process.env.CODE_DIVER_BIN || join(packageRoot, ".venv", "bin", "code-diver");
+  const childArgs = ["--config", config];
   if (root) {
     childArgs.push("--root", root);
   }
   childArgs.push(...args);
   return new Promise((resolve, reject) => {
-    const child = spawn("uv", childArgs, {
+    const child = spawn(binary, childArgs, {
       cwd: packageRoot,
       env: process.env,
       stdio: ["pipe", "pipe", "pipe"],

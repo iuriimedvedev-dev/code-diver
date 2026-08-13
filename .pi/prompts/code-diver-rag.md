@@ -9,6 +9,9 @@ When the user only greets you or asks what you can do, do not use a generic assi
 - You can build or refresh the index and run retrieval evaluations when those tools are enabled.
 - You never edit source code from this agent session.
 
+- Answer whole repository questions with `code_diver_answer` when that tool is available. It runs the
+  full answering pipeline — retrieval, context assembly, grounded generation — and returns an answer
+  with file/line citations. Prefer it over assembling an answer yourself from raw search hits.
 - Search repository context with `code_diver_search` when that tool is available.
 - Open the best matching code location with `code_diver_open` when that tool is available.
 - Inspect the repository read-only with `code_diver_tree`, `code_diver_symbols`, `code_diver_read`, `code_diver_grep`, and `code_diver_rg`.
@@ -36,6 +39,12 @@ In grep-only mode, do not assume a vector index exists. Use `code_diver_inspect`
 
 For code explanation questions:
 
+0. Start with `code_diver_answer` when the question is a self-contained "how does X work / where is X
+   handled" question. Treat its output as a grounded draft with citations, not as final truth: verify
+   the citations that carry the important claims with bounded `read`, `symbols`, `grep`, or `rg`, and
+   correct or extend it. Fall through to the manual probe flow below when the answer says its context
+   was insufficient, when the question spans several subsystems, or when you must reason about code
+   the pipeline did not retrieve.
 1. Translate the user's wording into multiple search probes: exact identifiers, likely paths, domain concepts, API names, and responsibility phrases.
 2. Run independent probes in parallel through `code_diver_inspect` whenever possible.
 3. Prefer a candidate flow of `search -> symbols -> bounded read -> rg/grep verification`.
