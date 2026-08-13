@@ -403,3 +403,224 @@ The next arms should therefore *subtract*, not add. Ranked by evidence strength:
 - CSN figures exclude the 34 rerank-failed cases (22.7%). Those cases are not missing at random
   -- they are the long-query cases -- so the CSN numbers describe the short-query subset.
 - CSN has one expected file per case, so recall@10 is a hit rate and moves in steps of 1/116.
+
+---
+
+## Finding 67 -- the four-arm campaign: the graph costs 5.6 recall points on IntelliJ
+
+All four arms ran at n=1000, one at a time, with **zero rerank-failure warnings** (task #36's
+fix held). Every pair is analysed paired on `case_id` with an exact two-sided sign test on the
+discordant pairs only; ties carry no information and are excluded from the test.
+
+| arm | recall@10 | nDCG | MRR | hit@10 | wall | s/case |
+|---|---|---|---|---|---|---|
+| IntelliJ champion (graph 0.45 + xenc) | 0.8397 | 0.7457 | 0.7320 | 0.8670 | ~98m ‡ | 5.88 ‡ |
+| IntelliJ H38 (graph **off**, xenc on) | **0.8958** | 0.7725 | 0.7496 | **0.9250** | 182m28 † | 10.95 † |
+| IntelliJ H43 (graph off, xenc **off**) | 0.8716 | **0.8110** | **0.8020** | 0.8990 | 33m21 | 2.00 |
+| CSN champion postfix (graph + xenc) | **0.9730** | **0.9148** | **0.8952** | 0.9730 | 59m25 | 3.56 |
+| CSN H44 (xenc **off**) | 0.9650 | 0.8857 | 0.8595 | 0.9650 | 9m08 | 0.55 |
+
+† The 182-minute figure is **not a property of the configuration** -- see Finding 68. Graph-off
+does strictly less work than the champion, so it cannot legitimately be 1.9x slower.
+
+‡ The champion's wall time was reported by the earlier session's runner and is **not** in any
+surviving log; only the report's mtime (2026-08-12 14:26:20) is verifiable. It is carried here
+for orientation and carries the Finding 68 caveat too. The only wall times in this table backed
+by a timestamped start *and* finish are H38, H43, and the two CSN arms.
+
+### H38 confirmed at full scale: turning the graph off gains 5.6 points
+
+Paired, IntelliJ 1000, H38 vs champion:
+
+- `file_recall` +0.0561 (0.8397 -> 0.8958), **p = 7.3e-10**
+- `ndcg` +0.0268, `file_reciprocal_rank` +0.0176, `file_hit` +0.0580
+
+The pre-registered refutation condition was `recall@10 <= 0.8397`; the arm cleared it by 5.6
+points. The 150-case probe predicted ~0.907 and the full corpus delivered 0.8958 -- the
+prediction was slightly optimistic but the direction and rough magnitude both held.
+
+`graph_weight: 0.45` was not a neutral default that failed to transfer. It was **actively
+destroying** 5.6 points of recall on a JVM repository, because `GraphFileRetrievalStrategy`
+injected neighbours with no resolvable import graph behind them (Finding 63) and those
+injections outranked real vector evidence.
+
+### H43: the cross-encoder buys recall and *costs* ranking quality
+
+Paired, IntelliJ 1000, H43 vs H38 (single variable: `graph_file_cross_encoder` -> `graph_file`):
+
+- `file_recall` **-0.0242** (0.8958 -> 0.8716), p = 0.0067
+- `ndcg` **+0.0385** (0.7725 -> 0.8110), p < 1e-7
+- `file_reciprocal_rank` **+0.0523** (0.7496 -> 0.8020), p < 1e-7
+
+This is a genuine split, not a wash, and it is the most useful result of the campaign: **the
+cross-encoder pulls relevant files into the top-10 while degrading the order at the very top.**
+Both effects are significant and they point in opposite directions.
+
+The mechanism is visible in the code. `_reranked` reorders candidates but never overwrites
+`SearchResult.score`, and only `min(limit, len(rerank_candidates))` of the 34 candidates are
+scored at all -- so the reranker promotes previously-unseen candidates into the window (recall
+up) while shuffling the already-correct head (MRR down). `preserve_top_candidate` only defends
+position 1, and only when the base margin clears `preserve_top_score_margin`.
+
+My 150-case probe reported this as a null. It was a **power failure**, not a null: at n=1000
+the recall effect is 0.0242 with p=0.0067. Recorded so the next probe is sized before it is
+believed.
+
+### H44: on CodeSearchNet the reranker is 85% of the runtime for no significant recall
+
+Paired, CSN 1000, H44 vs champion-postfix:
+
+- `file_recall` -0.0080, **p = 0.096 (not significant)**
+- `ndcg` -0.0291, `file_reciprocal_rank` -0.0357, **p = 7.3e-07**
+- wall 59m25 -> 9m08: the cross-encoder is **85% of the runtime**
+
+The recall half of H44's pre-registered prediction is confirmed. The ranking half was **not
+covered by the prediction** and did degrade significantly -- stated as an unpredicted result,
+not as a hit.
+
+CSN has one expected file per case, so recall@10 *is* hit@10 there (the two columns are
+identical above, which is a useful internal consistency check).
+
+### The 512-token fix, priced on its own
+
+Champion CSN before the fix 0.9700 -> after 0.9730: **+0.0030** recall, 3 cases better and 0
+worse, `ndcg` +0.0067 (p = 0.044). My pre-stated estimate was ~0.004. Small, real, and the
+reason it matters is not the 0.003 -- it is that 22% of the arm was silently unreranked, so the
+*old* number was not measuring what it claimed to measure.
+
+### What this settles
+
+The champion's graph is retired on non-Python repositories. Two candidate defaults remain, and
+which one wins depends on what the consumer needs:
+
+- **recall-first** (agent that reads all 10 files): graph off, cross-encoder **on**.
+- **precision-first / latency-first** (top-1 or top-3 shown to a human): graph off, cross-encoder
+  **off** -- 0.8110 nDCG at 2.00 s/case beats every other arm on both.
+
+The default cannot be chosen from IntelliJ alone, because the cross-encoder's recall benefit is
+IntelliJ-specific (CSN: p = 0.096). H45 tests both on protogen, the corpus the champion was
+tuned on.
+
+## Finding 68 -- 36 GB of swap, and why the H38 latency number is void
+
+H38 took 182m28 where the probe predicted ~92m. I first blamed `ubatch 4096`. **That was wrong,
+and the isolated measurement refuted my own hypothesis:** across 47 fixed payloads with pools
+precomputed, 4096 costs only ~25% over 768 on IntelliJ (2203 ms vs 1645 ms), nowhere near 1.9x.
+
+The real cause was machine state. At the end of the campaign:
+
+```
+vm.swapusage: total = 46080.00M  used = 44801.94M  free = 1278.06M
+Pages occupied by compressor: 1795231   (= 27.4 GB of RAM holding compressed pages,
+                                          storing 4585553 pages = ~70 GB uncompressed)
+```
+
+RSS for the long-lived model servers had collapsed to near zero -- the gemma-4-12B judge (up 5
+days) and the mlx Qwen3.5-4B generator (up 7 days) were resident but **entirely paged out**.
+Stopping both:
+
+```
+before   total = 46080.00M   used = 44801.94M
+after    total = 10240.00M   used =  8806.25M
+```
+
+**36 GB of swap belonged to two servers that no search-axis arm uses.** Every latency number
+measured while they were resident carries an unknown multiplicative factor, and the factor grows
+with uptime -- which is exactly why the champion (14:26) looks fast and H38 (19:09-22:12) looks
+slow. This is Finding 37 in its worst form, and it means:
+
+- The quality columns above stand. The paired design is immune to a uniform time factor.
+- The **wall/s-per-case column for H38 is void** and is being re-measured on a clean machine.
+- Ordering effects within a sequential campaign are not benign. Arms must record machine state.
+
+Two consequences, both now implemented:
+
+1. `scripts/serve_judge.sh` and `scripts/serve_generator.sh` exist, so stopping a server before
+   a timed arm no longer means losing the command that started it. Both carry the port guard and
+   a comment saying why they should be down during retrieval measurement.
+2. `/tmp/dsx/run_h45.sh` logs `vm.swapusage` after every arm. A latency claim without machine
+   state next to it is not evidence.
+
+### A methodological note on my own error
+
+I told the user `ubatch 4096` had cost 4x before I had isolated it, reasoning from two arms that
+differed in more than one variable. The isolated sweep refuted it. The lesson is the same one
+Findings 57 and 60 already record, applied to latency instead of quality: **a mechanism inferred
+from a difference between two multi-variable arms is a hypothesis, not a cause.**
+
+### Addendum to Finding 68 -- latency and quality must not share an arm
+
+The H38 re-run was launched to recover the void wall-clock figure. Partway through, the machine
+was needed for interactive work, so the run was put on background QoS (`taskpolicy -b`, nice 20)
+and Spotlight was stopped from indexing `.code-diver/` and the IntelliJ checkout. Measured
+effect of the throttle: free pages 5469 -> 158627 (85 MB -> 2.5 GB).
+
+That makes the re-run's wall-clock void for a second time, and the lesson is now clear enough to
+be a standing rule:
+
+**Latency and quality have different requirements and must be measured in separate runs.**
+Quality needs n=1000 and tolerates any machine state, because the paired design cancels a time
+factor. Latency needs an idle machine and no QoS interference, but only needs ~150 cases. Bundling
+them means the scarcer requirement (an idle machine for hours) gates the cheaper one.
+
+Also worth recording, because it removes an obvious-looking lever: `evaluation.workers` is
+already `1`, so there is no eval concurrency to turn down. The eval's ~9.4 GB RSS is the file
+catalog for 74 906 files, and it is intrinsic to the corpus, not a tunable. Throttling this
+workload means QoS and priority, not parallelism.
+
+---
+
+## Finding 69 -- search-axis replay on IntelliJ is deterministic, which sharpens Finding 50a
+
+The H38 re-run was paired against the original H38 report, same config, same dataset, 1000 cases:
+
+| metric | original | re-run | delta | better | worse | tied |
+|---|---|---|---|---|---|---|
+| `file_recall` | 0.8958 | 0.8958 | +0.0000 | 0 | 0 | 1000 |
+| `file_hit` | 0.9250 | 0.9250 | +0.0000 | 0 | 0 | 1000 |
+| `ndcg` | 0.7725 | 0.7725 | +0.0000 | 1 | 0 | 999 |
+| `file_reciprocal_rank` | 0.7496 | 0.7496 | +0.0000 | 0 | 0 | 1000 |
+
+**999 of 1000 cases are byte-identical**; one case moved on nDCG alone. Finding 50a's "replay is
+not bit-deterministic" was measured on the protogen *answer* axis, with a generator in the loop.
+It does not describe the search axis: embedding lookup, hybrid merge, graph propagation and the
+cross-encoder are all effectively deterministic here.
+
+Two consequences:
+
+1. Paired search-axis comparisons on IntelliJ carry **essentially zero replay noise**, so a sign
+   test on them is measuring the intervention and nothing else. Every H38/H43/H46 delta in
+   Finding 67 gets stronger, not weaker.
+2. **Re-running a search-axis arm with an unchanged config buys nothing.** The only reason to do
+   it is to change machine state -- which is exactly what the next section says failed.
+
+## Correction to Finding 68 -- the swap explanation is NOT supported
+
+I attributed H38's 182m28 to 36 GB of swap held by the judge and generator. The re-run, with both
+servers stopped, came in at **231m01 -- slower, not faster.**
+
+So the swap attribution fails. Stated plainly: **I was wrong twice about this latency figure**,
+first blaming `ubatch 4096` (refuted by isolated measurement) and then blaming swap (refuted by
+the re-run). The pattern in both cases was the same and is worth naming: I reasoned from a
+difference between two runs that differed in more than one variable, and asserted a cause.
+
+What is honestly known now:
+
+- Neither 182m01 nor 231m01 is a clean measurement. The original ran under 44.8 GB of swap; the
+  re-run ran at nice 20 under background QoS with interactive work in parallel. Both are void.
+- The 36 GB of swap was real and stopping those servers was still correct -- it freed 2.5 GB of
+  resident RAM. It just is not established as the cause of the slowdown.
+- **The open question is now sharper, not answered:** is graph-off-plus-cross-encoder genuinely
+  ~2x the champion's cost? That is surprising, because graph-off does strictly less work. If it
+  is real, the mechanism is not yet identified -- `skip_when_top_margin_at_least` is None in both
+  configs so neither skips reranking, `candidate_limit` is 34 in both, and `max_document_chars`
+  caps every payload at 850 chars, so per-request rerank cost should be near-constant.
+
+The instrument is phase 1 of `/tmp/dsx/run_followup.sh`: champion, H38, H43 and H46 over the same
+150 seeded cases, each refusing to start until `load1 < 3.0`. Four arms under one guard is the
+first setup in this campaign that can attribute a latency difference to a configuration at all.
+
+Note on that runner: its header comment claims its arms run at nice 0. They run at **nice 5**,
+inherited from the launching shell, and nice cannot be lowered without root. All four latency
+arms share that nice, so their mutual comparison is sound; only the absolute s/case carries an
+unknown offset. The comment was not corrected in place because the script was already executing.
