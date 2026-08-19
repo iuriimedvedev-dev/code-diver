@@ -624,3 +624,52 @@ Note on that runner: its header comment claims its arms run at nice 0. They run 
 inherited from the launching shell, and nice cannot be lowered without root. All four latency
 arms share that nice, so their mutual comparison is sound; only the absolute s/case carries an
 unknown offset. The comment was not corrected in place because the script was already executing.
+
+---
+
+## Finding 70 -- H48 PASS: on IntelliJ the pool is rich, the ranking is the loss (2026-08-14)
+
+`configs/intellij/intellij-h48-pool-depth.yml` = H43 with `search.limit 10 -> 200`. Ran to
+completion on the live corpus (report `intellij-h48-pool-depth-1000.json`, 47 MB, 200 files/case
+stored). Analysis is arithmetic on the saved report; the pre-registered prediction was
+`file_recall@200 >= 0.95`, refutation `< 0.90`.
+
+| k | recall@k | hit_rate@k |
+|---|---|---|
+| 10 | 0.8691 | 0.8970 |
+| 20 | 0.9017 | 0.9200 |
+| 50 | 0.9310 | 0.9420 |
+| 100 | 0.9478 | 0.9590 |
+| 200 | **0.9665** | 0.9750 |
+
+- **PASS: file_recall@200 = 0.9665.** The candidate pool at 74 906-file scale contains the answer.
+  Only **25/1000 cases** (2.5%) have zero recall even at depth 200 -- the irreducible
+  generation-side loss. Candidate generation (embedding, lexical seed, vector limits) is NOT the
+  binding constraint.
+- @10 sanity: H48 recall@10 = 0.8691 vs H43's 0.8716 (delta -0.0025, within noise). Note: the
+  per-case top-10 lists differ in 362/1000 cases at constant aggregate recall -- a re-run wobble
+  (H43 vs H48 are separate runs; Finding 69's determinism claim covers same-config replays).
+- **The loss is in the ordering.** Of the 0.1309 recall@10 shortfall to perfect, **74.4% is
+  ranking** (expected file in the 200-pool but past rank 10) and 25.6% is pool-absent. Of H43's
+  101 zero-recall cases, 76 have the expected file inside the H48 pool -- ranking is the only
+  problem there.
+- The first-relevant file is **scattered**, not clustered just past the cut: rank 11-20 holds
+  29.5% of the 78 flip cases, 21-50 holds 28.2%, 51-100 holds 21.8%, 101-200 holds 20.5%. No
+  rerank-window widening captures most of it; the ranker must be better, not deeper.
+
+### What this changes
+
+Converges with Findings 65/67. Large-repo recall is capped by **ordering quality** -- the graph
+actively destroying top-10 (H38), then the fusion/rerank head mis-ordering an otherwise-rich pool.
+Two actionable directions, in the plan's own cost order:
+
+1. **A second ranking stage over a small survivor set (task #18)** -- now motivated by H48: the
+   pool has the answer 96.65% of the time, so a pairwise or cross-encoder pass over a wider
+   survivor set has real candidates to order. H36 refuted deepening the single-pass window on
+   protogen; H48 says the pool supply is not the obstacle on IntelliJ either.
+2. **protogen H45** decides the default (#37) on the corpus the champion was tuned on -- the
+   graph-off arms that won on IntelliJ must survive on protogen to be promoted. Still queued.
+
+H46 (preserve-top) measures the head-ordering mechanism directly and is queued after H45. Latency
+(#40) stays gated on an idle machine; H48's own latency is void by construction and carries no
+Pareto evidence.
