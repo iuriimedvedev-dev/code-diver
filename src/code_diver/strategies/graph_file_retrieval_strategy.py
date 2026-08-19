@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from collections import defaultdict
 from dataclasses import dataclass
 from threading import RLock
@@ -15,6 +16,17 @@ from .hybrid_item_profile import HybridItemProfile
 from .hybrid_item_profiler import HybridItemProfiler
 from .hybrid_query import HybridQuery
 from .retrieval_strategy import RetrievalStrategy
+
+
+def _normalize_path(path: str) -> str:
+    if not path:
+        return ""
+    norm = os.path.normpath(path).replace("\\", "/")
+    if norm == ".":
+        return ""
+    if norm.startswith("./"):
+        norm = norm[2:]
+    return norm.lstrip("/")
 
 
 @dataclass(slots=True)
@@ -50,39 +62,57 @@ class GraphFileRetrievalStrategy(RetrievalStrategy):
         self.profiler = HybridItemProfiler()
         self._catalog: FileGraphCatalog | None = None
         self._items_by_path: dict[str, list[CodeItem]] | None = None
+        self._items_by_norm_path: dict[str, list[CodeItem]] | None = None
+        self._path_resolution_cache: dict[str, CodeItem | None] = {}
         self._item_profiles: dict[str, HybridItemProfile] = {}
         # answer_evaluator.py runs concurrent probe queries against one shared strategy
         # instance, so the profile cache must be safe for concurrent read/populate.
         self._cache_lock = RLock()
 
     def search(self, query: str, limit: int) -> list[SearchResult]:
-        catalog = self._load_catalog()
-        if not catalog.items_by_id:
+        try:
+            catalog = self._load_catalog()
+            if not catalog.items_by_id:
+                return self.base_strategy.search(query, limit)
+
+            file_scores = self._seed_scores(query, catalog, limit)
+            if not file_scores:
+                return self.base_strategy.search(query, limit)
+
+            seed_file_scores = {
+                path: score.total(self.config)
+                for path, score in file_scores.items()
+                if score.total(self.config) > 0
+            }
+            if not seed_file_scores:
+                return self.base_strategy.search(query, limit)
+
+            try:
+                propagated = self._normalize(self._propagate(catalog, seed_file_scores))
+            except Exception:
+                propagated = {}
+
+            for path, graph_score in propagated.items():
+                item = self._item_for_path(catalog, path)
+                if item is None:
+                    continue
+                file_score = file_scores.setdefault(item.path, FileScore(path=item.path, item=item))
+                file_score.graph_score = max(file_score.graph_score, graph_score)
+
+            ranked = sorted(
+                file_scores.values(),
+                key=lambda score: (score.total(self.config), score.graph_score, score.path),
+                reverse=True,
+            )
+            results = [
+                SearchResult(item=score.item, score=score.total(self.config))
+                for score in ranked[:limit]
+            ]
+            if not results:
+                return self.base_strategy.search(query, limit)
+            return results
+        except Exception:
             return self.base_strategy.search(query, limit)
-
-        file_scores = self._seed_scores(query, catalog, limit)
-        if not file_scores:
-            return []
-
-        seed_file_scores = {
-            path: score.total(self.config)
-            for path, score in file_scores.items()
-            if score.total(self.config) > 0
-        }
-        propagated = self._normalize(self._propagate(catalog, seed_file_scores))
-        for path, graph_score in propagated.items():
-            item = self._item_for_path(catalog, path)
-            if item is None:
-                continue
-            file_score = file_scores.setdefault(path, FileScore(path=path, item=item))
-            file_score.graph_score = max(file_score.graph_score, graph_score)
-
-        ranked = sorted(
-            file_scores.values(),
-            key=lambda score: (score.total(self.config), score.graph_score, score.path),
-            reverse=True,
-        )
-        return [SearchResult(item=score.item, score=score.total(self.config)) for score in ranked[:limit]]
 
     def _seed_scores(
         self,
@@ -92,14 +122,27 @@ class GraphFileRetrievalStrategy(RetrievalStrategy):
     ) -> dict[str, FileScore]:
         scores: dict[str, FileScore] = {}
         base_scores: dict[str, float] = {}
+        base_items: dict[str, CodeItem] = {}
         for result in self.base_strategy.search(query, max(limit, self.config.seed_limit)):
-            base_scores[result.item.path] = max(base_scores.get(result.item.path, 0.0), result.score)
+            item = self._item_for_path(catalog, result.item.path)
+            if item is not None:
+                path = item.path
+                rep_item = item
+            else:
+                path = _normalize_path(result.item.path) or result.item.path
+                rep_item = result.item
+            base_scores[path] = max(base_scores.get(path, 0.0), result.score)
+            if path not in base_items:
+                base_items[path] = rep_item
+
         vector_scores = self._normalize(base_scores)
         for path, vector_score in vector_scores.items():
-            item = self._item_for_path(catalog, path)
-            if item is None:
+            rep_item = base_items.get(path)
+            if rep_item is None:
+                rep_item = self._item_for_path(catalog, path)
+            if rep_item is None:
                 continue
-            scores.setdefault(path, FileScore(path=path, item=item)).vector_score = vector_score
+            scores.setdefault(path, FileScore(path=path, item=rep_item)).vector_score = vector_score
 
         query_model = HybridQuery(text=query, terms=self._query_terms(query))
         scorer = HybridCandidateScorer(
@@ -172,10 +215,40 @@ class GraphFileRetrievalStrategy(RetrievalStrategy):
         return tuple(dict.fromkeys(tokens))
 
     def _item_for_path(self, catalog: FileGraphCatalog, path: str) -> CodeItem | None:
-        candidates = self._items_by_path_index(catalog).get(path, [])
-        if not candidates:
+        if not path:
             return None
-        return candidates[0]
+        with self._cache_lock:
+            if path in self._path_resolution_cache:
+                return self._path_resolution_cache[path]
+            item = self._resolve_item_for_path(catalog, path)
+            self._path_resolution_cache[path] = item
+            return item
+
+    def _resolve_item_for_path(self, catalog: FileGraphCatalog, path: str) -> CodeItem | None:
+        items_by_path = self._items_by_path_index(catalog)
+        candidates = items_by_path.get(path)
+        if candidates:
+            return candidates[0]
+
+        norm_path = _normalize_path(path)
+        items_by_norm = self._items_by_norm_path_index(catalog)
+        candidates = items_by_norm.get(norm_path)
+        if candidates:
+            return candidates[0]
+
+        matches: list[tuple[int, str, CodeItem]] = []
+        for cat_norm, cat_items in items_by_norm.items():
+            if not cat_norm or not cat_items:
+                continue
+            if norm_path.endswith("/" + cat_norm) or cat_norm.endswith("/" + norm_path):
+                diff = abs(len(norm_path) - len(cat_norm))
+                matches.append((diff, cat_norm, cat_items[0]))
+
+        if matches:
+            matches.sort(key=lambda m: (m[0], m[1]))
+            return matches[0][2]
+
+        return None
 
     def _items_by_path_index(self, catalog: FileGraphCatalog) -> dict[str, list[CodeItem]]:
         if self._items_by_path is not None:
@@ -187,6 +260,17 @@ class GraphFileRetrievalStrategy(RetrievalStrategy):
             candidates.sort(key=lambda item: (self._representative_rank(item), item.id))
         self._items_by_path = dict(by_path)
         return self._items_by_path
+
+    def _items_by_norm_path_index(self, catalog: FileGraphCatalog) -> dict[str, list[CodeItem]]:
+        if self._items_by_norm_path is not None:
+            return self._items_by_norm_path
+        by_norm: dict[str, list[CodeItem]] = defaultdict(list)
+        for item in catalog.items_by_id.values():
+            by_norm[_normalize_path(item.path)].append(item)
+        for candidates in by_norm.values():
+            candidates.sort(key=lambda item: (self._representative_rank(item), item.id))
+        self._items_by_norm_path = dict(by_norm)
+        return self._items_by_norm_path
 
     def _representative_rank(self, item: CodeItem) -> int:
         index_kind = str(item.metadata.get("index_kind") or "")
@@ -209,17 +293,26 @@ class GraphFileRetrievalStrategy(RetrievalStrategy):
         if store.is_fresh_for(self.graph_store.artifact):
             self._catalog = store.load()
             self._items_by_path = None
+            self._items_by_norm_path = None
+            self._path_resolution_cache.clear()
             return self._catalog
         if not self.graph_store.exists():
             self._catalog = FileGraphCatalog(items_by_id={}, adjacency=FileGraphCatalog.build([], []).adjacency)
             self._items_by_path = None
+            self._items_by_norm_path = None
+            self._path_resolution_cache.clear()
             return self._catalog
         self._catalog = FileGraphCatalog.build(
             self.graph_store.stream_items(),
             self.graph_store.stream_edges(),
         )
-        store.save(self._catalog)
+        try:
+            store.save(self._catalog)
+        except Exception:
+            pass
         self._items_by_path = None
+        self._items_by_norm_path = None
+        self._path_resolution_cache.clear()
         return self._catalog
 
     def _normalize(self, scores: dict[str, float]) -> dict[str, float]:

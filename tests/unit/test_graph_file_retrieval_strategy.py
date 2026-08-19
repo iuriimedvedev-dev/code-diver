@@ -354,3 +354,215 @@ def test_frontier_limit_defaults_to_neighbor_limit(tmp_path: Path) -> None:
         "leaf4",
         "leaf5",
     }
+
+
+def test_graph_file_strategy_falls_back_when_propagation_returns_empty(tmp_path: Path) -> None:
+    item = CodeItem(
+        id="item-1",
+        path="src/service.py",
+        title="src/service.py::file_manifest",
+        content="file: src/service.py\nsymbols:\n- function serve",
+        metadata={"index_kind": "file_manifest"},
+    )
+    store = _graph_store(tmp_path, [item], [])
+    base_results = [SearchResult(item, 0.95)]
+    strategy = GraphFileRetrievalStrategy(
+        FakeRetrievalStrategy(base_results),
+        store,
+        GraphFileSearchConfig(
+            seed_limit=5,
+            lexical_seed_limit=0,
+            vector_weight=0.0,
+            lexical_weight=0.0,
+            path_weight=0.0,
+            symbol_weight=0.0,
+            graph_weight=1.0,
+            depth=1,
+        ),
+    )
+
+    results = strategy.search("serve", limit=5)
+
+    assert results == base_results
+
+
+def test_graph_file_strategy_fuses_base_candidates_when_propagation_is_empty(tmp_path: Path) -> None:
+    item = CodeItem(
+        id="item-1",
+        path="src/service.py",
+        title="src/service.py::file_manifest",
+        content="file: src/service.py\nsymbols:\n- function serve",
+        metadata={"index_kind": "file_manifest"},
+    )
+    store = _graph_store(tmp_path, [item], [])
+    strategy = GraphFileRetrievalStrategy(
+        FakeRetrievalStrategy([SearchResult(item, 0.95)]),
+        store,
+        GraphFileSearchConfig(
+            seed_limit=5,
+            lexical_seed_limit=0,
+            vector_weight=1.0,
+            lexical_weight=0.0,
+            path_weight=0.0,
+            symbol_weight=0.0,
+            graph_weight=1.0,
+            depth=1,
+        ),
+    )
+
+    results = strategy.search("serve", limit=5)
+
+    assert len(results) == 1
+    assert results[0].item.path == "src/service.py"
+    assert results[0].score == pytest.approx(1.0)
+
+
+def test_graph_file_strategy_falls_back_on_propagation_exception(tmp_path: Path) -> None:
+    item = CodeItem(
+        id="item-1",
+        path="src/service.py",
+        title="src/service.py::file_manifest",
+        content="file: src/service.py\nsymbols:\n- function serve",
+        metadata={"index_kind": "file_manifest"},
+    )
+    store = _graph_store(tmp_path, [item], [])
+    base_results = [SearchResult(item, 0.85)]
+    strategy = GraphFileRetrievalStrategy(
+        FakeRetrievalStrategy(base_results),
+        store,
+        GraphFileSearchConfig(seed_limit=5, lexical_seed_limit=0, vector_weight=1.0, graph_weight=1.0),
+    )
+
+    def _failing_propagate(*args: object, **kwargs: object) -> dict[str, float]:
+        raise RuntimeError("graph store failure")
+
+    strategy._propagate = _failing_propagate  # type: ignore[assignment]
+
+    results = strategy.search("serve", limit=5)
+
+    assert len(results) == 1
+    assert results[0].item.path == "src/service.py"
+
+
+def test_graph_file_strategy_falls_back_on_catalog_exception(tmp_path: Path) -> None:
+    item = CodeItem(
+        id="item-1",
+        path="src/service.py",
+        title="src/service.py",
+        content="file content",
+    )
+    store = CodeGraphStore(tmp_path / "corrupt_graph.json")
+    (tmp_path / "corrupt_graph.json").write_text("invalid json content {{{", encoding="utf-8")
+    base_results = [SearchResult(item, 0.9)]
+    strategy = GraphFileRetrievalStrategy(
+        FakeRetrievalStrategy(base_results),
+        store,
+        GraphFileSearchConfig(seed_limit=5),
+    )
+
+    results = strategy.search("serve", limit=5)
+
+    assert results == base_results
+
+
+def test_graph_file_strategy_matches_normalized_and_relative_paths(tmp_path: Path) -> None:
+    catalog_api = CodeItem(
+        id="api-manifest",
+        path="src/api/users.py",
+        title="src/api/users.py::file_manifest",
+        content="file: src/api/users.py\nsymbols:\n- function update_user",
+        metadata={"index_kind": "file_manifest"},
+    )
+    catalog_service = CodeItem(
+        id="service-manifest",
+        path="src/users/service.py",
+        title="src/users/service.py::file_manifest",
+        content="file: src/users/service.py\nsymbols:\n- class UserService",
+        metadata={"index_kind": "file_manifest"},
+    )
+    store = _graph_store(
+        tmp_path,
+        [catalog_api, catalog_service],
+        [GraphEdge(source=catalog_api.id, target=catalog_service.id, kind="imports", weight=0.9)],
+    )
+
+    vector_item_relative = CodeItem(
+        id="vec-1",
+        path="./src/api/users.py",
+        title="./src/api/users.py",
+        content="code",
+    )
+    strategy = GraphFileRetrievalStrategy(
+        FakeRetrievalStrategy([SearchResult(vector_item_relative, 0.9)]),
+        store,
+        GraphFileSearchConfig(
+            seed_limit=5,
+            lexical_seed_limit=0,
+            vector_weight=0.1,
+            graph_weight=1.0,
+            depth=1,
+            neighbor_limit=5,
+        ),
+    )
+
+    results = strategy.search("users", limit=2)
+
+    assert [result.item.path for result in results] == ["src/users/service.py", "src/api/users.py"]
+
+
+def test_graph_file_strategy_matches_prefix_difference_paths(tmp_path: Path) -> None:
+    catalog_item = CodeItem(
+        id="item-manifest",
+        path="src/client/runner.py",
+        title="src/client/runner.py::file_manifest",
+        content="file: src/client/runner.py\nsymbols:\n- function run",
+        metadata={"index_kind": "file_manifest"},
+    )
+    store = _graph_store(tmp_path, [catalog_item], [])
+
+    vector_item_prefixed = CodeItem(
+        id="vec-prefix",
+        path="protogen/src/client/runner.py",
+        title="protogen/src/client/runner.py",
+        content="code",
+    )
+    strategy = GraphFileRetrievalStrategy(
+        FakeRetrievalStrategy([SearchResult(vector_item_prefixed, 0.9)]),
+        store,
+        GraphFileSearchConfig(seed_limit=5, lexical_seed_limit=0, vector_weight=1.0, graph_weight=0.0),
+    )
+
+    results = strategy.search("runner", limit=1)
+
+    assert len(results) == 1
+    assert results[0].item.id == "item-manifest"
+    assert results[0].item.path == "src/client/runner.py"
+
+
+def test_graph_file_strategy_preserves_vector_hits_missing_from_catalog(tmp_path: Path) -> None:
+    catalog_item = CodeItem(
+        id="cat-1",
+        path="src/known.py",
+        title="src/known.py::file_manifest",
+        content="file: src/known.py",
+        metadata={"index_kind": "file_manifest"},
+    )
+    store = _graph_store(tmp_path, [catalog_item], [])
+
+    unindexed_item = CodeItem(
+        id="unindexed-1",
+        path="external/unindexed_module.py",
+        title="external/unindexed_module.py",
+        content="external helper code",
+    )
+    strategy = GraphFileRetrievalStrategy(
+        FakeRetrievalStrategy([SearchResult(unindexed_item, 0.95)]),
+        store,
+        GraphFileSearchConfig(seed_limit=5, lexical_seed_limit=0, vector_weight=1.0, graph_weight=1.0),
+    )
+
+    results = strategy.search("external helper", limit=5)
+
+    assert len(results) == 1
+    assert results[0].item.path == "external/unindexed_module.py"
+    assert results[0].item.id == "unindexed-1"
