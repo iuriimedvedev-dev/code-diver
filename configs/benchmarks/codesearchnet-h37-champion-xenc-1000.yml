@@ -126,7 +126,8 @@ cross_encoder_rerank:
   url: http://127.0.0.1:8081/v1/rerank
   candidate_limit: 34
   max_document_chars: 850
-  preserve_top_candidate: false
+  preserve_top_candidate: true
+  preserve_top_score_margin: 0.1
   timeout_ms: 60000
 
 graph:

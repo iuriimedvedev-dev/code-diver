@@ -170,10 +170,21 @@ llm_rerank:
   max_preview_chars: 700
   mode: precision
   include_reasons: false
-  preserve_top_candidate: false
+  preserve_top_candidate: true
+  preserve_top_score_margin: 0.1
   retry_attempts: 3
   retry_base_delay_seconds: 1.0
   retry_max_delay_seconds: 8.0
+
+cross_encoder_rerank:
+  provider: llama_cpp
+  model: Qwen3-Reranker-0.6B
+  url: http://127.0.0.1:8081/v1/rerank
+  candidate_limit: 34
+  max_document_chars: 850
+  preserve_top_candidate: true
+  preserve_top_score_margin: 0.1
+  timeout_ms: 60000
 
 recursive_search:
   rounds: 2

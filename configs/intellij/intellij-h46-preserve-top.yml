@@ -202,6 +202,7 @@ cross_encoder_rerank:
   candidate_limit: 34
   max_document_chars: 850
   preserve_top_candidate: true   # H46: the single changed variable vs H38
+  preserve_top_score_margin: 0.1
   timeout_ms: 60000
 
 graph:

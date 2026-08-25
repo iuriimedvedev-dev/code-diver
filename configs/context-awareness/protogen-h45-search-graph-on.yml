@@ -150,7 +150,8 @@ llm_rerank:
   max_preview_chars: 850
   mode: precision
   include_reasons: false
-  preserve_top_candidate: false
+  preserve_top_candidate: true
+  preserve_top_score_margin: 0.1
   retry_attempts: 3
   retry_base_delay_seconds: 1.0
   retry_max_delay_seconds: 8.0
@@ -166,7 +167,8 @@ cross_encoder_rerank:
   # top-preservation policy. Anything else here would confound the primitive swap.
   candidate_limit: 34
   max_document_chars: 850
-  preserve_top_candidate: false
+  preserve_top_candidate: true
+  preserve_top_score_margin: 0.1
   # The June notes warn that 34-40 documents is slow locally on the 4B; the 0.6B is the arm
   # being measured, and 60 s leaves room for a cold first request without masking a real stall.
   timeout_ms: 60000
