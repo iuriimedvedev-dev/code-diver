@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 from collections import defaultdict
 from dataclasses import dataclass
@@ -16,6 +17,8 @@ from .hybrid_item_profile import HybridItemProfile
 from .hybrid_item_profiler import HybridItemProfiler
 from .hybrid_query import HybridQuery
 from .retrieval_strategy import RetrievalStrategy
+
+logger = logging.getLogger(__name__)
 
 
 def _normalize_path(path: str) -> str:
@@ -309,7 +312,7 @@ class GraphFileRetrievalStrategy(RetrievalStrategy):
         try:
             store.save(self._catalog)
         except Exception:
-            pass
+            logger.debug("failed to persist file graph catalog cache", exc_info=True)
         self._items_by_path = None
         self._items_by_norm_path = None
         self._path_resolution_cache.clear()
