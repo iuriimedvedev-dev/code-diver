@@ -29,6 +29,8 @@ LOG="${EMBEDDER_LOG:-/private/tmp/vllm-embedder-${PORT}.log}"
 # forever in `parallel_state` -- the server never reaches the point of listening on the port,
 # so the failure looks like "the embedder just never came up". One worker, all on loopback.
 export VLLM_HOST_IP="${VLLM_HOST_IP:-127.0.0.1}"
+export GLOO_SOCKET_IFNAME="${GLOO_SOCKET_IFNAME:-lo0}"
+export VLLM_METAL_MEMORY_FRACTION="${VLLM_METAL_MEMORY_FRACTION:-0.3}"
 
 if lsof -nP -iTCP:"${PORT}" -sTCP:LISTEN >/dev/null 2>&1; then
   echo "port ${PORT} is already in use -- stop the existing server first" >&2
