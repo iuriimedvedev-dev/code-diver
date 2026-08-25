@@ -134,6 +134,26 @@ the loss is in top-10 ordering.** Two fixes were measured to recover it: kill th
     through the cross-encoder repairs exactly the head-ordering damage H43 identified. Promotion
     candidate on both axes.
 
+### Aug 19 — H45a Fix, Live Re-run (Resolution), H46 Promotion, and H49 Pre-registration
+
+- **H45a Defect Fix & Live Re-run Resolution**:
+  - Root cause resolved in `GraphFileRetrievalStrategy` (path normalization discrepancies between vector hits and catalog entries, missing candidate preservation on empty graph propagation).
+  - Multi-tier path matching, robust normalization (`os.path.normpath`), and base fallback implemented. Unit tests verified (16 passed in `test_graph_file_retrieval_strategy.py`).
+  - **Live Re-run on Protogen 247**: 247/247 cases succeeded (0 failed, 0 degraded; VOID defect completely eliminated).
+  - **H45a (Graph ON, XEnc ON) vs H45b (Graph OFF, XEnc ON) vs H45c (Graph OFF, XEnc OFF)**:
+    - `recall@10`: **0.8246** (H45a) vs 0.7598 (H45b, **+6.48 pp**) vs 0.7861 (H45c, **+3.85 pp**).
+    - `MRR@10`: **0.6492** (H45a) vs 0.5536 (H45b, **+9.56 pp**) vs 0.5861 (H45c, **+6.32 pp**).
+    - `nDCG@10`: **0.6661** (H45a) vs 0.5802 (H45b, **+8.59 pp**) vs 0.6140 (H45c, **+5.21 pp**).
+    - `Hit Rate@1`: **0.5344** (H45a) vs 0.4170 (H45b, **+11.74 pp**) vs 0.4615 (H45c, **+7.29 pp**).
+    - `Bundle Complete Rate@10`: **0.7571** (H45a) vs 0.6883 (H45b, **+6.88 pp**) vs 0.7247 (H45c, **+3.24 pp**).
+    - **Conclusion**: On Protogen, the graph contributes substantial positive retrieval signal (+6.48 pp recall, +9.56 pp MRR), resolving the unmeasured gap.
+- **H46 Promotion into Production & Reference Configurations**:
+  - Promoted `preserve_top_candidate: true` and `preserve_top_score_margin: 0.1` into base `code-diver.yml`, answering champion `protogen-h29-xenc-strict-cite.yml`, benchmark configs (`codesearchnet-h37-champion-xenc-1000.yml`, `intellij-h37-champion-xenc.yml`, `intellij-h38-graph-off.yml`, `intellij-h46-preserve-top.yml`), and H45 evaluation configs.
+  - Test suite validated: 1098 passed, 3 skipped.
+- **H49 Pre-registration (`.plans/2026-08-19_h49-top10-ranking-optimization.md`)**:
+  - Targets the 74.4% ranking shortfall identified in H48 (`recall@200 = 0.9665` vs `recall@10 ≈ 0.9018`).
+  - Three arms designed: (1) rerank depth sweep (20–50), (2) feature fusion / score blending between hybrid stage-1 and cross-encoder logits, (3) multi-tier top-k & margin preservation.
+
 ## 3. Methodology rules that now govern measurement
 
 - An effect discovered on protogen must survive an external corpus before promotion (Finding 60).
@@ -153,9 +173,7 @@ the loss is in top-10 ordering.** Two fixes were measured to recover it: kill th
   of origin, nothing pushed.
 - **Tests:** 1080 passed / 3 skipped, ruff clean.
 - **Open tasks:** #37 (large-repo default undecided — recall-first vs precision-first), #38/H46
-  (resolved: re-run done, now awaiting analysis write-up + promotion decision), #40 (latency, gated
-  on idle machine), #45 (answer-axis external validation on IntelliJ 1000 + protogen re-baseline
-  after refactor), #47 (H47 score-free prompt), **new: H45a empty-retrieval defect** (diagnose and
-  re-run to measure the graph's true protogen contribution).
-- Immediate next campaign (in cost order): write up H46 (promotion) + H45 (n.s.) results; diagnose
-  the H45a silent-empty bug; re-run H45a; then the answer-axis validation (#45).
+  (resolved: re-run done, promoted to configs), #40 (latency, gated on idle machine), #45 (answer-axis
+  external validation on IntelliJ 1000 + protogen re-baseline after refactor), #47 (H47 score-free prompt),
+  **H45a resolved: bug fixed and live re-run completed (247/247 success, recall@10 = 0.8246)**.
+- Immediate next campaign: execute H49 arms on IntelliJ 1000 / Protogen 247; then the answer-axis validation (#45).
