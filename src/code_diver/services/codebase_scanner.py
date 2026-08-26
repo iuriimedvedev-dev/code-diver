@@ -19,6 +19,8 @@ from .file_manifest_item_builder import FileManifestItemBuilder
 from .file_summary_item_builder import FileSummaryItemBuilder
 from .structural_code_chunker import StructuralCodeChunker
 
+EXTRA_TEST_DIR_EXCLUDE_PATTERNS = ("**/testSrc/**", "**/testSources/**", "**/platform-tests/**")
+
 DEFAULT_EXCLUDES = (
     ".git/**",
     ".hg/**",
@@ -36,9 +38,7 @@ DEFAULT_EXCLUDES = (
     "dist/**",
     "build/**",
     "target/**",
-    "**/testSrc/**",
-    "**/testSources/**",
-    "**/platform-tests/**",
+    *EXTRA_TEST_DIR_EXCLUDE_PATTERNS,
     "__pycache__/**",
     ".pytest_cache/**",
     ".mypy_cache/**",
