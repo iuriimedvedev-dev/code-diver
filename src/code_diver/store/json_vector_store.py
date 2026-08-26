@@ -96,7 +96,7 @@ class JsonVectorStore(VectorStore):
         for index in indices:
             start, end = offsets[index]
             vector = vectors[start:end]
-            scored.append(SearchResult(item=items[index], score=dot(normalized_query, vector)))
+            scored.append(SearchResult(item=items[index], score=dot(normalized_query, [float(value) for value in vector])))
         scored.sort(key=lambda result: result.score, reverse=True)
         return scored[:limit]
 

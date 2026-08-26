@@ -1,24 +1,28 @@
-"""Replay a listwise LLM ranking experiment over a JSONL candidate dump."""
+"""Replay listwise ranking over a JSONL dump without loading an application config."""
 
 from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
 import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Protocol, Sequence
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
+LOGGER = logging.getLogger(__name__)
+
 LISTWISE_RANK_PROMPT_TEMPLATE = """Rank the candidates for this developer question.
 Prefer implementation and engine files that control execution or behavior over Dialog,
-Handler, preview, or UI files. Output only a JSON object with the key
-"ranked_indices", whose value is a complete ranking of candidate indices (zero-based).
+Handler, preview, or UI files. Return JSON only with the key "ranked_indices". Its value
+must be a complete ranking of the candidate indices (zero-based), with no duplicates.
 
-Developer question: {query}
+Developer question:
+{query}
 
 Candidates:
 {candidates}
@@ -28,16 +32,23 @@ Candidates:
 @dataclass(frozen=True, slots=True)
 class Candidate:
     path: str
-    score: float
-    snippet: str
+    score: float = 0.0
+    snippet: str = ""
 
 
 @dataclass(frozen=True, slots=True)
-class DumpRecord:
+class QueryPool:
     query_id: str
     query_text: str
     candidates: tuple[Candidate, ...]
     gold_paths: tuple[str, ...]
+
+
+DumpRecord = QueryPool
+
+
+class DumpParseError(ValueError):
+    """A JSONL dump exists but contains an invalid record."""
 
 
 class LLMClient(Protocol):
@@ -47,10 +58,7 @@ class LLMClient(Protocol):
 
 class OpenAICompatibleClient:
     def __init__(self, api_key: str, endpoint: str, model: str, timeout: float = 120.0) -> None:
-        self.api_key = api_key
-        self.endpoint = endpoint
-        self.model = model
-        self.timeout = timeout
+        self.api_key, self.endpoint, self.model, self.timeout = api_key, endpoint, model, timeout
 
     def complete(self, prompt: str) -> str:
         payload = json.dumps(
@@ -63,14 +71,17 @@ class OpenAICompatibleClient:
             method="POST",
         )
         try:
-            with urlopen(request, timeout=self.timeout) as response:
+            with urlopen(request, timeout=self.timeout) as response:  # noqa: S310
                 body = json.loads(response.read().decode("utf-8"))
         except (HTTPError, URLError, TimeoutError, json.JSONDecodeError) as exc:
             raise RuntimeError(f"LLM request failed: {exc}") from exc
         try:
-            return str(body["choices"][0]["message"]["content"])
+            content = body["choices"][0]["message"]["content"]
         except (KeyError, IndexError, TypeError) as exc:
             raise RuntimeError("LLM response did not contain choices[0].message.content") from exc
+        if not isinstance(content, str) or not content.strip():
+            raise RuntimeError("LLM response content was empty")
+        return content
 
 
 def _text(value: Any) -> str:
@@ -79,15 +90,23 @@ def _text(value: Any) -> str:
 
 def _candidate(value: Any) -> Candidate:
     if isinstance(value, str):
-        return Candidate(value, 0.0, "")
+        return Candidate(value)
     if not isinstance(value, dict):
         raise ValueError("candidate must be a path string or object")
-    return Candidate(_text(value.get("path")), float(value.get("score", 0.0)), _text(value.get("snippet", value.get("body", ""))))
+    return Candidate(
+        path=_text(value.get("path")),
+        score=float(value.get("score", 0.0)),
+        snippet=_text(value.get("snippet", value.get("body", ""))),
+    )
 
 
-def load_dump(path: Path) -> list[DumpRecord]:
-    records: list[DumpRecord] = []
-    with path.open(encoding="utf-8") as handle:
+def load_dump(path: Path) -> list[QueryPool]:
+    records: list[QueryPool] = []
+    try:
+        handle = path.open(encoding="utf-8")
+    except OSError:
+        raise
+    with handle:
         for line_number, line in enumerate(handle, 1):
             if not line.strip():
                 continue
@@ -98,139 +117,155 @@ def load_dump(path: Path) -> list[DumpRecord]:
                 rich = "query_id" in raw or "query_text" in raw
                 query_id = _text(raw.get("query_id" if rich else "id"))
                 query_text = _text(raw.get("query_text" if rich else "query"))
-                gold = tuple(_text(item) for item in raw.get("gold_paths" if rich else "expected", []))
+                gold_value = raw.get("gold_paths" if rich else "expected", [])
+                if not isinstance(gold_value, list):
+                    raise ValueError("gold paths must be a list")
+                gold_paths = tuple(_text(item) for item in gold_value if _text(item))
                 raw_candidates = raw.get("candidates")
-                candidates = tuple(_candidate(item) for item in raw_candidates) if raw_candidates is not None else tuple(
-                    Candidate(item, 0.0, "") for item in gold
+                candidates = (
+                    tuple(_candidate(item) for item in raw_candidates)
+                    if raw_candidates is not None
+                    else tuple(Candidate(path) for path in gold_paths)
                 )
                 if not query_id or not query_text:
                     raise ValueError("record requires an id and query")
-                records.append(DumpRecord(query_id, query_text, candidates, gold))
+                if any(not candidate.path for candidate in candidates):
+                    raise ValueError("candidate path must not be empty")
+                records.append(QueryPool(query_id, query_text, candidates, gold_paths))
             except (TypeError, ValueError, json.JSONDecodeError) as exc:
-                raise ValueError(f"{path}:{line_number}: invalid dump record: {exc}") from exc
+                raise DumpParseError(f"{path}:{line_number}: invalid dump record: {exc}") from exc
     return records
 
 
-def file_recall_at_k(records: list[DumpRecord], ranked: list[list[str]], k: int = 10) -> float:
-    if not records:
-        return 0.0
-    values = []
-    for record, paths in zip(records, ranked, strict=True):
-        gold = set(record.gold_paths)
-        values.append(len(gold.intersection(paths[:k])) / len(gold) if gold else 0.0)
-    return sum(values) / len(values)
+def file_recall_at_k(ranked_paths: Sequence[str], gold_paths: Sequence[str], k: int = 10) -> float:
+    if k < 0:
+        raise ValueError("k must not be negative")
+    gold = set(gold_paths)
+    return len(gold.intersection(ranked_paths[:k])) / len(gold) if gold else 0.0
 
 
-def reciprocal_rank_at_k(records: list[DumpRecord], ranked: list[list[str]], k: int = 10) -> float:
-    if not records:
-        return 0.0
-    values = []
-    for record, paths in zip(records, ranked, strict=True):
-        gold = set(record.gold_paths)
-        rank = next((index for index, path in enumerate(paths[:k], 1) if path in gold), None) if gold else None
-        values.append(1.0 / rank if rank is not None else 0.0)
-    return sum(values) / len(values)
+def reciprocal_rank_at_k(ranked_paths: Sequence[str], gold_paths: Sequence[str], k: int = 10) -> float:
+    if k < 0:
+        raise ValueError("k must not be negative")
+    gold = set(gold_paths)
+    for rank, path in enumerate(ranked_paths[:k], 1):
+        if path in gold:
+            return 1.0 / rank
+    return 0.0
 
 
-def build_listwise_prompt(record: DumpRecord, path_only: bool = False) -> str:
-    lines = []
-    for index, candidate in enumerate(record.candidates):
-        detail = f"{index}: {candidate.path} (score={candidate.score:g})"
+def _mean(values: Sequence[float]) -> float:
+    return sum(values) / len(values) if values else 0.0
+
+
+def build_listwise_prompt(query_text: str, candidates: Sequence[Candidate], path_only: bool = False) -> str:
+    lines: list[str] = []
+    for index, candidate in enumerate(candidates):
+        line = f"{index}: {candidate.path} (score={candidate.score:g})"
         if not path_only and candidate.snippet:
-            detail += f"\n   snippet: {candidate.snippet}"
-        lines.append(detail)
-    return LISTWISE_RANK_PROMPT_TEMPLATE.format(query=record.query_text, candidates="\n".join(lines))
+            line += f"\n   snippet: {candidate.snippet}"
+        lines.append(line)
+    return LISTWISE_RANK_PROMPT_TEMPLATE.format(query=query_text, candidates="\n".join(lines))
 
 
-def parse_ranking(text: str, candidate_count: int) -> list[int]:
-    parsed: Any = None
+def parse_listwise_response(response: str, candidates: Sequence[Candidate]) -> list[Candidate]:
     try:
-        parsed = json.loads(text)
+        payload: Any = json.loads(response)
     except json.JSONDecodeError:
-        match = re.search(r"(?:\d+\s*[,.)]?\s*)+", text)
-        if match:
-            parsed = [int(value) for value in re.findall(r"\d+", match.group())]
-    if isinstance(parsed, dict):
-        for key in ("ranked_indices", "ranking", "indices"):
-            if key in parsed:
-                parsed = parsed[key]
-                break
-    if not isinstance(parsed, list) or not all(isinstance(item, int) and not isinstance(item, bool) for item in parsed):
+        match = re.search(r"(?:\d+\s*[,.)]?\s*)+", response)
+        payload = [int(value) for value in re.findall(r"\d+", match.group())] if match else None
+    if isinstance(payload, dict):
+        payload = next((payload[key] for key in ("ranked_indices", "ranking", "indices") if key in payload), None)
+    if not isinstance(payload, list) or not all(isinstance(item, int) and not isinstance(item, bool) for item in payload):
         raise ValueError("model output must contain a JSON index list")
-    result: list[int] = []
-    for index in parsed:
-        if index < 0 or index >= candidate_count:
+    indices: list[int] = []
+    for index in payload:
+        if index < 0 or index >= len(candidates):
             raise ValueError(f"model returned candidate index out of range: {index}")
-        if index not in result:
-            result.append(index)
-    result.extend(index for index in range(candidate_count) if index not in result)
-    return result[:10]
+        if index in indices:
+            raise ValueError(f"model returned duplicate candidate index: {index}")
+        indices.append(index)
+    indices.extend(index for index in range(len(candidates)) if index not in indices)
+    return [candidates[index] for index in indices]
 
 
-def _identity(records: list[DumpRecord]) -> list[list[str]]:
-    return [[candidate.path for candidate in record.candidates[:10]] for record in records]
-
-
-def _metrics(records: list[DumpRecord], ranked: list[list[str]]) -> dict[str, float]:
-    return {"file_recall_at_10": file_recall_at_k(records, ranked), "mrr_at_10": reciprocal_rank_at_k(records, ranked)}
+def parse_ranking(response: str, candidate_count: int) -> list[int]:
+    candidates = tuple(Candidate(str(index)) for index in range(candidate_count))
+    return [int(candidate.path) for candidate in parse_listwise_response(response, candidates)]
 
 
 def _client_from_env() -> OpenAICompatibleClient:
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
-        raise RuntimeError("OPENAI_API_KEY is required for listwise modes")
+        raise RuntimeError("OPENAI_API_KEY is required for listwise mode")
     endpoint = os.getenv("OPENAI_ENDPOINT", os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1/chat/completions"))
-    model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-    return OpenAICompatibleClient(api_key, endpoint, model)
+    return OpenAICompatibleClient(api_key, endpoint, os.getenv("OPENAI_MODEL", "gpt-4o-mini"))
 
 
 def main(argv: list[str] | None = None, client: LLMClient | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    default_dump = Path("datasets/intellij_eval_where_only.jsonl")
-    parser.add_argument("--dump", type=Path, default=default_dump if default_dump.exists() else None)
-    modes = parser.add_mutually_exclusive_group()
-    modes.add_argument("--dry-run", action="store_true")
-    modes.add_argument("--baseline", action="store_true")
+    parser.add_argument("--dump", type=Path, required=True)
+    parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--path-only", action="store_true")
-    parser.add_argument("--json-out", type=Path)
+    parser.add_argument("--baseline", action="store_true")
+    parser.add_argument("--top-k-pool", type=int, default=20)
+    parser.add_argument("--top-k-out", type=int, default=10)
+    parser.add_argument("--output", type=Path)
     args = parser.parse_args(argv)
-    if args.dump is None:
-        parser.error("--dump is required when datasets/intellij_eval_where_only.jsonl does not exist")
-    if args.json_out is not None and args.json_out.exists():
-        parser.error(f"refusing to overwrite existing {args.json_out}")
+    if args.top_k_pool < 1 or args.top_k_out < 1:
+        parser.error("--top-k-pool and --top-k-out must be positive")
+    if args.output is not None and args.output.exists():
+        parser.error(f"refusing to overwrite existing {args.output}")
     try:
         records = load_dump(args.dump)
-        output: dict[str, Any] = {"dump": str(args.dump), "records": len(records)}
-        expected_only = all(tuple(candidate.path for candidate in record.candidates) == record.gold_paths for record in records)
-        if expected_only:
-            output["candidate_note"] = "candidates are expected-only synthesized controls"
         if args.dry_run:
-            covered = sum(bool(set(record.gold_paths).intersection(candidate.path for candidate in record.candidates[:20])) for record in records)
-            output["mode"] = "dry_run"
-            output["metrics"] = {"gold_in_pool_at_20": covered / len(records) if records else 0.0}
+            result: dict[str, Any] = {
+                "mode": "dry_run",
+                "dump": str(args.dump),
+                "records": len(records),
+                "pool": {"records_with_gold": sum(bool(record.gold_paths) for record in records)},
+            }
         else:
-            if args.baseline:
-                ranked = _identity(records)
-                output["mode"] = "baseline"
-                output["metrics"] = _metrics(records, ranked)
-            else:
-                active_client = client or _client_from_env()
-                ranked = []
-                for record in records:
-                    ranked_indices = parse_ranking(active_client.complete(build_listwise_prompt(record, args.path_only)), len(record.candidates))
-                    ranked.append([record.candidates[index].path for index in ranked_indices])
-                output["mode"] = "path_only" if args.path_only else "full"
-                output["metrics"] = _metrics(records, ranked)
-        rendered = json.dumps(output, indent=2)
+            active_client = None if args.baseline else (client or _client_from_env())
+            ranked: list[list[str]] = []
+            for record in records:
+                pool = record.candidates[: args.top_k_pool]
+                if args.baseline:
+                    ordered = pool
+                else:
+                    assert active_client is not None
+                    ordered = parse_listwise_response(
+                        active_client.complete(build_listwise_prompt(record.query_text, pool, args.path_only)), pool
+                    )
+                ranked.append([candidate.path for candidate in ordered])
+                LOGGER.info("ranked query %s (%d candidates)", record.query_id, len(pool))
+            result = {
+                "mode": "baseline" if args.baseline else ("path_only" if args.path_only else "full"),
+                "dump": str(args.dump),
+                "records": len(records),
+                "top_k_pool": args.top_k_pool,
+                "top_k_out": args.top_k_out,
+                "metrics": {
+                    "file_recall_at_k": _mean(
+                        [file_recall_at_k(paths, record.gold_paths, args.top_k_out) for record, paths in zip(records, ranked)]
+                    ),
+                    "mrr_at_k": _mean(
+                        [reciprocal_rank_at_k(paths, record.gold_paths, args.top_k_out) for record, paths in zip(records, ranked)]
+                    ),
+                },
+            }
+        rendered = json.dumps(result, indent=2)
         print(rendered)
-        if args.json_out is not None:
-            args.json_out.write_text(rendered + "\n", encoding="utf-8")
-            print(f"wrote {args.json_out}", file=sys.stderr)
+        if args.output is not None:
+            args.output.parent.mkdir(parents=True, exist_ok=True)
+            args.output.write_text(rendered + "\n", encoding="utf-8")
+            LOGGER.info("wrote %s", args.output)
         return 0
-    except (OSError, RuntimeError, ValueError) as exc:
-        print(f"error: {exc}", file=sys.stderr)
+    except (OSError, DumpParseError, RuntimeError, ValueError) as exc:
+        LOGGER.error("%s", exc)
         return 2
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
+    sys.exit(main())
