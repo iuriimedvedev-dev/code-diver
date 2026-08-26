@@ -73,3 +73,10 @@ def test_json_vector_store_kind_search_reuses_partition_and_vectors(tmp_path: Pa
     loads_after_first_search = loads
     assert store.search_by_index_kind([1, 0], limit=1, index_kind="symbol")[0].item.id == "symbol"
     assert loads == loads_after_first_search
+
+    replacement = CodeItem(
+        id="replacement", path="replacement.py", title="Replacement", content="replacement", metadata={"index_kind": "symbol"}
+    )
+    store.save(root=tmp_path, provider="hash", model="test", dimensions=2, items=[replacement], vectors=[[0, 1]])
+
+    assert store.search_by_index_kind([0, 1], limit=1, index_kind="symbol")[0].item.id == "replacement"
