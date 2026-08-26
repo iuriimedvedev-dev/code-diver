@@ -12,6 +12,12 @@ try:
 except Exception:  # pragma: no cover - optional dependency
     tiktoken = None
 
+try:
+    from openai import BadRequestError
+except ImportError:  # pragma: no cover - optional dependency
+    class BadRequestError(Exception):
+        pass
+
 from ..generation.transient_generation_retry import TransientGenerationRetry
 from ..settings import Defaults, EmbeddingProviderId, EnvironmentVariable
 from .embedding_provider import EmbeddingProvider
@@ -158,8 +164,8 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
     def _embed_with_context_retry(self, texts: list[str]) -> list[list[float]]:
         try:
             return self._embed(texts)
-        except RuntimeError as exc:
-            if not _is_context_overflow(exc):
+        except BadRequestError as exc:
+            if not _is_context_length_bad_request(exc):
                 raise
             if len(texts) == 1:
                 return self._retry_overflowing_item(texts[0])
@@ -184,8 +190,8 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
             )
             try:
                 return self._embed([current])
-            except RuntimeError as exc:
-                if not _is_context_overflow(exc) or attempt == 3:
+            except BadRequestError as exc:
+                if not _is_context_length_bad_request(exc) or attempt == 3:
                     raise
         raise RuntimeError("Embedding context retry failed.")
 
@@ -213,6 +219,17 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
                 return json.loads(response.read().decode("utf-8"))
         except HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace")
+            if exc.code == 400:
+                try:
+                    raise BadRequestError(
+                        f"OpenAI embeddings request failed: HTTP {exc.code}: {detail}",
+                        response=exc,
+                        body=detail,
+                    ) from exc
+                except TypeError:
+                    raise BadRequestError(
+                        f"OpenAI embeddings request failed: HTTP {exc.code}: {detail}"
+                    ) from exc
             raise RuntimeError(f"OpenAI embeddings request failed: HTTP {exc.code}: {detail}") from exc
         except URLError as exc:
             raise RuntimeError(f"OpenAI embeddings API is not reachable: {exc.reason}") from exc
@@ -229,28 +246,5 @@ def _batches(items: list[str], size: int):
         yield items[offset : offset + size]
 
 
-def _is_context_overflow(exc: Exception) -> bool:
-    message = str(exc).lower()
-    code = str(getattr(exc, "code", "")).lower()
-    explicit_codes = ("context_length_exceeded", "input_too_long", "max_tokens_exceeded")
-    if "maximum context length" in message:
-        return True
-    if any(marker in code for marker in explicit_codes):
-        return True
-    if "http 400" not in message and not any(marker in message for marker in explicit_codes):
-        return False
-    return any(
-        marker in message
-        for marker in (
-            "context length",
-            "maximum context",
-            "context window",
-            "input too long",
-            "too many tokens",
-            "sequence length",
-            "max_seq_len",
-            "context_length_exceeded",
-            "input_too_long",
-            "max_tokens_exceeded",
-        )
-    )
+def _is_context_length_bad_request(exc: Exception) -> bool:
+    return "maximum context length" in str(exc).lower()
