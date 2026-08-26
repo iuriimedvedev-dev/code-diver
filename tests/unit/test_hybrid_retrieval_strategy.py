@@ -540,7 +540,7 @@ def test_hybrid_strategy_skips_graph_expansion_at_zero_depth(tmp_path: Path) -> 
 
     results = strategy.search("seed", limit=2)
 
-    assert call_count() == 1
+    assert call_count() == 0
     assert [result.item.id for result in results] == [seed_item.id]
 
 

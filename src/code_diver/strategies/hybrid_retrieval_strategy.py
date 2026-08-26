@@ -126,7 +126,7 @@ class HybridRetrievalStrategy(RetrievalStrategy):
         # so the expansion below has no effect on ranking once graph_weight is non-positive.
         graph_scores = (
             self._graph_scores(vector_results, graph, graph_profile, active_config)
-            if active_config.graph_weight > 0
+            if active_config.graph_weight > 0 and graph_profile.depth > 0
             else {}
         )
         for item_id, graph_score in graph_scores.items():

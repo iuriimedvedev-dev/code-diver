@@ -7,6 +7,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+try:
+    import numpy as np
+except ImportError:  # pragma: no cover - exercised when NumPy is unavailable
+    np = None
+
 from ..domain import CodeItem, SearchResult
 from ..math_utils import dot, normalize
 from ..settings import SchemaKey
@@ -21,7 +26,7 @@ class JsonVectorStore(VectorStore):
         self.artifact = artifact
         self._records_cache: list[dict[str, Any]] | None = None
         self._items_cache: list[CodeItem] | None = None
-        self._normalized_vectors_cache: array[float] | None = None
+        self._normalized_vectors_cache: Any | None = None
         self._vector_offsets_cache: list[tuple[int, int]] | None = None
         self._items_by_kind_cache: dict[str, list[int]] | None = None
 
@@ -115,18 +120,18 @@ class JsonVectorStore(VectorStore):
                 self._items_by_kind_cache[kind].append(index)
         return self._items_cache
 
-    def _cached_normalized_vectors(self) -> array[float]:
+    def _cached_normalized_vectors(self) -> Any:
         if self._normalized_vectors_cache is None:
-            payload = self._load()
             records = self._cached_records()
-            # array('f') is the standard-library fallback for a NumPy-free float32 matrix.
-            matrix = array("f")
+            values: list[float] = []
             offsets: list[tuple[int, int]] = []
             for record in records:
                 vector = normalize([float(value) for value in record[SchemaKey.VECTOR.value]])
-                start = len(matrix)
-                matrix.extend(vector)
-                offsets.append((start, len(matrix)))
+                start = len(values)
+                values.extend(vector)
+                offsets.append((start, len(values)))
+            # array('f') is the standard-library fallback for a NumPy-free float32 matrix.
+            matrix = np.asarray(values, dtype=np.float32) if np is not None else array("f", values)
             self._normalized_vectors_cache = matrix
             self._vector_offsets_cache = offsets
         return self._normalized_vectors_cache

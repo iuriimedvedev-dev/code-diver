@@ -1,11 +1,13 @@
 # NEW COLLECTION REQUIRED: build a new collection at index time. Changing summary ordering
-# changes embedded/indexed content, so the H46 collection cannot be reused.
+# changes embedded/indexed content, so the H46 collection cannot be reused. The indexed file
+# summary must use the summary head/dense-prose section immediately after file/extension and
+# before symbols, matching FileSummaryItemBuilder's file, extension, head, symbols, imports order.
 #
 # H52: summary head-first ordering after the completed source reorder.
 #
 # H46 is intentionally unchanged. This config copies its full schema and values, except for
 # the experiment identifier and the collection name required by the changed indexed content.
-experiment_id: intellij-h52-summary-head-first
+experiment_id: h52-summary-head-first
 
 root: ../intellij-community
 
