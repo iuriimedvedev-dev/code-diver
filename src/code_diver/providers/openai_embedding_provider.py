@@ -98,8 +98,8 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
                 encoding = tiktoken.get_encoding("cl100k_base")
             token_ids = encoding.encode(prefixed)
             if len(token_ids) <= max_input_chars:
-                return prefixed
-            return encoding.decode(token_ids[:max_input_chars])
+                return prefixed[:max_input_chars]
+            return encoding.decode(token_ids[:max_input_chars])[:max_input_chars]
         except Exception:
             return prefixed[:max_input_chars]
 
@@ -176,7 +176,7 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
 
     def _retry_overflowing_item(self, text: str) -> list[list[float]]:
         current = text
-        budget = self.max_input_chars if self.max_input_chars and self.max_input_chars > 0 else self._token_count(text)
+        budget = self.max_input_chars if self.max_input_chars and self.max_input_chars > 0 else len(text)
         for attempt in range(2, 4):
             budget = max(budget // 2, 1)
             shortened = self._bounded_prefixed(None, current, budget)
