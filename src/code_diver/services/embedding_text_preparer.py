@@ -23,7 +23,7 @@ class EmbeddingTextPreparer:
 
 
 def truncate_embedding_text(text: str, max_input_chars: int, tokenizer: Any | None = None) -> str:
-    """Truncate to the configured token budget, with a character fallback."""
+    """Use token-aware truncation when available, with a character fallback."""
     if len(text) <= max_input_chars:
         return text
     try:
