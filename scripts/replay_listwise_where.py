@@ -11,13 +11,13 @@ import sys
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Final, Protocol
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 LOGGER = logging.getLogger(__name__)
 
-LISTWISE_RANK_PROMPT_TEMPLATE = """Rank the candidates for this developer question.
+LISTWISE_RANK_PROMPT_TEMPLATE: Final[str] = """Rank the candidates for this developer question.
 Prefer implementation and engine files that control execution or behavior over Dialog,
 Handler, preview, or UI files. Return JSON only with the key "ranked_indices". Its value
 must be a complete ranking of the candidate indices (zero-based), with no duplicates.

@@ -24,11 +24,38 @@ def _module() -> ModuleType:
 replay = _module()
 
 
-def test_metrics_cover_missing_empty_and_multiple_gold() -> None:
-    records = [replay.DumpRecord("a", "q", (), ("a", "b")), replay.DumpRecord("b", "q", (), ()), replay.DumpRecord("c", "q", (), ("z",))]
-    ranked = [["a", "x", "b"], ["x"], ["x"]]
-    assert replay.file_recall_at_k(records, ranked, 2) == pytest.approx(1 / 6)
-    assert replay.reciprocal_rank_at_k(records, ranked, 2) == pytest.approx(1 / 3)
+@pytest.mark.parametrize(
+    ("ranked_paths", "gold_paths", "expected"),
+    [
+        (("a.py", "b.py"), ("a.py",), 1.0),
+        (("b.py", "c.py"), ("a.py",), 0.0),
+        (("a.py",), (), 0.0),
+        (("x.py", "b.py", "c.py"), ("a.py", "b.py"), 0.5),
+    ],
+    ids=["within", "not-within", "empty-gold", "multiple-gold-one-present"],
+)
+def test_file_recall_at_k_cases(
+    ranked_paths: tuple[str, ...], gold_paths: tuple[str, ...], expected: float
+) -> None:
+    """Recall is the fraction of unique gold paths found in the top k."""
+    assert replay.file_recall_at_k(ranked_paths, gold_paths, 2) == expected
+
+
+@pytest.mark.parametrize(
+    ("ranked_paths", "gold_paths", "k", "expected"),
+    [
+        (("a.py", "b.py"), ("a.py",), 2, 1.0),
+        (("x.py", "b.py", "a.py"), ("a.py",), 3, 1 / 3),
+        (("x.py", "b.py"), ("a.py",), 2, 0.0),
+        (("x.py",), (), 10, 0.0),
+    ],
+    ids=["rank-1", "rank-k", "absent", "empty-gold"],
+)
+def test_reciprocal_rank_at_k_cases(
+    ranked_paths: tuple[str, ...], gold_paths: tuple[str, ...], k: int, expected: float
+) -> None:
+    """Reciprocal rank is zero when no gold path appears in the cutoff."""
+    assert replay.reciprocal_rank_at_k(ranked_paths, gold_paths, k) == expected
 
 
 def test_prompt_path_only_excludes_snippet_and_full_includes_it() -> None:
@@ -50,6 +77,44 @@ def test_load_dump_actual_and_rich_schema(tmp_path: Path) -> None:
     records = replay.load_dump(path)
     assert records[0].candidates[0].snippet == ""
     assert records[1].candidates[0].snippet == "s"
+
+
+def test_load_dump_returns_exact_dataclass_values_for_three_records(tmp_path: Path) -> None:
+    """Both dump schemas populate every dataclass field deterministically."""
+    path = tmp_path / "dump.jsonl"
+    path.write_text(
+        "\n".join(
+            [
+                json.dumps({"id": "one", "query": "first", "expected": ["one.py"]}),
+                json.dumps(
+                    {
+                        "query_id": "two",
+                        "query_text": "second",
+                        "candidates": [{"path": "two.py", "score": 2.5, "body": "body"}],
+                        "gold_paths": ["two.py"],
+                    }
+                ),
+                json.dumps(
+                    {
+                        "query_id": "three",
+                        "query_text": "third",
+                        "candidates": ["three.py"],
+                        "gold_paths": [],
+                    }
+                ),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    assert replay.load_dump(path) == [
+        replay.QueryPool("one", "first", (replay.Candidate("one.py"),), ("one.py",)),
+        replay.QueryPool(
+            "two", "second", (replay.Candidate("two.py", 2.5, "body"),), ("two.py",)
+        ),
+        replay.QueryPool("three", "third", (replay.Candidate("three.py"),), ()),
+    ]
 
 
 def test_parse_ranking_accepts_keys_plain_list_and_appends() -> None:
