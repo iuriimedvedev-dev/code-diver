@@ -22,6 +22,7 @@ class _Encoded:
 
 class _FakeSentenceTransformer:
     calls: list[dict] = []
+    max_seq_length = 10
 
     def __init__(self, model: str):
         self.model = model
@@ -100,8 +101,66 @@ def test_embedding_text_truncation_handles_punctuation_and_generics_at_token_bou
 
 
 def test_embedding_text_truncation_falls_back_to_conservative_character_limit() -> None:
-    assert truncate_embedding_text("<T extends Foo.Bar<K>>", 8) == "<T exten"
+    assert truncate_embedding_text("<T extends Foo.Bar<K>>", 8) == "<T"
     assert shrink_embedding_text("a") == ""
+
+
+def test_sentence_transformers_provider_truncates_dense_punctuation_within_limit(monkeypatch) -> None:
+    class _BoundedModel(_FakeSentenceTransformer):
+        max_seq_length = 28
+
+    _BoundedModel.calls = []
+    monkeypatch.setitem(
+        sys.modules,
+        "sentence_transformers",
+        types.SimpleNamespace(SentenceTransformer=_BoundedModel),
+    )
+    provider = SentenceTransformersEmbeddingProvider("local/embedder", max_input_chars=28)
+    text = "!!!...;;;:::((()))[[[]]]{{{}}}???!!!" * 3
+
+    provider.embed_documents([text])
+
+    assert len(_BoundedModel.calls[0]["texts"][0]) <= 28
+
+
+def test_sentence_transformers_provider_truncates_generics_like_text_within_limit(monkeypatch) -> None:
+    class _BoundedModel(_FakeSentenceTransformer):
+        max_seq_length = 36
+
+    _BoundedModel.calls = []
+    monkeypatch.setitem(
+        sys.modules,
+        "sentence_transformers",
+        types.SimpleNamespace(SentenceTransformer=_BoundedModel),
+    )
+    provider = SentenceTransformersEmbeddingProvider(
+        "local/embedder", document_prefix=None, max_input_chars=36
+    )
+    text = "List<Map<String,Integer>>.stream().collect(Collectors.toList())" * 5
+
+    provider.embed_query(text)
+
+    assert len(_BoundedModel.calls[0]["texts"][0]) <= 36
+
+
+def test_sentence_transformers_provider_keeps_short_text_unchanged(monkeypatch) -> None:
+    class _BoundedModel(_FakeSentenceTransformer):
+        max_seq_length = 36
+
+    _BoundedModel.calls = []
+    monkeypatch.setitem(
+        sys.modules,
+        "sentence_transformers",
+        types.SimpleNamespace(SentenceTransformer=_BoundedModel),
+    )
+    provider = SentenceTransformersEmbeddingProvider(
+        "local/embedder", document_prefix=None, max_input_chars=36
+    )
+    text = "short text"
+
+    provider.embed_documents([text])
+
+    assert _BoundedModel.calls[0]["texts"] == [text]
 
 
 def test_sentence_transformers_retries_only_overflowing_item(monkeypatch) -> None:

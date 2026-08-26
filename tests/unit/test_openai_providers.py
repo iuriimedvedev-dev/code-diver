@@ -11,6 +11,7 @@ from code_diver.generation.openai_compatible_generation_provider import OpenAICo
 from code_diver.generation.openai_compatible_generation_provider_pool import OpenAICompatibleGenerationProviderPool
 from code_diver.generation.openai_generation_provider import OpenAIGenerationProvider
 from code_diver.generation.response_schemas import RERANK_SCHEMA
+from code_diver.providers import openai_embedding_provider
 from code_diver.providers.openai_compatible_embedding_provider import OpenAICompatibleEmbeddingProvider
 from code_diver.providers.openai_embedding_provider import OpenAIEmbeddingProvider
 
@@ -103,7 +104,92 @@ def test_openai_embedding_provider_uses_optional_tokenizer_for_prefixed_text(mon
     assert calls[0]["input"] == ["doc: abcde"]
 
 
+def test_openai_embedding_provider_truncates_dense_punctuation_within_token_limit(monkeypatch) -> None:
+    class Tokenizer:
+        def encode(self, text, add_special_tokens=False):
+            return list(text)
+
+        def decode(self, tokens, skip_special_tokens=True):
+            return "".join(tokens)
+
+    provider = OpenAIEmbeddingProvider(api_key="key", dimensions=3, max_input_chars=24, tokenizer=Tokenizer())
+    calls: list[dict] = []
+
+    def fake_post(payload):
+        calls.append(payload)
+        return {"data": [{"index": 0, "embedding": [1, 2, 3]}]}
+
+    monkeypatch.setattr(provider, "_post", fake_post)
+    text = "!!!...;;;:::((()))[[[]]]{{{}}}???!!!" * 3
+
+    assert provider.embed_documents([text]) == [[1.0, 2.0, 3.0]]
+    assert len(calls[0]["input"][0]) <= 24
+
+
+def test_openai_embedding_provider_truncates_generics_like_text_within_token_limit(monkeypatch) -> None:
+    class Tokenizer:
+        def encode(self, text, add_special_tokens=False):
+            return list(text)
+
+        def decode(self, tokens, skip_special_tokens=True):
+            return "".join(tokens)
+
+    provider = OpenAIEmbeddingProvider(api_key="key", dimensions=3, max_input_chars=32, tokenizer=Tokenizer())
+    calls: list[dict] = []
+    monkeypatch.setattr(
+        provider,
+        "_post",
+        lambda payload: calls.append(payload) or {"data": [{"index": 0, "embedding": [1, 2, 3]}]},
+    )
+    text = "List<Map<String,Integer>>.stream().collect(Collectors.toList())" * 5
+
+    assert provider.embed_query(text) == [1.0, 2.0, 3.0]
+    assert len(calls[0]["input"][0]) <= 32
+
+
+def test_openai_embedding_provider_keeps_short_text_unchanged(monkeypatch) -> None:
+    provider = OpenAIEmbeddingProvider(
+        api_key="key", dimensions=3, document_prefix=None, max_input_chars=32
+    )
+    calls: list[dict] = []
+    monkeypatch.setattr(
+        provider,
+        "_post",
+        lambda payload: calls.append(payload) or {"data": [{"index": 0, "embedding": [1, 2, 3]}]},
+    )
+    text = "short text"
+
+    provider.embed_documents([text])
+
+    assert calls[0]["input"] == [text]
+
+
+def test_openai_embedding_provider_retries_context_error_and_returns_result(monkeypatch) -> None:
+    class ContextLengthError(Exception):
+        pass
+
+    monkeypatch.setattr("code_diver.providers.openai_embedding_provider.BadRequestError", ContextLengthError)
+    provider = OpenAIEmbeddingProvider(api_key="key", dimensions=3, max_input_chars=None)
+    calls: list[dict] = []
+
+    def fake_post(payload):
+        calls.append(payload)
+        if len(calls) == 1:
+            raise ContextLengthError("maximum context length exceeded")
+        return {"data": [{"index": 0, "embedding": [1, 2, 3]}]}
+
+    monkeypatch.setattr(provider, "_post", fake_post)
+
+    assert provider.embed_documents(["text" * 20]) == [[1.0, 2.0, 3.0]]
+    assert len(calls) == 2
+    assert len(calls[1]["input"][0]) < len(calls[0]["input"][0])
+
+
 def test_openai_embedding_provider_retries_only_overflowing_item(monkeypatch) -> None:
+    class ContextLengthError(Exception):
+        pass
+
+    monkeypatch.setattr(openai_embedding_provider, "BadRequestError", ContextLengthError)
     provider = OpenAIEmbeddingProvider(
         api_key="key",
         dimensions=3,
@@ -118,7 +204,7 @@ def test_openai_embedding_provider_retries_only_overflowing_item(monkeypatch) ->
         inputs = payload["input"]
         calls.append(inputs)
         if len(inputs) > 1 or len(inputs[0]) > 40:
-            raise RuntimeError("HTTP 400: context_length_exceeded")
+            raise ContextLengthError("HTTP 400: maximum context length exceeded")
         return {"data": [{"index": 0, "embedding": [1, 2, 3]}]}
 
     monkeypatch.setattr(provider, "_post", fake_post)
