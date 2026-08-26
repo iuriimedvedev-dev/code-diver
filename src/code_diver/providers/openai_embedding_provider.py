@@ -9,7 +9,7 @@ from urllib.request import Request, urlopen
 
 try:
     import tiktoken
-except ImportError:  # pragma: no cover - optional dependency
+except Exception:  # pragma: no cover - optional dependency
     tiktoken = None
 
 from ..generation.transient_generation_retry import TransientGenerationRetry
@@ -80,12 +80,19 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
             return prefixed
         if len(prefixed) <= self.max_input_chars:
             return prefixed
-        if self.tokenizer is not None:
-            return self._truncate_with_tokenizer(prefixed, self.max_input_chars)
-        encoding = self._get_tiktoken_encoding()
-        if encoding is None:
-            return prefixed[: self.max_input_chars]
-        return self._truncate_with_encoding(prefixed, self.max_input_chars, encoding)
+        try:
+            if tiktoken is None:
+                raise ImportError("tiktoken is unavailable")
+            try:
+                encoding = tiktoken.encoding_for_model(self.model)
+            except Exception:
+                encoding = tiktoken.get_encoding("cl100k_base")
+            token_ids = encoding.encode(prefixed)
+            if len(token_ids) <= self.max_input_chars:
+                return prefixed
+            return encoding.decode(token_ids[: self.max_input_chars])
+        except Exception:
+            return prefixed[: self.max_input_chars // 3]
 
     def _get_tiktoken_encoding(self) -> Any | None:
         if self._tiktoken_encoding_loaded:
