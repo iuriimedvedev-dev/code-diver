@@ -366,13 +366,49 @@ mod tests {
 
     #[test]
     fn fuse_hybrid_batch_rejects_mismatched_lengths() {
-        let result = fuse_hybrid_batch(
-            &[1.0], &[], &[1.0], &[1.0], &[1.0], &[1.0], &[1.0], test_weights(),
-        );
-        assert_eq!(
-            result.unwrap_err(),
-            "batch field lexical has length 0, expected 1"
-        );
+        let fields = [
+            vec![1.0],
+            vec![1.0],
+            vec![1.0],
+            vec![1.0],
+            vec![1.0],
+            vec![1.0],
+            vec![1.0],
+        ];
+        let names = [
+            "vector",
+            "lexical",
+            "path",
+            "symbol",
+            "symbol_match",
+            "graph",
+            "file_vote",
+        ];
+
+        for (index, name) in names.into_iter().enumerate() {
+            let mut mismatched = fields.clone();
+            mismatched[index].clear();
+            let result = fuse_hybrid_batch(
+                &mismatched[0],
+                &mismatched[1],
+                &mismatched[2],
+                &mismatched[3],
+                &mismatched[4],
+                &mismatched[5],
+                &mismatched[6],
+                test_weights(),
+            );
+            let (field, length) = if index == 0 {
+                ("lexical", 1)
+            } else {
+                (name, 0)
+            };
+            let expected = if index == 0 { 0 } else { 1 };
+            assert_eq!(
+                result.unwrap_err(),
+                format!("batch field {field} has length {length}, expected {expected}")
+            );
+        }
     }
 
     #[test]

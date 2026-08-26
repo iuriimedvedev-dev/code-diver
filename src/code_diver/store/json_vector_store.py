@@ -19,9 +19,10 @@ SCHEMA_VERSION = 1
 class JsonVectorStore(VectorStore):
     def __init__(self, artifact: Path):
         self.artifact = artifact
+        self._records_cache: list[dict[str, Any]] | None = None
         self._items_cache: list[CodeItem] | None = None
         self._normalized_vectors_cache: array[float] | None = None
-        self._vector_dimension: int | None = None
+        self._vector_offsets_cache: list[tuple[int, int]] | None = None
         self._items_by_kind_cache: dict[str, list[int]] | None = None
 
     def exists(self) -> bool:
@@ -85,18 +86,18 @@ class JsonVectorStore(VectorStore):
     ) -> list[SearchResult]:
         normalized_query = normalize(query_vector)
         vectors = self._cached_normalized_vectors()
-        dimension = self._vector_dimension or 0
+        offsets = self._vector_offsets_cache or []
         scored = []
         for index in indices:
-            start = index * dimension
-            vector = vectors[start : start + dimension]
+            start, end = offsets[index]
+            vector = vectors[start:end]
             scored.append(SearchResult(item=items[index], score=dot(normalized_query, vector)))
         scored.sort(key=lambda result: result.score, reverse=True)
         return scored[:limit]
 
     def load_items_and_vectors(self) -> tuple[dict[str, Any], list[CodeItem], list[list[float]]]:
         payload = self._load()
-        records = payload.get(SchemaKey.ITEMS.value) or []
+        records = self._cached_records()
         items = self._cached_items()
         vectors = [[float(value) for value in record[SchemaKey.VECTOR.value]] for record in records]
         return payload, items, vectors
@@ -106,8 +107,7 @@ class JsonVectorStore(VectorStore):
 
     def _cached_items(self) -> list[CodeItem]:
         if self._items_cache is None:
-            payload = self._load()
-            records = payload.get(SchemaKey.ITEMS.value) or []
+            records = self._cached_records()
             self._items_cache = [CodeItem.from_json(record[SchemaKey.ITEM.value]) for record in records]
             self._items_by_kind_cache = defaultdict(list)
             for index, item in enumerate(self._items_cache):
@@ -118,21 +118,31 @@ class JsonVectorStore(VectorStore):
     def _cached_normalized_vectors(self) -> array[float]:
         if self._normalized_vectors_cache is None:
             payload = self._load()
-            records = payload.get(SchemaKey.ITEMS.value) or []
-            self._vector_dimension = int(payload.get(SchemaKey.DIMENSIONS.value) or 0)
+            records = self._cached_records()
             # array('f') is the standard-library fallback for a NumPy-free float32 matrix.
             matrix = array("f")
+            offsets: list[tuple[int, int]] = []
             for record in records:
                 vector = normalize([float(value) for value in record[SchemaKey.VECTOR.value]])
+                start = len(matrix)
                 matrix.extend(vector)
+                offsets.append((start, len(matrix)))
             self._normalized_vectors_cache = matrix
+            self._vector_offsets_cache = offsets
         return self._normalized_vectors_cache
 
     def _invalidate_caches(self) -> None:
+        self._records_cache = None
         self._items_cache = None
         self._normalized_vectors_cache = None
-        self._vector_dimension = None
+        self._vector_offsets_cache = None
         self._items_by_kind_cache = None
+
+    def _cached_records(self) -> list[dict[str, Any]]:
+        if self._records_cache is None:
+            payload = self._load()
+            self._records_cache = payload.get(SchemaKey.ITEMS.value) or []
+        return self._records_cache
 
     def _load(self) -> dict[str, Any]:
         if not self.artifact.exists():

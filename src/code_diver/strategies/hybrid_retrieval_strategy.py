@@ -101,11 +101,12 @@ class HybridRetrievalStrategy(RetrievalStrategy):
             self._item_profiles,
             profile_lock=self._cache_lock,
         )
+        scored_candidates: dict[str, HybridCandidateScore] = {}
         if not self._uses_bounded_catalog():
             lexical_scores = self._lexical_scores(graph, query_profile, active_config)
             normalized_lexical_scores = self._normalize(lexical_scores)
             for lexical in self._lexical_candidates(
-                graph, query_profile, scorer, normalized_lexical_scores, active_config
+                graph, query_profile, scorer, normalized_lexical_scores, active_config, scored_candidates
             ):
                 existing = scores.setdefault(lexical.item.id, HybridCandidateScore(item=lexical.item))
                 lexical_score = normalized_lexical_scores.get(lexical.item.id, lexical.lexical_score)
@@ -136,7 +137,7 @@ class HybridRetrievalStrategy(RetrievalStrategy):
             existing.graph_score = max(existing.graph_score, graph_score)
 
         if self._uses_bounded_catalog():
-            self._score_existing_candidates(scores, scorer)
+            self._score_existing_candidates(scores, scorer, scored_candidates)
 
         self._apply_family_penalty(scores, active_config)
         self._apply_file_vote_scores(scores, active_config)
@@ -172,9 +173,16 @@ class HybridRetrievalStrategy(RetrievalStrategy):
         scorer: HybridCandidateScorer,
         lexical_scores: dict[str, float],
         config: HybridSearchConfig,
+        scored_candidates: dict[str, HybridCandidateScore],
     ) -> list[HybridCandidateScore]:
         candidates = self._load_lexical_index(graph).candidates(query_profile.terms)
-        scored = [scorer.score(item) for item in candidates]
+        scored = []
+        for item in candidates:
+            score = scored_candidates.get(item.id)
+            if score is None:
+                score = scorer.score(item)
+                scored_candidates[item.id] = score
+            scored.append(score)
         for score in scored:
             score.lexical_score = max(score.lexical_score, lexical_scores.get(score.item.id, 0.0))
         scored.sort(
@@ -219,9 +227,13 @@ class HybridRetrievalStrategy(RetrievalStrategy):
         self,
         scores: dict[str, HybridCandidateScore],
         scorer: HybridCandidateScorer,
+        scored_candidates: dict[str, HybridCandidateScore],
     ) -> None:
         for existing in scores.values():
-            lexical = scorer.score(existing.item)
+            lexical = scored_candidates.get(existing.item.id)
+            if lexical is None:
+                lexical = scorer.score(existing.item)
+                scored_candidates[existing.item.id] = lexical
             existing.lexical_score = max(existing.lexical_score, lexical.lexical_score)
             existing.path_score = max(existing.path_score, lexical.path_score)
             existing.symbol_score = max(existing.symbol_score, lexical.symbol_score)
