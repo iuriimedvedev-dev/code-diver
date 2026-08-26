@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from pathlib import Path
 from time import perf_counter
 from typing import Any
 
 from ..config.cross_encoder_rerank_config import CrossEncoderRerankConfig
 from ..domain import SearchResult
 from ..reranking import RerankProvider
+from ..reranking.cross_encoder_document_builder import build_cross_encoder_document
 
 
 class AnswerCandidateCrossEncoderReranker:
@@ -20,9 +22,15 @@ class AnswerCandidateCrossEncoderReranker:
     corrupt the cost-per-case series.
     """
 
-    def __init__(self, provider: RerankProvider, config: CrossEncoderRerankConfig):
+    def __init__(
+        self,
+        provider: RerankProvider,
+        config: CrossEncoderRerankConfig,
+        repository_root: Path | None = None,
+    ):
         self.provider = provider
         self.config = config
+        self.repository_root = repository_root
 
     @property
     def candidate_limit(self) -> int:
@@ -50,15 +58,7 @@ class AnswerCandidateCrossEncoderReranker:
         return ranked, self._payload(query, duration_ms, ordered, rerank_candidates, scores)
 
     def _document(self, result: SearchResult) -> str:
-        item = result.item
-        parts = [
-            f"path: {item.path}",
-            f"title: {item.title}",
-            f"score: {result.score:.6f}",
-            "content:",
-            item.content[: self.config.max_document_chars],
-        ]
-        return "\n".join(parts)
+        return build_cross_encoder_document(result, self.config, self.repository_root)
 
     def _ordered_indices(self, scores, candidate_count: int) -> list[int]:
         """Zero-based candidate positions, best first, de-duplicated and range-checked.

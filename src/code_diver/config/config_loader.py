@@ -481,6 +481,26 @@ class ConfigLoader:
             ),
             stop_words=self._string_list(mapping.get("stop_words"))
             or list(base.stop_words if base is not None else Defaults.HYBRID_STOP_WORDS),
+            prose_fusion_router_enabled=bool(
+                mapping.get(
+                    "prose_fusion_router_enabled",
+                    base.prose_fusion_router_enabled
+                    if base is not None
+                    else Defaults.HYBRID_PROSE_FUSION_ROUTER_ENABLED,
+                )
+            ),
+            prose_path_weight=float(
+                mapping.get(
+                    "prose_path_weight",
+                    base.prose_path_weight if base is not None else Defaults.HYBRID_PROSE_PATH_WEIGHT,
+                )
+            ),
+            prose_symbol_weight=float(
+                mapping.get(
+                    "prose_symbol_weight",
+                    base.prose_symbol_weight if base is not None else Defaults.HYBRID_PROSE_SYMBOL_WEIGHT,
+                )
+            ),
         )
 
     def _graph_file_search(self, data: Any, base: GraphFileSearchConfig | None = None) -> GraphFileSearchConfig:
@@ -530,6 +550,26 @@ class ConfigLoader:
             ),
             stop_words=self._string_list(mapping.get("stop_words"))
             or list(base.stop_words if base is not None else Defaults.GRAPH_FILE_STOP_WORDS),
+            prose_fusion_router_enabled=bool(
+                mapping.get(
+                    "prose_fusion_router_enabled",
+                    base.prose_fusion_router_enabled
+                    if base is not None
+                    else Defaults.GRAPH_FILE_PROSE_FUSION_ROUTER_ENABLED,
+                )
+            ),
+            prose_path_weight=float(
+                mapping.get(
+                    "prose_path_weight",
+                    base.prose_path_weight if base is not None else Defaults.GRAPH_FILE_PROSE_PATH_WEIGHT,
+                )
+            ),
+            prose_symbol_weight=float(
+                mapping.get(
+                    "prose_symbol_weight",
+                    base.prose_symbol_weight if base is not None else Defaults.GRAPH_FILE_PROSE_SYMBOL_WEIGHT,
+                )
+            ),
         )
 
     def _llm_rerank(
@@ -714,6 +754,14 @@ class ConfigLoader:
                     base.widen_score_margin_below
                     if base is not None
                     else Defaults.CROSS_ENCODER_RERANK_WIDEN_SCORE_MARGIN_BELOW,
+                )
+            ),
+            use_file_head_document=bool(
+                mapping.get(
+                    "use_file_head_document",
+                    base.use_file_head_document
+                    if base is not None
+                    else Defaults.CROSS_ENCODER_RERANK_USE_FILE_HEAD_DOCUMENT,
                 )
             ),
         )

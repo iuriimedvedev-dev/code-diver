@@ -42,3 +42,6 @@ class HybridSearchConfig:
         default_factory=lambda: {key: list(value) for key, value in Defaults.HYBRID_QUERY_EXPANSION_ALIASES.items()}
     )
     stop_words: list[str] = field(default_factory=lambda: list(Defaults.HYBRID_STOP_WORDS))
+    prose_fusion_router_enabled: bool = Defaults.HYBRID_PROSE_FUSION_ROUTER_ENABLED
+    prose_path_weight: float = Defaults.HYBRID_PROSE_PATH_WEIGHT
+    prose_symbol_weight: float = Defaults.HYBRID_PROSE_SYMBOL_WEIGHT

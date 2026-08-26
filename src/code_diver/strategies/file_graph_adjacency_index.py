@@ -49,6 +49,19 @@ class FileGraphAdjacencyIndex:
         seed_file_scores: dict[str, float],
         profile: GraphExpansionProfile,
     ) -> dict[str, float]:
+        from ..native_search import try_expand_adjacency
+
+        native = try_expand_adjacency(
+            self.adjacency,
+            seed_file_scores,
+            depth=profile.depth,
+            decay=profile.decay,
+            neighbor_limit=profile.neighbor_limit,
+            min_score=profile.min_score,
+        )
+        if native is not None:
+            return native
+
         accumulated: dict[str, float] = defaultdict(float)
         frontier = dict(seed_file_scores)
         best_seen = dict(seed_file_scores)

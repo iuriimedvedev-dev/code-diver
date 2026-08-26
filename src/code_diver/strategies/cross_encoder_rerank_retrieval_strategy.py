@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from time import perf_counter
 
 from ..config.cross_encoder_rerank_config import CrossEncoderRerankConfig
 from ..domain import SearchResult
 from ..reranking import RerankProvider
+from ..reranking.cross_encoder_document_builder import build_cross_encoder_document
 from ..tracing import TraceLogger
 from .retrieval_strategy import RetrievalStrategy
 
@@ -19,11 +21,13 @@ class CrossEncoderRerankRetrievalStrategy(RetrievalStrategy):
         rerank_provider: RerankProvider,
         config: CrossEncoderRerankConfig,
         trace_logger: TraceLogger | None = None,
+        repository_root: Path | None = None,
     ):
         self.base_strategy = base_strategy
         self.rerank_provider = rerank_provider
         self.config = config
         self.trace_logger = trace_logger or TraceLogger.disabled()
+        self.repository_root = repository_root
         # A rerank failure degrades silently to base order. Counted so a run can report how
         # many of its results were never actually reranked.
         self.rerank_failure_count = 0
@@ -115,15 +119,7 @@ class CrossEncoderRerankRetrievalStrategy(RetrievalStrategy):
             return candidates[:limit]
 
     def _document(self, result: SearchResult) -> str:
-        item = result.item
-        parts = [
-            f"path: {item.path}",
-            f"title: {item.title}",
-            f"score: {result.score:.6f}",
-            "content:",
-            item.content[: self.config.max_document_chars],
-        ]
-        return "\n".join(parts)
+        return build_cross_encoder_document(result, self.config, self.repository_root)
 
     def _document_trace(self, documents: list[str]) -> dict[str, object]:
         if not self.trace_logger.config.include_prompts:

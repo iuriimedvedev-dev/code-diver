@@ -25,3 +25,6 @@ class GraphFileSearchConfig:
     decay: float = Defaults.GRAPH_FILE_DECAY
     min_token_length: int = Defaults.GRAPH_FILE_MIN_TOKEN_LENGTH
     stop_words: list[str] = field(default_factory=lambda: list(Defaults.GRAPH_FILE_STOP_WORDS))
+    prose_fusion_router_enabled: bool = Defaults.GRAPH_FILE_PROSE_FUSION_ROUTER_ENABLED
+    prose_path_weight: float = Defaults.GRAPH_FILE_PROSE_PATH_WEIGHT
+    prose_symbol_weight: float = Defaults.GRAPH_FILE_PROSE_SYMBOL_WEIGHT

@@ -2,7 +2,7 @@
 name = "code_diver_search"
 version = "0.1.0"
 edition = "2021"
-description = "Rust search core for code-diver (BM25, hybrid fusion, coverage)"
+description = "Rust search core for code-diver (BM25, hybrid fusion, coverage, file propagate)"
 license = "GPL-3.0-only"
 publish = false
 

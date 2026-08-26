@@ -31,6 +31,7 @@ class AnswerCandidateRerankerFactory:
             return AnswerCandidateCrossEncoderReranker(
                 RerankProviderFactory().create(config.cross_encoder_rerank),
                 config.cross_encoder_rerank,
+                repository_root=config.root,
             )
         return AnswerCandidateReranker(self._provider(config, answer_provider), config.llm_rerank)
 

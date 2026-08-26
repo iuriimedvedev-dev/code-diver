@@ -17,6 +17,7 @@ from .hybrid_item_profile import HybridItemProfile
 from .hybrid_item_profiler import HybridItemProfiler
 from .hybrid_query import HybridQuery
 from .hybrid_retrieval_strategy import HybridRetrievalStrategy
+from .query_fusion_router import QueryFusionRouter
 from .retrieval_strategy import RetrievalStrategy
 
 logger = logging.getLogger(__name__)
@@ -63,6 +64,7 @@ class GraphFileRetrievalStrategy(RetrievalStrategy):
         self.base_strategy = base_strategy
         self.graph_store = graph_store
         self.config = config
+        self.fusion_router = QueryFusionRouter()
         self.profiler = HybridItemProfiler()
         self._catalog: FileGraphCatalog | None = None
         self._items_by_path: dict[str, list[CodeItem]] | None = None
@@ -90,14 +92,15 @@ class GraphFileRetrievalStrategy(RetrievalStrategy):
             if not catalog.items_by_id:
                 return self.base_strategy.search(query, limit)
 
+            config = self.fusion_router.apply_graph_file(query, self.config)
             file_scores = self._seed_scores(query, catalog, limit)
             if not file_scores:
                 return self.base_strategy.search(query, limit)
 
             seed_file_scores = {
-                path: score.total(self.config)
+                path: score.total(config)
                 for path, score in file_scores.items()
-                if score.total(self.config) > 0
+                if score.total(config) > 0
             }
             if not seed_file_scores:
                 return self.base_strategy.search(query, limit)
@@ -116,11 +119,11 @@ class GraphFileRetrievalStrategy(RetrievalStrategy):
 
             ranked = sorted(
                 file_scores.values(),
-                key=lambda score: (score.total(self.config), score.graph_score, score.path),
+                key=lambda score: (score.total(config), score.graph_score, score.path),
                 reverse=True,
             )
             results = [
-                SearchResult(item=score.item, score=score.total(self.config))
+                SearchResult(item=score.item, score=score.total(config))
                 for score in ranked[:limit]
             ]
             if not results:
@@ -200,10 +203,24 @@ class GraphFileRetrievalStrategy(RetrievalStrategy):
         catalog: FileGraphCatalog,
         seed_file_scores: dict[str, float],
     ) -> dict[str, float]:
-        accumulated: dict[str, float] = defaultdict(float)
+        from ..native_search import try_propagate_file_scores
+
         frontier_limit = (
             self.config.neighbor_limit if self.config.frontier_limit is None else self.config.frontier_limit
         )
+        native = try_propagate_file_scores(
+            catalog.adjacency.adjacency,
+            seed_file_scores,
+            depth=max(self.config.depth, 0),
+            decay=self.config.decay,
+            seed_limit=self.config.seed_limit,
+            neighbor_limit=self.config.neighbor_limit,
+            frontier_limit=frontier_limit,
+        )
+        if native is not None:
+            return native
+
+        accumulated: dict[str, float] = defaultdict(float)
         frontier = dict(sorted(seed_file_scores.items(), key=lambda item: item[1], reverse=True)[: self.config.seed_limit])
         for depth in range(max(self.config.depth, 0)):
             next_frontier: dict[str, float] = defaultdict(float)

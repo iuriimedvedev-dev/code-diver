@@ -1,15 +1,22 @@
 mod bm25;
+mod file_propagate;
 
 pub use bm25::{
     coverage, fuse_hybrid, fuse_hybrid_batch, lexical_from_coverages, HybridWeights, InvertedIndex,
 };
+pub use file_propagate::{
+    expand_adjacency, propagate_file_scores, AdjacencyExpandParams, FileAdjacency,
+    FilePropagateParams,
+};
 
-#[cfg(feature = "python")]
-use pyo3::prelude::*;
 #[cfg(feature = "python")]
 use pyo3::exceptions::PyValueError;
 #[cfg(feature = "python")]
+use pyo3::prelude::*;
+#[cfg(feature = "python")]
 use pyo3::types::PyDict;
+#[cfg(feature = "python")]
+use std::collections::HashMap;
 
 #[cfg(feature = "python")]
 #[pyclass(name = "InvertedIndex")]
@@ -142,11 +149,97 @@ fn fuse_hybrid_batch_py(
 }
 
 #[cfg(feature = "python")]
+fn py_adjacency_to_rust(adjacency: HashMap<String, Vec<(String, f64)>>) -> FileAdjacency {
+    adjacency
+}
+
+#[cfg(feature = "python")]
+fn rust_scores_to_py(py: Python<'_>, scores: HashMap<String, f64>) -> PyResult<PyObject> {
+    let dict = PyDict::new(py);
+    for (id, score) in scores {
+        dict.set_item(id, score)?;
+    }
+    Ok(dict.into())
+}
+
+/// Graph-file `_propagate` (decay ** (depth+1), seed/neighbor/frontier limits).
+#[cfg(feature = "python")]
+#[pyfunction]
+#[pyo3(signature = (adjacency, seed_file_scores, depth, decay, seed_limit, neighbor_limit, frontier_limit=None))]
+fn propagate_file_scores_py(
+    py: Python<'_>,
+    adjacency: HashMap<String, Vec<(String, f64)>>,
+    seed_file_scores: HashMap<String, f64>,
+    depth: usize,
+    decay: f64,
+    seed_limit: usize,
+    neighbor_limit: usize,
+    frontier_limit: Option<usize>,
+) -> PyResult<PyObject> {
+    let scores = propagate_file_scores(
+        &py_adjacency_to_rust(adjacency),
+        &seed_file_scores,
+        FilePropagateParams {
+            depth,
+            decay,
+            seed_limit,
+            neighbor_limit,
+            frontier_limit,
+        },
+    );
+    rust_scores_to_py(py, scores)
+}
+
+/// `FileGraphAdjacencyIndex.expand` (decay ** depth, best_seen, min_score).
+#[cfg(feature = "python")]
+#[pyfunction]
+#[pyo3(signature = (adjacency, seed_file_scores, depth, decay, neighbor_limit, min_score=0.0))]
+fn expand_adjacency_py(
+    py: Python<'_>,
+    adjacency: HashMap<String, Vec<(String, f64)>>,
+    seed_file_scores: HashMap<String, f64>,
+    depth: usize,
+    decay: f64,
+    neighbor_limit: usize,
+    min_score: f64,
+) -> PyResult<PyObject> {
+    let scores = expand_adjacency(
+        &py_adjacency_to_rust(adjacency),
+        &seed_file_scores,
+        AdjacencyExpandParams {
+            depth,
+            decay,
+            neighbor_limit,
+            min_score,
+        },
+    );
+    rust_scores_to_py(py, scores)
+}
+
+#[cfg(feature = "python")]
+#[pyfunction]
+fn coverage_py(query_terms: Vec<String>, candidates: Vec<String>) -> f64 {
+    use std::collections::HashSet;
+    let set: HashSet<String> = candidates.into_iter().collect();
+    coverage(&query_terms, &set)
+}
+
+#[cfg(feature = "python")]
+#[pyfunction]
+fn lexical_from_coverages_py(content_coverage: f64, title_coverage: f64) -> f64 {
+    lexical_from_coverages(content_coverage, title_coverage)
+}
+
+#[cfg(feature = "python")]
 #[pymodule]
 fn code_diver_search(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyInvertedIndex>()?;
     m.add_function(wrap_pyfunction!(fuse_hybrid_py, m)?)?;
     m.add_function(wrap_pyfunction!(fuse_hybrid_batch_py, m)?)?;
+    m.add_function(wrap_pyfunction!(propagate_file_scores_py, m)?)?;
+    m.add_function(wrap_pyfunction!(expand_adjacency_py, m)?)?;
+    m.add_function(wrap_pyfunction!(coverage_py, m)?)?;
+    m.add_function(wrap_pyfunction!(lexical_from_coverages_py, m)?)?;
     m.add("__version__", "0.1.0")?;
     Ok(())
 }

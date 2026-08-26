@@ -351,7 +351,11 @@ mod tests {
             test_weights(),
         )
         .unwrap();
-        assert_eq!(result, vec![0.56, 0.44]);
+        // 0.8*0.5 + 0.5*0.3 + 0.1*0.1 = 0.56
+        // 0.2*0.5 + 0.9*0.3 + 0.3*0.1 + 0.4*0.1 = 0.44 (fp may be 0.44000000000000006)
+        assert_eq!(result.len(), 2);
+        assert!((result[0] - 0.56).abs() < 1e-12);
+        assert!((result[1] - 0.44).abs() < 1e-12);
     }
 
     #[test]

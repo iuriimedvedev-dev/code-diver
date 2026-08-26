@@ -1,0 +1,36 @@
+{"id": "where-holdout-line-markers", "query": "where are gutter line markers computed for the editor", "expected": ["platform/lang-impl/src/com/intellij/codeInsight/daemon/impl/LineMarkersPass.java"]}
+{"id": "where-holdout-scratch-files", "query": "where are scratch files created and stored", "expected": ["platform/lang-impl/src/com/intellij/ide/scratch/ScratchFileServiceImpl.java"]}
+{"id": "where-holdout-file-based-index", "query": "where is the file based index updated and queried", "expected": ["platform/lang-impl/src/com/intellij/util/indexing/FileBasedIndexImpl.java"]}
+{"id": "where-holdout-stub-index", "query": "where is the stub index implemented", "expected": ["platform/lang-impl/src/com/intellij/psi/stubs/StubIndexImpl.java"]}
+{"id": "where-holdout-directory-index", "query": "where is module content directory indexing implemented", "expected": ["platform/projectModel-impl/src/com/intellij/openapi/roots/impl/DirectoryIndexImpl.java"]}
+{"id": "where-holdout-inlay-hints", "query": "where are inlay hints collected for the editor", "expected": ["platform/lang-impl/src/com/intellij/codeInsight/daemon/impl/InlayHintsPassFactoryInternal.kt"]}
+{"id": "where-holdout-todo-toolwindow", "query": "where is the TODO tool window populated", "expected": ["platform/todo/src/com/intellij/ide/todo/TodoView.java"]}
+{"id": "where-holdout-bookmarks", "query": "where are line bookmarks stored and restored", "expected": ["platform/bookmarks/src/com/intellij/ide/bookmark/BookmarksManagerImpl.kt"]}
+{"id": "where-holdout-annotate-blame", "query": "where is VCS annotate blame toggled in the editor gutter", "expected": ["platform/vcs-impl/src/com/intellij/openapi/vcs/actions/AnnotateToggleAction.java"]}
+{"id": "where-holdout-three-way-merge", "query": "where is three-way merge UI processed", "expected": ["platform/diff-impl/src/com/intellij/diff/merge/MergeRequestProcessor.java"]}
+{"id": "where-holdout-goto-file", "query": "where is go to file name matching implemented", "expected": ["platform/lang-impl/src/com/intellij/ide/util/gotoByName/GotoFileModel.java"]}
+{"id": "where-holdout-goto-class", "query": "where is go to class navigation action implemented", "expected": ["platform/lang-impl/src/com/intellij/ide/actions/GotoClassAction.java"]}
+{"id": "where-holdout-recent-projects", "query": "where is the recent projects list persisted", "expected": ["platform/platform-impl/src/com/intellij/ide/RecentProjectsManagerBase.kt"]}
+{"id": "where-holdout-welcome-frame", "query": "where is the IDE welcome screen frame constructed", "expected": ["platform/platform-impl/src/com/intellij/openapi/wm/impl/welcomeScreen/WelcomeFrame.kt"]}
+{"id": "where-holdout-javadoc-generator", "query": "where is JavaDoc HTML generated for quick doc", "expected": ["java/java-impl/src/com/intellij/codeInsight/javadoc/JavaDocInfoGenerator.java"]}
+{"id": "where-holdout-cls-file", "query": "where are compiled .class files represented as PSI", "expected": ["java/java-psi-impl/src/com/intellij/psi/impl/compiled/ClsFileImpl.java"]}
+{"id": "where-holdout-postfix-templates", "query": "where are postfix completion templates defined", "expected": ["platform/lang-impl/src/com/intellij/codeInsight/template/postfix/templates/PostfixTemplate.java"]}
+{"id": "where-holdout-fus-event-log", "query": "where is feature usage statistics event logging implemented", "expected": ["platform/statistics/src/com/intellij/internal/statistic/eventLog/StatisticsEventLogger.kt"]}
+{"id": "where-holdout-trusted-projects", "query": "where is project trust state decided", "expected": ["platform/platform-impl/src/com/intellij/ide/trustedProjects/TrustedProjects.kt"]}
+{"id": "where-holdout-native-file-watcher", "query": "where is native filesystem watching started", "expected": ["platform/platform-impl/src/com/intellij/openapi/vfs/impl/local/NativeFileWatcherImpl.java"]}
+{"id": "where-holdout-runner-layout", "query": "where is the run tool window content layout implemented", "expected": ["platform/execution-impl/src/com/intellij/execution/ui/layout/impl/RunnerContentUi.java"]}
+{"id": "where-holdout-python-run-config", "query": "where is a Python run configuration defined", "expected": ["python/src/com/jetbrains/python/run/PythonRunConfiguration.java"]}
+{"id": "where-holdout-kotlin-facet", "query": "where is the Kotlin module facet implemented", "expected": ["plugins/kotlin/base/facet/src/org/jetbrains/kotlin/idea/facet/KotlinFacet.kt"]}
+{"id": "where-holdout-jps-workspace-sync", "query": "where is JPS project model synchronized into workspace model", "expected": ["platform/platform-impl/src/com/intellij/workspaceModel/ide/impl/jps/serialization/JpsProjectModelSynchronizer.kt"]}
+{"id": "where-holdout-external-system-data", "query": "where is external system project data applied to the IDE model", "expected": ["platform/external-system-impl/src/com/intellij/openapi/externalSystem/service/project/manage/ProjectDataManagerImpl.java"]}
+{"id": "where-holdout-settings-sync", "query": "where is settings sync orchestration started", "expected": ["platform/settings-sync-core/src/com/intellij/settingsSync/core/SettingsSyncMain.kt"]}
+{"id": "where-holdout-properties-psi", "query": "where is a .properties file PSI implemented", "expected": ["plugins/properties/properties-common/src/com/intellij/lang/properties/psi/impl/PropertiesFileImpl.java"]}
+{"id": "where-holdout-xml-psi", "query": "where is XML file PSI implemented", "expected": ["xml/xml-psi-impl/src/com/intellij/psi/impl/source/xml/XmlFileImpl.java"]}
+{"id": "where-holdout-language-injection", "query": "where are language injections registered into the host file", "expected": ["platform/analysis-impl/src/com/intellij/psi/impl/source/tree/injected/InjectionRegistrarImpl.java"]}
+{"id": "where-holdout-wolf-problems", "query": "where are unresolved problems tracked across the project", "expected": ["platform/analysis-impl/src/com/intellij/codeInsight/daemon/impl/WolfTheProblemSolverImpl.java"]}
+{"id": "where-holdout-problems-view", "query": "where is the problems tool window panel implemented", "expected": ["platform/problemsView/ui/src/com/intellij/analysis/problemsView/toolWindow/ProblemsViewPanel.java"]}
+{"id": "where-holdout-psi-document", "query": "where is PSI kept in sync with the document", "expected": ["platform/lang-impl/src/com/intellij/psi/impl/PsiDocumentManagerImpl.java"]}
+{"id": "where-holdout-editor-gutter", "query": "where is the editor gutter component painted", "expected": ["platform/platform-impl/src/com/intellij/openapi/editor/impl/EditorGutterComponentImpl.java"]}
+{"id": "where-holdout-uast-language-plugin", "query": "where are UAST language plugins registered", "expected": ["uast/uast-common/src/org/jetbrains/uast/UastLanguagePlugin.kt"]}
+{"id": "where-holdout-library-tables", "query": "where are project and application library tables registered", "expected": ["platform/projectModel-impl/src/com/intellij/openapi/roots/impl/libraries/LibraryTablesRegistrarImpl.java"]}
+{"id": "where-holdout-sm-test-console", "query": "where is the SM test runner console view implemented", "expected": ["platform/smRunner/src/com/intellij/execution/testframework/sm/runner/ui/SMTRunnerConsoleView.java"]}

@@ -25,6 +25,7 @@ from .hybrid_query import HybridQuery
 from .hybrid_query_analyzer import HybridQueryAnalyzer
 from .hybrid_query_router import HybridQueryRouter
 from .hybrid_rank_context import HybridRankContext
+from .query_fusion_router import QueryFusionRouter
 from .retrieval_strategy import RetrievalStrategy
 
 LEXICAL_SCORING_BM25 = "bm25"
@@ -55,6 +56,7 @@ class HybridRetrievalStrategy(RetrievalStrategy):
         self.trace_logger = trace_logger or TraceLogger.disabled()
         self.analyzer = HybridQueryAnalyzer(config)
         self.router = HybridQueryRouter()
+        self.fusion_router = QueryFusionRouter()
         self.item_profiler = HybridItemProfiler()
         self.item_kind_resolver = CodeItemIndexKindResolver()
         self.graph_profile_factory = GraphExpansionProfileFactory()
@@ -94,7 +96,9 @@ class HybridRetrievalStrategy(RetrievalStrategy):
 
         scores = self._seed_vector_scores(vector_results)
         query_profile = self.analyzer.analyze(query)
-        active_config = self.router.route(query, query_profile.terms, self.config)
+        active_config = self.fusion_router.apply_hybrid(
+            query, self.router.route(query, query_profile.terms, self.config)
+        )
         scorer = HybridCandidateScorer(
             query_profile,
             self.item_profiler,

@@ -75,6 +75,7 @@ class RetrievalStrategyFactory:
                 RerankProviderFactory().create(config.cross_encoder_rerank),
                 config.cross_encoder_rerank,
                 trace_logger=TraceLogger(config.trace),
+                repository_root=config.root,
             )
         if strategy_id is RetrievalStrategyId.HYBRID:
             return self._hybrid_strategy(config, provider, vector_store)
@@ -98,6 +99,7 @@ class RetrievalStrategyFactory:
                 RerankProviderFactory().create(config.cross_encoder_rerank),
                 config.cross_encoder_rerank,
                 trace_logger=TraceLogger(config.trace),
+                repository_root=config.root,
             )
         raise ValueError(f"Unknown retrieval strategy: {strategy}")
 

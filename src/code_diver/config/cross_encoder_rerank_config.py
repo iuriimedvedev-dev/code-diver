@@ -21,3 +21,4 @@ class CrossEncoderRerankConfig:
     widen_candidate_limit: int = Defaults.CROSS_ENCODER_RERANK_WIDEN_CANDIDATE_LIMIT
     widen_margin_check_rank: int = Defaults.CROSS_ENCODER_RERANK_WIDEN_MARGIN_CHECK_RANK
     widen_score_margin_below: float = Defaults.CROSS_ENCODER_RERANK_WIDEN_SCORE_MARGIN_BELOW
+    use_file_head_document: bool = Defaults.CROSS_ENCODER_RERANK_USE_FILE_HEAD_DOCUMENT
