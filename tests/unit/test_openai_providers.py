@@ -123,6 +123,7 @@ def test_openai_embedding_provider_truncates_dense_punctuation_within_token_limi
     text = "!!!...;;;:::((()))[[[]]]{{{}}}???!!!" * 3
 
     assert provider.embed_documents([text]) == [[1.0, 2.0, 3.0]]
+    assert len(calls) == 1
     assert len(calls[0]["input"][0]) <= 24
 
 
@@ -144,6 +145,7 @@ def test_openai_embedding_provider_truncates_generics_like_text_within_token_lim
     text = "List<Map<String,Integer>>.stream().collect(Collectors.toList())" * 5
 
     assert provider.embed_query(text) == [1.0, 2.0, 3.0]
+    assert len(calls) == 1
     assert len(calls[0]["input"][0]) <= 32
 
 
@@ -162,6 +164,7 @@ def test_openai_embedding_provider_keeps_short_text_unchanged(monkeypatch) -> No
     provider.embed_documents([text])
 
     assert calls[0]["input"] == [text]
+    assert len(calls) == 1
 
 
 def test_openai_embedding_provider_retries_context_error_and_returns_result(monkeypatch) -> None:
@@ -169,7 +172,9 @@ def test_openai_embedding_provider_retries_context_error_and_returns_result(monk
         pass
 
     monkeypatch.setattr("code_diver.providers.openai_embedding_provider.BadRequestError", ContextLengthError)
-    provider = OpenAIEmbeddingProvider(api_key="key", dimensions=3, max_input_chars=None)
+    provider = OpenAIEmbeddingProvider(
+        api_key="key", dimensions=3, document_prefix=None, max_input_chars=None
+    )
     calls: list[dict] = []
 
     def fake_post(payload):
@@ -182,6 +187,7 @@ def test_openai_embedding_provider_retries_context_error_and_returns_result(monk
 
     assert provider.embed_documents(["text" * 20]) == [[1.0, 2.0, 3.0]]
     assert len(calls) == 2
+    assert calls[0]["input"] == ["text" * 20]
     assert len(calls[1]["input"][0]) < len(calls[0]["input"][0])
 
 
