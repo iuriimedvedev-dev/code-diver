@@ -82,6 +82,26 @@ def test_build_places_head_section_before_symbols() -> None:
     )
 
 
+def test_build_uses_complete_stable_section_order() -> None:
+    item = FileSummaryItemBuilder().build(
+        "ordered.py",
+        "from package import value\nhead marker",
+        symbols=[
+            CodeSymbol(
+                name="parse",
+                kind="function",
+                start_line=1,
+                end_line=1,
+                signature="parse()",
+            )
+        ],
+    )
+
+    sections = ["file:", "extension:", "head:", "symbols:", "imports:"]
+    positions = [item.content.index(section) for section in sections]
+    assert positions == sorted(positions)
+
+
 def test_head_section_is_unchanged_for_a_normal_small_file() -> None:
     text = (
         "from services.auth import authorize\n"

@@ -24,6 +24,7 @@ SCHEMA_VERSION = 1
 class JsonVectorStore(VectorStore):
     def __init__(self, artifact: Path):
         self.artifact = artifact
+        self._payload_cache: dict[str, Any] | None = None
         self._records_cache: list[dict[str, Any]] | None = None
         self._items_cache: list[CodeItem] | None = None
         self._normalized_vectors_cache: Any | None = None
@@ -66,7 +67,7 @@ class JsonVectorStore(VectorStore):
         self._invalidate_caches()
 
     def metadata(self) -> dict[str, Any]:
-        payload = self._load()
+        payload = self._cached_payload()
         return {
             SchemaKey.PROVIDER.value: payload[SchemaKey.PROVIDER.value],
             SchemaKey.MODEL.value: payload[SchemaKey.MODEL.value],
@@ -101,7 +102,7 @@ class JsonVectorStore(VectorStore):
         return scored[:limit]
 
     def load_items_and_vectors(self) -> tuple[dict[str, Any], list[CodeItem], list[list[float]]]:
-        payload = self._load()
+        payload = self._cached_payload()
         records = self._cached_records()
         items = self._cached_items()
         vectors = [[float(value) for value in record[SchemaKey.VECTOR.value]] for record in records]
@@ -137,6 +138,7 @@ class JsonVectorStore(VectorStore):
         return self._normalized_vectors_cache
 
     def _invalidate_caches(self) -> None:
+        self._payload_cache = None
         self._records_cache = None
         self._items_cache = None
         self._normalized_vectors_cache = None
@@ -145,9 +147,14 @@ class JsonVectorStore(VectorStore):
 
     def _cached_records(self) -> list[dict[str, Any]]:
         if self._records_cache is None:
-            payload = self._load()
+            payload = self._cached_payload()
             self._records_cache = payload.get(SchemaKey.ITEMS.value) or []
         return self._records_cache
+
+    def _cached_payload(self) -> dict[str, Any]:
+        if self._payload_cache is None:
+            self._payload_cache = self._load()
+        return self._payload_cache
 
     def _load(self) -> dict[str, Any]:
         if not self.artifact.exists():

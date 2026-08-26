@@ -80,3 +80,27 @@ def test_json_vector_store_kind_search_reuses_partition_and_vectors(tmp_path: Pa
     store.save(root=tmp_path, provider="hash", model="test", dimensions=2, items=[replacement], vectors=[[0, 1]])
 
     assert store.search_by_index_kind([0, 1], limit=1, index_kind="symbol")[0].item.id == "replacement"
+
+
+def test_json_vector_store_reuses_one_parsed_payload_across_reads(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    store = JsonVectorStore(tmp_path / "index.json")
+    item = CodeItem(id="a", path="a.py", title="A", content="alpha", metadata={"index_kind": "symbol"})
+    store.save(root=tmp_path, provider="hash", model="test", dimensions=2, items=[item], vectors=[[3, 4]])
+
+    loads = 0
+    original_load = store._load
+
+    def counting_load() -> dict[str, object]:
+        nonlocal loads
+        loads += 1
+        return original_load()
+
+    monkeypatch.setattr(store, "_load", counting_load)
+    store.metadata()
+    store.search([3, 4], limit=1)
+    store.load_items_and_vectors()
+
+    assert loads == 1
+    normalized = store._cached_normalized_vectors()
+    values = [float(value) for value in normalized]
+    assert values == pytest.approx([0.6, 0.8], abs=1e-6)
