@@ -257,11 +257,17 @@ def main(argv: list[str] | None = None, client: LLMClient | None = None) -> int:
     try:
         records = load_dump(args.dump)
         if args.dry_run:
+            gold_in_pool = sum(
+                bool(set(record.gold_paths).intersection(candidate.path for candidate in record.candidates[: args.top_k_pool]))
+                for record in records
+            )
             result: dict[str, Any] = {
                 "mode": "dry_run",
                 "dump": str(args.dump),
                 "records": len(records),
-                "pool": {"records_with_gold": sum(bool(record.gold_paths) for record in records)},
+                "top_k_pool": args.top_k_pool,
+                "top_k_out": args.top_k_out,
+                "pool": {"records_with_gold": gold_in_pool},
             }
         else:
             active_client = None if args.baseline else (client or _client_from_env())
