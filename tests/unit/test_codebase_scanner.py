@@ -442,6 +442,7 @@ def test_default_test_source_directories_are_excluded_at_any_depth(tmp_path: Pat
     for directory in ("testSrc", "testSources", "platform-tests"):
         assert scanner._is_excluded(f"module/{directory}/nested/Excluded.java") is True
         assert scanner._is_excluded(f"module/{directory}", is_dir=True) is True
+    assert scanner._is_excluded("src/main/Foo.java") is False
 
     items = scanner.scan(tmp_path)
 
