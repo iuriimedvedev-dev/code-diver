@@ -80,6 +80,29 @@ def test_openai_embedding_provider_bounds_prefixed_query_and_documents(monkeypat
     assert calls[1]["input"] == ["query: abcde"]
 
 
+def test_openai_embedding_provider_uses_optional_tokenizer_for_prefixed_text(monkeypatch) -> None:
+    class Tokenizer:
+        def encode(self, text, add_special_tokens=False):
+            return list(text)
+
+        def decode(self, tokens, skip_special_tokens=True):
+            return "".join(tokens)
+
+    provider = OpenAIEmbeddingProvider(
+        api_key="key",
+        dimensions=3,
+        document_prefix="doc: ",
+        max_input_chars=10,
+        tokenizer=Tokenizer(),
+    )
+    calls = []
+    monkeypatch.setattr(provider, "_post", lambda payload: calls.append(payload) or {"data": [{"index": 0, "embedding": [1, 2, 3]}]})
+
+    provider.embed_documents(["abcdefghijk"])
+
+    assert calls[0]["input"] == ["doc: abcde"]
+
+
 def test_openai_embedding_provider_retries_only_overflowing_item(monkeypatch) -> None:
     provider = OpenAIEmbeddingProvider(
         api_key="key",

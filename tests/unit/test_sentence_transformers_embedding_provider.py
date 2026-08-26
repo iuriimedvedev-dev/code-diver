@@ -95,8 +95,12 @@ class _CharacterTokenizer:
 
 def test_embedding_text_truncation_handles_punctuation_and_generics_at_token_boundaries() -> None:
     tokenizer = _CharacterTokenizer()
-    assert truncate_embedding_text("Map<String,List<int>>!!!", 17, tokenizer) == "Map<String,List<i"
+    assert truncate_embedding_text("Map<String,List<int>>!!! foo.bar(baz)", 17, tokenizer) == "Map<String,List<i"
     assert truncate_embedding_text("abcdef", 20, tokenizer) == "abcdef"
+
+
+def test_embedding_text_truncation_falls_back_to_conservative_character_limit() -> None:
+    assert truncate_embedding_text("<T extends Foo.Bar<K>>", 8) == "<T exten"
 
 
 def test_sentence_transformers_retries_only_overflowing_item(monkeypatch) -> None:
@@ -122,3 +126,19 @@ def test_sentence_transformers_retries_only_overflowing_item(monkeypatch) -> Non
     assert _RetryModel.calls[1]["texts"] == ["short"]
     assert _RetryModel.calls[2]["texts"] == ["long" * 20]
     assert _RetryModel.calls[-1]["texts"] == ["long" * 5]
+
+
+def test_sentence_transformers_retry_stops_when_input_cannot_shrink(monkeypatch) -> None:
+    class _AlwaysOverflow(_FakeSentenceTransformer):
+        def encode(self, texts: list[str], **kwargs):
+            raise RuntimeError("context_length_exceeded")
+
+    monkeypatch.setitem(
+        sys.modules,
+        "sentence_transformers",
+        types.SimpleNamespace(SentenceTransformer=_AlwaysOverflow),
+    )
+    provider = SentenceTransformersEmbeddingProvider("local/embedder", max_input_chars=None)
+
+    with pytest.raises(RuntimeError, match="context_length_exceeded"):
+        provider.embed_query("long text")

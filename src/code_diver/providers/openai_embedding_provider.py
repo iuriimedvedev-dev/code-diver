@@ -30,6 +30,7 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
         send_dimensions: bool = True,
         retry_attempts: int = Defaults.EMBEDDING_RETRY_ATTEMPTS,
         retry_delay_seconds: float = Defaults.EMBEDDING_RETRY_DELAY_SECONDS,
+        tokenizer: Any | None = None,
     ):
         self.name = EmbeddingProviderId.OPENAI.value
         self.model = model
@@ -41,6 +42,7 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
         self.query_prefix = query_prefix
         self.max_input_chars = max_input_chars
         self.send_dimensions = send_dimensions
+        self.tokenizer = tokenizer
         self.retry = TransientGenerationRetry(
             attempts=retry_attempts,
             base_delay_seconds=retry_delay_seconds,
@@ -70,7 +72,7 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
         prefixed = self._prefixed(prefix, text)
         if self.max_input_chars is None or self.max_input_chars <= 0:
             return prefixed
-        return truncate_embedding_text(prefixed, self.max_input_chars)
+        return truncate_embedding_text(prefixed, self.max_input_chars, self.tokenizer)
 
     def _embed_with_context_retry(self, texts: list[str]) -> list[list[float]]:
         try:
@@ -88,7 +90,10 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
     def _retry_overflowing_item(self, text: str) -> list[list[float]]:
         current = text
         for attempt in range(1, 4):
-            current = shrink_embedding_text(current)
+            shortened = shrink_embedding_text(current, self.tokenizer)
+            if len(shortened) >= len(current):
+                raise RuntimeError("Embedding input still exceeds context after maximum safe shrink.")
+            current = shortened
             logger.warning(
                 "Embedding input exceeded context; retrying item with %d characters (attempt %d/3).",
                 len(current),

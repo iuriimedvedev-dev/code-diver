@@ -76,7 +76,10 @@ class SentenceTransformersEmbeddingProvider(EmbeddingProvider):
             if len(texts) == 1:
                 current = texts[0]
                 for attempt in range(1, 4):
-                    current = shrink_embedding_text(current, getattr(self._load_model(), "tokenizer", None))
+                    shortened = shrink_embedding_text(current, getattr(self._load_model(), "tokenizer", None))
+                    if len(shortened) >= len(current):
+                        raise RuntimeError("Embedding input still exceeds context after maximum safe shrink.")
+                    current = shortened
                     logger.warning(
                         "Embedding input exceeded context; retrying item with %d characters (attempt %d/3).",
                         len(current),
@@ -119,4 +122,18 @@ def _batches(items: list[str], size: int):
 
 def _is_context_overflow(exc: Exception) -> bool:
     message = str(exc).lower()
-    return any(marker in message for marker in ("context length", "maximum context", "input too long", "too many tokens", "sequence length"))
+    return any(
+        marker in message
+        for marker in (
+            "context length",
+            "maximum context",
+            "context window",
+            "input too long",
+            "too many tokens",
+            "sequence length",
+            "max_seq_len",
+            "context_length_exceeded",
+            "input_too_long",
+            "max_tokens_exceeded",
+        )
+    )
