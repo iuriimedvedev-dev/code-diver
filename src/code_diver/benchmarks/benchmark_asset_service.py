@@ -5,6 +5,7 @@ from typing import Any
 
 from .benchmark_profile import BenchmarkProfile
 from .mteb_codesearchnet_preparer import MtebCodeSearchNetPreparer
+from .mteb_swebench_preparer import MtebSweBenchPreparer
 
 
 class BenchmarkAssetService:
@@ -17,6 +18,8 @@ class BenchmarkAssetService:
         print(f"Preparing benchmark assets for {profile.name}...", file=sys.stderr)
         if preparation.kind == "mteb_codesearchnet":
             return MtebCodeSearchNetPreparer(preparation).run()
+        if preparation.kind == "mteb_swebench":
+            return MtebSweBenchPreparer(preparation).run()
         raise ValueError(f"Unsupported benchmark preparation kind: {preparation.kind}")
 
     def _assets_exist(self, profile: BenchmarkProfile) -> bool:

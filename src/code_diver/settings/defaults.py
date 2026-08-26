@@ -156,6 +156,15 @@ class Defaults:
     HYBRID_VECTOR_TOP_SCORE_MARGIN = 0.03
     HYBRID_ITEM_KIND_WEIGHTS: ClassVar[dict[str, float]] = {"file_summary": 1.0, "file_manifest": 1.08}
     HYBRID_MIN_TOKEN_LENGTH = 3
+    # H49: dampens path/symbol/symbol_match contribution for "sibling" candidates whose
+    # path/symbol coverage score is indistinguishable (same/near-identical), so weak path/symbol
+    # signal cannot arbitrarily pick a winner among siblings when vector+lexical has to do the
+    # real work. Disabled by default -- families below the min size are never touched, so
+    # existing mechanical-query behavior (a unique path/symbol hit) is unaffected either way.
+    HYBRID_FAMILY_PENALTY_ENABLED = False
+    HYBRID_FAMILY_PENALTY_MIN_FAMILY_SIZE = 3
+    HYBRID_FAMILY_PENALTY_SCORE_TOLERANCE = 0.0
+    HYBRID_FAMILY_PENALTY_STRENGTH = 1.0
     HYBRID_QUERY_EXPANSION_ENABLED = False
     HYBRID_QUERY_EXPANSION_ALIASES: ClassVar[dict[str, list[str]]] = {
         "auth": ["authorization", "authenticate", "authentication", "token", "permission"],
@@ -230,6 +239,14 @@ class Defaults:
     CROSS_ENCODER_RERANK_PRESERVE_TOP_CANDIDATE = False
     CROSS_ENCODER_RERANK_PRESERVE_TOP_SCORE_MARGIN = 0.0
     CROSS_ENCODER_RERANK_SKIP_WHEN_TOP_MARGIN_AT_LEAST = None
+    # H49: when the base fusion ranking is "flat" near the top (no confident leader), the
+    # correct file for a semantic query is more likely to be buried past candidate_limit. Widen
+    # the reranked window for that query only. Disabled by default -- reproduces candidate_limit
+    # exactly when unset.
+    CROSS_ENCODER_RERANK_WIDEN_WHEN_UNCERTAIN_ENABLED = False
+    CROSS_ENCODER_RERANK_WIDEN_CANDIDATE_LIMIT = 80
+    CROSS_ENCODER_RERANK_WIDEN_MARGIN_CHECK_RANK = 5
+    CROSS_ENCODER_RERANK_WIDEN_SCORE_MARGIN_BELOW = 0.05
     GRAPH_EXPANSION_DEPTH = 0
     GRAPH_NEIGHBOR_LIMIT = 0
     GRAPH_AST_ENABLED = False

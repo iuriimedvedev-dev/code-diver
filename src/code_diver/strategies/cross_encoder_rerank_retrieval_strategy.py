@@ -29,8 +29,12 @@ class CrossEncoderRerankRetrievalStrategy(RetrievalStrategy):
         self.rerank_failure_count = 0
 
     def search(self, query: str, limit: int) -> list[SearchResult]:
-        candidates = self.base_strategy.search(query, max(limit, self.config.candidate_limit))
-        rerank_candidates = candidates[: self.config.candidate_limit]
+        fetch_limit = max(limit, self.config.candidate_limit)
+        if self.config.widen_when_uncertain_enabled:
+            fetch_limit = max(fetch_limit, self.config.widen_candidate_limit)
+        candidates = self.base_strategy.search(query, fetch_limit)
+        effective_candidate_limit = self._effective_candidate_limit(query, candidates)
+        rerank_candidates = candidates[:effective_candidate_limit]
         tail_candidates = candidates[len(rerank_candidates) :]
         if len(rerank_candidates) <= 1:
             return candidates[:limit]
@@ -159,6 +163,47 @@ class CrossEncoderRerankRetrievalStrategy(RetrievalStrategy):
             return True
         margin = candidates[0].score - candidates[1].score
         return margin >= self.config.preserve_top_score_margin
+
+    def _effective_candidate_limit(self, query: str, candidates: list[SearchResult]) -> int:
+        """Widen the reranked window for queries where the base fusion ranking is "flat".
+
+        H49 / H-B: `candidate_limit` (typically 34) is a hard cutoff on the base fusion order --
+        anything below it is appended untouched and the cross-encoder never sees it, no matter
+        how good it is semantically. On realistic developer questions, weak path/symbol/lexical
+        signal often leaves the base ranking with no confident leader near the top, which
+        correlates with the correct file being buried past the cutoff (Finding: 5/6 sampled
+        zero-recall where-cases had this shape). This gate looks only at the base fusion scores
+        already returned by `base_strategy.search` (no extra cost) and widens the window when the
+        margin between rank 1 and rank `widen_margin_check_rank` is smaller than
+        `widen_score_margin_below`, i.e. the base ranking has no clear winner. Mechanical queries,
+        which have a unique discriminating path/symbol hit, keep a wide top-1 margin and are left
+        at the normal `candidate_limit`.
+        """
+        base_limit = self.config.candidate_limit
+        if not self.config.widen_when_uncertain_enabled:
+            return base_limit
+        check_rank = self.config.widen_margin_check_rank
+        if check_rank < 2 or len(candidates) < check_rank:
+            return base_limit
+        margin = candidates[0].score - candidates[check_rank - 1].score
+        if margin >= self.config.widen_score_margin_below:
+            return base_limit
+        widened_limit = min(self.config.widen_candidate_limit, len(candidates))
+        self.trace_logger.write(
+            "cross_encoder_rerank_widened",
+            {
+                "provider": self.rerank_provider.name,
+                "model": self.rerank_provider.model,
+                "query": query,
+                "reason": "flat_base_ranking",
+                "margin": margin,
+                "threshold": self.config.widen_score_margin_below,
+                "check_rank": check_rank,
+                "base_candidate_limit": base_limit,
+                "widened_candidate_limit": widened_limit,
+            },
+        )
+        return widened_limit
 
     def _skip_rerank_margin(self, candidates: list[SearchResult]) -> float | None:
         threshold = self.config.skip_when_top_margin_at_least

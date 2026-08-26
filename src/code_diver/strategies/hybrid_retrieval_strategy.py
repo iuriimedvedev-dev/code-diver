@@ -137,6 +137,7 @@ class HybridRetrievalStrategy(RetrievalStrategy):
         if self._uses_bounded_catalog():
             self._score_existing_candidates(scores, scorer)
 
+        self._apply_family_penalty(scores, active_config)
         self._apply_file_vote_scores(scores, active_config)
         return HybridRankContext(
             query=query,
@@ -357,6 +358,60 @@ class HybridRetrievalStrategy(RetrievalStrategy):
         if high == low:
             return {item_id: 1.0 for item_id in scores}
         return {item_id: (score - low) / (high - low) for item_id, score in scores.items()}
+
+    _FAMILY_PENALTY_FIELDS: tuple[str, ...] = ("path_score", "symbol_score", "symbol_match_score")
+
+    def _apply_family_penalty(
+        self,
+        scores: dict[str, HybridCandidateScore],
+        config: HybridSearchConfig,
+    ) -> None:
+        """Dampen path/symbol/symbol_match for candidates that tie on that dimension.
+
+        H49 / H-A: sibling files in the same area of the codebase (e.g. RenameHandler.java and
+        RenameProcessor.java) often share every path token the query has, so their path_score
+        comes out identical, while their symbol_score can legitimately differ (distinct class
+        names). Each field is therefore treated as its own independent "family": within
+        path_score, within symbol_score, and within symbol_match_score separately, candidates
+        that tie (or nearly tie, given `family_penalty_score_tolerance`) on that one field form a
+        family, and if the family has at least `family_penalty_min_family_size` members, that
+        field's contribution is proportionally dampened for all of them -- because a value every
+        member of a large tied group shares cannot be what discriminates among them. This gives
+        zero discrimination for exactly the fraction of the fused score (up to path_weight +
+        symbol_weight + symbol_match_weight) that a tied field would otherwise contribute,
+        forcing the fused score to lean on vector+lexical there. Families below the size
+        threshold (the normal case for mechanical queries, where the correct file's path/symbol
+        match is usually unique) are left untouched on that field.
+        """
+        if not config.family_penalty_enabled or not scores:
+            return
+        for field in self._FAMILY_PENALTY_FIELDS:
+            self._dampen_tied_field(scores, config, field)
+
+    def _dampen_tied_field(
+        self,
+        scores: dict[str, HybridCandidateScore],
+        config: HybridSearchConfig,
+        field: str,
+    ) -> None:
+        families: dict[float, list[HybridCandidateScore]] = defaultdict(list)
+        for score in scores.values():
+            value = getattr(score, field)
+            if value <= 0.0:
+                continue
+            families[self._family_key(value, config.family_penalty_score_tolerance)].append(score)
+        for members in families.values():
+            family_size = len(members)
+            if family_size < config.family_penalty_min_family_size:
+                continue
+            factor = (config.family_penalty_min_family_size / family_size) ** config.family_penalty_strength
+            for member in members:
+                setattr(member, field, getattr(member, field) * factor)
+
+    def _family_key(self, value: float, tolerance: float) -> float:
+        if tolerance <= 0.0:
+            return value
+        return round(value / tolerance) * tolerance
 
     def _apply_file_vote_scores(
         self,

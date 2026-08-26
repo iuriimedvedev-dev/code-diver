@@ -580,6 +580,90 @@ def test_hybrid_strategy_zero_graph_weight_ignores_graph_edges(tmp_path: Path) -
     ]
 
 
+def test_hybrid_strategy_family_penalty_breaks_sibling_tie_with_vector_signal(tmp_path: Path) -> None:
+    # Four sibling files all share the same directory/symbol tokens for "rename refactoring",
+    # so path/symbol scoring alone cannot distinguish them. Only the vector score (standing in
+    # for semantic relevance) points at the correct sibling.
+    siblings = [
+        CodeItem(
+            id=f"sibling-{index}",
+            path=f"src/refactoring/rename/Rename{name}.py",
+            title=f"Rename{name}",
+            content="rename refactoring handler",
+        )
+        for index, name in enumerate(["Handler", "Model", "Dialog", "Processor"])
+    ]
+    correct = siblings[3]
+    graph_store = _graph_store(tmp_path, siblings, [])
+    config = HybridSearchConfig(
+        candidate_limit=10,
+        lexical_candidate_limit=10,
+        vector_weight=0.4,
+        lexical_weight=0.0,
+        path_weight=0.3,
+        symbol_weight=0.3,
+        graph_weight=0.0,
+        preserve_vector_top=False,
+        family_penalty_enabled=True,
+        family_penalty_min_family_size=3,
+    )
+    strategy = HybridRetrievalStrategy(
+        FakeRetrievalStrategy(
+            [
+                SearchResult(siblings[0], 0.5),
+                SearchResult(siblings[1], 0.5),
+                SearchResult(siblings[2], 0.5),
+                SearchResult(correct, 0.95),
+            ]
+        ),
+        graph_store,
+        config,
+    )
+
+    results = strategy.search("where is rename refactoring coordinated", limit=1)
+
+    assert results[0].item.id == correct.id
+
+
+def test_hybrid_strategy_family_penalty_leaves_small_families_untouched(tmp_path: Path) -> None:
+    # Only two candidates share path/symbol coverage -- below family_penalty_min_family_size --
+    # so the unique-match story used by mechanical queries must be unaffected.
+    unique_match = CodeItem(
+        id="unique",
+        path="src/manifest/JavaManifestUtil.java",
+        title="JavaManifestUtil",
+        content="java manifest util implementation",
+    )
+    other = CodeItem(
+        id="other",
+        path="src/manifest/JavaManifestReader.java",
+        title="JavaManifestReader",
+        content="java manifest reader implementation",
+    )
+    graph_store = _graph_store(tmp_path, [unique_match, other], [])
+    config = HybridSearchConfig(
+        candidate_limit=10,
+        lexical_candidate_limit=10,
+        vector_weight=0.2,
+        lexical_weight=0.2,
+        path_weight=0.3,
+        symbol_weight=0.3,
+        graph_weight=0.0,
+        preserve_vector_top=False,
+        family_penalty_enabled=True,
+        family_penalty_min_family_size=3,
+    )
+    strategy = HybridRetrievalStrategy(
+        FakeRetrievalStrategy([SearchResult(unique_match, 0.6), SearchResult(other, 0.59)]),
+        graph_store,
+        config,
+    )
+
+    results = strategy.search("java manifest util", limit=2)
+
+    assert results[0].item.id == unique_match.id
+
+
 def _spy_on_graph_scores(strategy: HybridRetrievalStrategy) -> Callable[[], int]:
     original = strategy._graph_scores
     calls = {"count": 0}

@@ -1,0 +1,222 @@
+# H51: raise the embedding content budget (task #63, H-2).
+#
+# EXACTLY ONE embedding-config variable differs from intellij-h46-preserve-top.yml:
+# embedding.max_input_chars: 500 -> 1800. storage.qdrant.collection also differs
+# (see "Why a new collection" below) but that is a mechanical requirement of testing
+# this change at all, not a second experimental variable.
+#
+# Motivation (task #63): at max_input_chars=500, file_manifest records (the more
+# heavily-weighted of the two per-file vector kinds -- hybrid_search.item_kind_weights
+# .file_manifest: 1.08 vs file_summary: 1.0, see below) keep only a small fraction of
+# each file's actual symbol list, because path/package/directory preamble consumes most
+# of a 500-char budget before any symbol content appears. Raising the budget lets more
+# real symbol content reach the embedding.
+#
+# Why 1200 chars, NOT 1800 (revised after a real empirical failure, not a guess):
+# the embedder (scripts/serve_embedder.sh, vLLM, port 8001, Qwen3-Embedding-0.6B-4bit-DWQ)
+# runs with --max-model-len 512 -- a HARD token limit; requests over it are rejected
+# with an HTTP error, not silently truncated (vllm/renderers/params.py
+# _token_len_check). A 50-document sample of real file_manifest payloads from the live
+# Qdrant collection (worst case ~7300 raw chars) suggested 1800 chars was safe
+# (402 tokens worst-case in-sample, ~21% margin below 512). THIS WAS WRONG: a real
+# full-corpus reindex attempt at max_input_chars=1800 (a genuinely different, larger
+# collection than the 50-doc sample) failed on the very first embedding batch
+# (item 1-128 of 150 620) with:
+#   HTTP 400: "This model's maximum context length is 512 tokens... your prompt
+#   contains at least 513 input tokens" (vLLM, /v1/embeddings).
+# I.e. some real file in the full 74 906-file corpus produced ~1800 prefixed chars at
+# roughly 3.5 chars/token -- much denser than the 50-doc sample's worst case
+# (4.48 chars/token) -- and missed by 1 token. The 50-document sample was not
+# representative of the true worst case. 1200 chars is chosen instead because: (a) it
+# is EMBEDDING_MAX_INPUT_CHARS's own code-level default (settings/defaults.py:28) and
+# is already the value used, apparently safely, across most configs/benchmarks/*
+# CodeSearchNet/SWE-bench configs for this same Qwen3-Embedding model family; (b) at
+# the true worst-case-observed density (~3.5 chars/token), 1200 chars projects to
+# ~342 tokens, leaving ~33% margin below the 512 cap -- a real margin against further
+# unseen outliers, not a razor's edge. This is still 2.4x the champion's 500-char
+# budget. If this build also fails, drop further (e.g. 900, also already used
+# elsewhere in the repo) rather than re-attempting near 1800 again.
+#
+# Why a new collection (storage.qdrant.collection): max_input_chars only affects
+# retrieval if the DOCUMENT vectors it controls are re-embedded -- it is baked in at
+# index time (services/indexing_service.py), not applied at query time. The champion's
+# collection intellij_community_file_manifest_local_qwen is a static, non-hashed name
+# (services/index_collection_resolver.py only auto-hashes the sentinel default
+# "code_diver"), so raising max_input_chars while keeping that name would be a SILENT
+# NO-OP: `evaluate` finds the alias already resolves (QdrantVectorStore.exists() ->
+# True) and never re-indexes unless --reindex is passed. Using a new name here means
+# the champion's live collection (intellij_community_file_manifest_local_qwen__staging_...,
+# 150 620 points) is never touched, read, or written -- confirmed via
+# qdrant_vector_store.py's blue-green replace_batches (builds into a fresh
+# <name>__staging_<uuid>, only swaps the alias after every batch upserts successfully;
+# a failure just discards the staging collection -- this is exactly what happened to
+# the failed 1800c attempt, which left no orphaned/partial collection behind).
+# This experiment collection: intellij_h51_max_input_chars_1200c_qwen (renamed from
+# the failed _1800c_ attempt to avoid any ambiguity about which build it holds).
+#
+# vector_kind_multipliers/item_kind_weights.file_manifest (1.08, an 8% up-weight for
+# the more heavily-truncated/path-polluted of the two kinds) is left UNCHANGED here so
+# this run isolates max_input_chars as the only variable. Whether to lower that 1.08
+# weight now that file_manifest carries more real content is tested separately, as a
+# zero-reindex-cost variant, in intellij-h51b-manifest-weight-down.yml (see that file's
+# header for results/rationale) -- not combined into this run so the two effects stay
+# individually attributable, per task #63's instruction.
+
+root: ../intellij-community
+
+storage:
+  provider: qdrant
+  qdrant:
+    url: http://localhost:6333
+    collection: intellij_h51_max_input_chars_1200c_qwen
+    batch_size: 1024
+
+embedding:
+  provider: openai_compatible
+  model: mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ
+  dimensions:
+  url: http://127.0.0.1:8001/v1/embeddings
+  api_key: local
+  batch_size: 128
+  workers: 4
+  max_input_chars: 1200
+
+search:
+  limit: 10
+  preview_lines: 8
+  strategy: graph_file_cross_encoder
+
+# Unused on the search axis (no generation), kept so the file loads standalone.
+generation:
+  provider: openai_compatible
+  model: mlx-community/Qwen3.5-4B-OptiQ-4bit
+  url: http://127.0.0.1:8012/v1/chat/completions
+  api_key: local
+  temperature: 0
+  max_tokens: 2048
+  timeout_ms: 240000
+
+indexing:
+  mode: scanner
+
+# Verbatim from intellij-h46-preserve-top.yml / intellij-postrank-h3-manifest.yml. This
+# IS exercised here (a real re-index is required for max_input_chars to take effect at
+# all -- see header), so this must match the champion's scanner settings exactly for
+# the resulting corpus to be a fair comparison, differing only in max_input_chars.
+scanner:
+  include:
+    - README.md
+    - CONTRIBUTING.md
+    - build.gradle
+    - build.gradle.kts
+    - settings.gradle
+    - settings.gradle.kts
+    - "**/*.java"
+    - "**/*.kt"
+    - "**/*.kts"
+    - "**/*.xml"
+    - "**/*.properties"
+    - "**/*.gradle"
+    - "**/*.gradle.kts"
+    - "**/*.md"
+    - "**/*.json"
+    - "**/*.yaml"
+    - "**/*.yml"
+  exclude:
+    - .idea/**
+    - .gradle/**
+    - .ijwb/**
+    - bazel-*/**
+    - build/**
+    - out/**
+    - "**/build/**"
+    - "**/out/**"
+    - "**/test/**"
+    - "**/tests/**"
+    - "**/testData/**"
+    - "**/testdata/**"
+    - "**/generated/**"
+    - "**/gen/**"
+    - "**/.cache/**"
+    - "**/node_modules/**"
+  line_chunks: false
+  structural_chunks: false
+  symbol_chunks: false
+  symbol_body: false
+  file_summary_chunks: true
+  file_manifest_chunks: true
+  max_symbols_per_file: 96
+
+# Champion weights, minus the doc_* kinds this collection does not contain.
+hybrid_search:
+  candidate_limit: 360
+  lexical_candidate_limit: 1000
+  vector_weight: 0.42
+  lexical_weight: 0.26
+  path_weight: 0.12
+  symbol_weight: 0.10
+  symbol_match_weight: 0.10
+  graph_weight: 0.0
+  file_vote_weight: 0.06
+  graph_depth: 0
+  graph_neighbor_limit: 0
+  vector_kind_limits:
+    file_summary: 170
+    file_manifest: 170
+  vector_kind_multipliers:
+    file_summary: 1.0
+    file_manifest: 1.08
+  routing_enabled: true
+  lexical_scoring: bm25
+  fusion: weighted
+  preserve_vector_top: true
+  vector_top_score_margin: 0.03
+  item_kind_weights:
+    file_summary: 1.0
+    file_manifest: 1.08
+  min_token_length: 3
+
+# Champion block, verbatim.
+graph_file_search:
+  seed_limit: 140
+  lexical_seed_limit: 280
+  vector_weight: 0.25
+  lexical_weight: 0.25
+  path_weight: 0.20
+  symbol_weight: 0.10
+  graph_weight: 0.0
+  depth: 2
+  neighbor_limit: 40
+  decay: 0.65
+  min_token_length: 3
+
+# Champion block, verbatim.
+cross_encoder_rerank:
+  provider: llama_cpp
+  model: Qwen3-Reranker-0.6B
+  url: http://127.0.0.1:8081/v1/rerank
+  candidate_limit: 34
+  max_document_chars: 850
+  preserve_top_candidate: true
+  preserve_top_score_margin: 0.1
+  timeout_ms: 60000
+
+graph:
+  enabled: true
+  artifact: .code-diver/intellij-h37-jvm-graph.json
+  ast_enabled: false
+  reference_edges_enabled: false
+  call_edges_enabled: false
+  expansion_depth: 2
+  neighbor_limit: 40
+
+trace:
+  enabled: false
+
+evaluation:
+  dataset: datasets/intellij_eval_1000.answer_sets.jsonl
+  limit: 10
+  workers: 1
+
+metrics:
+  enabled: false

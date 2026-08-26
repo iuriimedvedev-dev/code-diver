@@ -39,6 +39,7 @@ def test_benchmark_registry_exposes_reproducible_profiles() -> None:
         "codesearchnet-mteb-python-hash-smoke",
         "intellij-1000-answer-sets",
         "sample",
+        "swebench-verified-mteb-500",
     ]
     codesearch = registry.get("codesearchnet-mteb-python-1000")
     assert codesearch.preparation is not None
@@ -62,6 +63,17 @@ def test_benchmark_registry_exposes_reproducible_profiles() -> None:
     assert (
         registry.get("intellij-1000-answer-sets").dataset.name
         == "intellij_eval_1000.answer_sets.jsonl"
+    )
+    swebench = registry.get("swebench-verified-mteb-500")
+    assert swebench.preparation is not None
+    assert swebench.preparation.kind == "mteb_swebench"
+    assert swebench.preparation.dataset_name == "mteb/SWEbenchCodeRetrieval"
+    assert swebench.preparation.limit == 621
+    assert swebench.dataset == Path(
+        ".code-diver/benchmarks/mteb-swebench-verified-500/swebench_code_retrieval_621.jsonl"
+    )
+    assert swebench.config_path == Path(
+        "configs/benchmarks/swebench-verified-mteb-500.yml"
     )
 
 

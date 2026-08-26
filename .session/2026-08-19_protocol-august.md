@@ -154,6 +154,58 @@ the loss is in top-10 ordering.** Two fixes were measured to recover it: kill th
   - Targets the 74.4% ranking shortfall identified in H48 (`recall@200 = 0.9665` vs `recall@10 ≈ 0.9018`).
   - Three arms designed: (1) rerank depth sweep (20–50), (2) feature fusion / score blending between hybrid stage-1 and cross-encoder logits, (3) multi-tier top-k & margin preservation.
 
+### Aug 25 — Finding 71: cold-start tokenization tax, and a fix
+
+- Task #40 (dedicated latency measurement) led to a stage-by-stage profile of the full
+  `graph_file_cross_encoder` chain on the IntelliJ-scale (149,614-item) catalog, isolating each
+  layer's cost on a fresh process. Result did not match the original hypothesis (an O(catalog)
+  cost scaling per query) — that was refuted directly: once caches are warm, the graph
+  strategy's own lexical loop adds only ~0.04s over base hybrid search per query. The real cost
+  is a one-time, **per-process, in-memory-only, ~209s cold-start tax** paid before the first
+  search result, decomposed into two measured components:
+  - `HybridRetrievalStrategy._load_lexical_index` — builds the BM25 inverted index and profiles
+    every one of the 149,614 catalog items (title/path/content/metadata term tokenization):
+    **140.4s**.
+  - `GraphFileRetrievalStrategy._seed_scores`'s own separate lexical-candidates loop —
+    re-tokenizes the *same* 149,614 items into its own private, unshared `_item_profiles`
+    dict, even though `GraphFileRetrievalStrategy.base_strategy` *is* the `HybridRetrievalStrategy`
+    instance that just profiled them: **68.0s of pure duplicate work**.
+  - Sum (208.4s) matched the independently measured full-chain cold call (209.269s) almost
+    exactly. Pure catalog *structure* load (`FileGraphCatalogStore`, disk-cached) is only 3.4s —
+    the cost is entirely in per-item term tokenization, not structure loading.
+  - **Why this was invisible across the whole H37–H49 campaign**: every eval report to date
+    measures *batch* runs (1000 cases/process), where the ~209s cost amortizes to ~0.2s/case —
+    negligible next to per-case quality metrics. In *interactive* usage (a fresh CLI process per
+    `ask`/`search` invocation — the real dogfooding scenario behind task #46), every single query
+    pays the full ~209s (~3.5 minutes) before any embedding/vector-search/answer work starts. This
+    scales with catalog size: on protogen (1911 files, ~1/40th the catalog) the same tax would be
+    roughly 5s — tolerable; at IntelliJ scale it is an experience-breaking cliff, and unlike
+    H48/H49 (steady-state ranking quality) this is a cold-start scalability defect.
+  - **Root cause**: `HybridRetrievalStrategy` already has a module-level, process-shared,
+    artifact-keyed cache pattern (`_SHARED_LEXICAL_INDEXES` et al.) for exactly this reason — but
+    `GraphFileRetrievalStrategy` never participated in it, keeping its own private
+    `_item_profiles = {}` despite always wrapping a `HybridRetrievalStrategy` instance
+    (`RetrievalStrategyFactory._graph_file_strategy` always constructs it this way).
+  - **Fix applied** (`graph_file_retrieval_strategy.py`): when `base_strategy` is a
+    `HybridRetrievalStrategy`, bind `_item_profiles` and the profiling lock *by reference* to the
+    base strategy's own — safe because `HybridItemProfile`s are pure/immutable and the base
+    strategy's dict is mutated in place (`.update(...)`, never reassigned), and because
+    `_seed_scores` always calls `self.base_strategy.search(...)` (populating the shared dict)
+    before building its own scorer. Falls back to a private dict when `base_strategy` isn't a
+    `HybridRetrievalStrategy` (test fakes), so existing unit tests were unaffected (104/104 green
+    in the retrieval-strategy subset; 1098 passed / 3 skipped full suite).
+  - **Measured result**: cold-start full-chain call dropped **209.269s → 140.117s** (−69.15s,
+    −33%), matching the eliminated duplicate pass almost exactly. Confirmed the two strategies
+    now share the literal same dict object (149,614 profiles populated once, not twice).
+  - **Remaining cost (140s, not attempted)**: the real one-time BM25/profile build itself. A
+    disk-persistence fix (mirroring how `FileGraphCatalogStore` already persists catalog
+    *structure*) could eliminate most of this too, bringing interactive cold-start down near the
+    3.4s catalog-structure-load floor — a larger, separate follow-up meriting its own
+    hypothesis/design, not attempted this session.
+  - Directly answers the "why does it not scale on a large repo" thread and is the concrete,
+    previously-undiagnosed mechanism behind task #46 (interactive profile should drop more than
+    just the LLM rerank — cold-start tokenization is the larger cost at IntelliJ scale).
+
 ## 3. Methodology rules that now govern measurement
 
 - An effect discovered on protogen must survive an external corpus before promotion (Finding 60).

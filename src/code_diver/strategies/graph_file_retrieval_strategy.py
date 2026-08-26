@@ -16,6 +16,7 @@ from .hybrid_candidate_scorer import HybridCandidateScorer
 from .hybrid_item_profile import HybridItemProfile
 from .hybrid_item_profiler import HybridItemProfiler
 from .hybrid_query import HybridQuery
+from .hybrid_retrieval_strategy import HybridRetrievalStrategy
 from .retrieval_strategy import RetrievalStrategy
 
 logger = logging.getLogger(__name__)
@@ -67,10 +68,21 @@ class GraphFileRetrievalStrategy(RetrievalStrategy):
         self._items_by_path: dict[str, list[CodeItem]] | None = None
         self._items_by_norm_path: dict[str, list[CodeItem]] | None = None
         self._path_resolution_cache: dict[str, CodeItem | None] = {}
-        self._item_profiles: dict[str, HybridItemProfile] = {}
         # answer_evaluator.py runs concurrent probe queries against one shared strategy
         # instance, so the profile cache must be safe for concurrent read/populate.
         self._cache_lock = RLock()
+        # base_strategy tokenizes the same catalog items to build its own lexical index
+        # (see HybridRetrievalStrategy._load_lexical_index). Sharing its profile dict/lock
+        # by reference -- instead of keeping a private dict here -- means the lexical
+        # seeding loop below reuses profiles the base strategy already computed rather than
+        # re-tokenizing all ~150k items a second time (Finding 71: this doubled cold-start
+        # cost on the IntelliJ-scale catalog, ~68s of pure duplicate work).
+        if isinstance(base_strategy, HybridRetrievalStrategy):
+            self._item_profiles: dict[str, HybridItemProfile] = base_strategy._item_profiles
+            self._profile_lock = base_strategy._cache_lock
+        else:
+            self._item_profiles = {}
+            self._profile_lock = self._cache_lock
 
     def search(self, query: str, limit: int) -> list[SearchResult]:
         try:
@@ -152,7 +164,7 @@ class GraphFileRetrievalStrategy(RetrievalStrategy):
             query_model,
             self.profiler,
             self._item_profiles,
-            profile_lock=self._cache_lock,
+            profile_lock=self._profile_lock,
         )
         lexical_candidates: list[FileScore] = []
         if self.config.lexical_seed_limit > 0:

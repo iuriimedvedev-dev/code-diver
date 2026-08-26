@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import hashlib
 import json
-import re
 import shutil
 from typing import Any
 
 from .benchmark_preparation import BenchmarkPreparation
+from .benchmark_preparer_utils import extension_for_language, load_datasets_module, slugify
 
 
 class MtebCodeSearchNetPreparer:
@@ -77,14 +77,7 @@ class MtebCodeSearchNetPreparer:
         return manifest
 
     def _load_datasets_module(self):
-        try:
-            import datasets
-        except ImportError as exc:
-            raise RuntimeError(
-                "The benchmark downloader needs the `datasets` package. "
-                "Install the benchmark extra with `uv sync --extra benchmarks` and retry."
-            ) from exc
-        return datasets
+        return load_datasets_module()
 
     def _rel_path(self, index: int, corpus_id: str, corpus: dict[str, Any]) -> str:
         title = str(corpus.get("title") or "")
@@ -94,14 +87,7 @@ class MtebCodeSearchNetPreparer:
         return f"{self.preparation.language}/{index:04d}_{stem}_{digest}{extension}"
 
     def _extension_for_language(self, language: str) -> str:
-        return {
-            "go": ".go",
-            "java": ".java",
-            "javascript": ".js",
-            "php": ".php",
-            "python": ".py",
-            "ruby": ".rb",
-        }.get(language, f".{language}")
+        return extension_for_language(language)
 
     def _qrel_score(self, qrel: dict[str, Any]) -> float:
         try:
@@ -110,5 +96,4 @@ class MtebCodeSearchNetPreparer:
             return 0.0
 
     def _slug(self, text: str) -> str:
-        slug = re.sub(r"[^A-Za-z0-9_.-]+", "_", text).strip("._-").lower()
-        return slug[:80]
+        return slugify(text)

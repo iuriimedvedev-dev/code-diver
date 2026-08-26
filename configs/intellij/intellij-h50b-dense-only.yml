@@ -1,0 +1,259 @@
+# H50b -- DIAGNOSTIC ABLATION, not a proposed champion. Measures ONE number:
+#
+#   the standalone ceiling of the dense embedding (Qwen3-Embedding-0.6B-4bit-DWQ over the
+#   file_summary + file_manifest records) on the 79 hand-written "where" questions, with every
+#   lexical / path / symbol / graph / file-vote signal set to zero, the query router disabled,
+#   and the cross-encoder removed.
+#
+# Why. The 2026-08-25 report section 8 concluded the where-bucket discrimination gap is "upstream,
+# in the vector/cross-encoder model". That conclusion has never been measured directly -- every
+# arm so far changed fusion or rerank behaviour while the dense signal stayed buried under
+# token-overlap scoring worth ~55% of the final pre-rerank score. This arm removes everything
+# except the embedder so the claim becomes falsifiable.
+#
+# Diff vs intellij-h46-preserve-top.yml (nothing else changes; champion file untouched):
+#   search.strategy                   graph_file_cross_encoder -> graph_file  (reranker OFF)
+#   hybrid_search.routing_enabled     true -> false   (the router re-injects weights otherwise)
+#   hybrid_search  vector/lexical/path/symbol/symbol_match/file_vote  -> 1.0/0/0/0/0/0
+#   graph_file_search vector/lexical/path/symbol                      -> 1.0/0/0/0
+#
+# Reference points on datasets/intellij_eval_where_only.jsonl (n=79):
+#   champion h46 (full stack): recall@10 0.5025  hit@10 0.5570  MRR@10 0.2855  ndcg@10 0.3203
+#   jbcontext default:         recall@10 0.685   hit@1 0.215    ndcg@10 0.412
+#
+# Reading:
+#   dense-only recall@10 CLOSE TO OR ABOVE 0.50  => the embedder already carries essentially all
+#     of the where-bucket signal the full stack has; the lexical/path/symbol machinery contributes
+#     nothing on paraphrastic queries and the fix is fusion/routing, not a model swap.
+#   dense-only recall@10 WELL BELOW 0.50         => the token-overlap signals are genuinely
+#     carrying the where bucket too, and the embedder is the binding constraint. Then the only
+#     fixes that can matter are a stronger retriever, query-side rewriting, or listwise reranking.
+
+# H46 synthesis arm: keep H38's recall gain WITHOUT its ranking loss.
+#
+# EXACTLY ONE variable differs from intellij-h38-graph-off.yml:
+#   cross_encoder_rerank.preserve_top_candidate: false -> true
+# (preserve_top_score_margin stays 0.0, so the guard fires unconditionally whenever the
+# reranker would displace the base top-1. This is the MAXIMAL version of the intervention:
+# if it does not recover the ranking loss, the proposed mechanism is wrong.)
+#
+# Why this arm exists. Finding 67 measured a genuine split on IntelliJ 1000, paired:
+#   H43 (no cross-encoder) vs H38 (cross-encoder on)
+#     file_recall            -0.0242   p=0.0067      <- the reranker BUYS recall
+#     ndcg                   +0.0385   p<1e-7        <- and COSTS ranking quality
+#     file_reciprocal_rank   +0.0523   p<1e-7
+# Both effects are significant and they point in opposite directions, which forces a choice
+# between a recall-first and a precision-first default. This arm tries to refuse the choice.
+#
+# Mechanism being tested. CrossEncoderRerankRetrievalStrategy._reranked reorders candidates
+# but never rewrites SearchResult.score, and only min(limit, len(rerank_candidates)) of the 34
+# candidates are scored at all. So the reranker promotes previously-unseen candidates into the
+# top-10 (recall up) while shuffling a head that was already correct (MRR down). With
+# preserve_top_candidate the base top-1 is pinned at position 1 and the reranker fills 2..10.
+#
+# Pre-registered prediction:
+#   file_recall  stays within 0.005 of H38's 0.8958 -- pinning position 1 removes at most one
+#                slot from the reranked window, and that slot held a base-top-1 file that was
+#                already in the pool.
+#   MRR          recovers MOST of the 0.0523 gap toward H43's 0.8020, because MRR is dominated
+#                by position 1, which is exactly what the guard protects.
+#   nDCG         recovers only PART of the 0.0385 gap, because nDCG is sensitive to the whole
+#                ordering and the guard fixes one position.
+#   latency      unchanged; the guard is a list splice, not a model call.
+#
+# Refutation condition: MRR <= 0.7600 (i.e. recovers less than a third of the gap). That would
+# mean the ranking loss is spread through positions 2-10, not concentrated at the top, and the
+# fix has to be score blending in _reranked rather than a positional guard.
+#
+# Machine state: run with the gemma judge (:8030) and the mlx generator (:8012) STOPPED.
+# See Finding 68 -- they held 36 GB of swap and voided H38's original wall-clock figure.
+
+# --- inherited header from the champion arm ---
+#
+# Every number the champion has to date comes from one repository (protogen, 1911 files).
+# This config ports its search stack verbatim to IntelliJ Community (74 906 files) so the
+# 0.8354 shown-recall has something to generalize against. Finding 60's standing rule: an
+# effect found on the corpus that produced it is not established until it survives elsewhere.
+#
+# Measures the SEARCH axis only -- one query in, top-10 files out. No agentic query planner,
+# no answer generation. That is the axis a retrieval change moves, and it is the cheap one.
+#
+# Ported from configs/context-awareness/protogen-h29-xenc-strict-cite.yml:
+#   search.strategy, graph_file_search, cross_encoder_rerank, hybrid_search weights, graph depth.
+#
+# Deliberately NOT ported -- these are properties of the existing index, not of the champion,
+# and changing them would query the collection with an embedding convention it was not built
+# with (see scripts/audit_index_staleness.py for why that failure is silent):
+#   * embedding.query_prefix / document_prefix -- the IntelliJ collection was embedded with
+#     no prefixes at all. Adding the champion's would shift every query vector off-manifold.
+#   * embedding.max_input_chars: 500, not the champion's 400.
+#   * doc_summary / doc_manifest / doc_chunk kinds -- the collection has zero of them
+#     (74 906 file_summary + 74 906 file_manifest, verified 2026-08-12).
+#
+# Graph artifact is the JVM-aware rebuild, NOT the June one. The June artifact holds 74 906
+# `summarizes` edges and nothing else -- every edge intra-file, so file-level adjacency was
+# empty and `graph_weight: 0.45` scored exactly zero on every candidate. Cause: the graph
+# builder's import resolver handled only Python and TypeScript, and 95% of this repository is
+# Java/Kotlin. See scripts/build_graph_artifact.py.
+
+root: ../intellij-community
+
+storage:
+  provider: qdrant
+  qdrant:
+    url: http://localhost:6333
+    collection: intellij_community_file_manifest_local_qwen
+    batch_size: 1024
+
+# Verbatim from intellij-postrank-h3-manifest.yml -- must match how the collection was built.
+embedding:
+  provider: openai_compatible
+  model: mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ
+  dimensions:
+  url: http://127.0.0.1:8001/v1/embeddings
+  api_key: local
+  batch_size: 128
+  workers: 4
+  max_input_chars: 500
+
+search:
+  limit: 10
+  preview_lines: 8
+  strategy: graph_file
+
+# Unused on the search axis (no generation), kept so the file loads standalone.
+generation:
+  provider: openai_compatible
+  model: mlx-community/Qwen3.5-4B-OptiQ-4bit
+  url: http://127.0.0.1:8012/v1/chat/completions
+  api_key: local
+  temperature: 0
+  max_tokens: 2048
+  timeout_ms: 240000
+
+indexing:
+  mode: scanner
+
+# Verbatim from intellij-postrank-h3-manifest.yml. Not exercised by `evaluate` (nothing is
+# re-indexed) but it is what the collection and the graph artifact were produced from, so a
+# divergence here is a silent staleness bug waiting to happen.
+scanner:
+  include:
+    - README.md
+    - CONTRIBUTING.md
+    - build.gradle
+    - build.gradle.kts
+    - settings.gradle
+    - settings.gradle.kts
+    - "**/*.java"
+    - "**/*.kt"
+    - "**/*.kts"
+    - "**/*.xml"
+    - "**/*.properties"
+    - "**/*.gradle"
+    - "**/*.gradle.kts"
+    - "**/*.md"
+    - "**/*.json"
+    - "**/*.yaml"
+    - "**/*.yml"
+  exclude:
+    - .idea/**
+    - .gradle/**
+    - .ijwb/**
+    - bazel-*/**
+    - build/**
+    - out/**
+    - "**/build/**"
+    - "**/out/**"
+    - "**/test/**"
+    - "**/tests/**"
+    - "**/testData/**"
+    - "**/testdata/**"
+    - "**/generated/**"
+    - "**/gen/**"
+    - "**/.cache/**"
+    - "**/node_modules/**"
+  line_chunks: false
+  structural_chunks: false
+  symbol_chunks: false
+  symbol_body: false
+  file_summary_chunks: true
+  file_manifest_chunks: true
+  max_symbols_per_file: 96
+
+# Champion weights, minus the doc_* kinds this collection does not contain.
+hybrid_search:
+  candidate_limit: 360
+  lexical_candidate_limit: 1000
+  vector_weight: 1.0     # H50b
+  lexical_weight: 0.0    # H50b
+  path_weight: 0.0       # H50b
+  symbol_weight: 0.0     # H50b
+  symbol_match_weight: 0.0  # H50b
+  graph_weight: 0.0
+  file_vote_weight: 0.0  # H50b
+  graph_depth: 0
+  graph_neighbor_limit: 0
+  vector_kind_limits:
+    file_summary: 170
+    file_manifest: 170
+  vector_kind_multipliers:
+    file_summary: 1.0
+    file_manifest: 1.08
+  routing_enabled: false   # H50b: the router would otherwise re-inject lexical/path/graph weights
+  lexical_scoring: bm25
+  fusion: weighted
+  preserve_vector_top: true
+  vector_top_score_margin: 0.03
+  item_kind_weights:
+    file_summary: 1.0
+    file_manifest: 1.08
+  min_token_length: 3
+
+# Champion block, verbatim.
+graph_file_search:
+  seed_limit: 140
+  lexical_seed_limit: 280
+  vector_weight: 1.0     # H50b
+  lexical_weight: 0.0    # H50b
+  path_weight: 0.0       # H50b
+  symbol_weight: 0.0     # H50b
+  graph_weight: 0.0
+  depth: 2
+  neighbor_limit: 40
+  decay: 0.65
+  min_token_length: 3
+
+# Champion block, verbatim. :8080 holds an unrelated jbcc-api listener on this machine, so
+# the reranker is on :8081.
+cross_encoder_rerank:
+  provider: llama_cpp
+  model: Qwen3-Reranker-0.6B
+  url: http://127.0.0.1:8081/v1/rerank
+  candidate_limit: 34
+  max_document_chars: 850
+  preserve_top_candidate: true   # H46: the single changed variable vs H38
+  preserve_top_score_margin: 0.1
+  timeout_ms: 60000
+
+graph:
+  enabled: true
+  artifact: .code-diver/intellij-h37-jvm-graph.json
+  ast_enabled: false
+  reference_edges_enabled: false
+  call_edges_enabled: false
+  expansion_depth: 2
+  neighbor_limit: 40
+
+trace:
+  enabled: false
+
+# The same dataset the June h3 run used, so its file_recall@10 0.9025 is at least a
+# same-ground-truth reference point (different harness, so not a matched pair).
+evaluation:
+  dataset: datasets/intellij_eval_1000.answer_sets.jsonl
+  limit: 10
+  workers: 1
+
+metrics:
+  enabled: false

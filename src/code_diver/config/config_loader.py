@@ -435,6 +435,34 @@ class ConfigLoader:
                     base.min_token_length if base is not None else Defaults.HYBRID_MIN_TOKEN_LENGTH,
                 )
             ),
+            family_penalty_enabled=bool(
+                mapping.get(
+                    "family_penalty_enabled",
+                    base.family_penalty_enabled if base is not None else Defaults.HYBRID_FAMILY_PENALTY_ENABLED,
+                )
+            ),
+            family_penalty_min_family_size=int(
+                mapping.get(
+                    "family_penalty_min_family_size",
+                    base.family_penalty_min_family_size
+                    if base is not None
+                    else Defaults.HYBRID_FAMILY_PENALTY_MIN_FAMILY_SIZE,
+                )
+            ),
+            family_penalty_score_tolerance=float(
+                mapping.get(
+                    "family_penalty_score_tolerance",
+                    base.family_penalty_score_tolerance
+                    if base is not None
+                    else Defaults.HYBRID_FAMILY_PENALTY_SCORE_TOLERANCE,
+                )
+            ),
+            family_penalty_strength=float(
+                mapping.get(
+                    "family_penalty_strength",
+                    base.family_penalty_strength if base is not None else Defaults.HYBRID_FAMILY_PENALTY_STRENGTH,
+                )
+            ),
             query_expansion_enabled=bool(
                 mapping.get(
                     "query_expansion_enabled",
@@ -654,6 +682,38 @@ class ConfigLoader:
                     base.skip_when_top_margin_at_least
                     if base is not None
                     else Defaults.CROSS_ENCODER_RERANK_SKIP_WHEN_TOP_MARGIN_AT_LEAST,
+                )
+            ),
+            widen_when_uncertain_enabled=bool(
+                mapping.get(
+                    "widen_when_uncertain_enabled",
+                    base.widen_when_uncertain_enabled
+                    if base is not None
+                    else Defaults.CROSS_ENCODER_RERANK_WIDEN_WHEN_UNCERTAIN_ENABLED,
+                )
+            ),
+            widen_candidate_limit=int(
+                mapping.get(
+                    "widen_candidate_limit",
+                    base.widen_candidate_limit
+                    if base is not None
+                    else Defaults.CROSS_ENCODER_RERANK_WIDEN_CANDIDATE_LIMIT,
+                )
+            ),
+            widen_margin_check_rank=int(
+                mapping.get(
+                    "widen_margin_check_rank",
+                    base.widen_margin_check_rank
+                    if base is not None
+                    else Defaults.CROSS_ENCODER_RERANK_WIDEN_MARGIN_CHECK_RANK,
+                )
+            ),
+            widen_score_margin_below=float(
+                mapping.get(
+                    "widen_score_margin_below",
+                    base.widen_score_margin_below
+                    if base is not None
+                    else Defaults.CROSS_ENCODER_RERANK_WIDEN_SCORE_MARGIN_BELOW,
                 )
             ),
         )

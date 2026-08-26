@@ -19,6 +19,8 @@ class BenchmarkPreparation:
 
     @property
     def dataset_path(self) -> Path:
+        if self.kind == "mteb_swebench":
+            return self.output_root / f"swebench_code_retrieval_{self.limit}.jsonl"
         return self.output_root / f"codesearchnet_{self.language}_{self.limit}.jsonl"
 
     @property

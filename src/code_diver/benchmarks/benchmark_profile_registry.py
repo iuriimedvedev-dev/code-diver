@@ -149,6 +149,38 @@ class BenchmarkProfileRegistry:
                     ),
                 ),
                 BenchmarkProfile(
+                    name="swebench-verified-mteb-500",
+                    dataset=Path(
+                        ".code-diver/benchmarks/mteb-swebench-verified-500/swebench_code_retrieval_621.jsonl"
+                    ),
+                    config_path=Path(
+                        "configs/benchmarks/swebench-verified-mteb-500.yml"
+                    ),
+                    description=(
+                        "Public MTEB SWEbenchCodeRetrieval Python benchmark: all 621 positive "
+                        "qrels from SWE-bench Verified (500 GitHub-issue instances), retrieved "
+                        "against the FULL ~58k-file corpus split (every candidate file across "
+                        "all instances), not just the gold-answer files."
+                    ),
+                    external_repo="https://huggingface.co/datasets/mteb/SWEbenchCodeRetrieval",
+                    setup_hint=(
+                        "Run `uv run code-diver init --platform apple-metal --embedding embeddinggemma-300m --yes --start` "
+                        "first, then evaluate with this benchmark profile. Preparing it downloads and writes the full "
+                        "~58k-file (~1.3 GB) corpus split, so the first run takes a few minutes. Code Diver asks before "
+                        "downloading missing assets."
+                    ),
+                    preparation=BenchmarkPreparation(
+                        kind="mteb_swebench",
+                        dataset_name="mteb/SWEbenchCodeRetrieval",
+                        language="python",
+                        limit=621,
+                        output_root=Path(
+                            ".code-diver/benchmarks/mteb-swebench-verified-500"
+                        ),
+                        estimated_download_mb=1300,
+                    ),
+                ),
+                BenchmarkProfile(
                     name="intellij-1000-answer-sets",
                     dataset=Path("datasets/intellij_eval_1000.answer_sets.jsonl"),
                     config_path=Path("configs/intellij-postrank-h3-manifest.yml"),

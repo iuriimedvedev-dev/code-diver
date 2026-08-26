@@ -185,6 +185,89 @@ def test_cross_encoder_rerank_skips_provider_for_confident_base_top(
     assert records[0]["payload"]["margin"] == pytest.approx(0.15)
 
 
+def test_cross_encoder_rerank_widens_window_when_base_ranking_is_flat(tmp_path: Path) -> None:
+    trace_path = tmp_path / "trace.jsonl"
+    # Ranks 1..6 are within widen_score_margin_below of each other -- a "flat" base ranking --
+    # and the correct file sits at rank 6, past the normal candidate_limit of 3.
+    results = [
+        _result("a", "src/a.py", 0.90),
+        _result("b", "src/b.py", 0.89),
+        _result("c", "src/c.py", 0.88),
+        _result("d", "src/d.py", 0.87),
+        _result("e", "src/e.py", 0.86),
+        _result("target", "src/target.py", 0.85),
+    ]
+    provider = FakeRerankProvider([RerankScore(index=5, score=0.99)])
+    strategy = CrossEncoderRerankRetrievalStrategy(
+        FakeStrategy(results),
+        provider,
+        CrossEncoderRerankConfig(
+            candidate_limit=3,
+            widen_when_uncertain_enabled=True,
+            widen_candidate_limit=6,
+            widen_margin_check_rank=6,
+            widen_score_margin_below=0.1,
+        ),
+        trace_logger=TraceLogger(TraceConfig(enabled=True, artifact=trace_path)),
+    )
+
+    reranked = strategy.search("where is x coordinated", 6)
+
+    assert len(provider.calls[0][1]) == 6
+    assert reranked[0].item.path == "src/target.py"
+    records = [
+        json.loads(line) for line in trace_path.read_text(encoding="utf-8").splitlines()
+    ]
+    widen_records = [record for record in records if record["event"] == "cross_encoder_rerank_widened"]
+    assert len(widen_records) == 1
+    assert widen_records[0]["payload"]["widened_candidate_limit"] == 6
+
+
+def test_cross_encoder_rerank_keeps_base_limit_when_ranking_is_confident() -> None:
+    results = [
+        _result("a", "src/a.py", 0.95),
+        _result("b", "src/b.py", 0.60),
+        _result("c", "src/c.py", 0.55),
+        _result("d", "src/d.py", 0.50),
+        _result("e", "src/e.py", 0.45),
+        _result("target", "src/target.py", 0.40),
+    ]
+    provider = FakeRerankProvider([RerankScore(index=0, score=0.99)])
+    strategy = CrossEncoderRerankRetrievalStrategy(
+        FakeStrategy(results),
+        provider,
+        CrossEncoderRerankConfig(
+            candidate_limit=3,
+            widen_when_uncertain_enabled=True,
+            widen_candidate_limit=6,
+            widen_margin_check_rank=6,
+            widen_score_margin_below=0.1,
+        ),
+    )
+
+    strategy.search("mechanical exact-name query", 6)
+
+    assert len(provider.calls[0][1]) == 3
+
+
+def test_cross_encoder_rerank_widen_gate_disabled_by_default_reproduces_base_limit() -> None:
+    results = [
+        _result("a", "src/a.py", 0.90),
+        _result("b", "src/b.py", 0.89),
+        _result("target", "src/target.py", 0.85),
+    ]
+    provider = FakeRerankProvider([RerankScore(index=0, score=0.99)])
+    strategy = CrossEncoderRerankRetrievalStrategy(
+        FakeStrategy(results),
+        provider,
+        CrossEncoderRerankConfig(candidate_limit=2),
+    )
+
+    strategy.search("query", 3)
+
+    assert len(provider.calls[0][1]) == 2
+
+
 def _result(item_id: str, path: str, score: float) -> SearchResult:
     return SearchResult(
         item=CodeItem(

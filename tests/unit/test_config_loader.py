@@ -118,6 +118,10 @@ hybrid_search:
     file_summary: 1.2
     symbol: 1.1
   min_token_length: 4
+  family_penalty_enabled: true
+  family_penalty_min_family_size: 4
+  family_penalty_score_tolerance: 0.02
+  family_penalty_strength: 1.5
   query_expansion_enabled: true
   query_expansion_aliases:
     auth: [authorization, token]
@@ -146,6 +150,10 @@ cross_encoder_rerank:
   preserve_top_candidate: true
   preserve_top_score_margin: 0.3
   skip_when_top_margin_at_least: 0.05
+  widen_when_uncertain_enabled: true
+  widen_candidate_limit: 90
+  widen_margin_check_rank: 6
+  widen_score_margin_below: 0.04
 graph:
   artifact: {tmp_path}/graph.json
   expansion_depth: 2
@@ -299,6 +307,10 @@ plugins:
     assert config.hybrid_search.vector_top_score_margin == 0.07
     assert config.hybrid_search.item_kind_weights == {"file_summary": 1.2, "symbol": 1.1}
     assert config.hybrid_search.min_token_length == 4
+    assert config.hybrid_search.family_penalty_enabled is True
+    assert config.hybrid_search.family_penalty_min_family_size == 4
+    assert config.hybrid_search.family_penalty_score_tolerance == 0.02
+    assert config.hybrid_search.family_penalty_strength == 1.5
     assert config.hybrid_search.query_expansion_enabled is True
     assert config.hybrid_search.query_expansion_aliases == {"auth": ["authorization", "token"]}
     assert config.hybrid_search.stop_words == ["where", "handled"]
@@ -324,6 +336,10 @@ plugins:
     assert config.cross_encoder_rerank.preserve_top_candidate is True
     assert config.cross_encoder_rerank.preserve_top_score_margin == 0.3
     assert config.cross_encoder_rerank.skip_when_top_margin_at_least == 0.05
+    assert config.cross_encoder_rerank.widen_when_uncertain_enabled is True
+    assert config.cross_encoder_rerank.widen_candidate_limit == 90
+    assert config.cross_encoder_rerank.widen_margin_check_rank == 6
+    assert config.cross_encoder_rerank.widen_score_margin_below == 0.04
     assert config.graph.artifact == tmp_path / "graph.json"
     assert config.graph.expansion_depth == 2
     assert config.graph.ast_enabled is False

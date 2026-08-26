@@ -1,0 +1,103 @@
+# SWE-bench Verified, full corpus: mteb/SWEbenchCodeRetrieval, all 621 positive qrels
+# (500 GitHub-issue instances), retrieved against the FULL ~58k-file corpus split -- every
+# candidate file across every instance's repo snapshot, not just the ~71-file gold-answer-only
+# pool the earlier ad-hoc swebench-h7/h9 configs used.
+#
+# Registered as benchmark profile `swebench-verified-mteb-500` in
+# src/code_diver/benchmarks/benchmark_profile_registry.py, prepared by
+# src/code_diver/benchmarks/mteb_swebench_preparer.py (kind: mteb_swebench). Preparing this
+# benchmark downloads and writes the full corpus (~1.3 GB, ~58k files) on first run.
+#
+# This is a starting profile for the corpus-honest version of the benchmark, not a tuned
+# champion config. Hybrid weights below are carried over from the H6.1 EmbeddingGemma file
+# locator baseline (see codesearchnet-h37-champion-xenc-1000.yml for the tuned champion
+# stack); re-tune once a first live run establishes a baseline hit-rate on the full corpus.
+
+root: .code-diver/benchmarks/mteb-swebench-verified-500/corpus
+artifact: .code-diver/benchmarks/mteb-swebench-verified-500/index-swebench-verified-mteb-500.json
+
+storage:
+  provider: json
+
+embedding:
+  provider: sentence_transformers
+  model: google/embeddinggemma-300m
+  dimensions: 768
+  batch_size: 96
+  workers: 1
+  max_input_chars: 1200
+  query_prefix: "task: code retrieval | query: "
+  document_prefix: "title: none | text: "
+
+indexing:
+  mode: scanner
+
+scanner:
+  include:
+    - "**/*.py"
+  max_file_bytes: 200000
+  line_chunks: false
+  chunk_lines: 220
+  structural_chunks: false
+  symbol_chunks: false
+  symbol_body: false
+  file_summary_chunks: true
+  file_manifest_chunks: true
+  max_symbols_per_file: 96
+
+search:
+  limit: 10
+  preview_lines: 8
+  strategy: hybrid
+
+hybrid_search:
+  candidate_limit: 280
+  lexical_candidate_limit: 900
+  vector_weight: 0.5625
+  lexical_weight: 0.1875
+  path_weight: 0.08333333333333334
+  symbol_weight: 0.04166666666666667
+  symbol_match_weight: 0.04166666666666667
+  graph_weight: 0.08333333333333334
+  file_vote_weight: 0.0
+  graph_depth: 0
+  graph_neighbor_limit: 0
+  vector_kind_limits:
+    file_summary: 170
+    file_manifest: 170
+  vector_kind_multipliers:
+    file_summary: 1.0
+    file_manifest: 1.08
+  routing_enabled: true
+  lexical_scoring: bm25
+  fusion: weighted
+  preserve_vector_top: true
+  vector_top_score_margin: 0.03
+  item_kind_weights:
+    file_summary: 1.0
+    file_manifest: 1.08
+  min_token_length: 3
+
+graph:
+  enabled: true
+  artifact: .code-diver/benchmarks/mteb-swebench-verified-500/graph-swebench-verified-mteb-500.json
+  ast_enabled: false
+  reference_edges_enabled: false
+  call_edges_enabled: false
+  expansion_depth: 0
+  neighbor_limit: 0
+
+trace:
+  enabled: true
+  artifact: .code-diver/traces/swebench-verified-mteb-500.jsonl
+  include_prompts: false
+
+evaluation:
+  dataset: .code-diver/benchmarks/mteb-swebench-verified-500/swebench_code_retrieval_621.jsonl
+  limit: 10
+  workers: 1
+
+metrics:
+  enabled: false
+
+plugins: []

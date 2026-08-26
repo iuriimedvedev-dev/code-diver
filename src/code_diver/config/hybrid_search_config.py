@@ -33,6 +33,10 @@ class HybridSearchConfig:
     vector_top_score_margin: float = Defaults.HYBRID_VECTOR_TOP_SCORE_MARGIN
     item_kind_weights: dict[str, float] = field(default_factory=lambda: dict(Defaults.HYBRID_ITEM_KIND_WEIGHTS))
     min_token_length: int = Defaults.HYBRID_MIN_TOKEN_LENGTH
+    family_penalty_enabled: bool = Defaults.HYBRID_FAMILY_PENALTY_ENABLED
+    family_penalty_min_family_size: int = Defaults.HYBRID_FAMILY_PENALTY_MIN_FAMILY_SIZE
+    family_penalty_score_tolerance: float = Defaults.HYBRID_FAMILY_PENALTY_SCORE_TOLERANCE
+    family_penalty_strength: float = Defaults.HYBRID_FAMILY_PENALTY_STRENGTH
     query_expansion_enabled: bool = Defaults.HYBRID_QUERY_EXPANSION_ENABLED
     query_expansion_aliases: dict[str, list[str]] = field(
         default_factory=lambda: {key: list(value) for key, value in Defaults.HYBRID_QUERY_EXPANSION_ALIASES.items()}

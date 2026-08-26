@@ -1,0 +1,217 @@
+# H52: fix the query_prefix / document_prefix template mismatch (task #63, H-5).
+#
+# EXACTLY ONE variable differs from intellij-h46-preserve-top.yml: embedding.query_prefix.
+#
+# Bug this fixes: intellij-h46-preserve-top.yml's header comment (lines 53-60) claims
+# "the IntelliJ collection was embedded with no prefixes at all" and that prefixes were
+# "Deliberately NOT ported". This is factually wrong. Neither h46 nor any config in
+# configs/intellij/ sets embedding.query_prefix / document_prefix explicitly, so
+# config_loader.py's _embedding() falls back to mapping.get(key, Defaults.X)
+# (src/code_diver/config/config_loader.py:132-135), which silently applies:
+#   Defaults.EMBEDDING_DOCUMENT_PREFIX = "title: none | text: "
+#   Defaults.EMBEDDING_QUERY_PREFIX    = "task: code retrieval | query: "
+# (src/code_diver/settings/defaults.py:33-34) -- EmbeddingGemma's own template
+# (Defaults.EMBEDDING_MODEL = "google/embeddinggemma-300m"), silently applied to a
+# Qwen3-Embedding model that has never used EmbeddingGemma. Both the already-indexed
+# documents AND every query embedded against this collection have carried this prefix
+# the whole time -- it is not "no prefix", it's the wrong model's prefix, applied
+# symmetrically to both sides.
+#
+# Qwen3-Embedding's own documented convention (verified against the HF model card,
+# huggingface.co/Qwen/Qwen3-Embedding-0.6B, and the official Qwen3-Embedding repo):
+#   - documents: NO prefix at all ("No need to add instruction for retrieval documents").
+#   - queries:   f'Instruct: {task_description}\nQuery:{query}' -- note no space after
+#                "Query:", the query text attaches directly.
+# _prefixed() (openai_embedding_provider.py:61-62) does raw f"{prefix}{text}"
+# concatenation with zero characters inserted, so a query_prefix ending in
+# "...\nQuery:" reproduces this template exactly once the query text is appended.
+#
+# What this experiment changes and what it deliberately does NOT change:
+#   - query_prefix -> Qwen3-Embedding's native instruct-style query template.
+#   - document_prefix is left UNSET (still silently defaults to the EmbeddingGemma
+#     "title: none | text: " string) because the 149 812 file_summary/file_manifest
+#     vectors in the live collection were already embedded with that document prefix
+#     baked in at index time (see intellij-h46-preserve-top.yml:70-86 and
+#     .code-diver/traces/intellij-postrank-h3-manifest.jsonl). Changing document_prefix
+#     without a full re-embed would query a collection with a convention it was not
+#     built with -- exactly the silent-staleness failure scripts/audit_index_staleness.py
+#     documents. That re-embed is a separate, expensive experiment (see H51's reindex
+#     cost) and is out of scope here; noted as a documented follow-up, not executed.
+#
+# Explicit risk being tested, not assumed away: changing ONLY the query side while the
+# document side keeps its current (self-consistent, already-indexed) EmbeddingGemma-style
+# prefix does not obviously "fix" anything -- it could just as easily replace one
+# consistent-but-wrong pairing with a NEW query/document convention mismatch. The
+# champion's current state has both sides using the SAME (wrong-for-Qwen3) template,
+# which is at least internally consistent. This config is a real empirical test of
+# whether Qwen3's native query-side convention improves ranking despite that asymmetry,
+# not a confident "fix". An offline 13-candidate-pool probe (referenced in task #63)
+# found +0.029 MRR from an instruct-style query prefix -- small, indicative evidence
+# only; this run is the actual validation.
+#
+# No reindex required: query_prefix only affects embed_query() at evaluate/query time
+# (embedding_provider_builder.py), never the stored document vectors. Same static
+# collection as the champion (intellij_community_file_manifest_local_qwen) is safe to
+# reuse read-only here since nothing writes to it.
+
+root: ../intellij-community
+
+storage:
+  provider: qdrant
+  qdrant:
+    url: http://localhost:6333
+    collection: intellij_community_file_manifest_local_qwen
+    batch_size: 1024
+
+# Verbatim from intellij-postrank-h3-manifest.yml -- must match how the collection was built.
+# query_prefix is the one deliberate change vs. intellij-h46-preserve-top.yml.
+embedding:
+  provider: openai_compatible
+  model: mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ
+  dimensions:
+  url: http://127.0.0.1:8001/v1/embeddings
+  api_key: local
+  batch_size: 128
+  workers: 4
+  max_input_chars: 500
+  query_prefix: "Instruct: Given a code search query, retrieve relevant source files that answer the query.\nQuery:"
+
+search:
+  limit: 10
+  preview_lines: 8
+  strategy: graph_file_cross_encoder
+
+# Unused on the search axis (no generation), kept so the file loads standalone.
+generation:
+  provider: openai_compatible
+  model: mlx-community/Qwen3.5-4B-OptiQ-4bit
+  url: http://127.0.0.1:8012/v1/chat/completions
+  api_key: local
+  temperature: 0
+  max_tokens: 2048
+  timeout_ms: 240000
+
+indexing:
+  mode: scanner
+
+# Verbatim from intellij-postrank-h3-manifest.yml. Not exercised by `evaluate` (nothing is
+# re-indexed) but it is what the collection and the graph artifact were produced from, so a
+# divergence here is a silent staleness bug waiting to happen.
+scanner:
+  include:
+    - README.md
+    - CONTRIBUTING.md
+    - build.gradle
+    - build.gradle.kts
+    - settings.gradle
+    - settings.gradle.kts
+    - "**/*.java"
+    - "**/*.kt"
+    - "**/*.kts"
+    - "**/*.xml"
+    - "**/*.properties"
+    - "**/*.gradle"
+    - "**/*.gradle.kts"
+    - "**/*.md"
+    - "**/*.json"
+    - "**/*.yaml"
+    - "**/*.yml"
+  exclude:
+    - .idea/**
+    - .gradle/**
+    - .ijwb/**
+    - bazel-*/**
+    - build/**
+    - out/**
+    - "**/build/**"
+    - "**/out/**"
+    - "**/test/**"
+    - "**/tests/**"
+    - "**/testData/**"
+    - "**/testdata/**"
+    - "**/generated/**"
+    - "**/gen/**"
+    - "**/.cache/**"
+    - "**/node_modules/**"
+  line_chunks: false
+  structural_chunks: false
+  symbol_chunks: false
+  symbol_body: false
+  file_summary_chunks: true
+  file_manifest_chunks: true
+  max_symbols_per_file: 96
+
+# Champion weights, minus the doc_* kinds this collection does not contain.
+hybrid_search:
+  candidate_limit: 360
+  lexical_candidate_limit: 1000
+  vector_weight: 0.42
+  lexical_weight: 0.26
+  path_weight: 0.12
+  symbol_weight: 0.10
+  symbol_match_weight: 0.10
+  graph_weight: 0.0
+  file_vote_weight: 0.06
+  graph_depth: 0
+  graph_neighbor_limit: 0
+  vector_kind_limits:
+    file_summary: 170
+    file_manifest: 170
+  vector_kind_multipliers:
+    file_summary: 1.0
+    file_manifest: 1.08
+  routing_enabled: true
+  lexical_scoring: bm25
+  fusion: weighted
+  preserve_vector_top: true
+  vector_top_score_margin: 0.03
+  item_kind_weights:
+    file_summary: 1.0
+    file_manifest: 1.08
+  min_token_length: 3
+
+# Champion block, verbatim.
+graph_file_search:
+  seed_limit: 140
+  lexical_seed_limit: 280
+  vector_weight: 0.25
+  lexical_weight: 0.25
+  path_weight: 0.20
+  symbol_weight: 0.10
+  graph_weight: 0.0   # H38: the single changed variable
+  depth: 2
+  neighbor_limit: 40
+  decay: 0.65
+  min_token_length: 3
+
+# Champion block, verbatim. :8080 holds an unrelated jbcc-api listener on this machine, so
+# the reranker is on :8081.
+cross_encoder_rerank:
+  provider: llama_cpp
+  model: Qwen3-Reranker-0.6B
+  url: http://127.0.0.1:8081/v1/rerank
+  candidate_limit: 34
+  max_document_chars: 850
+  preserve_top_candidate: true   # H46: the single changed variable vs H38
+  preserve_top_score_margin: 0.1
+  timeout_ms: 60000
+
+graph:
+  enabled: true
+  artifact: .code-diver/intellij-h37-jvm-graph.json
+  ast_enabled: false
+  reference_edges_enabled: false
+  call_edges_enabled: false
+  expansion_depth: 2
+  neighbor_limit: 40
+
+trace:
+  enabled: false
+
+evaluation:
+  dataset: datasets/intellij_eval_1000.answer_sets.jsonl
+  limit: 10
+  workers: 1
+
+metrics:
+  enabled: false
