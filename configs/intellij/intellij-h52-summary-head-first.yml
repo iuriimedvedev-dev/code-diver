@@ -7,8 +7,6 @@
 #
 # H46 is intentionally unchanged. This config copies its full schema and values, except for
 # the experiment identifier and the collection name required by the changed indexed content.
-experiment_id: h52-summary-head-first
-
 root: ../intellij-community
 
 storage:
@@ -164,6 +162,9 @@ evaluation:
   dataset: datasets/intellij_eval_1000.answer_sets.jsonl
   limit: 10
   workers: 1
+
+experiments:
+  suite: h52-summary-head-first
 
 metrics:
   enabled: false
