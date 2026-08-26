@@ -59,6 +59,29 @@ def test_head_section_occurs_before_symbols_section() -> None:
     )
 
 
+def test_build_places_head_section_before_symbols() -> None:
+    head_text = "distinct text-file head marker"
+    dense_prose = "dense prose body marker " * 20
+
+    item = FileSummaryItemBuilder().build(
+        "ordered.txt",
+        f"{head_text}\n{dense_prose}",
+        symbols=[
+            CodeSymbol(
+                name="parse_document",
+                kind="function",
+                start_line=1,
+                end_line=1,
+                signature="parse_document(text: str) -> Document",
+            )
+        ],
+    )
+
+    assert item.content.index(f"head:\n- {head_text}") < item.content.index(
+        "symbols:\n- function parse_document: parse_document(text: str) -> Document"
+    )
+
+
 def test_head_section_is_unchanged_for_a_normal_small_file() -> None:
     text = (
         "from services.auth import authorize\n"
