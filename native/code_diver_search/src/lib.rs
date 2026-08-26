@@ -1,6 +1,8 @@
 mod bm25;
 
-pub use bm25::{fuse_hybrid, fuse_hybrid_batch, HybridWeights, InvertedIndex};
+pub use bm25::{
+    coverage, fuse_hybrid, fuse_hybrid_batch, lexical_from_coverages, HybridWeights, InvertedIndex,
+};
 
 #[cfg(feature = "python")]
 use pyo3::prelude::*;
@@ -59,7 +61,7 @@ impl PyInvertedIndex {
     }
 }
 
-/// Field fusion stub matching `HybridCandidateScore.total`.
+/// Field fusion matching `HybridCandidateScore.total`.
 #[cfg(feature = "python")]
 #[pyfunction]
 #[pyo3(signature = (vector, lexical, path, symbol, symbol_match=0.0, graph=0.0, file_vote=0.0, vector_weight=0.0, lexical_weight=0.0, path_weight=0.0, symbol_weight=0.0, symbol_match_weight=0.0, graph_weight=0.0, file_vote_weight=0.0))]

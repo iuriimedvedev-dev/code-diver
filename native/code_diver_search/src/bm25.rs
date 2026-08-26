@@ -203,6 +203,23 @@ pub struct HybridWeights {
     pub file_vote: f64,
 }
 
+/// Fraction of query terms present in `candidates` (`HybridCandidateScorer._coverage`).
+pub fn coverage(query_terms: &[String], candidates: &HashSet<String>) -> f64 {
+    if candidates.is_empty() || query_terms.is_empty() {
+        return 0.0;
+    }
+    let matches = query_terms
+        .iter()
+        .filter(|term| candidates.contains(*term))
+        .count();
+    matches as f64 / query_terms.len() as f64
+}
+
+/// `min(1, content * 0.75 + title * 0.25)` — lexical mix from field coverages.
+pub fn lexical_from_coverages(content_coverage: f64, title_coverage: f64) -> f64 {
+    (content_coverage * 0.75 + title_coverage * 0.25).min(1.0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -245,7 +262,6 @@ mod tests {
         assert!(scores.is_empty());
     }
 
-    #[test]
     fn test_weights() -> HybridWeights {
         HybridWeights {
             vector: 0.5,
@@ -357,6 +373,23 @@ mod tests {
             result.unwrap_err(),
             "batch field lexical has length 0, expected 1"
         );
+    }
+
+    #[test]
+    fn coverage_is_query_term_fraction() {
+        let candidates: HashSet<String> = ["foo".into(), "bar".into(), "zzz".into()]
+            .into_iter()
+            .collect();
+        let terms = vec!["foo".into(), "bar".into(), "missing".into()];
+        assert!((coverage(&terms, &candidates) - 2.0 / 3.0).abs() < 1e-12);
+        assert_eq!(coverage(&[], &candidates), 0.0);
+        assert_eq!(coverage(&terms, &HashSet::new()), 0.0);
+    }
+
+    #[test]
+    fn lexical_from_coverages_caps_at_one() {
+        assert!((lexical_from_coverages(1.0, 1.0) - 1.0).abs() < 1e-12);
+        assert!((lexical_from_coverages(0.8, 0.4) - 0.7).abs() < 1e-12);
     }
 
     #[test]

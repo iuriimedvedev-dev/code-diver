@@ -9,6 +9,7 @@ Python implementations stay in place (dual path). Champion config is unchanged.
 - Inverted index ingest of **already-tokenized** documents (field weighting stays in Python for now).
 - BM25 scores / top-k matching `HybridLexicalIndex.bm25_scores`.
 - Scalar and batch `fuse_hybrid` matching `HybridCandidateScore.total` weights.
+- Coverage fraction + lexical mix (`HybridCandidateScorer._coverage` / lexical formula).
 
 ## FFI (PyO3 module `code_diver_search`)
 
@@ -49,8 +50,8 @@ Planned (not implemented):
 
 ## Next port order
 
-1. **Coverage scorer** — title/content/path/symbol term sets (from `HybridCandidateScorer`).
-2. **File-level aggregation** — graph-file catalog loop + decayed neighbor propagate.
+1. **File-level aggregation** — graph-file catalog loop + decayed neighbor propagate.
+2. Symbol-match scorer (needs item metadata) if hot.
 3. Wire dual-path behind a flag (do not flip champion until parity tests pass).
 
 ## Build

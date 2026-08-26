@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from code_diver.domain import CodeSymbol
 from code_diver.services.file_summary_item_builder import (
     TRUNCATION_MARKER,
     FileSummaryItemBuilder,
@@ -28,9 +29,34 @@ def test_head_section_caps_overall_block_even_with_many_short_lines() -> None:
         max_head_lines=1000, max_head_line_chars=200, max_head_block_chars=4000
     ).build("many_lines.py", text, symbols=[])
 
-    head_block = item.content[item.content.index("head:") :]
+    head_start = item.content.index("head:")
+    symbols_start = item.content.index("symbols:", head_start)
+    head_block = item.content[head_start:symbols_start].rstrip("\n")
     assert len(head_block) <= 4000
     assert TRUNCATION_MARKER in head_block
+
+
+def test_head_section_occurs_before_symbols_section() -> None:
+    head_text = "known head text"
+    symbol_text = "known symbol text"
+
+    item = FileSummaryItemBuilder().build(
+        "ordered.py",
+        head_text,
+        symbols=[
+            CodeSymbol(
+                name=symbol_text,
+                kind="function",
+                start_line=1,
+                end_line=1,
+                signature="known symbol signature",
+            )
+        ],
+    )
+
+    assert item.content.index(f"head:\n- {head_text}") < item.content.index(
+        f"symbols:\n- function {symbol_text}: known symbol signature"
+    )
 
 
 def test_head_section_is_unchanged_for_a_normal_small_file() -> None:
