@@ -855,7 +855,7 @@
       }
     }
   ],
-  "total_count": 127,
+  "total_count": 133,
   "returned_count": 50,
-  "message": "\u2705 Found 127 matching log entries (returned 50)"
+  "message": "\u2705 Found 133 matching log entries (returned 50)"
 }
