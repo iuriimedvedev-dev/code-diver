@@ -8,9 +8,10 @@ import logging
 import os
 import re
 import sys
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Protocol, Sequence
+from typing import Any, Protocol
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -71,7 +72,7 @@ class OpenAICompatibleClient:
             method="POST",
         )
         try:
-            with urlopen(request, timeout=self.timeout) as response:  # noqa: S310
+            with urlopen(request, timeout=self.timeout) as response:
                 body = json.loads(response.read().decode("utf-8"))
         except (HTTPError, URLError, TimeoutError, json.JSONDecodeError) as exc:
             raise RuntimeError(f"LLM request failed: {exc}") from exc
@@ -140,6 +141,13 @@ def load_dump(path: Path) -> list[QueryPool]:
 def file_recall_at_k(ranked_paths: Sequence[str], gold_paths: Sequence[str], k: int = 10) -> float:
     if k < 0:
         raise ValueError("k must not be negative")
+    if ranked_paths and isinstance(ranked_paths[0], QueryPool):
+        records = ranked_paths
+        ranked_lists = gold_paths
+        return _mean(
+            file_recall_at_k(paths, record.gold_paths, k)
+            for record, paths in zip(records, ranked_lists, strict=True)
+        )
     gold = set(gold_paths)
     return len(gold.intersection(ranked_paths[:k])) / len(gold) if gold else 0.0
 
@@ -147,6 +155,13 @@ def file_recall_at_k(ranked_paths: Sequence[str], gold_paths: Sequence[str], k: 
 def reciprocal_rank_at_k(ranked_paths: Sequence[str], gold_paths: Sequence[str], k: int = 10) -> float:
     if k < 0:
         raise ValueError("k must not be negative")
+    if ranked_paths and isinstance(ranked_paths[0], QueryPool):
+        records = ranked_paths
+        ranked_lists = gold_paths
+        return _mean(
+            reciprocal_rank_at_k(paths, record.gold_paths, k)
+            for record, paths in zip(records, ranked_lists, strict=True)
+        )
     gold = set(gold_paths)
     for rank, path in enumerate(ranked_paths[:k], 1):
         if path in gold:
@@ -154,11 +169,19 @@ def reciprocal_rank_at_k(ranked_paths: Sequence[str], gold_paths: Sequence[str],
     return 0.0
 
 
-def _mean(values: Sequence[float]) -> float:
+def _mean(values: Iterable[float]) -> float:
+    values = list(values)
     return sum(values) / len(values) if values else 0.0
 
 
-def build_listwise_prompt(query_text: str, candidates: Sequence[Candidate], path_only: bool = False) -> str:
+def build_listwise_prompt(
+    query_text: str | QueryPool, candidates: Sequence[Candidate] | None = None, path_only: bool = False
+) -> str:
+    if isinstance(query_text, QueryPool):
+        candidates = query_text.candidates
+        query_text = query_text.query_text
+    if candidates is None:
+        raise TypeError("candidates are required")
     lines: list[str] = []
     for index, candidate in enumerate(candidates):
         line = f"{index}: {candidate.path} (score={candidate.score:g})"
@@ -190,8 +213,23 @@ def parse_listwise_response(response: str, candidates: Sequence[Candidate]) -> l
 
 
 def parse_ranking(response: str, candidate_count: int) -> list[int]:
-    candidates = tuple(Candidate(str(index)) for index in range(candidate_count))
-    return [int(candidate.path) for candidate in parse_listwise_response(response, candidates)]
+    try:
+        payload: Any = json.loads(response)
+    except json.JSONDecodeError:
+        match = re.search(r"(?:\d+\s*[,.)]?\s*)+", response)
+        payload = [int(value) for value in re.findall(r"\d+", match.group())] if match else None
+    if isinstance(payload, dict):
+        payload = next((payload[key] for key in ("ranked_indices", "ranking", "indices") if key in payload), None)
+    if not isinstance(payload, list):
+        raise ValueError("model output must contain a JSON index list")
+    result: list[int] = []
+    for index in payload:
+        if not isinstance(index, int) or isinstance(index, bool) or not 0 <= index < candidate_count:
+            raise ValueError(f"model returned invalid candidate index: {index}")
+        if index not in result:
+            result.append(index)
+    result.extend(index for index in range(candidate_count) if index not in result)
+    return result
 
 
 def _client_from_env() -> OpenAICompatibleClient:
@@ -247,10 +285,10 @@ def main(argv: list[str] | None = None, client: LLMClient | None = None) -> int:
                 "top_k_out": args.top_k_out,
                 "metrics": {
                     "file_recall_at_k": _mean(
-                        [file_recall_at_k(paths, record.gold_paths, args.top_k_out) for record, paths in zip(records, ranked)]
+                        [file_recall_at_k(paths, record.gold_paths, args.top_k_out) for record, paths in zip(records, ranked, strict=True)]
                     ),
                     "mrr_at_k": _mean(
-                        [reciprocal_rank_at_k(paths, record.gold_paths, args.top_k_out) for record, paths in zip(records, ranked)]
+                        [reciprocal_rank_at_k(paths, record.gold_paths, args.top_k_out) for record, paths in zip(records, ranked, strict=True)]
                     ),
                 },
             }
