@@ -7,7 +7,7 @@ import pytest
 
 from code_diver.providers import create_embedding_provider
 from code_diver.providers.sentence_transformers_embedding_provider import SentenceTransformersEmbeddingProvider
-from code_diver.services.embedding_text_preparer import truncate_embedding_text
+from code_diver.services.embedding_text_preparer import shrink_embedding_text, truncate_embedding_text
 
 pytestmark = pytest.mark.unit
 
@@ -101,6 +101,7 @@ def test_embedding_text_truncation_handles_punctuation_and_generics_at_token_bou
 
 def test_embedding_text_truncation_falls_back_to_conservative_character_limit() -> None:
     assert truncate_embedding_text("<T extends Foo.Bar<K>>", 8) == "<T exten"
+    assert shrink_embedding_text("a") == ""
 
 
 def test_sentence_transformers_retries_only_overflowing_item(monkeypatch) -> None:

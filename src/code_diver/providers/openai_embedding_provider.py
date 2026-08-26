@@ -7,8 +7,12 @@ from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
+try:
+    import tiktoken
+except ImportError:  # pragma: no cover - optional dependency
+    tiktoken = None
+
 from ..generation.transient_generation_retry import TransientGenerationRetry
-from ..services.embedding_text_preparer import shrink_embedding_text, truncate_embedding_text
 from ..settings import Defaults, EmbeddingProviderId, EnvironmentVariable
 from .embedding_provider import EmbeddingProvider
 
@@ -43,6 +47,8 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
         self.max_input_chars = max_input_chars
         self.send_dimensions = send_dimensions
         self.tokenizer = tokenizer
+        self._tiktoken_encoding: Any | None = None
+        self._tiktoken_encoding_loaded = False
         self.retry = TransientGenerationRetry(
             attempts=retry_attempts,
             base_delay_seconds=retry_delay_seconds,
@@ -72,7 +78,72 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
         prefixed = self._prefixed(prefix, text)
         if self.max_input_chars is None or self.max_input_chars <= 0:
             return prefixed
-        return truncate_embedding_text(prefixed, self.max_input_chars, self.tokenizer)
+        if len(prefixed) <= self.max_input_chars:
+            return prefixed
+        if self.tokenizer is not None:
+            return self._truncate_with_tokenizer(prefixed, self.max_input_chars)
+        encoding = self._get_tiktoken_encoding()
+        if encoding is None:
+            return prefixed[: self.max_input_chars]
+        return self._truncate_with_encoding(prefixed, self.max_input_chars, encoding)
+
+    def _get_tiktoken_encoding(self) -> Any | None:
+        if self._tiktoken_encoding_loaded:
+            return self._tiktoken_encoding
+        self._tiktoken_encoding_loaded = True
+        if tiktoken is None:
+            return None
+        try:
+            try:
+                self._tiktoken_encoding = tiktoken.encoding_for_model(self.model)
+            except KeyError:
+                self._tiktoken_encoding = tiktoken.get_encoding("cl100k_base")
+        except Exception:
+            self._tiktoken_encoding = None
+        return self._tiktoken_encoding
+
+    def _truncate_with_tokenizer(self, text: str, budget: int) -> str:
+        try:
+            token_ids = self.tokenizer.encode(text, add_special_tokens=False)
+            for count in range(min(len(token_ids), budget), 0, -1):
+                try:
+                    candidate = self.tokenizer.decode(token_ids[:count], skip_special_tokens=True)
+                except TypeError:
+                    candidate = self.tokenizer.decode(token_ids[:count])
+                if candidate:
+                    return candidate
+        except (AttributeError, TypeError, ValueError):
+            pass
+        return text[:budget]
+
+    def _truncate_with_encoding(self, text: str, budget: int, encoding: Any) -> str:
+        try:
+            token_ids = encoding.encode(text)
+            return encoding.decode(token_ids[:budget])
+        except Exception:
+            return text[:budget]
+
+    def _token_count(self, text: str) -> int:
+        if self.tokenizer is not None:
+            try:
+                return len(self.tokenizer.encode(text, add_special_tokens=False))
+            except (AttributeError, TypeError, ValueError):
+                pass
+        encoding = self._get_tiktoken_encoding()
+        if encoding is not None:
+            try:
+                return len(encoding.encode(text))
+            except Exception:
+                return len(text)
+        return len(text)
+
+    def _shrink(self, text: str, budget: int) -> str:
+        if self.tokenizer is not None:
+            return self._truncate_with_tokenizer(text, budget)
+        encoding = self._get_tiktoken_encoding()
+        if encoding is not None:
+            return self._truncate_with_encoding(text, budget, encoding)
+        return text[:budget]
 
     def _embed_with_context_retry(self, texts: list[str]) -> list[list[float]]:
         try:
@@ -89,14 +160,16 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
 
     def _retry_overflowing_item(self, text: str) -> list[list[float]]:
         current = text
+        budget = self.max_input_chars if self.max_input_chars and self.max_input_chars > 0 else self._token_count(text)
         for attempt in range(1, 4):
-            shortened = shrink_embedding_text(current, self.tokenizer)
+            budget = max(budget // 2, 1)
+            shortened = self._shrink(current, budget)
             if len(shortened) >= len(current):
-                raise RuntimeError("Embedding input still exceeds context after maximum safe shrink.")
+                shortened = current[: max(len(current) // 2, 0)]
             current = shortened
             logger.warning(
-                "Embedding input exceeded context; retrying item with %d characters (attempt %d/3).",
-                len(current),
+                "Embedding input exceeded context; retrying item with budget %d (attempt %d/3).",
+                budget,
                 attempt,
             )
             try:

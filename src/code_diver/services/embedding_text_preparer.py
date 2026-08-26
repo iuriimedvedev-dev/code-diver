@@ -39,6 +39,8 @@ def truncate_embedding_text(text: str, max_input_chars: int, tokenizer: Any | No
 
 def shrink_embedding_text(text: str, tokenizer: Any | None = None) -> str:
     """Reduce an overflowing input without cutting through a decoded token when possible."""
-    if len(text) <= 1:
+    if not text:
         return text
+    if len(text) == 1:
+        return ""
     return truncate_embedding_text(text, max(len(text) // 2, 1), tokenizer)
