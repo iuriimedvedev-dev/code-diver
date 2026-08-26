@@ -1,14 +1,18 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from ..generation.transient_generation_retry import TransientGenerationRetry
+from ..services.embedding_text_preparer import truncate_embedding_text
 from ..settings import Defaults, EmbeddingProviderId, EnvironmentVariable
 from .embedding_provider import EmbeddingProvider
+
+logger = logging.getLogger(__name__)
 
 
 class OpenAIEmbeddingProvider(EmbeddingProvider):
@@ -49,11 +53,12 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
         vectors: list[list[float]] = []
         for batch in _batches(texts, self.batch_size):
-            vectors.extend(self._embed([self._bounded_prefixed(self.document_prefix, text) for text in batch]))
+            values = [self._bounded_prefixed(self.document_prefix, text) for text in batch]
+            vectors.extend(self._embed_with_context_retry(values))
         return vectors
 
     def embed_query(self, query: str) -> list[float]:
-        vectors = self._embed([self._bounded_prefixed(self.query_prefix, query)])
+        vectors = self._embed_with_context_retry([self._bounded_prefixed(self.query_prefix, query)])
         if not vectors:
             raise RuntimeError("OpenAI returned no query embedding.")
         return vectors[0]
@@ -65,7 +70,36 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
         prefixed = self._prefixed(prefix, text)
         if self.max_input_chars is None or self.max_input_chars <= 0:
             return prefixed
-        return prefixed[: self.max_input_chars]
+        return truncate_embedding_text(prefixed, self.max_input_chars)
+
+    def _embed_with_context_retry(self, texts: list[str]) -> list[list[float]]:
+        try:
+            return self._embed(texts)
+        except Exception as exc:
+            if not _is_context_overflow(exc):
+                raise
+            if len(texts) == 1:
+                return self._retry_overflowing_item(texts[0])
+            vectors: list[list[float]] = []
+            for text in texts:
+                vectors.extend(self._embed_with_context_retry([text]))
+            return vectors
+
+    def _retry_overflowing_item(self, text: str) -> list[list[float]]:
+        current = text
+        for attempt in range(1, 4):
+            current = current[: max(len(current) // 2, 1)]
+            logger.warning(
+                "Embedding input exceeded context; retrying item with %d characters (attempt %d/3).",
+                len(current),
+                attempt,
+            )
+            try:
+                return self._embed([current])
+            except Exception as exc:
+                if not _is_context_overflow(exc) or attempt == 3:
+                    raise
+        raise RuntimeError("Embedding context retry failed.")
 
     def _embed(self, texts: list[str]) -> list[list[float]]:
         payload: dict[str, Any] = {
@@ -105,3 +139,19 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
 def _batches(items: list[str], size: int):
     for offset in range(0, len(items), size):
         yield items[offset : offset + size]
+
+
+def _is_context_overflow(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return any(
+        marker in message
+        for marker in (
+            "context length",
+            "maximum context",
+            "context window",
+            "input too long",
+            "too many tokens",
+            "sequence length",
+            "max_seq_len",
+        )
+    )

@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import logging
 from typing import Any
 
+from ..services.embedding_text_preparer import truncate_embedding_text
 from ..settings import Defaults, EmbeddingProviderId
 from .embedding_provider import EmbeddingProvider
+
+logger = logging.getLogger(__name__)
 
 
 class SentenceTransformersEmbeddingProvider(EmbeddingProvider):
@@ -28,11 +32,15 @@ class SentenceTransformersEmbeddingProvider(EmbeddingProvider):
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
         vectors: list[list[float]] = []
         for batch in _batches(texts, self.batch_size):
-            vectors.extend(self._embed([self._bounded_prefixed(self.document_prefix, text) for text in batch]))
+            vectors.extend(
+                self._embed_with_context_retry(
+                    [self._bounded_prefixed(self.document_prefix, text) for text in batch]
+                )
+            )
         return vectors
 
     def embed_query(self, query: str) -> list[float]:
-        vectors = self._embed([self._bounded_prefixed(self.query_prefix, query)])
+        vectors = self._embed_with_context_retry([self._bounded_prefixed(self.query_prefix, query)])
         if not vectors:
             raise RuntimeError("SentenceTransformers returned no query embedding.")
         return vectors[0]
@@ -53,7 +61,37 @@ class SentenceTransformersEmbeddingProvider(EmbeddingProvider):
         value = f"{prefix}{text}" if prefix else text
         if self.max_input_chars is None or self.max_input_chars <= 0:
             return value
-        return value[: self.max_input_chars]
+        return truncate_embedding_text(
+            value,
+            self.max_input_chars,
+            getattr(self._load_model(), "tokenizer", None),
+        )
+
+    def _embed_with_context_retry(self, texts: list[str]) -> list[list[float]]:
+        try:
+            return self._embed(texts)
+        except Exception as exc:
+            if not _is_context_overflow(exc):
+                raise
+            if len(texts) == 1:
+                current = texts[0]
+                for attempt in range(1, 4):
+                    current = current[: max(len(current) // 2, 1)]
+                    logger.warning(
+                        "Embedding input exceeded context; retrying item with %d characters (attempt %d/3).",
+                        len(current),
+                        attempt,
+                    )
+                    try:
+                        return self._embed([current])
+                    except Exception as retry_exc:
+                        if not _is_context_overflow(retry_exc) or attempt == 3:
+                            raise
+                raise RuntimeError("Embedding context retry failed.")
+            vectors: list[list[float]] = []
+            for text in texts:
+                vectors.extend(self._embed_with_context_retry([text]))
+            return vectors
 
     def _embed(self, texts: list[str]) -> list[list[float]]:
         encoded = self._load_model().encode(
@@ -77,3 +115,8 @@ class SentenceTransformersEmbeddingProvider(EmbeddingProvider):
 def _batches(items: list[str], size: int):
     for offset in range(0, len(items), max(size, 1)):
         yield items[offset : offset + max(size, 1)]
+
+
+def _is_context_overflow(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return any(marker in message for marker in ("context length", "maximum context", "input too long", "too many tokens", "sequence length"))

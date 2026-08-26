@@ -1,0 +1,22 @@
+[package]
+name = "code_diver_search"
+version = "0.1.0"
+edition = "2021"
+description = "Rust search core for code-diver (BM25, later hybrid fusion)"
+license = "GPL-3.0-only"
+publish = false
+
+[lib]
+name = "code_diver_search"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+pyo3 = { version = "0.23", features = ["extension-module"], optional = true }
+
+[features]
+default = ["python"]
+python = ["dep:pyo3"]
+
+[profile.release]
+lto = true
+codegen-units = 1
