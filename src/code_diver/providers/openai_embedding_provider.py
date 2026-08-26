@@ -74,11 +74,12 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
     def _prefixed(self, prefix: str | None, text: str) -> str:
         return f"{prefix}{text}" if prefix else text
 
-    def _bounded_prefixed(self, prefix: str | None, text: str) -> str:
+    def _bounded_prefixed(self, prefix: str | None, text: str, limit: int | None = None) -> str:
         prefixed = self._prefixed(prefix, text)
-        if self.max_input_chars is None or self.max_input_chars <= 0:
+        max_input_chars = self.max_input_chars if limit is None else limit
+        if max_input_chars is None or max_input_chars <= 0:
             return prefixed
-        if len(prefixed) <= self.max_input_chars:
+        if len(prefixed) <= max_input_chars:
             return prefixed
         try:
             if tiktoken is None:
@@ -88,11 +89,11 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
             except Exception:
                 encoding = tiktoken.get_encoding("cl100k_base")
             token_ids = encoding.encode(prefixed)
-            if len(token_ids) <= self.max_input_chars:
+            if len(token_ids) <= max_input_chars:
                 return prefixed
-            return encoding.decode(token_ids[: self.max_input_chars])
+            return encoding.decode(token_ids[:max_input_chars])
         except Exception:
-            return prefixed[: self.max_input_chars // 3]
+            return prefixed[: max_input_chars // 3]
 
     def _get_tiktoken_encoding(self) -> Any | None:
         if self._tiktoken_encoding_loaded:
@@ -170,7 +171,7 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
         budget = self.max_input_chars if self.max_input_chars and self.max_input_chars > 0 else self._token_count(text)
         for attempt in range(1, 4):
             budget = max(budget // 2, 1)
-            shortened = self._shrink(current, budget)
+            shortened = self._bounded_prefixed(None, self._shrink(current, budget), budget)
             if len(shortened) >= len(current):
                 shortened = current[: max(len(current) // 2, 0)]
             current = shortened
@@ -230,6 +231,8 @@ def _is_context_overflow(exc: Exception) -> bool:
     message = str(exc).lower()
     code = str(getattr(exc, "code", "")).lower()
     explicit_codes = ("context_length_exceeded", "input_too_long", "max_tokens_exceeded")
+    if "maximum context length" in message:
+        return True
     if any(marker in code for marker in explicit_codes):
         return True
     if "http 400" not in message and not any(marker in message for marker in explicit_codes):

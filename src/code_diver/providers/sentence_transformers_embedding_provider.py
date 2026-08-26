@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from ..services.embedding_text_preparer import shrink_embedding_text, truncate_embedding_text
+from ..services.embedding_text_preparer import shrink_embedding_text
 from ..settings import Defaults, EmbeddingProviderId
 from .embedding_provider import EmbeddingProvider
 
@@ -61,11 +61,27 @@ class SentenceTransformersEmbeddingProvider(EmbeddingProvider):
         value = f"{prefix}{text}" if prefix else text
         if self.max_input_chars is None or self.max_input_chars <= 0:
             return value
-        return truncate_embedding_text(
-            value,
-            self.max_input_chars,
-            getattr(self._load_model(), "tokenizer", None),
-        )
+        if len(value) <= self.max_input_chars:
+            return value
+
+        limit_chars = self.max_input_chars
+        fallback_limit = max(limit_chars // 3, 1)
+        try:
+            model = self._load_model()
+            tokenizer = getattr(model, "tokenizer", None)
+            max_seq_length = getattr(model, "max_seq_length", None)
+            if tokenizer is None:
+                return value[:fallback_limit]
+            if isinstance(max_seq_length, bool) or not isinstance(max_seq_length, int) or max_seq_length <= 0:
+                return value[:fallback_limit]
+            token_ids = tokenizer.encode(value, add_special_tokens=False)
+            if len(token_ids) <= max_seq_length:
+                return value[:limit_chars]
+            special_tokens = tokenizer.num_special_tokens_to_add(pair=False)
+            token_limit = max(max_seq_length - special_tokens, 1)
+            return tokenizer.decode(token_ids[:token_limit], skip_special_tokens=True)[:limit_chars]
+        except Exception:
+            return value[:fallback_limit]
 
     def _embed_with_context_retry(self, texts: list[str]) -> list[list[float]]:
         try:
