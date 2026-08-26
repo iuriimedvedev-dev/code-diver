@@ -1,20 +1,30 @@
-# H3 Where Listwise Replay
+# H3 WHERE Listwise Replay
+
+## Purpose
+- Treat `datasets/intellij_eval_where_only.jsonl` as the frozen retrieval dump.
+- Replay listwise LLM reranking from top-20 candidates to top-10 output evaluation.
+- Compare dry-run, baseline identity-order, path-only lexical-cheat-detection, and full listwise LLM modes.
 
 ## Scope
+- Use `scripts/replay_listwise_where.py` only; do not regenerate or alter the dump.
+- Do not edit `configs/intellij/intellij-h46-preserve-top.yml`.
+- Keep pool and output controls explicit: `--top-k-pool 20 --top-k-out 10`.
 
-- Add a standalone Python 3.11 replay harness for the IntelliJ where-only dump.
-- Normalize both the frozen `id/query/expected` dataset and the richer candidate dump schema.
-- Provide deterministic baseline and gold-pool dry-run controls, plus OpenAI-compatible listwise ranking.
+## CLI Examples
+```bash
+# Validate the gold-in-pool@20 dump without calling an LLM.
+python scripts/replay_listwise_where.py --dump datasets/intellij_eval_where_only.jsonl --dry-run --top-k-pool 20 --top-k-out 10
 
-## Design
+# Baseline: preserve retrieval identity order.
+python scripts/replay_listwise_where.py --dump datasets/intellij_eval_where_only.jsonl --baseline --top-k-pool 20 --top-k-out 10
 
-- `Candidate` and `DumpRecord` are frozen, slotted dataclasses.
-- Frozen records without candidates synthesize expected paths as score-zero, empty-snippet candidates.
-- Metrics are pure macro averages with explicit empty-gold handling and support multiple gold paths.
-- Model output is restricted to validated candidate indices; duplicates are removed and omitted indices are appended in source order.
-- The CLI emits one JSON result on stdout, diagnostics on stderr, and refuses existing `--json-out` files.
+# Path-only prompt for lexical-cheat detection.
+python scripts/replay_listwise_where.py --dump datasets/intellij_eval_where_only.jsonl --path-only --top-k-pool 20 --top-k-out 10
 
-## Validation
+# Full listwise LLM rerank, using the configured OpenAI-compatible environment.
+python scripts/replay_listwise_where.py --dump datasets/intellij_eval_where_only.jsonl --top-k-pool 20 --top-k-out 10
+```
 
-- Unit tests cover schemas, metrics, prompt leakage, parsing, and fake-client control flow.
-- Targeted pytest and Ruff checks should be run after implementation.
+## Acceptance
+- Record mode, pool size, output size, file recall@10, and MRR@10 for comparable runs.
+- Preserve the frozen dump and leave all `configs/**` files untouched.
