@@ -80,6 +80,45 @@ def test_openai_embedding_provider_bounds_prefixed_query_and_documents(monkeypat
     assert calls[1]["input"] == ["query: abcde"]
 
 
+def test_openai_embedding_provider_retries_only_overflowing_item(monkeypatch) -> None:
+    provider = OpenAIEmbeddingProvider(
+        api_key="key",
+        dimensions=3,
+        batch_size=2,
+        document_prefix=None,
+        query_prefix=None,
+        max_input_chars=None,
+    )
+    calls: list[list[str]] = []
+
+    def fake_post(payload):
+        inputs = payload["input"]
+        calls.append(inputs)
+        if len(inputs) > 1 or len(inputs[0]) > 40:
+            raise RuntimeError("HTTP 400: context_length_exceeded")
+        return {"data": [{"index": 0, "embedding": [1, 2, 3]}]}
+
+    monkeypatch.setattr(provider, "_post", fake_post)
+
+    assert provider.embed_documents(["short", "long" * 20]) == [[1.0, 2.0, 3.0], [1.0, 2.0, 3.0]]
+    assert calls == [["short", "long" * 20], ["short"], ["long" * 20], ["long" * 10]]
+
+
+def test_openai_embedding_provider_does_not_retry_unrelated_http_400(monkeypatch) -> None:
+    provider = OpenAIEmbeddingProvider(api_key="key", dimensions=3)
+    calls = 0
+
+    def fake_post(payload):
+        nonlocal calls
+        calls += 1
+        raise RuntimeError("HTTP 400: invalid request")
+
+    monkeypatch.setattr(provider, "_post", fake_post)
+    with pytest.raises(RuntimeError, match="invalid request"):
+        provider.embed_query("query")
+    assert calls == 1
+
+
 def test_openai_generation_provider_requests_json_output(monkeypatch) -> None:
     provider = OpenAIGenerationProvider(api_key="key")
     calls: list[dict] = []

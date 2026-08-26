@@ -8,7 +8,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from ..generation.transient_generation_retry import TransientGenerationRetry
-from ..services.embedding_text_preparer import truncate_embedding_text
+from ..services.embedding_text_preparer import shrink_embedding_text, truncate_embedding_text
 from ..settings import Defaults, EmbeddingProviderId, EnvironmentVariable
 from .embedding_provider import EmbeddingProvider
 
@@ -88,7 +88,7 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
     def _retry_overflowing_item(self, text: str) -> list[list[float]]:
         current = text
         for attempt in range(1, 4):
-            current = current[: max(len(current) // 2, 1)]
+            current = shrink_embedding_text(current)
             logger.warning(
                 "Embedding input exceeded context; retrying item with %d characters (attempt %d/3).",
                 len(current),
@@ -143,6 +143,12 @@ def _batches(items: list[str], size: int):
 
 def _is_context_overflow(exc: Exception) -> bool:
     message = str(exc).lower()
+    code = str(getattr(exc, "code", "")).lower()
+    explicit_codes = ("context_length_exceeded", "input_too_long", "max_tokens_exceeded")
+    if any(marker in code for marker in explicit_codes):
+        return True
+    if "http 400" not in message and not any(marker in message for marker in explicit_codes):
+        return False
     return any(
         marker in message
         for marker in (
@@ -153,5 +159,8 @@ def _is_context_overflow(exc: Exception) -> bool:
             "too many tokens",
             "sequence length",
             "max_seq_len",
+            "context_length_exceeded",
+            "input_too_long",
+            "max_tokens_exceeded",
         )
     )

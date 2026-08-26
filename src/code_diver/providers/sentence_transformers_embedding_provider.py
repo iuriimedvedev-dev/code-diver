@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from ..services.embedding_text_preparer import truncate_embedding_text
+from ..services.embedding_text_preparer import shrink_embedding_text, truncate_embedding_text
 from ..settings import Defaults, EmbeddingProviderId
 from .embedding_provider import EmbeddingProvider
 
@@ -76,7 +76,7 @@ class SentenceTransformersEmbeddingProvider(EmbeddingProvider):
             if len(texts) == 1:
                 current = texts[0]
                 for attempt in range(1, 4):
-                    current = current[: max(len(current) // 2, 1)]
+                    current = shrink_embedding_text(current, getattr(self._load_model(), "tokenizer", None))
                     logger.warning(
                         "Embedding input exceeded context; retrying item with %d characters (attempt %d/3).",
                         len(current),
@@ -87,7 +87,7 @@ class SentenceTransformersEmbeddingProvider(EmbeddingProvider):
                     except Exception as retry_exc:
                         if not _is_context_overflow(retry_exc) or attempt == 3:
                             raise
-                raise RuntimeError("Embedding context retry failed.")
+                raise RuntimeError("Embedding context retry failed.") from exc
             vectors: list[list[float]] = []
             for text in texts:
                 vectors.extend(self._embed_with_context_retry([text]))

@@ -25,6 +25,7 @@ class _FakeSentenceTransformer:
 
     def __init__(self, model: str):
         self.model = model
+        self.tokenizer = _CharacterTokenizer()
 
     def encode(self, texts: list[str], **kwargs):
         self.calls.append({"model": self.model, "texts": texts, "kwargs": kwargs})
@@ -102,7 +103,7 @@ def test_sentence_transformers_retries_only_overflowing_item(monkeypatch) -> Non
     class _RetryModel(_FakeSentenceTransformer):
         def encode(self, texts: list[str], **kwargs):
             self.calls.append({"model": self.model, "texts": texts, "kwargs": kwargs})
-            if len(texts) > 1:
+            if len(texts) > 1 or len(texts[0]) > 20:
                 raise RuntimeError("input too long for context length")
             return _Encoded([[1.0, float(len(texts[0]))]])
 
@@ -112,9 +113,12 @@ def test_sentence_transformers_retries_only_overflowing_item(monkeypatch) -> Non
         "sentence_transformers",
         types.SimpleNamespace(SentenceTransformer=_RetryModel),
     )
-    provider = SentenceTransformersEmbeddingProvider("local/embedder", batch_size=2, max_input_chars=None)
+    provider = SentenceTransformersEmbeddingProvider(
+        "local/embedder", batch_size=2, document_prefix=None, query_prefix=None, max_input_chars=None
+    )
 
-    assert provider.embed_documents(["short", "long" * 20]) == [[1.0, 5.0], [1.0, 40.0]]
+    assert provider.embed_documents(["short", "long" * 20]) == [[1.0, 5.0], [1.0, 20.0]]
     assert _RetryModel.calls[0]["texts"] == ["short", "long" * 20]
     assert _RetryModel.calls[1]["texts"] == ["short"]
     assert _RetryModel.calls[2]["texts"] == ["long" * 20]
+    assert _RetryModel.calls[-1]["texts"] == ["long" * 5]

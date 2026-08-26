@@ -415,6 +415,39 @@ def test_nested_vendor_directory_is_excluded_at_any_depth(tmp_path: Path) -> Non
     assert [item.path for item in items] == ["src/node_modules_helper.py"]
 
 
+def test_default_test_source_directories_are_excluded_at_any_depth(tmp_path: Path) -> None:
+    excluded = {
+        "module/testSrc/nested/Excluded.java",
+        "module/testSources/nested/Excluded.java",
+        "module/platform-tests/nested/Excluded.java",
+    }
+    for relative in excluded:
+        path = tmp_path / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("class Excluded {}\n", encoding="utf-8")
+
+    included = {
+        "platform/testFramework/Runner.java",
+        "platform/testSrcHelper/Runner.java",
+        "platform/testSourcesHelper/Runner.java",
+        "platform/platform-tests-helper/Runner.java",
+    }
+    for relative in included:
+        path = tmp_path / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("class Included {}\n", encoding="utf-8")
+
+    scanner = CodebaseScanner(include=["**/*.java"])
+
+    for directory in ("testSrc", "testSources", "platform-tests"):
+        assert scanner._is_excluded(f"module/{directory}/nested/Excluded.java") is True
+        assert scanner._is_excluded(f"module/{directory}", is_dir=True) is True
+
+    items = scanner.scan(tmp_path)
+
+    assert {item.path for item in items} == included
+
+
 def test_sibling_virtualenvs_are_excluded_not_only_dot_venv(tmp_path: Path) -> None:
     """A second interpreter is always named `.venv-something`, and it must not be indexed.
 

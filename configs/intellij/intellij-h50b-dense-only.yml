@@ -165,6 +165,9 @@ scanner:
     - out/**
     - "**/build/**"
     - "**/out/**"
+    - "**/testSrc/**"
+    - "**/testSources/**"
+    - "**/platform-tests/**"
     - "**/test/**"
     - "**/tests/**"
     - "**/testData/**"
