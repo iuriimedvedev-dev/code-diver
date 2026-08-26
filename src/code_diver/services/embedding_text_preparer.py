@@ -45,8 +45,8 @@ def truncate_embedding_text(text: str, max_input_chars: int, tokenizer: Any | No
                 return text
             return encoding.decode(token_ids[:max_input_chars])
     except Exception:
-        return text[:max_input_chars]
-    return text[:max_input_chars]
+        return text[: max_input_chars // 3]
+    return text[: max_input_chars // 3]
 
 
 def shrink_embedding_text(text: str, tokenizer: Any | None = None) -> str:
