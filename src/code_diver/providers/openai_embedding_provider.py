@@ -82,6 +82,8 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
         if len(prefixed) <= max_input_chars:
             return prefixed
         try:
+            if self.tokenizer is not None:
+                return self._truncate_with_tokenizer(prefixed, max_input_chars)
             if tiktoken is None:
                 raise ImportError("tiktoken is unavailable")
             try:
@@ -93,7 +95,7 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
                 return prefixed
             return encoding.decode(token_ids[:max_input_chars])
         except Exception:
-            return prefixed[: max_input_chars // 3]
+            return prefixed[:max_input_chars]
 
     def _get_tiktoken_encoding(self) -> Any | None:
         if self._tiktoken_encoding_loaded:
@@ -156,7 +158,7 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
     def _embed_with_context_retry(self, texts: list[str]) -> list[list[float]]:
         try:
             return self._embed(texts)
-        except Exception as exc:
+        except RuntimeError as exc:
             if not _is_context_overflow(exc):
                 raise
             if len(texts) == 1:
@@ -169,11 +171,11 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
     def _retry_overflowing_item(self, text: str) -> list[list[float]]:
         current = text
         budget = self.max_input_chars if self.max_input_chars and self.max_input_chars > 0 else self._token_count(text)
-        for attempt in range(1, 4):
+        for attempt in range(2, 4):
             budget = max(budget // 2, 1)
-            shortened = self._bounded_prefixed(None, self._shrink(current, budget), budget)
+            shortened = self._bounded_prefixed(None, current, budget)
             if len(shortened) >= len(current):
-                shortened = current[: max(len(current) // 2, 0)]
+                shortened = current[: max(len(current) // 2, 1)]
             current = shortened
             logger.warning(
                 "Embedding input exceeded context; retrying item with budget %d (attempt %d/3).",
@@ -182,7 +184,7 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
             )
             try:
                 return self._embed([current])
-            except Exception as exc:
+            except RuntimeError as exc:
                 if not _is_context_overflow(exc) or attempt == 3:
                     raise
         raise RuntimeError("Embedding context retry failed.")

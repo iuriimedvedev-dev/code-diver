@@ -77,7 +77,8 @@ class SentenceTransformersEmbeddingProvider(EmbeddingProvider):
             token_ids = tokenizer.encode(value, add_special_tokens=False)
             if len(token_ids) <= max_seq_length:
                 return value[:limit_chars]
-            special_tokens = tokenizer.num_special_tokens_to_add(pair=False)
+            special_token_count = getattr(tokenizer, "num_special_tokens_to_add", None)
+            special_tokens = special_token_count(pair=False) if callable(special_token_count) else 0
             token_limit = max(max_seq_length - special_tokens, 1)
             return tokenizer.decode(token_ids[:token_limit], skip_special_tokens=True)[:limit_chars]
         except Exception:
