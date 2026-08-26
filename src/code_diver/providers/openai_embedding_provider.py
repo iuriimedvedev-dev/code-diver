@@ -190,7 +190,7 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
             )
             try:
                 return self._embed([current])
-            except BadRequestError as exc:
+            except Exception as exc:
                 if not _is_context_length_bad_request(exc) or attempt == 3:
                     raise
         raise RuntimeError("Embedding context retry failed.")
