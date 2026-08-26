@@ -1,0 +1,29 @@
+
+==================================== ERRORS ====================================
+_____________ ERROR collecting tests/unit/test_openai_providers.py _____________
+ImportError while importing test module '/Users/iurii.medvedev/Work/code-diver/tests/unit/test_openai_providers.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/unit/test_openai_providers.py:7: in <module>
+    from code_diver.config import AppConfig
+E   ModuleNotFoundError: No module named 'code_diver'
+_____________ ERROR collecting tests/unit/test_codebase_scanner.py _____________
+ImportError while importing test module '/Users/iurii.medvedev/Work/code-diver/tests/unit/test_codebase_scanner.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/unit/test_codebase_scanner.py:9: in <module>
+    from code_diver.services import CodebaseScanner
+E   ModuleNotFoundError: No module named 'code_diver'
+=========================== short test summary info ============================
+ERROR tests/unit/test_openai_providers.py
+ERROR tests/unit/test_codebase_scanner.py
+!!!!!!!!!!!!!!!!!!! Interrupted: 2 errors during collection !!!!!!!!!!!!!!!!!!!!
+2 errors in 0.09s
+...........................s.................ss.                         [100%]
+45 passed, 3 skipped in 0.13s
