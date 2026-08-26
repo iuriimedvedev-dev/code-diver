@@ -104,10 +104,11 @@ class HybridRetrievalStrategy(RetrievalStrategy):
         if not self._uses_bounded_catalog():
             lexical_scores = self._lexical_scores(graph, query_profile, active_config)
             normalized_lexical_scores = self._normalize(lexical_scores)
-            for item in self._lexical_candidates(graph, query_profile, scorer, normalized_lexical_scores, active_config):
-                existing = scores.setdefault(item.id, HybridCandidateScore(item=item))
-                lexical = scorer.score(item)
-                lexical_score = normalized_lexical_scores.get(item.id, lexical.lexical_score)
+            for lexical in self._lexical_candidates(
+                graph, query_profile, scorer, normalized_lexical_scores, active_config
+            ):
+                existing = scores.setdefault(lexical.item.id, HybridCandidateScore(item=lexical.item))
+                lexical_score = normalized_lexical_scores.get(lexical.item.id, lexical.lexical_score)
                 existing.lexical_score = max(existing.lexical_score, lexical_score)
                 existing.path_score = max(existing.path_score, lexical.path_score)
                 existing.symbol_score = max(existing.symbol_score, lexical.symbol_score)
@@ -171,7 +172,7 @@ class HybridRetrievalStrategy(RetrievalStrategy):
         scorer: HybridCandidateScorer,
         lexical_scores: dict[str, float],
         config: HybridSearchConfig,
-    ) -> list[CodeItem]:
+    ) -> list[HybridCandidateScore]:
         candidates = self._load_lexical_index(graph).candidates(query_profile.terms)
         scored = [scorer.score(item) for item in candidates]
         for score in scored:
@@ -181,7 +182,7 @@ class HybridRetrievalStrategy(RetrievalStrategy):
             reverse=True,
         )
         return [
-            score.item
+            score
             for score in scored[: config.lexical_candidate_limit]
             if score.lexical_score > 0 or score.path_score > 0 or score.symbol_score > 0
         ]
@@ -207,6 +208,8 @@ class HybridRetrievalStrategy(RetrievalStrategy):
         profile: GraphExpansionProfile,
         config: HybridSearchConfig,
     ) -> dict[str, float]:
+        if profile.depth == 0:
+            return {}
         seed_scores = self._normalize({result.item.id: result.score for result in vector_results})
         if config.graph_scope == "file":
             return self._normalize(self._file_expander(graph).expand(seed_scores, profile))

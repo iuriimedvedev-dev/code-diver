@@ -32,9 +32,9 @@ class FileSummaryItemBuilder:
             [
                 f"file: {rel_path}",
                 f"extension: {Path(rel_path).suffix.lower()}",
+                self._head_section(text),
                 self._symbols_section(symbols),
                 self._imports_section(text),
-                self._head_section(text),
             ]
         ).strip()
         return CodeItem(

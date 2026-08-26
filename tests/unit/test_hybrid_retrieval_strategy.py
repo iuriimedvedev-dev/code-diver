@@ -514,6 +514,36 @@ def test_hybrid_strategy_skips_graph_expansion_when_weight_is_zero(tmp_path: Pat
     assert call_count() == 0
 
 
+def test_hybrid_strategy_skips_graph_expansion_at_zero_depth(tmp_path: Path) -> None:
+    seed_item = CodeItem(id="seed", path="src/seed.py", title="seed", content="seed content")
+    neighbor_item = CodeItem(id="neighbor", path="src/neighbor.py", title="neighbor", content="neighbor content")
+    graph_store = _graph_store(
+        tmp_path,
+        [seed_item, neighbor_item],
+        [GraphEdge(source=seed_item.id, target=neighbor_item.id, kind="calls", weight=0.9)],
+    )
+    strategy = HybridRetrievalStrategy(
+        FakeRetrievalStrategy([SearchResult(seed_item, 0.8)]),
+        graph_store,
+        HybridSearchConfig(
+            candidate_limit=5,
+            lexical_candidate_limit=5,
+            vector_weight=1.0,
+            lexical_weight=0.0,
+            path_weight=0.0,
+            symbol_weight=0.0,
+            graph_weight=1.0,
+            graph_depth=0,
+        ),
+    )
+    call_count = _spy_on_graph_scores(strategy)
+
+    results = strategy.search("seed", limit=2)
+
+    assert call_count() == 1
+    assert [result.item.id for result in results] == [seed_item.id]
+
+
 def test_hybrid_strategy_computes_graph_expansion_when_weight_is_positive(tmp_path: Path) -> None:
     seed_item = CodeItem(id="seed", path="src/seed.py", title="seed", content="seed content")
     neighbor_item = CodeItem(id="neighbor", path="src/neighbor.py", title="neighbor", content="neighbor content")

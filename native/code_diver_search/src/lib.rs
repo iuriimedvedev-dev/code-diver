@@ -1,9 +1,11 @@
 mod bm25;
 
-pub use bm25::{fuse_hybrid, HybridWeights, InvertedIndex};
+pub use bm25::{fuse_hybrid, fuse_hybrid_batch, HybridWeights, InvertedIndex};
 
 #[cfg(feature = "python")]
 use pyo3::prelude::*;
+#[cfg(feature = "python")]
+use pyo3::exceptions::PyValueError;
 #[cfg(feature = "python")]
 use pyo3::types::PyDict;
 
@@ -98,10 +100,51 @@ fn fuse_hybrid_py(
 }
 
 #[cfg(feature = "python")]
+#[pyfunction]
+#[pyo3(signature = (vector, lexical, path, symbol, symbol_match, graph, file_vote, vector_weight=0.0, lexical_weight=0.0, path_weight=0.0, symbol_weight=0.0, symbol_match_weight=0.0, graph_weight=0.0, file_vote_weight=0.0))]
+fn fuse_hybrid_batch_py(
+    vector: Vec<f64>,
+    lexical: Vec<f64>,
+    path: Vec<f64>,
+    symbol: Vec<f64>,
+    symbol_match: Vec<f64>,
+    graph: Vec<f64>,
+    file_vote: Vec<f64>,
+    vector_weight: f64,
+    lexical_weight: f64,
+    path_weight: f64,
+    symbol_weight: f64,
+    symbol_match_weight: f64,
+    graph_weight: f64,
+    file_vote_weight: f64,
+) -> PyResult<Vec<f64>> {
+    fuse_hybrid_batch(
+        &vector,
+        &lexical,
+        &path,
+        &symbol,
+        &symbol_match,
+        &graph,
+        &file_vote,
+        HybridWeights {
+            vector: vector_weight,
+            lexical: lexical_weight,
+            path: path_weight,
+            symbol: symbol_weight,
+            symbol_match: symbol_match_weight,
+            graph: graph_weight,
+            file_vote: file_vote_weight,
+        },
+    )
+    .map_err(PyValueError::new_err)
+}
+
+#[cfg(feature = "python")]
 #[pymodule]
 fn code_diver_search(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyInvertedIndex>()?;
     m.add_function(wrap_pyfunction!(fuse_hybrid_py, m)?)?;
+    m.add_function(wrap_pyfunction!(fuse_hybrid_batch_py, m)?)?;
     m.add("__version__", "0.1.0")?;
     Ok(())
 }

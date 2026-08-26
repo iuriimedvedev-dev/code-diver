@@ -8,12 +8,12 @@ Python implementations stay in place (dual path). Champion config is unchanged.
 
 - Inverted index ingest of **already-tokenized** documents (field weighting stays in Python for now).
 - BM25 scores / top-k matching `HybridLexicalIndex.bm25_scores`.
-- Stub `fuse_hybrid` matching `HybridCandidateScore.total` weights.
+- Scalar and batch `fuse_hybrid` matching `HybridCandidateScore.total` weights.
 
 ## FFI (PyO3 module `code_diver_search`)
 
 ```python
-from code_diver_search import InvertedIndex, fuse_hybrid_py
+from code_diver_search import InvertedIndex, fuse_hybrid_py, fuse_hybrid_batch_py
 
 idx = InvertedIndex()
 idx.ingest("doc-1", ["authorization", "token"])  # pre-tokenized
@@ -24,12 +24,17 @@ total = fuse_hybrid_py(
     0.8, 0.5, 0.1, 0.0,
     vector_weight=0.5, lexical_weight=0.3, path_weight=0.2,
 )
+
+totals = fuse_hybrid_batch_py(
+    [0.8, 0.2], [0.5, 0.9], [0.1, 0.3], [0.0, 0.4],
+    [0.0, 0.2], [0.1, 0.5], [0.0, 0.2],
+    vector_weight=0.5, lexical_weight=0.3, path_weight=0.2,
+)
 ```
 
 Planned (not implemented):
 
 - `ingest_postings(...)` bulk load of Python `item_ids_by_term` / TFs.
-- Hybrid field fusion over candidate batches (vector/lexical/path/symbol).
 - Graph-file **file-level** aggregation (full-catalog loop).
 
 ## Python sources this crate is porting from
@@ -44,11 +49,9 @@ Planned (not implemented):
 
 ## Next port order
 
-1. **BM25** (this crate) — ingest + score + top-k.
-2. **Batch hybrid fusion** — `HybridCandidateScore.total` over arrays of field scores.
-3. **Coverage scorer** — title/content/path/symbol term sets (from `HybridCandidateScorer`).
-4. **File-level aggregation** — graph-file catalog loop + decayed neighbor propagate.
-5. Wire dual-path behind a flag (do not flip champion until parity tests pass).
+1. **Coverage scorer** — title/content/path/symbol term sets (from `HybridCandidateScorer`).
+2. **File-level aggregation** — graph-file catalog loop + decayed neighbor propagate.
+3. Wire dual-path behind a flag (do not flip champion until parity tests pass).
 
 ## Build
 

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+from array import array
+from collections import defaultdict
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -17,6 +19,10 @@ SCHEMA_VERSION = 1
 class JsonVectorStore(VectorStore):
     def __init__(self, artifact: Path):
         self.artifact = artifact
+        self._items_cache: list[CodeItem] | None = None
+        self._normalized_vectors_cache: array[float] | None = None
+        self._vector_dimension: int | None = None
+        self._items_by_kind_cache: dict[str, list[int]] | None = None
 
     def exists(self) -> bool:
         return self.artifact.exists()
@@ -51,6 +57,7 @@ class JsonVectorStore(VectorStore):
             ],
         }
         self.artifact.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        self._invalidate_caches()
 
     def metadata(self) -> dict[str, Any]:
         payload = self._load()
@@ -61,45 +68,71 @@ class JsonVectorStore(VectorStore):
         }
 
     def search(self, query_vector: list[float], limit: int) -> list[SearchResult]:
-        _, items, vectors = self.load_items_and_vectors()
-        return self._search_items(query_vector, items, vectors, limit)
+        items = self._cached_items()
+        return self._search_items(query_vector, items, range(len(items)), limit)
 
     def search_by_index_kind(self, query_vector: list[float], limit: int, index_kind: str) -> list[SearchResult]:
-        _, items, vectors = self.load_items_and_vectors()
-        filtered_items: list[CodeItem] = []
-        filtered_vectors: list[list[float]] = []
-        for item, vector in zip(items, vectors, strict=True):
-            if str(item.metadata.get("index_kind") or "") != index_kind:
-                continue
-            filtered_items.append(item)
-            filtered_vectors.append(vector)
-        return self._search_items(query_vector, filtered_items, filtered_vectors, limit)
+        items = self._cached_items()
+        indices = (self._items_by_kind_cache or {}).get(index_kind, [])
+        return self._search_items(query_vector, items, indices, limit)
 
     def _search_items(
         self,
         query_vector: list[float],
         items: list[CodeItem],
-        vectors: list[list[float]],
+        indices: Any,
         limit: int,
     ) -> list[SearchResult]:
         normalized_query = normalize(query_vector)
-        scored = [
-            SearchResult(item=item, score=dot(normalized_query, normalize(vector)))
-            for item, vector in zip(items, vectors, strict=True)
-        ]
+        vectors = self._cached_normalized_vectors()
+        dimension = self._vector_dimension or 0
+        scored = []
+        for index in indices:
+            start = index * dimension
+            vector = vectors[start : start + dimension]
+            scored.append(SearchResult(item=items[index], score=dot(normalized_query, vector)))
         scored.sort(key=lambda result: result.score, reverse=True)
         return scored[:limit]
 
     def load_items_and_vectors(self) -> tuple[dict[str, Any], list[CodeItem], list[list[float]]]:
         payload = self._load()
         records = payload.get(SchemaKey.ITEMS.value) or []
-        items = [CodeItem.from_json(record[SchemaKey.ITEM.value]) for record in records]
+        items = self._cached_items()
         vectors = [[float(value) for value in record[SchemaKey.VECTOR.value]] for record in records]
         return payload, items, vectors
 
     def count_items(self) -> int:
-        _, items, _ = self.load_items_and_vectors()
-        return len(items)
+        return len(self._cached_items())
+
+    def _cached_items(self) -> list[CodeItem]:
+        if self._items_cache is None:
+            payload = self._load()
+            records = payload.get(SchemaKey.ITEMS.value) or []
+            self._items_cache = [CodeItem.from_json(record[SchemaKey.ITEM.value]) for record in records]
+            self._items_by_kind_cache = defaultdict(list)
+            for index, item in enumerate(self._items_cache):
+                kind = str(item.metadata.get("index_kind") or "")
+                self._items_by_kind_cache[kind].append(index)
+        return self._items_cache
+
+    def _cached_normalized_vectors(self) -> array[float]:
+        if self._normalized_vectors_cache is None:
+            payload = self._load()
+            records = payload.get(SchemaKey.ITEMS.value) or []
+            self._vector_dimension = int(payload.get(SchemaKey.DIMENSIONS.value) or 0)
+            # array('f') is the standard-library fallback for a NumPy-free float32 matrix.
+            matrix = array("f")
+            for record in records:
+                vector = normalize([float(value) for value in record[SchemaKey.VECTOR.value]])
+                matrix.extend(vector)
+            self._normalized_vectors_cache = matrix
+        return self._normalized_vectors_cache
+
+    def _invalidate_caches(self) -> None:
+        self._items_cache = None
+        self._normalized_vectors_cache = None
+        self._vector_dimension = None
+        self._items_by_kind_cache = None
 
     def _load(self) -> dict[str, Any]:
         if not self.artifact.exists():

@@ -148,6 +148,50 @@ pub fn fuse_hybrid(
         + file_vote * weights.file_vote
 }
 
+/// Fuse parallel batches of field scores using the scalar fusion formula.
+pub fn fuse_hybrid_batch(
+    vector: &[f64],
+    lexical: &[f64],
+    path: &[f64],
+    symbol: &[f64],
+    symbol_match: &[f64],
+    graph: &[f64],
+    file_vote: &[f64],
+    weights: HybridWeights,
+) -> Result<Vec<f64>, String> {
+    let length = vector.len();
+    let fields = [
+        ("lexical", lexical.len()),
+        ("path", path.len()),
+        ("symbol", symbol.len()),
+        ("symbol_match", symbol_match.len()),
+        ("graph", graph.len()),
+        ("file_vote", file_vote.len()),
+    ];
+    for (name, field_length) in fields {
+        if field_length != length {
+            return Err(format!(
+                "batch field {name} has length {field_length}, expected {length}"
+            ));
+        }
+    }
+
+    Ok((0..length)
+        .map(|index| {
+            fuse_hybrid(
+                vector[index],
+                lexical[index],
+                path[index],
+                symbol[index],
+                symbol_match[index],
+                graph[index],
+                file_vote[index],
+                weights,
+            )
+        })
+        .collect())
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct HybridWeights {
     pub vector: f64,
@@ -202,8 +246,8 @@ mod tests {
     }
 
     #[test]
-    fn fuse_hybrid_is_weighted_sum() {
-        let w = HybridWeights {
+    fn test_weights() -> HybridWeights {
+        HybridWeights {
             vector: 0.5,
             lexical: 0.3,
             path: 0.1,
@@ -211,9 +255,108 @@ mod tests {
             symbol_match: 0.0,
             graph: 0.0,
             file_vote: 0.0,
-        };
-        let t = fuse_hybrid(1.0, 0.5, 0.0, 0.0, 0.0, 0.0, 0.0, w);
+        }
+    }
+
+    #[test]
+    fn fuse_hybrid_is_weighted_sum() {
+        let t = fuse_hybrid(1.0, 0.5, 0.0, 0.0, 0.0, 0.0, 0.0, test_weights());
         assert!((t - 0.65).abs() < 1e-12);
+    }
+
+    #[test]
+    fn fuse_hybrid_batch_matches_scalar_for_all_fields() {
+        let fields = [
+            vec![1.0, 2.0],
+            vec![3.0, 4.0],
+            vec![5.0, 6.0],
+            vec![7.0, 8.0],
+            vec![9.0, 10.0],
+            vec![11.0, 12.0],
+            vec![13.0, 14.0],
+        ];
+        let weights = HybridWeights {
+            vector: 0.1,
+            lexical: 0.2,
+            path: 0.3,
+            symbol: 0.4,
+            symbol_match: 0.5,
+            graph: 0.6,
+            file_vote: 0.7,
+        };
+        let actual = fuse_hybrid_batch(
+            &fields[0], &fields[1], &fields[2], &fields[3], &fields[4], &fields[5],
+            &fields[6], weights,
+        )
+        .unwrap();
+        let expected = vec![
+            fuse_hybrid(1.0, 3.0, 5.0, 7.0, 9.0, 11.0, 13.0, weights),
+            fuse_hybrid(2.0, 4.0, 6.0, 8.0, 10.0, 12.0, 14.0, weights),
+        ];
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn fuse_hybrid_batch_handles_zeros_and_missing_fields() {
+        let zeros = vec![0.0, 0.0];
+        let values = vec![2.0, 4.0];
+        let result = fuse_hybrid_batch(
+            &values,
+            &zeros,
+            &zeros,
+            &zeros,
+            &zeros,
+            &zeros,
+            &zeros,
+            HybridWeights {
+                vector: 0.25,
+                lexical: 1.0,
+                path: 1.0,
+                symbol: 1.0,
+                symbol_match: 1.0,
+                graph: 1.0,
+                file_vote: 1.0,
+            },
+        )
+        .unwrap();
+        assert_eq!(result, vec![0.5, 1.0]);
+    }
+
+    #[test]
+    fn fuse_hybrid_batch_handles_typical_mix() {
+        let result = fuse_hybrid_batch(
+            &[0.8, 0.2],
+            &[0.5, 0.9],
+            &[0.1, 0.3],
+            &[0.0, 0.4],
+            &[0.2, 0.0],
+            &[0.1, 0.5],
+            &[0.0, 0.2],
+            test_weights(),
+        )
+        .unwrap();
+        assert_eq!(result, vec![0.56, 0.44]);
+    }
+
+    #[test]
+    fn fuse_hybrid_batch_handles_empty_input() {
+        let empty: Vec<f64> = Vec::new();
+        assert!(fuse_hybrid_batch(
+            &empty, &empty, &empty, &empty, &empty, &empty, &empty, test_weights()
+        )
+        .unwrap()
+        .is_empty());
+    }
+
+    #[test]
+    fn fuse_hybrid_batch_rejects_mismatched_lengths() {
+        let result = fuse_hybrid_batch(
+            &[1.0], &[], &[1.0], &[1.0], &[1.0], &[1.0], &[1.0], test_weights(),
+        );
+        assert_eq!(
+            result.unwrap_err(),
+            "batch field lexical has length 0, expected 1"
+        );
     }
 
     #[test]
