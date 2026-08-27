@@ -76,13 +76,14 @@ pub fn seed_coverages(
         scored.push((item.id, lexical_score, path_score, symbol_score, item.path));
     }
 
-    // Sort by lexical_score desc, path_score desc, symbol_score desc, path asc
+    // Sort by lexical_score desc, path_score desc, symbol_score desc, path desc
+    // (matches Python: `reverse=True` on (lexical, path, symbol, path))
     scored.sort_by(|a, b| {
         b.1.partial_cmp(&a.1)
             .unwrap_or(std::cmp::Ordering::Equal)
             .then_with(|| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal))
             .then_with(|| b.3.partial_cmp(&a.3).unwrap_or(std::cmp::Ordering::Equal))
-            .then_with(|| a.4.cmp(&b.4))
+            .then_with(|| b.4.cmp(&a.4))
     });
 
     scored
@@ -202,17 +203,18 @@ mod tests {
     }
 
     #[test]
-    fn sorting_by_path_asc_when_scores_equal() {
+    fn sorting_by_path_desc_when_scores_equal() {
         let items = vec![
-            make_item("b", "/b.py", &["foo"], &["foo"], &["a"], &[], None),
             make_item("a", "/a.py", &["foo"], &["foo"], &["a"], &[], None),
+            make_item("b", "/b.py", &["foo"], &["foo"], &["a"], &[], None),
         ];
         let terms: Vec<String> = vec!["foo".to_string()];
         let result = seed_coverages(items, &terms, 10);
         assert_eq!(result.len(), 2);
-        // Both have same lexical/path/symbol scores, so sort by path asc
-        assert_eq!(result[0].0, "a");
-        assert_eq!(result[1].0, "b");
+        // Both have same lexical/path/symbol scores, so sort by path desc
+        // (matches Python `reverse=True` on the full tuple)
+        assert_eq!(result[0].0, "b");
+        assert_eq!(result[1].0, "a");
     }
 
     #[test]
