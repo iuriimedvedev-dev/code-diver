@@ -199,7 +199,7 @@ def main() -> int:
             failed += 1
             results.append(
                 {
-                    "id": case["id"],
+                    "id": case.get("id", f"q-{i}"),
                     "query": query,
                     "expected": expected,
                     "error": error,
@@ -217,7 +217,7 @@ def main() -> int:
             metrics = file_metrics(files, expected, args.file_limit)
             results.append(
                 {
-                    "id": case["id"],
+                    "id": case.get("id", f"q-{i}"),
                     "query": query,
                     "expected": expected,
                     "duration_ms": duration_ms,
