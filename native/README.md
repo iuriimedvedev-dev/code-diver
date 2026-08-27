@@ -13,6 +13,7 @@ Python implementations stay in place (dual path). Champion config is unchanged.
 - **File-level decayed neighbor propagate**:
   - `propagate_file_scores` ↔ `GraphFileRetrievalStrategy._propagate` (`decay ** (depth+1)`, seed/neighbor/frontier limits).
   - `expand_adjacency` ↔ `FileGraphAdjacencyIndex.expand` (`decay ** depth`, `best_seen`, `min_score`).
+- **Full-catalog lexical seed loop** — `seed_coverages` ↔ `GraphFileRetrievalStrategy._seed_scores` (coverage/path/symbol over all catalog items, filter, sort, top-N).
 
 ## Dual path (default OFF)
 
@@ -29,6 +30,7 @@ Wired call sites (still Python when flag off or module missing):
 - `GraphFileRetrievalStrategy._propagate` → `propagate_file_scores_py`
 - `FileGraphAdjacencyIndex.expand` → `expand_adjacency_py`
 - `HybridLexicalIndex.bm25_scores` → `bm25_scores_from_data_py` (avoids rebuilding InvertedIndex)
+- `GraphFileRetrievalStrategy._seed_scores` → `seed_coverages_py` (full-catalog lexical seed loop)
 
 ## FFI (PyO3 module `code_diver_search`)
 
@@ -36,6 +38,7 @@ Wired call sites (still Python when flag off or module missing):
 from code_diver_search import (
     InvertedIndex,
     bm25_scores_from_data_py,
+    seed_coverages_py,
     fuse_hybrid_py,
     fuse_hybrid_batch_py,
     propagate_file_scores_py,
@@ -71,7 +74,7 @@ expanded = expand_adjacency_py(
 
 Planned (not implemented):
 
-- Full-catalog lexical **seed** loop (`GraphFileRetrievalStrategy._seed_scores` O(n) scorer).
+_(none — all planned ports are done)_
 
 ## Python sources this crate is porting from
 
@@ -87,11 +90,12 @@ Planned (not implemented):
 
 ## Next port order
 
-1. **Full-catalog lexical seed loop** — `GraphFileRetrievalStrategy._seed_scores` (coverage/path/symbol over catalog; needs profiles or pre-tokenized fields).
+1. Parity harness vs Python on IntelliJ-scale fixtures before any champion flip (champion stays Python).
 2. Symbol-match scorer (needs item metadata) if hot.
-3. Parity harness vs Python on IntelliJ-scale fixtures before any champion flip (champion stays Python).
 
 **Done:** BM25 dual-path (`HybridLexicalIndex.bm25_scores` → `bm25_scores_from_data_py`).
+
+**Done:** Full-catalog lexical seed loop (`GraphFileRetrievalStrategy._seed_scores` → `seed_coverages_py`).
 
 ## Build
 

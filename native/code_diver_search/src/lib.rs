@@ -1,5 +1,6 @@
 mod bm25;
 mod file_propagate;
+mod seed_scores;
 
 pub use bm25::{
     bm25_scores_from_data, coverage, fuse_hybrid, fuse_hybrid_batch, lexical_from_coverages,
@@ -9,6 +10,7 @@ pub use file_propagate::{
     expand_adjacency, propagate_file_scores, AdjacencyExpandParams, FileAdjacency,
     FilePropagateParams,
 };
+pub use seed_scores::{seed_coverages, ItemSeedData};
 
 #[cfg(feature = "python")]
 use pyo3::exceptions::PyValueError;
@@ -282,6 +284,70 @@ fn bm25_scores_from_data_py(
     Ok(dict.into())
 }
 
+/// Seed coverages: compute lexical/path/symbol scores for all catalog items.
+///
+/// Accepts:
+/// - ``profiles``: ``{item_id: {"title": [str], "path": [str], "content": [str], "metadata": [str]}}``
+/// - ``item_ids``: ordered list of item IDs
+/// - ``paths``: ordered list of item paths (same order as item_ids)
+/// - ``query_terms``: query terms
+/// - ``lexical_seed_limit``: max items to return
+/// - ``symbols``: ``{item_id: str | None}``
+///
+/// Returns ``[(item_id, lexical_score, path_score, symbol_score), ...]`` sorted by
+/// (lexical desc, path desc, symbol desc, path asc), limited to ``lexical_seed_limit``.
+#[cfg(feature = "python")]
+#[pyfunction]
+#[pyo3(signature = (profiles, item_ids, paths, query_terms, lexical_seed_limit, symbols))]
+fn seed_coverages_py(
+    profiles: HashMap<String, HashMap<String, Vec<String>>>,
+    item_ids: Vec<String>,
+    paths: Vec<String>,
+    query_terms: Vec<String>,
+    lexical_seed_limit: usize,
+    symbols: HashMap<String, Option<String>>,
+) -> Vec<(String, f64, f64, f64)> {
+    let mut items = Vec::with_capacity(item_ids.len());
+
+    for (i, id) in item_ids.iter().enumerate() {
+        let path = paths.get(i).cloned().unwrap_or_default();
+        let profile = match profiles.get(id) {
+            Some(p) => p,
+            None => continue,
+        };
+
+        let title_terms: HashSet<String> = profile
+            .get("title")
+            .map(|v| v.iter().cloned().collect())
+            .unwrap_or_default();
+        let content_terms: HashSet<String> = profile
+            .get("content")
+            .map(|v| v.iter().cloned().collect())
+            .unwrap_or_default();
+        let path_terms: HashSet<String> = profile
+            .get("path")
+            .map(|v| v.iter().cloned().collect())
+            .unwrap_or_default();
+        let metadata_terms: HashSet<String> = profile
+            .get("metadata")
+            .map(|v| v.iter().cloned().collect())
+            .unwrap_or_default();
+        let symbol = symbols.get(id).cloned().unwrap_or(None);
+
+        items.push(ItemSeedData {
+            id: id.clone(),
+            path,
+            title_terms,
+            content_terms,
+            path_terms,
+            metadata_terms,
+            symbol,
+        });
+    }
+
+    seed_coverages(items, &query_terms, lexical_seed_limit)
+}
+
 #[cfg(feature = "python")]
 #[pymodule]
 fn code_diver_search(m: &Bound<'_, PyModule>) -> PyResult<()> {
@@ -293,6 +359,7 @@ fn code_diver_search(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(coverage_py, m)?)?;
     m.add_function(wrap_pyfunction!(lexical_from_coverages_py, m)?)?;
     m.add_function(wrap_pyfunction!(bm25_scores_from_data_py, m)?)?;
+    m.add_function(wrap_pyfunction!(seed_coverages_py, m)?)?;
     m.add("__version__", "0.1.0")?;
     Ok(())
 }

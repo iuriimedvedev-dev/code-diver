@@ -171,22 +171,27 @@ class GraphFileRetrievalStrategy(RetrievalStrategy):
         )
         lexical_candidates: list[FileScore] = []
         if self.config.lexical_seed_limit > 0:
-            for item in catalog.items_by_id.values():
-                candidate = scorer.score(item)
-                lexical_score = candidate.lexical_score
-                path_score = candidate.path_score
-                symbol_score = max(candidate.symbol_score, candidate.symbol_match_score)
-                if lexical_score <= 0 and path_score <= 0 and symbol_score <= 0:
-                    continue
-                lexical_candidates.append(
-                    FileScore(
-                        path=item.path,
-                        item=item,
-                        lexical_score=lexical_score,
-                        path_score=path_score,
-                        symbol_score=symbol_score,
+            # Try native seed coverages (dual-path, off by default)
+            native_coverages = self._try_native_seed_coverages(query_model, catalog)
+            if native_coverages is not None:
+                lexical_candidates = native_coverages
+            else:
+                for item in catalog.items_by_id.values():
+                    candidate = scorer.score(item)
+                    lexical_score = candidate.lexical_score
+                    path_score = candidate.path_score
+                    symbol_score = max(candidate.symbol_score, candidate.symbol_match_score)
+                    if lexical_score <= 0 and path_score <= 0 and symbol_score <= 0:
+                        continue
+                    lexical_candidates.append(
+                        FileScore(
+                            path=item.path,
+                            item=item,
+                            lexical_score=lexical_score,
+                            path_score=path_score,
+                            symbol_score=symbol_score,
+                        )
                     )
-                )
         lexical_candidates.sort(
             key=lambda score: (score.lexical_score, score.path_score, score.symbol_score, score.path),
             reverse=True,
@@ -236,6 +241,58 @@ class GraphFileRetrievalStrategy(RetrievalStrategy):
                 break
             frontier = dict(sorted(next_frontier.items(), key=lambda item: item[1], reverse=True)[:frontier_limit])
         return dict(accumulated)
+
+    def _try_native_seed_coverages(
+        self,
+        query_model: HybridQuery,
+        catalog: FileGraphCatalog,
+    ) -> list[FileScore] | None:
+        """Try native seed coverages, return FileScore list or None for Python fallback."""
+        from ..native_search import try_seed_coverages
+
+        if not query_model.terms:
+            return None
+
+        item_ids: list[str] = []
+        paths: list[str] = []
+        symbols: dict[str, str | None] = {}
+
+        for item_id, item in catalog.items_by_id.items():
+            item_ids.append(item_id)
+            paths.append(item.path)
+            sym = item.metadata.get("symbol") if item.metadata else None
+            symbols[item_id] = str(sym) if sym else None
+
+        if not item_ids:
+            return None
+
+        result = try_seed_coverages(
+            self._item_profiles,
+            item_ids,
+            paths,
+            list(query_model.terms),
+            self.config.lexical_seed_limit,
+            symbols,
+        )
+        if result is None:
+            return None
+
+        item_by_id = {item.id: item for item in catalog.items_by_id.values()}
+        file_scores: list[FileScore] = []
+        for item_id, lexical_score, path_score, symbol_score in result:
+            item = item_by_id.get(item_id)
+            if item is None:
+                continue
+            file_scores.append(
+                FileScore(
+                    path=item.path,
+                    item=item,
+                    lexical_score=lexical_score,
+                    path_score=path_score,
+                    symbol_score=symbol_score,
+                )
+            )
+        return file_scores
 
     def _query_terms(self, query: str) -> tuple[str, ...]:
         stop_words = {word.lower() for word in self.config.stop_words}

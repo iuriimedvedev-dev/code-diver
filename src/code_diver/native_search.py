@@ -204,3 +204,48 @@ def try_bm25_scores(
     except Exception as exc:  # pragma: no cover
         logger.debug("native bm25_scores failed: %s", exc)
         return None
+
+
+def try_seed_coverages(
+    profiles: dict[str, Any],
+    item_ids: list[str],
+    paths: list[str],
+    query_terms: list[str],
+    lexical_seed_limit: int,
+    symbols: dict[str, str | None],
+) -> list[tuple[str, float, float, float]] | None:
+    """Native seed coverages, or None for Python fallback.
+
+    Accepts ``HybridItemProfile`` dict keyed by item ID, and the catalog's
+    item IDs, paths, query terms, seed limit, and optional symbols.
+
+    Returns ``[(item_id, lexical_score, path_score, symbol_score), ...]``
+    sorted by (lexical desc, path desc, symbol desc, path asc), limited to
+    ``lexical_seed_limit`` items.
+    """
+    mod = native_module()
+    if mod is None or not hasattr(mod, "seed_coverages_py"):
+        return None
+    try:
+        # Convert HybridItemProfile frozensets to lists for PyO3
+        rust_profiles: dict[str, dict[str, list[str]]] = {}
+        for item_id, profile in profiles.items():
+            rust_profiles[item_id] = {
+                "title": sorted(profile.title_terms),
+                "path": sorted(profile.path_terms),
+                "content": sorted(profile.content_terms),
+                "metadata": sorted(profile.metadata_terms),
+            }
+
+        result = mod.seed_coverages_py(
+            rust_profiles,
+            item_ids,
+            paths,
+            query_terms,
+            int(lexical_seed_limit),
+            symbols,
+        )
+        return [(str(item_id), float(lex), float(path), float(sym)) for item_id, lex, path, sym in result]
+    except Exception as exc:  # pragma: no cover
+        logger.debug("native seed_coverages failed: %s", exc)
+        return None
