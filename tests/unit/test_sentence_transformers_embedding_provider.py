@@ -101,7 +101,8 @@ def test_embedding_text_truncation_handles_punctuation_and_generics_at_token_bou
 
 
 def test_embedding_text_truncation_falls_back_to_conservative_character_limit() -> None:
-    assert truncate_embedding_text("<T extends Foo.Bar<K>>", 8) == "<T"
+    # Fallback returns the full character budget when no tokenizer is available.
+    assert truncate_embedding_text("<T extends Foo.Bar<K>>", 8) == "<T exten"
     assert shrink_embedding_text("a") == ""
 
 

@@ -25,6 +25,7 @@ classifiers = [
 ]
 dependencies = [
   "ijson>=3.5.0",
+  "openai>=2.50.0",
   "PyYAML>=6.0.2",
   "qdrant-client>=1.18.0",
   "questionary>=2.1.0",

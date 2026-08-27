@@ -25,30 +25,36 @@ def test_flag_off_keeps_fused_locator_soup() -> None:
     assert "locator soup" in text
 
 
-def test_file_head_uses_source_head_when_no_kdoc(tmp_path: Path) -> None:
+def test_file_head_skips_boilerplate_uses_class_decl(tmp_path: Path) -> None:
+    """H-55 now skips only copyright boilerplate, keeps package/import."""
     rel = "src/Plain.kt"
     source = tmp_path / rel
     source.parent.mkdir(parents=True)
-    source.write_text("package demo\nclass Plain {}\n" + ("x" * 2000), encoding="utf-8")
+    source.write_text(
+        "// Copyright 2000-2026 JetBrains\npackage demo\nimport demo.Bar\n\nclass Plain {}\n"
+        + ("x" * 2000),
+        encoding="utf-8",
+    )
     result = _result(rel)
     text = build_cross_encoder_document(
         result,
-        CrossEncoderRerankConfig(max_document_chars=50, use_file_head_document=True),
+        CrossEncoderRerankConfig(max_document_chars=120, use_file_head_document=True),
         repository_root=tmp_path,
     )
-    expected_prefix = "package demo\nclass Plain {}\n"
-    assert text.startswith(expected_prefix)
-    assert len(text) == 50
+    assert "path: src/Plain.kt" in text
+    assert "class Plain" in text
+    assert "Copyright" not in text
+    assert "package demo" in text
+    assert "import demo" in text
     assert "locator soup" not in text
-    assert "path:" not in text
 
 
-def test_file_head_prefers_kdoc_block(tmp_path: Path) -> None:
+def test_file_head_includes_kdoc_before_class(tmp_path: Path) -> None:
     rel = "src/Auth.kt"
     source = tmp_path / rel
     source.parent.mkdir(parents=True)
     source.write_text(
-        "package demo\n\n/** Handles authorization tokens. */\nclass Auth {}\n",
+        "// Copyright 2000-2026\npackage demo\n\n/** Handles authorization tokens. */\nclass Auth {}\n",
         encoding="utf-8",
     )
     text = build_cross_encoder_document(
@@ -56,7 +62,10 @@ def test_file_head_prefers_kdoc_block(tmp_path: Path) -> None:
         CrossEncoderRerankConfig(max_document_chars=850, use_file_head_document=True),
         repository_root=tmp_path,
     )
-    assert text == "/** Handles authorization tokens. */"
+    assert "Handles authorization tokens" in text
+    assert "class Auth" in text
+    assert "Copyright" not in text
+    assert "package demo" in text
 
 
 def test_missing_file_falls_back_to_fused_text(tmp_path: Path) -> None:

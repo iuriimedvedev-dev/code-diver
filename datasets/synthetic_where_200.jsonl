@@ -1,0 +1,200 @@
+{"query": "where is the utility that finds the screen bounds of a Swing component", "expected": ["platform/platform-impl/internal/src/com/intellij/internal/rulerguide/ComponentBoundsFinder.java"]}
+{"query": "where is the Problems view action that toggles autoscrolling to the selected source location", "expected": ["platform/problemsView/frontend/src/com/intellij/platform/problemsView/frontend/actions/FrontendProblemsViewToggleAction.kt"]}
+{"query": "where is the provider that loads and supplies the Search Everywhere machine learning ranking model", "expected": ["plugins/search-everywhere-ml/ranking/core/src/com/intellij/searchEverywhereMl/ranking/core/model/SearchEverywhereModelProvider.kt"]}
+{"query": "where are the runtime cloud UI tree action package details documented", "expected": ["platform/remote-servers/clouds/src/impl/runtime/ui/tree/actions/package-info.java"]}
+{"query": "where are tests for detecting unused module dependencies in the IntelliJ build scripts", "expected": ["platform/build-scripts/usages/testSrc/com/intellij/platform/buildScripts/usages/FindUnusedModuleDependenciesTest.kt"]}
+{"query": "where is the Kotlin utility for adding missing type qualifiers to code references", "expected": ["plugins/kotlin/code-insight/utils/src/org/jetbrains/kotlin/idea/codeinsight/utils/AddQualifiersUtil.kt"]}
+{"query": "where is the stack of symbol scopes used while executing poly symbol queries", "expected": ["platform/polySymbols/src/com/intellij/polySymbols/query/PolySymbolQueryStack.kt"]}
+{"query": "where is the Groovy type inference constraint for constructor calls", "expected": ["plugins/groovy/groovy-psi/src/org/jetbrains/plugins/groovy/lang/resolve/processors/inference/ConstructorCallConstraint.kt"]}
+{"query": "where can PSI element usage search scopes be extended to include configuration files", "expected": ["platform/indexing-api/src/com/intellij/psi/search/UseScopeEnlarger.java"]}
+{"query": "where is the project root model provider interface defined", "expected": ["platform/projectModel-api/src/com/intellij/openapi/roots/RootModelProvider.java"]}
+{"query": "where are PSI actions monitored for feature suggestions", "expected": ["plugins/ide-features-trainer/src/training/featuresSuggester/listeners/PsiActionsListener.kt"]}
+{"query": "where are external system tasks integrated into before-run configurations", "expected": ["platform/external-system-impl/src/com/intellij/openapi/externalSystem/service/execution/ExternalSystemBeforeRunTaskProvider.java"]}
+{"query": "where are bulk move-only changes filtered in the changes browser", "expected": ["platform/vcs-impl/src/com/intellij/openapi/vcs/changes/ui/browser/BulkMovesOnlyChangesFilter.java"]}
+{"query": "where does Groovy change signature refactoring search for affected usages", "expected": ["plugins/groovy/src/org/jetbrains/plugins/groovy/refactoring/changeSignature/GrChageSignatureUsageSearcher.java"]}
+{"query": "where are files represented as nodes in the version control update tree", "expected": ["platform/vcs-impl/src/com/intellij/openapi/vcs/update/FileTreeNode.java"]}
+{"query": "where is the platform-independent logic for launching URLs in a web browser", "expected": ["platform/platform-api/src/com/intellij/ide/browsers/BrowserLauncherAppless.kt"]}
+{"query": "where is the coroutine-managed persistent cache that flushes values to disk after writes", "expected": ["platform/platform-impl/src/com/intellij/util/io/cache/ManagedPersistentCache.kt"]}
+{"query": "where is the Groovy inspection that detects Java-style property getter and setter method calls", "expected": ["plugins/groovy/groovy-psi/src/org/jetbrains/plugins/groovy/codeInspection/style/JavaStylePropertiesInvocationInspection.java"]}
+{"query": "where is Lombok field name constants generation handled for IntelliJ PSI", "expected": ["plugins/lombok/src/main/java/de/plushnikov/intellij/plugin/processor/handler/FieldNameConstantsHandler.java"]}
+{"query": "where is find-in-project search orchestration and result management implemented", "expected": ["platform/lang-impl/src/com/intellij/find/findInProject/FindInProjectManager.java"]}
+{"query": "where is the LLM judge score calculated for evaluating code completion quality", "expected": ["plugins/evaluation-plugin/core/src/com/intellij/cce/metric/LLMJudge.kt"]}
+{"query": "where are shared accessibility utilities for detecting and handling accessible UI components defined", "expected": ["platform/platform-impl/src/com/intellij/accessibility/AccessibilityUtils.kt"]}
+{"query": "where is the default alignment behavior for platform icons defined", "expected": ["platform/icons-impl/src/com/intellij/platform/icons/impl/design/DefaultIconAlign.kt"]}
+{"query": "where are terminal output text ranges modeled as blocks with semantic shell integration information", "expected": ["plugins/terminal/src/org/jetbrains/plugins/terminal/view/shellIntegration/TerminalBlocks.kt"]}
+{"query": "where is the dialog for configuring the Type Cook refactoring implemented", "expected": ["plugins/rareJavaRefactorings/src/com/intellij/refactoring/typeCook/TypeCookDialog.java"]}
+{"query": "where are JDK downloader integration tests implemented", "expected": ["platform/lang-impl/testSources/com/intellij/openapi/projectRoots/impl/jdkDownloader/JdkDownloaderIntegrationTest.kt"]}
+{"query": "where is the action that toggles the editor minimap visibility", "expected": ["plugins/minimap/core/src/com/intellij/ide/minimap/actions/ToggleMinimapAction.kt"]}
+{"query": "where is the Maven DOM model for project settings defined", "expected": ["plugins/maven/src/main/java/org/jetbrains/idea/maven/dom/model/MavenDomSettingsModel.java"]}
+{"query": "where is the file template settings UI configured", "expected": ["platform/lang-impl/src/com/intellij/ide/fileTemplates/impl/FileTemplateConfigurable.java"]}
+{"query": "where is the UI look-and-feel reference type defined", "expected": ["platform/platform-api/src/com/intellij/ide/ui/LafReference.kt"]}
+{"query": "where is editor state stored together with its document and caret information", "expected": ["platform/platform-impl/src/com/intellij/openapi/command/impl/EditorAndState.java"]}
+{"query": "where is navigation from a parameterized JUnit test method to its method source implemented", "expected": ["plugins/junit/src/com/intellij/execution/junit/JUnitParameterizedMethodSourceGotoRelatedProvider.kt"]}
+{"query": "where is the external event log upload configuration defined", "expected": ["platform/statistics/uploader/src/com/intellij/internal/statistic/uploader/EventLogExternalSendConfig.java"]}
+{"query": "where is the root container component for UI Designer forms implemented", "expected": ["plugins/ui-designer/src/com/intellij/uiDesigner/radComponents/RadRootContainer.java"]}
+{"query": "where are code insight element descriptions supplied asynchronously for the daemon analyzer", "expected": ["platform/analysis-impl/src/com/intellij/codeInsight/daemon/impl/AsyncDescriptionSupplier.kt"]}
+{"query": "where are editor color scheme settings represented for import and transfer", "expected": ["plugins/ide-startup/importSettings/src/com/intellij/ide/startup/importSettings/transfer/backend/models/EditorColorSchemes.kt"]}
+{"query": "where are images in documentation resolved from their URLs or paths", "expected": ["platform/lang-impl/src/com/intellij/lang/documentation/DocumentationImageResolver.java"]}
+{"query": "where is the GitLab merge request changes response model defined", "expected": ["plugins/gitlab/gitlab-core/src/org/jetbrains/plugins/gitlab/mergerequest/api/request/GitLabMergeRequestChangesApi.kt"]}
+{"query": "where is the Mercurial activity presentation configured for the VCS log", "expected": ["plugins/hg4idea/src/org/zmlx/hg4idea/HgActivityPresentationProvider.kt"]}
+{"query": "where is the remote driver XPath data model created from the UI hierarchy", "expected": ["plugins/performanceTesting/remote-driver/src/com/jetbrains/performancePlugin/remotedriver/xpath/XpathDataModelCreator.kt"]}
+{"query": "where is the action that displays an EDT utilization chart", "expected": ["platform/platform-impl/internal/src/com/intellij/internal/ShowEdtUtilizationChartAction.kt"]}
+{"query": "where is the interface for retrieving plugin content with on-demand discovery", "expected": ["platform/build-scripts/product-dsl/src/dependency/PluginContentCache.kt"]}
+{"query": "where is Lombok's generated Slf4j logger implementation", "expected": ["plugins/lombok/src/main/java/de/plushnikov/intellij/plugin/logging/LombokSlf4jLogger.kt"]}
+{"query": "where is the manager that maps VCS roots to their repositories", "expected": ["platform/dvcs-api/src/com/intellij/dvcs/repo/RepositoryManager.java"]}
+{"query": "where is the preview inlay provider for Gradle version catalog versions", "expected": ["plugins/kotlin/gradle/scripting/kotlin.gradle.scripting.k2/resources/inlayProviders/gradle.version.catalog.version/preview.kt"]}
+{"query": "where is semantic highlighting for Kotlin DSL constructs implemented", "expected": ["plugins/kotlin/highlighting/highlighting-k2/src/org/jetbrains/kotlin/idea/highlighting/visitor/KotlinDslSemanticHighlightingVisitor.kt"]}
+{"query": "where is an executor implemented that runs tasks immediately on the calling thread", "expected": ["platform/util/concurrency/src/com/intellij/util/concurrency/SameThreadExecutor.java"]}
+{"query": "where is the API marker defined for code usable only by backend modules in split mode", "expected": ["platform/util/src/com/intellij/util/remdev/BackendApi.java"]}
+{"query": "where is the stream debugger trace DSL variable abstraction defined", "expected": ["plugins/stream-debugger/core/src/com/intellij/debugger/streams/core/trace/dsl/Variable.kt"]}
+{"query": "where is the form for associating file extensions with a file type implemented", "expected": ["platform/lang-impl/src/com/intellij/openapi/fileTypes/impl/associate/ui/FileTypeAssociationForm.java"]}
+{"query": "where are annotate line modification details tested in version control changes", "expected": ["platform/vcs-impl/testSrc/com/intellij/openapi/vcs/changes/AnnotateLineModificationDetailsTest.kt"]}
+{"query": "where is the Groovy PSI update intention base class implemented", "expected": ["plugins/groovy/groovy-psi/src/org/jetbrains/plugins/groovy/intentions/base/GrPsiUpdateIntention.java"]}
+{"query": "where is the coroutine scope provider for the Todo tool window defined", "expected": ["platform/todo/src/com/intellij/ide/todo/TodoCoroutineScopeProvider.kt"]}
+{"query": "where is the Groovy inspection for deprecated thread stop suspend and resume calls implemented", "expected": ["plugins/groovy/groovy-psi/src/org/jetbrains/plugins/groovy/codeInspection/threading/GroovyThreadStopSuspendResumeInspection.java"]}
+{"query": "where is the UI designer property table action for showing expert properties implemented", "expected": ["plugins/ui-designer-core/src/com/intellij/designer/propertyTable/actions/ShowExpert.java"]}
+{"query": "where is console folding behavior for WSL distribution processes tested", "expected": ["platform/platform-tests/testSrc/com/intellij/execution/wsl/WSLDistributionConsoleFoldingTest.kt"]}
+{"query": "where are Groovy PSI expression patterns defined for matching language elements", "expected": ["plugins/groovy/groovy-psi/src/org/jetbrains/plugins/groovy/lang/psi/patterns/GroovyExpressionPattern.java"]}
+{"query": "where is a protected remote Git branch selected from local branch names", "expected": ["plugins/git4idea/backend/src/GitProtectedBranches.kt"]}
+{"query": "where is thread-local state managed for concurrent TextMate operations", "expected": ["plugins/textmate/core/src/org/jetbrains/plugins/textmate/concurrent/TextMateThreadLocal.kt"]}
+{"query": "where are Gson serialization and deserialization utilities implemented for tasks", "expected": ["plugins/tasks/tasks-core/src/com/intellij/tasks/impl/gson/TaskGsonUtil.java"]}
+{"query": "where are UTC dates converted to local time and formatted using IDE or system date settings", "expected": ["platform/platform-api/src/com/intellij/util/text/DateFormatUtil.java"]}
+{"query": "where is the DevKit inspection test for quick fixes missing getFamilyName implementations", "expected": ["plugins/devkit/devkit-java-tests/testSrc/org/jetbrains/idea/devkit/inspections/QuickFixGetFamilyNameViolationInspectionTest.java"]}
+{"query": "where is the PSI implementation for XPath 2.0 type elements", "expected": ["plugins/xpath/xpath-lang/src/org/intellij/lang/xpath/psi/impl/XPath2TypeElementImpl.java"]}
+{"query": "where are classes processed and organized during Java bytecode decompilation", "expected": ["plugins/java-decompiler/engine/src/org/jetbrains/java/decompiler/main/ClassesProcessor.java"]}
+{"query": "where is the PSI lock used to coordinate thread-safe access to PSI files", "expected": ["platform/core-api/src/com/intellij/psi/PsiLock.java"]}
+{"query": "where are non-incremental workspace file index contributors integrated from directory exclusion and additional library root extensions", "expected": ["platform/projectModel-impl/src/com/intellij/workspaceModel/core/fileIndex/impl/NonIncrementalContributors.kt"]}
+{"query": "where are images rendered and managed inside the IntelliJ code editor", "expected": ["platform/platform-impl/src/com/intellij/openapi/editor/impl/EditorImageUtil.kt"]}
+{"query": "where is the settings provider for configuring Code Vision inlays", "expected": ["platform/lang-impl/src/com/intellij/codeInsight/codeVision/settings/CodeVisionInlaySettingProvider.kt"]}
+{"query": "where are structural search pattern strings transformed into matcher constraints", "expected": ["platform/structuralsearch/source/com/intellij/structuralsearch/impl/matcher/compiler/StringToConstraintsTransformer.java"]}
+{"query": "where is the popup implemented that provides searchable filtering for filter fields", "expected": ["platform/platform-impl/src/com/intellij/ui/filterField/FilterSearchPopup.kt"]}
+{"query": "where is collection property serialization binding implemented", "expected": ["platform/object-serializer/src/CollectionBinding.kt"]}
+{"query": "where is the base dialog UI for refactoring actions implemented", "expected": ["platform/lang-impl/src/com/intellij/refactoring/ui/RefactoringDialog.java"]}
+{"query": "where are live template fragments assembled programmatically", "expected": ["platform/lang-impl/src/com/intellij/codeInsight/template/LiveTemplateBuilder.java"]}
+{"query": "where is map key-value serialization binding implemented", "expected": ["platform/util/src/com/intellij/util/xmlb/MapBinding.kt"]}
+{"query": "where is a frameless popup used to display notifications implemented", "expected": ["platform/platform-impl/src/com/intellij/ui/popup/FramelessNotificationPopup.java"]}
+{"query": "where are quick fixes tested for migrating Kotlin light services in DevKit inspections", "expected": ["plugins/devkit/devkit-kotlin-fir-tests/testSrc/org/jetbrains/idea/devkit/k2/inspections/quickfix/KtLightServiceMigrationInspectionTest.kt"]}
+{"query": "where is the performance testing service that captures thread dumps", "expected": ["plugins/performanceTesting/core/src/com/jetbrains/performancePlugin/utils/ThreadDumpUtil.kt"]}
+{"query": "where is the refactoring API target abstraction for items being renamed", "expected": ["platform/lang-impl/src/com/intellij/refactoring/rename/api/RenameTarget.kt"]}
+{"query": "where is the toolbar action interface for providing and updating custom UI components", "expected": ["platform/editor-ui-api/src/com/intellij/openapi/actionSystem/ex/CustomComponentAction.java"]}
+{"query": "where is the utility that runs an action for every client session across open projects", "expected": ["platform/core-api/src/com/intellij/openapi/client/clientSessionsUtil.kt"]}
+{"query": "where is the Groovy inspection that detects overly complex arithmetic expressions", "expected": ["plugins/groovy/groovy-psi/src/org/jetbrains/plugins/groovy/codeInspection/confusing/GroovyOverlyComplexArithmeticExpressionInspectionBase.java"]}
+{"query": "where is the builder for configuring an HTML editor kit for Swing HTML panes", "expected": ["platform/util/ui/src/com/intellij/util/ui/HTMLEditorKitBuilder.kt"]}
+{"query": "where is inspection usage collected for IntelliJ feature usage statistics", "expected": ["platform/lang-impl/src/com/intellij/internal/statistic/InspectionUsageFUSCollector.java"]}
+{"query": "where is the remote driver component for interacting with the Run tool window", "expected": ["platform/remote-driver/test-sdk/src/com/intellij/driver/sdk/ui/components/common/toolwindows/RunToolWindow.kt"]}
+{"query": "where is the Kotlin intention that adds a label to returns inside a lambda", "expected": ["plugins/kotlin/code-insight/intentions-k2/src/org/jetbrains/kotlin/idea/codeinsight/intentions/AddLabeledReturnInLambdaIntention.kt"]}
+{"query": "where are directory entry tree operations tested in local history", "expected": ["platform/lvcs-impl/testSrc/com/intellij/history/core/tree/DirectoryEntryTest.java"]}
+{"query": "where is the base reader for personalized completion ranking user factors defined", "expected": ["plugins/completion-ml-ranking/src/com/intellij/completion/ml/personalization/UserFactorAccessors.kt"]}
+{"query": "where are tabs managed for IntelliJ light edit mode", "expected": ["platform/platform-impl/src/com/intellij/ide/lightEdit/LightEditTabs.java"]}
+{"query": "where is the version control settings panel for configuring ignored files", "expected": ["platform/vcs-impl/src/com/intellij/openapi/vcs/changes/ui/IgnoredSettingsPanel.kt"]}
+{"query": "where is the run profile state that executes Ant build configurations defined", "expected": ["plugins/ant/src/com/intellij/lang/ant/config/execution/AntRunProfileState.java"]}
+{"query": "where is the custom UI implementation for Swing scroll bars defined", "expected": ["platform/platform-api/src/com/intellij/ui/components/DefaultScrollBarUI.kt"]}
+{"query": "where is the icon color tint filter implemented", "expected": ["platform/icons-api/src/com/intellij/platform/icons/filters/TintColorFilter.kt"]}
+{"query": "where is file editor splitter state and lifecycle managed", "expected": ["platform/platform-impl/src/com/intellij/openapi/fileEditor/impl/SplitterService.kt"]}
+{"query": "where is the event created when a test suite starts running", "expected": ["platform/smRunner/src/com/intellij/execution/testframework/sm/runner/events/TestSuiteStartedEvent.java"]}
+{"query": "where is the base test case for testing parser and syntax tree output defined", "expected": ["platform/testFramework/src/com/intellij/testFramework/ParsingTestCase.java"]}
+{"query": "where is Commander navigation history stored and managed", "expected": ["plugins/commander/src/com/intellij/ide/commander/CommanderHistory.java"]}
+{"query": "where are popup UI components created by the platform", "expected": ["platform/platform-impl/src/com/intellij/ui/popup/PopupComponentFactory.kt"]}
+{"query": "where is validation of bundled file templates for feature usage statistics implemented", "expected": ["platform/platform-impl/src/com/intellij/internal/statistic/collectors/fus/fileTypes/BundledFileTemplateValidationRule.java"]}
+{"query": "where is efficient character access from a CharSequence defined in the Java 8 runtime utilities", "expected": ["platform/util/rt-java8/src/com/intellij/util/lang/CharSequenceAccess.java"]}
+{"query": "where is an IntelliJ plugin module built from the web-based project wizard", "expected": ["plugins/devkit/devkit-core/src/module/webstarter/IdePluginModuleWebBasedBuilder.kt"]}
+{"query": "where is plugin installation information for the new plugins UI defined", "expected": ["platform/platform-impl/src/com/intellij/ide/plugins/newui/InstallPluginInfo.kt"]}
+{"query": "where is tab layout positioning and sizing behavior defined", "expected": ["platform/platform-api/src/com/intellij/ui/tabs/impl/TabLayout.java"]}
+{"query": "where are HTML parsing and utility functions implemented for Grazie", "expected": ["plugins/grazie/src/main/kotlin/com/intellij/grazie/utils/HtmlUtils.kt"]}
+{"query": "where is the metric calculating the ratio of sessions with empty contexts implemented", "expected": ["plugins/evaluation-plugin/core/src/com/intellij/cce/metric/EmptyContextSessionRatio.kt"]}
+{"query": "where is the persistent state for locally installed plugins supporting file extensions stored", "expected": ["platform/platform-impl/src/com/intellij/openapi/updateSettings/impl/pluginsAdvertisement/State.kt"]}
+{"query": "where is the UI designer accessor for tab title string descriptors implemented", "expected": ["plugins/ui-designer/src/com/intellij/uiDesigner/i18n/TabTitleStringDescriptorAccessor.java"]}
+{"query": "where is the Kotlin inspection that detects unused for-each loop parameters implemented", "expected": ["plugins/kotlin/code-insight/inspections-k2/src/org/jetbrains/kotlin/idea/codeInsight/inspections/ForEachParameterNotUsedInspection.kt"]}
+{"query": "where is patch extension handling base revision text implemented", "expected": ["platform/vcs-impl/src/com/intellij/openapi/diff/impl/patch/BaseRevisionTextPatchEP.java"]}
+{"query": "where is terminal input handling implemented in the frontend terminal view", "expected": ["plugins/terminal/frontend/src/com/intellij/terminal/frontend/view/impl/TerminalInput.kt"]}
+{"query": "where is the data model for activity diff information defined", "expected": ["platform/lvcs-impl/src/com/intellij/platform/lvcs/impl/ActivityDiffData.kt"]}
+{"query": "where is JUnit run configuration imported from external project settings", "expected": ["plugins/junit/src/com/intellij/execution/junit/JUnitRunConfigurationImporter.kt"]}
+{"query": "where is the toolbar for navigating and filtering similar usages implemented", "expected": ["platform/usageView-impl/src/com/intellij/find/findUsages/similarity/SimilarUsagesToolbar.java"]}
+{"query": "where are utilities for generating equals and hashCode implementations in Kotlin classes", "expected": ["plugins/kotlin/code-insight/kotlin.code-insight.k2/src/org/jetbrains/kotlin/idea/k2/codeinsight/generate/GenerateEqualsAndHashCodeUtils.kt"]}
+{"query": "where is the tool window manager for viewing and managing shelved changes", "expected": ["platform/vcs-impl/src/com/intellij/openapi/vcs/changes/shelf/ShelvedChangesViewManager.java"]}
+{"query": "where are dependent class members collected during refactoring", "expected": ["platform/lang-api/src/com/intellij/refactoring/classMembers/DependentMembersCollectorBase.java"]}
+{"query": "where is remote path mapping filtered for application macros", "expected": ["platform/lang-impl/src/com/intellij/openapi/application/PathMappingsMacroFilter.java"]}
+{"query": "where are token types for custom syntax highlighting defined", "expected": ["platform/core-impl/src/com/intellij/psi/CustomHighlighterTokenType.java"]}
+{"query": "where are supported feature value types defined for machine learning models", "expected": ["platform/ml-api/src/com/intellij/platform/ml/feature/FeatureValueType.kt"]}
+{"query": "where is code completion for Gradle Groovy scripts contributed", "expected": ["plugins/gradle/java/groovy/src/codeInsight/AbstractGradleGroovyCompletionContributor.kt"]}
+{"query": "where is the Kotlin refactoring model for members that use interfaces and dependencies", "expected": ["plugins/kotlin/refactorings/kotlin.refactorings.common/src/org/jetbrains/kotlin/idea/refactoring/memberInfo/KotlinUsesAndInterfacesDependencyMemberInfoModel.kt"]}
+{"query": "where is Gradle content root contribution tested", "expected": ["plugins/gradle/testSources/org/jetbrains/plugins/gradle/util/GradleContentRootContributorTest.java"]}
+{"query": "where are actions promoted when speed search is active", "expected": ["platform/platform-impl/src/com/intellij/ide/actions/speedSearch/SpeedSearchActionPromoter.kt"]}
+{"query": "where is the Darcula look and feel defined", "expected": ["platform/platform-impl/src/com/intellij/ide/ui/laf/darcula/DarculaLookAndFeelInfo.java"]}
+{"query": "where is Gradle module version data adapted for internal serialization", "expected": ["plugins/gradle/tooling-extension-api/src/org/jetbrains/plugins/gradle/tooling/serialization/internal/adapter/InternalGradleModuleVersion.java"]}
+{"query": "where is the Maven root model import adapter interface defined", "expected": ["plugins/maven/src/main/java/org/jetbrains/idea/maven/importing/MavenRootModelAdapterInterface.java"]}
+{"query": "where is the typed key utility for storing and retrieving values from JUnit 5 ExtensionContext", "expected": ["platform/testFramework/junit5/src/impl/TypedStoreKey.kt"]}
+{"query": "where is the Kotlin quick-fix factory that makes a type parameter reified and its function inline", "expected": ["plugins/kotlin/code-insight/fixes-k2/src/org/jetbrains/kotlin/idea/k2/codeinsight/fixes/MakeTypeParameterReifiedAndFunctionInlineFixFactory.kt"]}
+{"query": "where are Gradle tooling model serialization behaviors tested", "expected": ["plugins/gradle/tooling-extension-impl/testSources/org/jetbrains/plugins/gradle/tooling/serialization/ToolingSerializerTest.kt"]}
+{"query": "where are inline completion context events and data logged", "expected": ["platform/platform-impl/codeinsight-inline/src/com/intellij/codeInsight/inline/completion/logs/InlineCompletionContextLogs.kt"]}
+{"query": "where is the mutable property implementation for IntelliJ UI DSL builders", "expected": ["platform/platform-api/src/com/intellij/ui/dsl/builder/impl/MutablePropertyImpl.kt"]}
+{"query": "where is Lombok's processor for generating an all-arguments constructor", "expected": ["plugins/lombok/src/main/java/de/plushnikov/intellij/plugin/processor/clazz/constructor/AllArgsConstructorProcessor.java"]}
+{"query": "where is the run profile interface for using implicit execution targets without showing the common target selection UI", "expected": ["platform/execution/src/com/intellij/execution/target/ImplicitTargetAwareRunProfile.kt"]}
+{"query": "where are local execution targets defined and managed", "expected": ["platform/execution/src/com/intellij/execution/target/local/LocalTargets.kt"]}
+{"query": "where is the base implementation for Kotlin FIR source modules in project structure analysis", "expected": ["plugins/kotlin/base/fir/project-structure/src/org/jetbrains/kotlin/idea/base/fir/projectStructure/modules/source/KaSourceModuleBase.kt"]}
+{"query": "where are metadata constructors initialized for generated workspace model types", "expected": ["platform/workspace/codegen-impl/src/main/kotlin/com/intellij/workspaceModel/codegen/impl/metadata/model/Constructors.kt"]}
+{"query": "where is terminal frontend latency measured and reported", "expected": ["plugins/terminal/src/org/jetbrains/plugins/terminal/fus/FrontendLatencyService.kt"]}
+{"query": "where is debugger output unmuted when program execution stops", "expected": ["platform/xdebugger-impl/ui/src/com/intellij/xdebugger/impl/actions/UnmuteOnStopAction.kt"]}
+{"query": "where are HTTP request parameters and settings assembled before execution", "expected": ["platform/ide-core/src/com/intellij/util/io/RequestBuilder.java"]}
+{"query": "where are XPath binary operators and their operands represented in the PSI", "expected": ["plugins/xpath/xpath-lang/src/org/intellij/lang/xpath/psi/impl/XPathBinaryExpressionImpl.java"]}
+{"query": "where is the extension point that creates syntax highlighters registered", "expected": ["platform/editor-ui-api/src/com/intellij/openapi/fileTypes/SyntaxHighlighterFactoryEP.java"]}
+{"query": "where is the XSLT refactoring action that introduces a parameter", "expected": ["plugins/xpath/xpath-lang/src/org/intellij/lang/xpath/xslt/refactoring/introduceParameter/XsltIntroduceParameterAction.java"]}
+{"query": "where is in-place rename handling implemented for Groovy variables", "expected": ["plugins/groovy/src/org/jetbrains/plugins/groovy/refactoring/rename/inplace/GrVariableInplaceRenameHandler.java"]}
+{"query": "where are tests for counting changed lines in code insight actions", "expected": ["platform/platform-tests/testSrc/com/intellij/codeInsight/actions/ChangedLinesCounterTest.java"]}
+{"query": "where are persisted run configuration settings and runner-specific options represented", "expected": ["platform/execution/src/com/intellij/execution/RunnerAndConfigurationSettings.java"]}
+{"query": "where is asynchronous loading and updating of IntelliJ tree nodes implemented", "expected": ["platform/platform-impl/src/com/intellij/ui/tree/AsyncTreeModel.java"]}
+{"query": "where is the OpenAPI header model defined", "expected": ["platform/lang-api/src/com/intellij/microservices/oas/OasHeader.kt"]}
+{"query": "where are Gradle project SDK resolver test cases defined", "expected": ["plugins/gradle/testSources/org/jetbrains/plugins/gradle/importing/GradleProjectSdkResolverTestCase.kt"]}
+{"query": "where is a debugger variable associated with its source code location", "expected": ["plugins/kotlin/jvm-debugger/core/src/org/jetbrains/kotlin/idea/debugger/core/stackFrameUtils.kt"]}
+{"query": "where is the UI DSL dialog panel configuration defined", "expected": ["platform/platform-impl/src/com/intellij/ui/dsl/builder/impl/DialogPanelConfig.kt"]}
+{"query": "where are index storage operations instrumented for diagnostics and performance metrics", "expected": ["platform/util/src/com/intellij/util/io/MeasurableIndexStore.java"]}
+{"query": "where is a Navigatable instance converted into an RPC-safe identifier while retaining the original object", "expected": ["platform/platform-impl/rpc/src/com/intellij/ide/rpc/NavigatableId.kt"]}
+{"query": "where is the YAML schema adapter for empty object values implemented", "expected": ["plugins/yaml/backend/src/schema/YamlEmptyObjectAdapter.java"]}
+{"query": "where is incremental reparsing for changed PSI or AST nodes defined", "expected": ["platform/core-api/src/com/intellij/psi/tree/IReparseableElementType.java"]}
+{"query": "where are navigation descriptions provided for Gradle version catalog entries from TOML", "expected": ["plugins/gradle/java/toml/src/navigation/VersionCatalogDescriptionProvider.kt"]}
+{"query": "where is the Mercurial action that opens the log for a single commit implemented", "expected": ["plugins/hg4idea/src/org/zmlx/hg4idea/action/HgLogSingleCommitAction.java"]}
+{"query": "where is the model search query for matching words implemented", "expected": ["platform/indexing-impl/src/com/intellij/model/search/impl/SearchWordQuery.kt"]}
+{"query": "where is the Gradle build issue reported when no JDK is available for the tooling proxy", "expected": ["plugins/gradle/src/org/jetbrains/plugins/gradle/execution/target/NoJdkForToolingProxyBuildIssue.kt"]}
+{"query": "where are Eclipse module roots loaded from and saved to the workspace .classpath file", "expected": ["plugins/eclipse/src/org/jetbrains/idea/eclipse/config/EclipseModuleRootsSerializer.kt"]}
+{"query": "where are VCS log commits indexed for searching and history queries", "expected": ["platform/vcs-log/impl/src/com/intellij/vcs/log/impl/VcsLogIndexer.java"]}
+{"query": "where is the Kotlin quick fix factory that names remaining function arguments explicitly", "expected": ["plugins/kotlin/code-insight/fixes-k2/src/org/jetbrains/kotlin/idea/k2/codeinsight/fixes/SpecifyRemainingArgumentsByNameFixFactory.kt"]}
+{"query": "where are generated builders for child entities with links to parent entities defined", "expected": ["platform/workspace/storage/testEntities/testGen/com/intellij/platform/workspace/storage/testEntities/entities/AbstractChildWithLinkToParentEntityModifications.kt"]}
+{"query": "where are tests for adjusting line indentation in the general formatting engine", "expected": ["platform/platform-tests/testSrc/com/intellij/formatting/engine/GeneralAdjustLineIndentTest.kt"]}
+{"query": "where is a concurrent hash map for mapping integer keys to objects implemented", "expected": ["platform/util/src/com/intellij/util/containers/ConcurrentIntObjectHashMap.java"]}
+{"query": "where are mouse interactions with declarative editor inlays handled", "expected": ["platform/lang-impl/src/com/intellij/codeInsight/hints/declarative/impl/DeclarativeInlayEditorMouseListener.kt"]}
+{"query": "where is the Mercurial branch popup for switching and managing branches implemented", "expected": ["plugins/hg4idea/src/org/zmlx/hg4idea/branch/HgBranchPopup.java"]}
+{"query": "where are utility methods for authenticating and communicating with an external application process", "expected": ["platform/external-process-auth-helper/rt/src/externalApp/ExternalAppUtil.java"]}
+{"query": "where is terminal output content update data represented for hyperlink processing", "expected": ["plugins/terminal/src/org/jetbrains/plugins/terminal/hyperlinks/TerminalOutputContentUpdate.kt"]}
+{"query": "where is a postfix completion template represented as a lookup element in code completion", "expected": ["platform/lang-impl/src/com/intellij/codeInsight/template/postfix/completion/PostfixTemplateLookupElement.java"]}
+{"query": "where are standard scheme actions like copy reset and rename assembled for the schemes panel", "expected": ["platform/platform-impl/src/com/intellij/application/options/schemes/AbstractSchemeActions.java"]}
+{"query": "where is the Kotlin debugger's description of a class that needs to be loaded defined", "expected": ["plugins/kotlin/jvm-debugger/evaluation/src/org/jetbrains/kotlin/idea/debugger/evaluate/classLoading/ClassToLoad.kt"]}
+{"query": "where is the IntelliJ plugin.xml path resolved for installed plugins", "expected": ["platform/core-impl/src/com/intellij/ide/plugins/PluginXmlPathResolver.kt"]}
+{"query": "where is code completion lookup activity tracked for ML ranking", "expected": ["plugins/completion-ml-ranking/src/com/intellij/completion/ml/tracker/LookupTracker.kt"]}
+{"query": "where are simple Node.js project wizard templates registered and generated", "expected": ["plugins/kotlin/project-wizard/core/src/org/jetbrains/kotlin/tools/projectWizard/plugins/templates/SimpleNodeJsTemplatesPlugin.kt"]}
+{"query": "where does the TextMate editor provide comment syntax and commenting support", "expected": ["plugins/textmate/src/org/jetbrains/plugins/textmate/editor/TextMateCommentProvider.java"]}
+{"query": "where are Gradle daemon JVM criteria migrated for Kotlin Gradle projects", "expected": ["plugins/kotlin/gradle/gradle-java/src/org/jetbrains/kotlin/idea/gradleJava/toolchain/GradleDaemonJvmCriteriaMigrationHelper.kt"]}
+{"query": "where is smart completion for Groovy expressions implemented", "expected": ["plugins/groovy/src/org/jetbrains/plugins/groovy/lang/completion/GroovySmartCompletionContributor.java"]}
+{"query": "where is the filler column used to align version control action layouts implemented", "expected": ["platform/vcs-impl/src/com/intellij/openapi/vcs/actions/FillerColumn.kt"]}
+{"query": "where are browser hyperlink clicks handled in the IntelliJ UI", "expected": ["platform/platform-api/src/com/intellij/ui/BrowserHyperlinkListener.java"]}
+{"query": "where is template completion for directory paths processed", "expected": ["platform/lang-impl/src/com/intellij/codeInsight/template/macro/DirectoryTemplateCompletionProcessor.java"]}
+{"query": "where is a pull request timeline event for cross-referenced issues or pull requests represented", "expected": ["plugins/github/github-core/src/org/jetbrains/plugins/github/api/data/pullrequest/timeline/GHPRCrossReferencedEvent.kt"]}
+{"query": "where is the GitLab clone dialog extended with GitLab-specific options", "expected": ["plugins/gitlab/gitlab-core/src/org/jetbrains/plugins/gitlab/ui/clone/GitLabCloneDialogExtension.kt"]}
+{"query": "where is Kotlin extraction data analyzed before introducing a declaration", "expected": ["plugins/kotlin/refactorings/kotlin.refactorings.common/src/org/jetbrains/kotlin/idea/refactoring/introduce/extractionEngine/AbstractExtractionDataAnalyzer.kt"]}
+{"query": "where are Linux custom window frame buttons implemented", "expected": ["platform/platform-impl/src/com/intellij/openapi/wm/impl/customFrameDecorations/frameButtons/LinuxFrameButton.kt"]}
+{"query": "where is the API for providing help IDs for IntelliJ actions or components defined", "expected": ["platform/core-api/src/com/intellij/ide/HelpIdProvider.java"]}
+{"query": "where are the implementation classes for IntelliJ socket connections documented", "expected": ["platform/platform-impl/src/com/intellij/util/io/socketConnection/impl/package-info.java"]}
+{"query": "where is the stripped memory-efficient map from long keys to objects implemented", "expected": ["platform/util-class-loader/src/com/intellij/util/lang/StrippedLongToObjectMap.java"]}
+{"query": "where are completion lookup objects defined for serialization and conversion between lookup models", "expected": ["plugins/kotlin/completion/api/src/org/jetbrains/kotlin/idea/completion/api/serialization/SerializableLookupObject.kt"]}
+{"query": "where is the Gradle dependency graph traversed to build the dependency model", "expected": ["plugins/gradle/tooling-extension-impl/src/com/intellij/gradle/toolingExtension/impl/model/dependencyModel/GradleDependencyTraverser.java"]}
+{"query": "where can the entire Structure View and file structure popup implementation be replaced for a file type", "expected": ["platform/editor-ui-api/src/com/intellij/ide/structureView/StructureViewBuilder.kt"]}
+{"query": "where is a batch of debugger value children represented before being added to a composite node", "expected": ["platform/xdebugger-api/src/com/intellij/xdebugger/frame/XValueChildrenList.java"]}
+{"query": "where are shared constants for ignored file language support defined", "expected": ["platform/vcs-impl/src/com/intellij/openapi/vcs/changes/ignore/lang/IgnoreFileConstants.java"]}
+{"query": "where is a matched console hyperlink pattern segment represented", "expected": ["platform/execution-impl/src/com/intellij/execution/filters/PatternHyperlinkPart.java"]}
+{"query": "where are the possible outcomes of inline completion finishing defined", "expected": ["platform/platform-impl/codeinsight-inline/src/com/intellij/codeInsight/inline/completion/logs/statistics/CompletionFinishedTypeComponent.kt"]}
+{"query": "where are rate throttling rules for feature event statistics tested", "expected": ["platform/platform-tests/testSrc/com/intellij/internal/statistics/utils/FeatureEventRateThrottleTest.kt"]}
+{"query": "where is a simple group of Git references implemented for the VCS log", "expected": ["platform/vcs-log/impl/src/com/intellij/vcs/log/impl/SimpleRefGroup.kt"]}
+{"query": "where is the GitHub API request for retrieving a repository's issue labels", "expected": ["plugins/github/github-core/src/org/jetbrains/plugins/github/api/data/request/GithubLabelsCollectionRequest.java"]}
+{"query": "where is the Kotlin K2 provider that displays parameter name hints at call sites", "expected": ["plugins/kotlin/code-insight/kotlin.code-insight.k2/src/org/jetbrains/kotlin/idea/k2/codeinsight/hints/KtParameterHintsProvider.kt"]}
+{"query": "where is the package documentation for HPROF heap analysis functionality", "expected": ["platform/platform-impl/src/com/intellij/diagnostic/hprof/analysis/package-info.java"]}
+{"query": "where is the KeePass KDBX model for groups containing nested groups and entries", "expected": ["platform/credential-store-impl/src/credentialStore/kdbx/KdbxGroup.kt"]}
+{"query": "where is the JPS extension that stores Gradle artifact model properties", "expected": ["plugins/gradle/jps-plugin/src/org/jetbrains/jps/gradle/model/artifacts/JpsGradleArtifactExtension.java"]}

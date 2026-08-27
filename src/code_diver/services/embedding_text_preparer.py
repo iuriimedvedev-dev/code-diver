@@ -22,31 +22,56 @@ class EmbeddingTextPreparer:
         return truncate_embedding_text(text, self.max_input_chars, self.tokenizer)
 
 
+_MODEL_MAX_TOKENS = 512
+
+
 def truncate_embedding_text(text: str, max_input_chars: int, tokenizer: Any | None = None) -> str:
-    """Use token-aware truncation when available, with a character fallback."""
+    """Use token-aware truncation when available, with a character fallback.
+
+    `max_input_chars` is the maximum CHARACTER count of the summary text
+    (the text to send to the embedding model). The model's actual token
+    limit (`_MODEL_MAX_TOKENS`, default 512) is used for token-level
+    truncation so the embedding server never rejects the input.
+
+    When tokenizer is available, the text is truncated to `_MODEL_MAX_TOKENS`
+    tokens, then further limited to `max_input_chars` chars if needed.
+    """
     if len(text) <= max_input_chars:
-        return text
+        max_tokens = _MODEL_MAX_TOKENS
+    else:
+        max_tokens = min(_MODEL_MAX_TOKENS, max_input_chars)
     try:
         if tokenizer is not None:
             token_ids = tokenizer.encode(text, add_special_tokens=False)
-            for count in range(min(len(token_ids), max_input_chars), 0, -1):
-                try:
-                    candidate = tokenizer.decode(token_ids[:count], skip_special_tokens=True)
-                except TypeError:
-                    candidate = tokenizer.decode(token_ids[:count])
-                if candidate:
-                    return candidate
+            count = min(len(token_ids), max_tokens)
+            if count >= len(token_ids):
+                result = text
+            else:
+                result = None
+                for c in range(count, 0, -1):
+                    try:
+                        candidate = tokenizer.decode(token_ids[:c], skip_special_tokens=True)
+                    except TypeError:
+                        candidate = tokenizer.decode(token_ids[:c])
+                    if candidate:
+                        result = candidate
+                        break
+                if result is None:
+                    result = text[:max_input_chars]
         else:
             if tiktoken is None:
                 raise ImportError("tiktoken is unavailable")
             encoding = tiktoken.get_encoding("cl100k_base")
             token_ids = encoding.encode(text)
-            if len(token_ids) <= max_input_chars:
-                return text
-            return encoding.decode(token_ids[:max_input_chars])
+            if len(token_ids) <= max_tokens:
+                result = text
+            else:
+                result = encoding.decode(token_ids[:max_tokens])
+        if len(result) > max_input_chars:
+            return result[:max_input_chars]
+        return result
     except Exception:
-        return text[: max_input_chars // 3]
-    return text[: max_input_chars // 3]
+        return text[:max_input_chars]
 
 
 def shrink_embedding_text(text: str, tokenizer: Any | None = None) -> str:

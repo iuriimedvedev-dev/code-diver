@@ -626,6 +626,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "ijson" },
+    { name = "openai" },
     { name = "pyyaml" },
     { name = "qdrant-client" },
     { name = "questionary" },
@@ -668,6 +669,7 @@ requires-dist = [
     { name = "google-auth", marker = "extra == 'gemini'", specifier = ">=2.53.0" },
     { name = "google-genai", marker = "extra == 'gemini'", specifier = ">=2.6.0" },
     { name = "ijson", specifier = ">=3.5.0" },
+    { name = "openai", specifier = ">=2.50.0" },
     { name = "pyyaml", specifier = ">=6.0.2" },
     { name = "qdrant-client", specifier = ">=1.18.0" },
     { name = "questionary", specifier = ">=2.1.0" },
@@ -3311,14 +3313,14 @@ name = "openai"
 version = "2.50.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "anyio", marker = "python_full_version != '3.12.*' or platform_machine != 'arm64' or sys_platform != 'darwin'" },
-    { name = "distro", marker = "python_full_version != '3.12.*' or platform_machine != 'arm64' or sys_platform != 'darwin'" },
-    { name = "httpx", marker = "python_full_version != '3.12.*' or platform_machine != 'arm64' or sys_platform != 'darwin'" },
-    { name = "jiter", marker = "python_full_version != '3.12.*' or platform_machine != 'arm64' or sys_platform != 'darwin'" },
-    { name = "pydantic", marker = "python_full_version != '3.12.*' or platform_machine != 'arm64' or sys_platform != 'darwin'" },
-    { name = "sniffio", marker = "python_full_version != '3.12.*' or platform_machine != 'arm64' or sys_platform != 'darwin'" },
-    { name = "tqdm", marker = "python_full_version != '3.12.*' or platform_machine != 'arm64' or sys_platform != 'darwin'" },
-    { name = "typing-extensions", marker = "python_full_version != '3.12.*' or platform_machine != 'arm64' or sys_platform != 'darwin'" },
+    { name = "anyio" },
+    { name = "distro" },
+    { name = "httpx" },
+    { name = "jiter" },
+    { name = "pydantic" },
+    { name = "sniffio" },
+    { name = "tqdm" },
+    { name = "typing-extensions" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/d8/f5/e7735f2af272ee179a287911a698b3cbdb59d7a4ac4874571363adf1e4de/openai-2.50.0.tar.gz", hash = "sha256:5128f7caf4a6b01aefd6e7e93efe170a2c3427b8de286b9af5cdff3aa47e02c8", size = 1081965, upload-time = "2026-07-28T22:16:31.674Z" }
 wheels = [

@@ -80,16 +80,19 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
     def _prefixed(self, prefix: str | None, text: str) -> str:
         return f"{prefix}{text}" if prefix else text
 
+    _MODEL_MAX_TOKENS = 512
+
     def _bounded_prefixed(self, prefix: str | None, text: str, limit: int | None = None) -> str:
         prefixed = self._prefixed(prefix, text)
         max_input_chars = self.max_input_chars if limit is None else limit
         if max_input_chars is None or max_input_chars <= 0:
             return prefixed
-        if len(prefixed) <= max_input_chars:
+        max_tokens = min(self._MODEL_MAX_TOKENS, max_input_chars)
+        if len(prefixed) <= max_input_chars and len(prefixed) <= max_tokens * 5:
             return prefixed
         try:
             if self.tokenizer is not None:
-                return self._truncate_with_tokenizer(prefixed, max_input_chars)
+                return self._truncate_with_tokenizer(prefixed, max_tokens)
             if tiktoken is None:
                 raise ImportError("tiktoken is unavailable")
             try:
@@ -97,9 +100,13 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
             except Exception:
                 encoding = tiktoken.get_encoding("cl100k_base")
             token_ids = encoding.encode(prefixed)
-            if len(token_ids) <= max_input_chars:
-                return prefixed[:max_input_chars]
-            return encoding.decode(token_ids[:max_input_chars])[:max_input_chars]
+            if len(token_ids) <= max_tokens:
+                result = prefixed
+            else:
+                result = encoding.decode(token_ids[:max_tokens])
+            if len(result) > max_input_chars:
+                return result[:max_input_chars]
+            return result
         except Exception:
             return prefixed[:max_input_chars]
 
@@ -179,13 +186,14 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
         budget = self.max_input_chars if self.max_input_chars and self.max_input_chars > 0 else len(text)
         for attempt in range(2, 4):
             budget = max(budget // 2, 1)
-            shortened = self._bounded_prefixed(None, current, budget)
+            max_tokens = min(self._MODEL_MAX_TOKENS, budget)
+            shortened = self._bounded_prefixed(None, current, max_tokens)
             if len(shortened) >= len(current):
                 shortened = current[: max(len(current) // 2, 1)]
             current = shortened
             logger.warning(
                 "Embedding input exceeded context; retrying item with budget %d (attempt %d/3).",
-                budget,
+                max_tokens,
                 attempt,
             )
             try:
