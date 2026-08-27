@@ -29,9 +29,12 @@ def test_head_section_caps_overall_block_even_with_many_short_lines() -> None:
         max_head_lines=1000, max_head_line_chars=200, max_head_block_chars=4000
     ).build("many_lines.py", text, symbols=[])
 
-    head_start = item.content.index("head:")
-    symbols_start = item.content.index("symbols:", head_start)
-    head_block = item.content[head_start:symbols_start].rstrip("\n")
+    # With symbols-first ordering, symbols come before head
+    symbols_start = item.content.index("symbols:")
+    head_start = item.content.index("head:", symbols_start)
+    # Find end of head block: next section marker after head
+    imports_start = item.content.index("imports:", head_start)
+    head_block = item.content[head_start:imports_start].rstrip("\n")
     assert len(head_block) <= 4000
     assert TRUNCATION_MARKER in head_block
 
@@ -54,8 +57,9 @@ def test_head_section_occurs_before_symbols_section() -> None:
         ],
     )
 
-    assert item.content.index(f"head:\n- {head_text}") < item.content.index(
-        f"symbols:\n- function {symbol_text}: known symbol signature"
+    # symbols section should appear before head section (symbols-first ordering)
+    assert item.content.index(f"symbols:\n- function {symbol_text}: known symbol signature") < item.content.index(
+        f"head:\n- {head_text}"
     )
 
 
@@ -77,9 +81,10 @@ def test_build_places_head_section_before_symbols() -> None:
         ],
     )
 
-    assert item.content.index(f"head:\n- {head_text}") < item.content.index(
+    # symbols section should appear before head section (symbols-first ordering)
+    assert item.content.index(
         "symbols:\n- function parse_document: parse_document(text: str) -> Document"
-    )
+    ) < item.content.index(f"head:\n- {head_text}")
 
 
 def test_build_uses_complete_stable_section_order() -> None:
@@ -97,7 +102,7 @@ def test_build_uses_complete_stable_section_order() -> None:
         ],
     )
 
-    sections = ["file:", "extension:", "head:", "symbols:", "imports:"]
+    sections = ["file:", "extension:", "symbols:", "head:", "imports:"]
     positions = [item.content.index(section) for section in sections]
     assert positions == sorted(positions)
 
