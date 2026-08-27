@@ -2,7 +2,8 @@ mod bm25;
 mod file_propagate;
 
 pub use bm25::{
-    coverage, fuse_hybrid, fuse_hybrid_batch, lexical_from_coverages, HybridWeights, InvertedIndex,
+    bm25_scores_from_data, coverage, fuse_hybrid, fuse_hybrid_batch, lexical_from_coverages,
+    HybridWeights, InvertedIndex,
 };
 pub use file_propagate::{
     expand_adjacency, propagate_file_scores, AdjacencyExpandParams, FileAdjacency,
@@ -14,9 +15,9 @@ use pyo3::exceptions::PyValueError;
 #[cfg(feature = "python")]
 use pyo3::prelude::*;
 #[cfg(feature = "python")]
-use pyo3::types::PyDict;
+use pyo3::types::{PyDict, PySet};
 #[cfg(feature = "python")]
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 #[cfg(feature = "python")]
 #[pyclass(name = "InvertedIndex")]
@@ -230,6 +231,57 @@ fn lexical_from_coverages_py(content_coverage: f64, title_coverage: f64) -> f64 
     lexical_from_coverages(content_coverage, title_coverage)
 }
 
+/// BM25 scores from pre-computed index data (avoids rebuilding InvertedIndex).
+///
+/// Accepts Python-native data structures:
+/// - ``term_frequencies``: {doc_id: {term: tf}}
+/// - ``document_lengths``: {doc_id: total_tokens}
+/// - ``postings``: {term: {doc_id, ...}}
+/// - ``average_document_length``: avgdl
+/// - ``terms``: query terms
+#[cfg(feature = "python")]
+#[pyfunction]
+#[pyo3(signature = (term_frequencies, document_lengths, postings, average_document_length, terms, k1=1.2, b=0.75))]
+fn bm25_scores_from_data_py(
+    py: Python<'_>,
+    term_frequencies: HashMap<String, HashMap<String, u32>>,
+    document_lengths: HashMap<String, u32>,
+    postings: HashMap<String, Py<PySet>>,
+    average_document_length: f64,
+    terms: Vec<String>,
+    k1: f64,
+    b: f64,
+) -> PyResult<PyObject> {
+    // Convert Python sets to Rust HashSets
+    let mut rust_postings: HashMap<String, HashSet<String>> = HashMap::new();
+    for (term, py_set) in postings {
+        let set = py_set.bind(py);
+        let mut rust_set = HashSet::new();
+        for item in set.iter() {
+            if let Ok(s) = item.extract::<String>() {
+                rust_set.insert(s);
+            }
+        }
+        rust_postings.insert(term, rust_set);
+    }
+
+    let scores = bm25_scores_from_data(
+        &term_frequencies,
+        &document_lengths,
+        &rust_postings,
+        average_document_length,
+        &terms,
+        k1,
+        b,
+    );
+
+    let dict = PyDict::new(py);
+    for (id, score) in scores {
+        dict.set_item(id, score)?;
+    }
+    Ok(dict.into())
+}
+
 #[cfg(feature = "python")]
 #[pymodule]
 fn code_diver_search(m: &Bound<'_, PyModule>) -> PyResult<()> {
@@ -240,6 +292,7 @@ fn code_diver_search(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(expand_adjacency_py, m)?)?;
     m.add_function(wrap_pyfunction!(coverage_py, m)?)?;
     m.add_function(wrap_pyfunction!(lexical_from_coverages_py, m)?)?;
+    m.add_function(wrap_pyfunction!(bm25_scores_from_data_py, m)?)?;
     m.add("__version__", "0.1.0")?;
     Ok(())
 }

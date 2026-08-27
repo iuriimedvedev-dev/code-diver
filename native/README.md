@@ -28,12 +28,14 @@ Wired call sites (still Python when flag off or module missing):
 - `HybridCandidateScore.total` → `fuse_hybrid_py`
 - `GraphFileRetrievalStrategy._propagate` → `propagate_file_scores_py`
 - `FileGraphAdjacencyIndex.expand` → `expand_adjacency_py`
+- `HybridLexicalIndex.bm25_scores` → `bm25_scores_from_data_py` (avoids rebuilding InvertedIndex)
 
 ## FFI (PyO3 module `code_diver_search`)
 
 ```python
 from code_diver_search import (
     InvertedIndex,
+    bm25_scores_from_data_py,
     fuse_hybrid_py,
     fuse_hybrid_batch_py,
     propagate_file_scores_py,
@@ -69,7 +71,6 @@ expanded = expand_adjacency_py(
 
 Planned (not implemented):
 
-- `ingest_postings(...)` bulk load of Python `item_ids_by_term` / TFs.
 - Full-catalog lexical **seed** loop (`GraphFileRetrievalStrategy._seed_scores` O(n) scorer).
 
 ## Python sources this crate is porting from
@@ -88,8 +89,9 @@ Planned (not implemented):
 
 1. **Full-catalog lexical seed loop** — `GraphFileRetrievalStrategy._seed_scores` (coverage/path/symbol over catalog; needs profiles or pre-tokenized fields).
 2. Symbol-match scorer (needs item metadata) if hot.
-3. Bulk `ingest_postings` + optional native BM25 dual-path on `HybridLexicalIndex` (when flag on).
-4. Parity harness vs Python on IntelliJ-scale fixtures before any champion flip (champion stays Python).
+3. Parity harness vs Python on IntelliJ-scale fixtures before any champion flip (champion stays Python).
+
+**Done:** BM25 dual-path (`HybridLexicalIndex.bm25_scores` → `bm25_scores_from_data_py`).
 
 ## Build
 

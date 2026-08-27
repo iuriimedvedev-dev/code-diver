@@ -220,6 +220,68 @@ pub fn lexical_from_coverages(content_coverage: f64, title_coverage: f64) -> f64
     (content_coverage * 0.75 + title_coverage * 0.25).min(1.0)
 }
 
+/// BM25 scores from pre-computed index data (no InvertedIndex needed).
+///
+/// Accepts the same data structures that `HybridLexicalIndex` holds internally:
+/// - `term_frequencies`: {doc_id: {term: tf}}
+/// - `document_lengths`: {doc_id: total_tokens}
+/// - `postings`: {term: {doc_id, ...}}
+/// - `average_document_length`: avgdl
+/// - `terms`: query terms
+///
+/// Returns only positive scores (same as Python).
+pub fn bm25_scores_from_data(
+    term_frequencies: &HashMap<String, HashMap<String, u32>>,
+    document_lengths: &HashMap<String, u32>,
+    postings: &HashMap<String, HashSet<String>>,
+    average_document_length: f64,
+    terms: &[String],
+    k1: f64,
+    b: f64,
+) -> HashMap<String, f64> {
+    let total_documents = term_frequencies.len().max(1) as f64;
+    let avgdl = average_document_length.max(1.0);
+    let mut scores = HashMap::new();
+
+    // Collect candidate doc IDs from postings
+    let mut candidate_ids: HashSet<&str> = HashSet::new();
+    for term in terms {
+        if let Some(posting) = postings.get(term) {
+            for id in posting {
+                candidate_ids.insert(id.as_str());
+            }
+        }
+    }
+
+    for item_id in candidate_ids {
+        let frequencies = match term_frequencies.get(item_id) {
+            Some(f) => f,
+            None => continue,
+        };
+        let document_length = f64::from(*document_lengths.get(item_id).unwrap_or(&0));
+        let mut score = 0.0;
+        for term in terms {
+            let tf = f64::from(*frequencies.get(term).unwrap_or(&0));
+            if tf <= 0.0 {
+                continue;
+            }
+            let document_frequency = postings
+                .get(term)
+                .map(|s| s.len())
+                .unwrap_or(0) as f64;
+            let idf = (1.0
+                + (total_documents - document_frequency + 0.5) / (document_frequency + 0.5))
+                .ln();
+            let denominator = tf + k1 * (1.0 - b + b * document_length / avgdl);
+            score += idf * ((tf * (k1 + 1.0)) / denominator);
+        }
+        if score > 0.0 {
+            scores.insert(item_id.to_string(), score);
+        }
+    }
+    scores
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -413,6 +475,85 @@ mod tests {
                 format!("batch field {field} has length {length}, expected {expected}")
             );
         }
+    }
+
+    #[test]
+    fn bm25_scores_from_data_matches_inverted_index() {
+        let mut idx = InvertedIndex::new();
+        idx.ingest(
+            "doc1".into(),
+            &["foo".into(), "bar".into(), "bar".into()],
+        );
+        idx.ingest("doc2".into(), &["foo".into(), "foo".into(), "foo".into()]);
+        idx.ingest("doc3".into(), &["baz".into()]);
+
+        let expected = idx.bm25_scores(&["foo".into(), "bar".into()], 1.2, 0.75);
+
+        let mut tf = HashMap::new();
+        let mut dl = HashMap::new();
+        let mut postings: HashMap<String, HashSet<String>> = HashMap::new();
+
+        for (id, terms) in [
+            ("doc1", &["foo", "bar", "bar"] as &[&str]),
+            ("doc2", &["foo", "foo", "foo"]),
+            ("doc3", &["baz"]),
+        ] {
+            let mut freqs: HashMap<String, u32> = HashMap::new();
+            for t in terms {
+                *freqs.entry((*t).to_string()).or_insert(0) += 1;
+            }
+            tf.insert(id.to_string(), freqs);
+            dl.insert(id.to_string(), terms.len() as u32);
+            for t in terms {
+                postings
+                    .entry((*t).to_string())
+                    .or_default()
+                    .insert(id.to_string());
+            }
+        }
+
+        let actual = bm25_scores_from_data(&tf, &dl, &postings, 7.0 / 3.0, &["foo".into(), "bar".into()], 1.2, 0.75);
+        assert_eq!(expected.len(), actual.len(), "same number of positive scores");
+        for (id, exp_score) in &expected {
+            let act_score = actual.get(id).expect("id should be in result");
+            assert!(
+                (exp_score - act_score).abs() < 1e-12,
+                "score mismatch for {id}: expected {exp_score}, got {act_score}"
+            );
+        }
+    }
+
+    #[test]
+    fn bm25_scores_from_data_empty_terms() {
+        let tf = HashMap::new();
+        let dl = HashMap::new();
+        let postings = HashMap::new();
+        let result = bm25_scores_from_data(&tf, &dl, &postings, 1.0, &[], 1.2, 0.75);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn bm25_scores_from_data_no_match() {
+        let mut tf = HashMap::new();
+        tf.insert("doc1".into(), {
+            let mut f = HashMap::new();
+            f.insert("foo".into(), 1);
+            f
+        });
+        let mut dl = HashMap::new();
+        dl.insert("doc1".into(), 1);
+        let mut postings = HashMap::new();
+        postings.insert(
+            "foo".into(),
+            {
+                let mut s = HashSet::new();
+                s.insert("doc1".into());
+                s
+            },
+        );
+
+        let result = bm25_scores_from_data(&tf, &dl, &postings, 1.0, &["bar".into()], 1.2, 0.75);
+        assert!(result.is_empty());
     }
 
     #[test]

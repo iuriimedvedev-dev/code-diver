@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import math
 from collections import Counter, defaultdict
 from collections.abc import Iterable
@@ -8,6 +9,8 @@ from ..domain import CodeItem
 from ..services.tokenizer import tokenize
 from .hybrid_item_profile import HybridItemProfile
 from .hybrid_item_profiler import HybridItemProfiler
+
+logger = logging.getLogger(__name__)
 
 
 class HybridLexicalIndex:
@@ -35,7 +38,35 @@ class HybridLexicalIndex:
             item_ids.update(self.item_ids_by_term.get(term, set()))
         return [self.items_by_id[item_id] for item_id in item_ids if item_id in self.items_by_id]
 
+    def _postings_as_dict(self) -> dict[str, set[str]]:
+        """Convert item_ids_by_term to plain dict for native bridge."""
+        return dict(self.item_ids_by_term)
+
+    def _tf_as_dict(self) -> dict[str, dict[str, int]]:
+        """Convert term_frequencies_by_id to plain dict for native bridge."""
+        return {k: dict(v) for k, v in self.term_frequencies_by_id.items()}
+
+    def _dl_as_dict(self) -> dict[str, int]:
+        """Convert document_lengths_by_id to plain dict for native bridge."""
+        return dict(self.document_lengths_by_id)
+
     def bm25_scores(self, terms: tuple[str, ...], *, k1: float, b: float) -> dict[str, float]:
+        # Try native BM25 (dual-path, off by default)
+        from ..native_search import try_bm25_scores
+
+        native = try_bm25_scores(
+            self._tf_as_dict(),
+            self._dl_as_dict(),
+            self._postings_as_dict(),
+            self.average_document_length,
+            list(terms),
+            k1=k1,
+            b=b,
+        )
+        if native is not None:
+            return native
+
+        # Python fallback
         item_ids = {item.id for item in self.candidates(terms)}
         scores: dict[str, float] = {}
         total_documents = max(len(self.items_by_id), 1)

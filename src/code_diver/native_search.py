@@ -166,3 +166,41 @@ def try_expand_adjacency(
     except Exception as exc:  # pragma: no cover
         logger.debug("native expand_adjacency failed: %s", exc)
         return None
+
+
+def try_bm25_scores(
+    term_frequencies_by_id: dict[str, dict[str, int]],
+    document_lengths_by_id: dict[str, int],
+    postings: dict[str, set[str]],
+    average_document_length: float,
+    terms: list[str],
+    *,
+    k1: float = 1.2,
+    b: float = 0.75,
+) -> dict[str, float] | None:
+    """Native BM25 scores from pre-computed index data, or None for Python fallback.
+
+    Accepts the same data that ``HybridLexicalIndex`` holds internally:
+    - ``term_frequencies_by_id``: {doc_id: {term: tf}}
+    - ``document_lengths_by_id``: {doc_id: total_tokens}
+    - ``postings``: {term: {doc_id, ...}}
+    - ``average_document_length``: avgdl
+    - ``terms``: query terms
+    """
+    mod = native_module()
+    if mod is None or not hasattr(mod, "bm25_scores_from_data_py"):
+        return None
+    try:
+        result = mod.bm25_scores_from_data_py(
+            term_frequencies_by_id,
+            document_lengths_by_id,
+            postings,
+            float(average_document_length),
+            terms,
+            k1=float(k1),
+            b=float(b),
+        )
+        return {str(k): float(v) for k, v in dict(result).items()}
+    except Exception as exc:  # pragma: no cover
+        logger.debug("native bm25_scores failed: %s", exc)
+        return None
