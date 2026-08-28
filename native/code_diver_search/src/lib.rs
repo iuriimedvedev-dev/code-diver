@@ -1,6 +1,7 @@
 mod bm25;
 mod file_propagate;
 mod seed_scores;
+mod vector_math;
 
 pub use bm25::{
     bm25_scores_from_data, coverage, fuse_hybrid, fuse_hybrid_batch, lexical_from_coverages,
@@ -11,6 +12,7 @@ pub use file_propagate::{
     FilePropagateParams,
 };
 pub use seed_scores::{seed_coverages, ItemSeedData};
+pub use vector_math::{normalize, dot, search_flat, search_flat_f64};
 
 #[cfg(feature = "python")]
 use pyo3::exceptions::PyValueError;
@@ -20,6 +22,47 @@ use pyo3::prelude::*;
 use pyo3::types::{PyDict, PySet};
 #[cfg(feature = "python")]
 use std::collections::{HashMap, HashSet};
+
+#[cfg(feature = "python")]
+#[pyfunction]
+fn normalize_py(vector: Vec<f64>) -> Vec<f64> {
+    normalize(&vector)
+}
+
+#[cfg(feature = "python")]
+#[pyfunction]
+fn dot_py(left: Vec<f64>, right: Vec<f64>) -> PyResult<f64> {
+    if left.len() != right.len() {
+        return Err(PyValueError::new_err(format!(
+            "Vector dimension mismatch: {} != {}", left.len(), right.len()
+        )));
+    }
+    Ok(dot(&left, &right))
+}
+
+#[cfg(feature = "python")]
+#[pyfunction]
+#[pyo3(signature = (normalized_query, flat_vectors, offsets, limit))]
+fn search_flat_py(
+    normalized_query: Vec<f64>,
+    flat_vectors: Vec<f32>,
+    offsets: Vec<(usize, usize)>,
+    limit: usize,
+) -> Vec<(usize, f64)> {
+    search_flat(&normalized_query, &flat_vectors, &offsets, limit)
+}
+
+#[cfg(feature = "python")]
+#[pyfunction]
+#[pyo3(signature = (normalized_query, flat_vectors, offsets, limit))]
+fn search_flat_f64_py(
+    normalized_query: Vec<f64>,
+    flat_vectors: Vec<f64>,
+    offsets: Vec<(usize, usize)>,
+    limit: usize,
+) -> Vec<(usize, f64)> {
+    search_flat_f64(&normalized_query, &flat_vectors, &offsets, limit)
+}
 
 #[cfg(feature = "python")]
 #[pyclass(name = "InvertedIndex")]
@@ -360,6 +403,10 @@ fn code_diver_search(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(lexical_from_coverages_py, m)?)?;
     m.add_function(wrap_pyfunction!(bm25_scores_from_data_py, m)?)?;
     m.add_function(wrap_pyfunction!(seed_coverages_py, m)?)?;
-    m.add("__version__", "0.1.0")?;
+    m.add_function(wrap_pyfunction!(normalize_py, m)?)?;
+    m.add_function(wrap_pyfunction!(dot_py, m)?)?;
+    m.add_function(wrap_pyfunction!(search_flat_py, m)?)?;
+    m.add_function(wrap_pyfunction!(search_flat_f64_py, m)?)?;
+    m.add("__version__", "0.2.0")?;
     Ok(())
 }

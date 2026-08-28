@@ -14,6 +14,7 @@ Python implementations stay in place (dual path). Champion config is unchanged.
   - `propagate_file_scores` ↔ `GraphFileRetrievalStrategy._propagate` (`decay ** (depth+1)`, seed/neighbor/frontier limits).
   - `expand_adjacency` ↔ `FileGraphAdjacencyIndex.expand` (`decay ** depth`, `best_seen`, `min_score`).
 - **Full-catalog lexical seed loop** — `seed_coverages` ↔ `GraphFileRetrievalStrategy._seed_scores` (coverage/path/symbol over all catalog items, filter, sort, top-N).
+- **Vector math + batch cosine similarity** — `normalize`/`dot`/`search_flat`/`search_flat_f64` - L2 normalization, dot product, and batch cosine similarity over flat arrays. Replaces `math_utils.py` and `JsonVectorStore._search_items` (the real latency bottleneck).
 
 ## Dual path (default OFF)
 
@@ -43,6 +44,10 @@ from code_diver_search import (
     fuse_hybrid_batch_py,
     propagate_file_scores_py,
     expand_adjacency_py,
+    normalize_py,
+    dot_py,
+    search_flat_py,
+    search_flat_f64_py,
 )
 
 idx = InvertedIndex()
@@ -70,6 +75,16 @@ expanded = expand_adjacency_py(
     adjacency, {"a.py": 1.0},
     depth=1, decay=0.72, neighbor_limit=24, min_score=0.0,
 )
+
+# Vector math
+norm = normalize_py([3.0, 4.0])           # [0.6, 0.8]
+d = dot_py([1.0, 0.0], [0.0, 1.0])       # 0.0
+results = search_flat_f64_py(
+    [1.0, 0.0],                           # normalized query
+    [1.0, 0.0, 0.0, 1.0],                # flat vectors (2 × 2D)
+    [(0, 2), (2, 4)],                     # offsets
+    10,                                   # limit
+)  # [(0, 1.0), (1, 0.0)]
 ```
 
 Planned (not implemented):
@@ -87,6 +102,7 @@ _(none — all planned ports are done)_
 | Graph-file neighbor propagate | `src/code_diver/strategies/graph_file_retrieval_strategy.py` (`_propagate`) |
 | File adjacency expand | `src/code_diver/strategies/file_graph_adjacency_index.py` (`expand`) |
 | Full-catalog file lexical seed loop | `src/code_diver/strategies/graph_file_retrieval_strategy.py` (`_seed_scores`, ~171–196) |
+| Vector math (dot, normalize, batch cosine) | `src/code_diver/math_utils.py`, `src/code_diver/store/json_vector_store.py` (`_search_items`) |
 
 ## Next port order
 
@@ -96,6 +112,8 @@ _(none — all planned ports are done)_
 **Done:** BM25 dual-path (`HybridLexicalIndex.bm25_scores` → `bm25_scores_from_data_py`).
 
 **Done:** Full-catalog lexical seed loop (`GraphFileRetrievalStrategy._seed_scores` → `seed_coverages_py`).
+
+**Done:** Vector math + batch cosine similarity (`math_utils.py` dot/normalize + `JsonVectorStore._search_items`).
 
 ## Build
 

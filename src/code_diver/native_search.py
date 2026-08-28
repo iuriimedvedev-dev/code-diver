@@ -206,6 +206,50 @@ def try_bm25_scores(
         return None
 
 
+def try_normalize(vector: list[float]) -> list[float] | None:
+    """Native L2 normalization, or None for Python fallback."""
+    mod = native_module()
+    if mod is None or not hasattr(mod, "normalize_py"):
+        return None
+    try:
+        return list(mod.normalize_py(vector))
+    except Exception as exc:  # pragma: no cover
+        logger.debug("native normalize failed: %s", exc)
+        return None
+
+
+def try_dot(left: list[float], right: list[float]) -> float | None:
+    """Native dot product, or None for Python fallback.
+    Returns None on dimension mismatch (Python will raise its own error).
+    """
+    mod = native_module()
+    if mod is None or not hasattr(mod, "dot_py"):
+        return None
+    try:
+        return float(mod.dot_py(left, right))
+    except Exception as exc:  # pragma: no cover
+        logger.debug("native dot failed: %s", exc)
+        return None
+
+
+def try_search_flat(
+    normalized_query: list[float],
+    flat_vectors: list[float],
+    offsets: list[tuple[int, int]],
+    limit: int,
+) -> list[tuple[int, float]] | None:
+    """Native batch cosine similarity search over flat f64 array, or None."""
+    mod = native_module()
+    if mod is None or not hasattr(mod, "search_flat_f64_py"):
+        return None
+    try:
+        result = mod.search_flat_f64_py(normalized_query, flat_vectors, offsets, int(limit))
+        return [(int(idx), float(score)) for idx, score in result]
+    except Exception as exc:  # pragma: no cover
+        logger.debug("native search_flat failed: %s", exc)
+        return None
+
+
 def try_seed_coverages(
     profiles: dict[str, Any],
     item_ids: list[str],
