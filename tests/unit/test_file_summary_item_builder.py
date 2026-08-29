@@ -57,7 +57,7 @@ def test_head_section_occurs_before_symbols_section() -> None:
         ],
     )
 
-    # symbols section should appear before head section (symbols-first ordering)
+    # symbols section follows head section in the stable summary order
     assert item.content.index(f"symbols:\n- function {symbol_text}: known symbol signature") < item.content.index(
         f"head:\n- {head_text}"
     )
@@ -81,7 +81,7 @@ def test_build_places_head_section_before_symbols() -> None:
         ],
     )
 
-    # symbols section should appear before head section (symbols-first ordering)
+    # symbols section follows head section in the stable summary order
     assert item.content.index(
         "symbols:\n- function parse_document: parse_document(text: str) -> Document"
     ) < item.content.index(f"head:\n- {head_text}")
@@ -102,7 +102,7 @@ def test_build_uses_complete_stable_section_order() -> None:
         ],
     )
 
-    sections = ["file:", "extension:", "symbols:", "head:", "imports:"]
+    sections = ["file:", "extension:", "purpose:", "terms:", "symbols:", "head:", "imports:"]
     positions = [item.content.index(section) for section in sections]
     assert positions == sorted(positions)
 
@@ -149,6 +149,21 @@ def test_purpose_section_caps_a_long_first_meaningful_line() -> None:
     )
 
     assert "purpose: class xxxx ...[truncated]" in item.content
+
+
+def test_purpose_section_extracts_multiline_kdoc_before_kotlin_class() -> None:
+    text = (
+        "package com.example.service\n\n"
+        "/**\n"
+        " * Coordinates account synchronization.\n"
+        " * It retries transient failures before reporting an error.\n"
+        " */\n"
+        "class AccountSyncService\n"
+    )
+
+    item = FileSummaryItemBuilder().build("AccountSyncService.kt", text, symbols=[])
+
+    assert "purpose: Coordinates account synchronization." in item.content
 
 
 def test_terms_section_includes_path_components() -> None:
