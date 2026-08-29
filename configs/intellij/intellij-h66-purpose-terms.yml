@@ -1,9 +1,9 @@
-# NEW COLLECTION REQUIRED: build a new collection at index time. Adding purpose+terms
+# NEW COLLECTION REQUIRED: build a new collection at index time. Changing purpose+terms content
 # changes embedded/indexed content, so the H46 collection cannot be reused. The indexed file
-# summary must include the purpose+terms content after file/extension and before symbols,
-# matching FileSummaryItemBuilder's file, extension, purpose+terms, symbols, imports order.
+# summary must use the purpose+terms section immediately after file/extension and
+# before symbols, matching FileSummaryItemBuilder's file, extension, purpose+terms, symbols, imports order.
 #
-# H-66 purpose+terms: purpose and terms enrichment after the completed source reorder.
+# H-66 purpose+terms: purpose+terms ordering after the completed source reorder.
 #
 # H46 is intentionally unchanged. This config copies its full schema and values, except for
 # the experiment identifier and the collection name required by the changed indexed content.

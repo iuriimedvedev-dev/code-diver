@@ -26,6 +26,7 @@ JVM_PACKAGE_RE = re.compile(r"^\s*package\s+([\w.]+)")
 TRUNCATION_MARKER = " ...[truncated]"
 MAX_TERM_COUNT = 40
 MAX_TERMS_LINE_CHARS = 220
+MAX_PURPOSE_LINE_CHARS = 220
 
 
 class FileSummaryItemBuilder:
@@ -78,7 +79,7 @@ class FileSummaryItemBuilder:
         if declaration:
             doc = self._preceding_doc_sentence(text, declaration[3])
             if doc:
-                return f"purpose: {self._cap_line(doc)}"
+                return f"purpose: {self._cap_purpose(doc)}"
             kind, name, tail, line_number = declaration
             role = self._declaration_role(name)
             domain = self._domain(rel_path, text)
@@ -88,10 +89,16 @@ class FileSummaryItemBuilder:
                 purpose += f" for {', '.join(supertypes)}"
             if domain:
                 purpose += f" in {domain}"
-            return f"purpose: {self._cap_line(purpose)}"
-        meaningful = self._skip_boilerplate(text)
-        purpose = self._cap_line(meaningful[0]) if meaningful else "none"
-        return f"purpose: {purpose}"
+            return f"purpose: {self._cap_purpose(purpose)}"
+        return f"purpose: {self._path_purpose(rel_path)}"
+
+    def _path_purpose(self, rel_path: str) -> str:
+        words = [
+            token.lower()
+            for token in IDENTIFIER_SPLIT_RE.split(Path(rel_path).stem)
+            if len(token) >= 2
+        ]
+        return self._cap_purpose(" ".join(words)) if words else "none"
 
     def _terms_section(self, rel_path: str, text: str, symbols: list[CodeSymbol]) -> str:
         values = [Path(rel_path).stem, *Path(rel_path).parts]
@@ -191,6 +198,7 @@ class FileSummaryItemBuilder:
             ("Manager", "manager"),
             ("Repository", "repository"),
             ("Factory", "factory"),
+            ("Action", "action"),
             ("Handler", "handler"),
             ("Provider", "provider"),
         ):
@@ -295,6 +303,16 @@ class FileSummaryItemBuilder:
         if len(line) <= self.max_head_line_chars:
             return line
         return line[: self.max_head_line_chars] + TRUNCATION_MARKER
+
+    def _cap_purpose(self, line: str) -> str:
+        limit = min(self.max_head_line_chars, MAX_PURPOSE_LINE_CHARS)
+        if len(line) <= limit:
+            return line
+        content_limit = max(limit - len(TRUNCATION_MARKER), 0)
+        content = line[:content_limit].rstrip()
+        if content:
+            content = content.rsplit(" ", 1)[0] or content
+        return content + TRUNCATION_MARKER
 
     def _cap_block(self, block: str) -> str:
         if len(block) <= self.max_head_block_chars:

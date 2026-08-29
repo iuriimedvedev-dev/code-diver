@@ -39,7 +39,7 @@ def test_head_section_caps_overall_block_even_with_many_short_lines() -> None:
     assert TRUNCATION_MARKER in head_block
 
 
-def test_head_section_occurs_before_symbols_section() -> None:
+def test_symbols_section_occurs_before_head_section() -> None:
     head_text = "known head text"
     symbol_text = "known symbol text"
 
@@ -57,13 +57,13 @@ def test_head_section_occurs_before_symbols_section() -> None:
         ],
     )
 
-    # symbols section follows head section in the stable summary order
+    # symbols section precedes head section in the stable summary order
     assert item.content.index(f"symbols:\n- function {symbol_text}: known symbol signature") < item.content.index(
         f"head:\n- {head_text}"
     )
 
 
-def test_build_places_head_section_before_symbols() -> None:
+def test_build_places_symbols_section_before_head() -> None:
     head_text = "distinct text-file head marker"
     dense_prose = "dense prose body marker " * 20
 
@@ -81,7 +81,7 @@ def test_build_places_head_section_before_symbols() -> None:
         ],
     )
 
-    # symbols section follows head section in the stable summary order
+    # symbols section precedes head section in the stable summary order
     assert item.content.index(
         "symbols:\n- function parse_document: parse_document(text: str) -> Document"
     ) < item.content.index(f"head:\n- {head_text}")
@@ -127,28 +127,28 @@ def test_head_section_is_unchanged_for_a_normal_small_file() -> None:
     assert TRUNCATION_MARKER not in after.content
 
 
-def test_purpose_section_uses_first_meaningful_line() -> None:
+def test_purpose_section_uses_path_derived_fallback_for_non_jvm_file() -> None:
     item = FileSummaryItemBuilder().build(
         "service.py",
         "# Copyright 2024\n\n@file: service\nclass Service:\n    pass",
         symbols=[],
     )
 
-    assert "purpose: class Service:" in item.content
+    assert "purpose: service" in item.content
 
 
-def test_purpose_section_is_none_for_empty_source() -> None:
+def test_purpose_section_uses_path_for_empty_source() -> None:
     item = FileSummaryItemBuilder().build("empty.py", "\n# Copyright 2024\n", symbols=[])
 
-    assert "purpose: none" in item.content
+    assert "purpose: empty" in item.content
 
 
-def test_purpose_section_caps_a_long_first_meaningful_line() -> None:
+def test_purpose_section_ignores_source_text_for_non_jvm_file() -> None:
     item = FileSummaryItemBuilder(max_head_line_chars=10).build(
         "long.py", "class " + "x" * 100, symbols=[]
     )
 
-    assert "purpose: class xxxx ...[truncated]" in item.content
+    assert "purpose: long" in item.content
 
 
 def test_purpose_section_extracts_multiline_kdoc_before_kotlin_class() -> None:
@@ -164,6 +164,67 @@ def test_purpose_section_extracts_multiline_kdoc_before_kotlin_class() -> None:
     item = FileSummaryItemBuilder().build("AccountSyncService.kt", text, symbols=[])
 
     assert "purpose: Coordinates account synchronization." in item.content
+
+
+def test_purpose_section_uses_manager_role_suffix() -> None:
+    item = FileSummaryItemBuilder().build(
+        "FooManager.kt",
+        "class FooManager\n",
+        symbols=[],
+    )
+
+    assert "purpose: manager FooManager" in item.content
+
+
+def test_purpose_section_treats_service_impl_as_service_implementation() -> None:
+    item = FileSummaryItemBuilder().build(
+        "FooServiceImpl.kt",
+        "class FooServiceImpl\n",
+        symbols=[],
+    )
+
+    assert "purpose: service implementation FooServiceImpl" in item.content
+
+
+def test_purpose_section_uses_action_role_suffix() -> None:
+    item = FileSummaryItemBuilder().build(
+        "FooAction.kt",
+        "class FooAction\n",
+        symbols=[],
+    )
+
+    assert "purpose: action FooAction" in item.content
+
+
+def test_purpose_section_uses_first_sentence_from_class_javadoc() -> None:
+    text = (
+        "/** Coordinates account synchronization.\n"
+        " * This second sentence must not be included.\n"
+        " */\n"
+        "class AccountSync\n"
+    )
+
+    item = FileSummaryItemBuilder().build(
+        "AccountSync.java", text, symbols=[]
+    )
+
+    purpose = item.content.split("purpose: ", 1)[1].splitlines()[0]
+    assert purpose.startswith("Coordinates account sync")
+    assert TRUNCATION_MARKER not in purpose
+    assert "second sentence" not in purpose
+
+
+def test_purpose_section_truncates_javadoc_at_a_word_boundary_with_220_char_cap() -> None:
+    first_sentence = "Coordinates account synchronization across every tenant and region " * 5
+    text = f"/** {first_sentence}.\n * A second sentence must not be included.\n */\nclass AccountSync\n"
+
+    item = FileSummaryItemBuilder().build("AccountSync.java", text, symbols=[])
+    purpose = item.content.split("purpose: ", 1)[1].splitlines()[0]
+
+    assert len(purpose) <= 220
+    assert TRUNCATION_MARKER in purpose
+    assert purpose.removesuffix(TRUNCATION_MARKER).endswith((" ", ".")) is False
+    assert "second sentence" not in purpose
 
 
 def test_terms_section_includes_path_components() -> None:
@@ -231,6 +292,81 @@ def test_terms_section_has_stable_first_occurrence_order() -> None:
     terms = item.content[item.content.index("terms: ") :].splitlines()[0]
 
     assert terms == "terms: auth src py"
+
+
+def test_terms_section_splits_camel_case_into_lowercase_terms() -> None:
+    item = FileSummaryItemBuilder().build(
+        "CamelCase.py",
+        "pass",
+        symbols=[CodeSymbol("loadUserProfile", "function", 1, 1, "loadUserProfile()")],
+    )
+    terms = item.content[item.content.index("terms: ") :].splitlines()[0]
+
+    assert "load user profile" in terms
+    assert terms == terms.lower()
+
+
+def test_terms_section_splits_snake_case_into_lowercase_terms() -> None:
+    item = FileSummaryItemBuilder().build(
+        "snake_case.py",
+        "pass",
+        symbols=[CodeSymbol("load_user_profile", "function", 1, 1, "load_user_profile()")],
+    )
+    terms = item.content[item.content.index("terms: ") :].splitlines()[0]
+
+    assert "snake case" in terms
+    assert "load user profile" in terms
+    assert terms == terms.lower()
+
+
+def test_terms_section_deduplicates_repeated_terms_in_first_occurrence_order() -> None:
+    item = FileSummaryItemBuilder().build(
+        "src/auth/Auth.py",
+        "pass",
+        symbols=[CodeSymbol("authUser", "function", 1, 1, "authUser(auth)")],
+    )
+    terms = item.content[item.content.index("terms: ") :].splitlines()[0]
+
+    assert terms == "terms: auth src py user"
+
+
+def test_terms_section_caps_length_and_word_count_for_many_long_symbol_names() -> None:
+    symbols = [
+        CodeSymbol(
+            f"VeryLongSymbolNameNumber{index}WithAdditionalWords",
+            "function",
+            index,
+            index,
+            f"VeryLongSymbolNameNumber{index}WithAdditionalWords()",
+        )
+        for index in range(1, 100)
+    ]
+
+    item = FileSummaryItemBuilder().build("symbols.py", "pass", symbols=symbols)
+    terms = item.content[item.content.index("terms: ") :].splitlines()[0]
+
+    assert len(terms) <= 220
+    assert len(terms.split()) - 1 <= 40
+
+
+def test_purpose_section_uses_path_fallback_without_jvm_declaration() -> None:
+    item = FileSummaryItemBuilder().build(
+        "src/user_profile/UserProfile.kt",
+        "\n// Copyright 2024\npackage com.example.profile\nfun loadUserProfile() {}\n",
+        symbols=[],
+    )
+
+    assert "purpose: user profile" in item.content
+
+
+def test_purpose_section_uses_path_fallback_for_generated_non_jvm_text() -> None:
+    item = FileSummaryItemBuilder().build(
+        "generated/api_client.txt",
+        "generated output with no declarations\n",
+        symbols=[],
+    )
+
+    assert "purpose: api client" in item.content
 
 
 def test_terms_section_is_none_when_path_has_no_terms() -> None:
