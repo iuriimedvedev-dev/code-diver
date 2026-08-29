@@ -15,6 +15,7 @@ from .documentation_metadata_extractor import DocumentationMetadataExtractor
 from .documentation_summary_item_builder import DocumentationSummaryItemBuilder
 from .file_api_manifest_item_builder import FileApiManifestItemBuilder
 from .file_body_evidence_item_builder import FileBodyEvidenceItemBuilder
+from .file_purpose_item_builder import FilePurposeItemBuilder
 from .file_manifest_item_builder import FileManifestItemBuilder
 from .file_summary_item_builder import FileSummaryItemBuilder
 from .structural_code_chunker import StructuralCodeChunker
@@ -100,6 +101,7 @@ class CodebaseScanner:
         file_manifest_chunks: bool = False,
         file_api_manifest_chunks: bool = False,
         file_body_evidence_chunks: bool = False,
+        file_purpose_chunks: bool = False,
         documentation_summary_chunks: bool = False,
         documentation_manifest_chunks: bool = False,
         documentation_chunk_chunks: bool = False,
@@ -109,6 +111,7 @@ class CodebaseScanner:
         file_manifest_builder: FileManifestItemBuilder | None = None,
         file_api_manifest_builder: FileApiManifestItemBuilder | None = None,
         file_body_evidence_builder: FileBodyEvidenceItemBuilder | None = None,
+        file_purpose_builder: FilePurposeItemBuilder | None = None,
         documentation_summary_builder: DocumentationSummaryItemBuilder | None = None,
         documentation_manifest_builder: DocumentationManifestItemBuilder | None = None,
         documentation_extractor: DocumentationMetadataExtractor | None = None,
@@ -129,6 +132,7 @@ class CodebaseScanner:
         self.file_manifest_chunks = file_manifest_chunks
         self.file_api_manifest_chunks = file_api_manifest_chunks
         self.file_body_evidence_chunks = file_body_evidence_chunks
+        self.file_purpose_chunks = file_purpose_chunks
         self.documentation_summary_chunks = documentation_summary_chunks
         self.documentation_manifest_chunks = documentation_manifest_chunks
         self.documentation_chunk_chunks = documentation_chunk_chunks
@@ -141,6 +145,7 @@ class CodebaseScanner:
         self.file_manifest_builder = file_manifest_builder or FileManifestItemBuilder()
         self.file_api_manifest_builder = file_api_manifest_builder or FileApiManifestItemBuilder()
         self.file_body_evidence_builder = file_body_evidence_builder or FileBodyEvidenceItemBuilder()
+        self.file_purpose_builder = file_purpose_builder or FilePurposeItemBuilder()
         self.documentation_extractor = documentation_extractor or DocumentationMetadataExtractor()
         self.documentation_summary_builder = (
             documentation_summary_builder
@@ -240,6 +245,10 @@ class CodebaseScanner:
             items.append(self.file_api_manifest_builder.build(rel_path, text, symbols))
         if self.file_body_evidence_chunks:
             items.append(self.file_body_evidence_builder.build(rel_path, text, symbols))
+        if self.file_purpose_chunks:
+            purpose_item = self.file_purpose_builder.build(rel_path, text, symbols)
+            if purpose_item is not None:
+                items.append(purpose_item)
         return items
 
     def _uses_documentation_lane(self, rel_path: str) -> bool:

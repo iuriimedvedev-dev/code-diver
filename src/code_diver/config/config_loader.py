@@ -292,6 +292,9 @@ class ConfigLoader:
             file_body_evidence_chunks=bool(
                 mapping.get("file_body_evidence_chunks", Defaults.FILE_BODY_EVIDENCE_CHUNKS)
             ),
+            file_purpose_chunks=bool(
+                mapping.get("file_purpose_chunks", Defaults.FILE_PURPOSE_CHUNKS)
+            ),
             documentation_summary_chunks=bool(
                 mapping.get("documentation_summary_chunks", Defaults.DOCUMENTATION_SUMMARY_CHUNKS)
             ),
@@ -762,6 +765,22 @@ class ConfigLoader:
                     base.use_file_head_document
                     if base is not None
                     else Defaults.CROSS_ENCODER_RERANK_USE_FILE_HEAD_DOCUMENT,
+                )
+            ),
+            use_enhanced_file_document=bool(
+                mapping.get(
+                    "use_enhanced_file_document",
+                    base.use_enhanced_file_document
+                    if base is not None
+                    else Defaults.CROSS_ENCODER_RERANK_USE_ENHANCED_FILE_DOCUMENT,
+                )
+            ),
+            use_llm_purpose_document=bool(
+                mapping.get(
+                    "use_llm_purpose_document",
+                    base.use_llm_purpose_document
+                    if base is not None
+                    else Defaults.CROSS_ENCODER_RERANK_USE_LLM_PURPOSE_DOCUMENT,
                 )
             ),
         )

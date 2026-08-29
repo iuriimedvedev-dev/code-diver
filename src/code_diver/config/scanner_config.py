@@ -21,6 +21,7 @@ class ScannerConfig:
     file_manifest_chunks: bool = Defaults.FILE_MANIFEST_CHUNKS
     file_api_manifest_chunks: bool = Defaults.FILE_API_MANIFEST_CHUNKS
     file_body_evidence_chunks: bool = Defaults.FILE_BODY_EVIDENCE_CHUNKS
+    file_purpose_chunks: bool = Defaults.FILE_PURPOSE_CHUNKS
     documentation_summary_chunks: bool = Defaults.DOCUMENTATION_SUMMARY_CHUNKS
     documentation_manifest_chunks: bool = Defaults.DOCUMENTATION_MANIFEST_CHUNKS
     documentation_chunk_chunks: bool = Defaults.DOCUMENTATION_CHUNK_CHUNKS

@@ -122,6 +122,7 @@ class Defaults:
     FILE_MANIFEST_CHUNKS = True
     FILE_API_MANIFEST_CHUNKS = False
     FILE_BODY_EVIDENCE_CHUNKS = False
+    FILE_PURPOSE_CHUNKS = False
     DOCUMENTATION_SUMMARY_CHUNKS = False
     DOCUMENTATION_MANIFEST_CHUNKS = False
     DOCUMENTATION_CHUNK_CHUNKS = False
@@ -255,6 +256,10 @@ class Defaults:
     CROSS_ENCODER_RERANK_WIDEN_SCORE_MARGIN_BELOW = 0.05
     # H-55: CE document = source file HEAD / first KDoc-Javadoc, not fused locator soup.
     CROSS_ENCODER_RERANK_USE_FILE_HEAD_DOCUMENT = False
+    # H-62: CE document = scan entire file for ALL KDocs, method signatures, class declarations, pick best content.
+    CROSS_ENCODER_RERANK_USE_ENHANCED_FILE_DOCUMENT = False
+    # H-57: CE document = LLM-generated purpose blurb (1-2 sentences) from the source file.
+    CROSS_ENCODER_RERANK_USE_LLM_PURPOSE_DOCUMENT = False
     GRAPH_EXPANSION_DEPTH = 0
     GRAPH_NEIGHBOR_LIMIT = 0
     GRAPH_AST_ENABLED = False

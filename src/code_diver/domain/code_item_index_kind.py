@@ -9,6 +9,7 @@ class CodeItemIndexKind:
     FILE_MANIFEST = "file_manifest"
     FILE_API_MANIFEST = "file_api_manifest"
     FILE_BODY_EVIDENCE = "file_body_evidence"
+    FILE_PURPOSE = "file_purpose"
     DOC_CHUNK = "doc_chunk"
     DOC_SUMMARY = "doc_summary"
     DOC_MANIFEST = "doc_manifest"

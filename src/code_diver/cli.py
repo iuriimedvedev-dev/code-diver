@@ -1472,6 +1472,8 @@ def index_content_label(config: AppConfig) -> str:
         enabled.append("API manifests")
     if config.scanner.file_body_evidence_chunks:
         enabled.append("body evidence")
+    if config.scanner.file_purpose_chunks:
+        enabled.append("file purpose")
     if config.scanner.documentation_summary_chunks:
         enabled.append("doc summaries")
     if config.scanner.documentation_manifest_chunks:
@@ -3855,6 +3857,7 @@ def make_codebase_scanner(config: AppConfig):
         file_manifest_chunks=config.scanner.file_manifest_chunks,
         file_api_manifest_chunks=config.scanner.file_api_manifest_chunks,
         file_body_evidence_chunks=config.scanner.file_body_evidence_chunks,
+        file_purpose_chunks=config.scanner.file_purpose_chunks,
         documentation_summary_chunks=config.scanner.documentation_summary_chunks,
         documentation_manifest_chunks=config.scanner.documentation_manifest_chunks,
         documentation_chunk_chunks=config.scanner.documentation_chunk_chunks,

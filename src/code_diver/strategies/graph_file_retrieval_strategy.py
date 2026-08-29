@@ -369,11 +369,13 @@ class GraphFileRetrievalStrategy(RetrievalStrategy):
             return 1
         if index_kind == "file_manifest":
             return 2
-        if index_kind == "doc_summary":
+        if index_kind == "file_purpose":
             return 3
-        if index_kind == "doc_manifest":
+        if index_kind == "doc_summary":
             return 4
-        return 5
+        if index_kind == "doc_manifest":
+            return 5
+        return 6
 
     def _load_catalog(self) -> FileGraphCatalog:
         if self._catalog is not None:

@@ -30,6 +30,7 @@ REFERENCE_TOKEN_LIMIT = 256
 NON_SYMBOL_INDEX_KINDS = {
     CodeItemIndexKind.FILE_SUMMARY,
     CodeItemIndexKind.FILE_MANIFEST,
+    CodeItemIndexKind.FILE_PURPOSE,
     CodeItemIndexKind.DOC_SUMMARY,
     CodeItemIndexKind.DOC_MANIFEST,
     CodeItemIndexKind.DOC_CHUNK,

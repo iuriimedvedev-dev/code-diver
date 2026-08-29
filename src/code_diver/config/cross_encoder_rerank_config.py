@@ -22,3 +22,7 @@ class CrossEncoderRerankConfig:
     widen_margin_check_rank: int = Defaults.CROSS_ENCODER_RERANK_WIDEN_MARGIN_CHECK_RANK
     widen_score_margin_below: float = Defaults.CROSS_ENCODER_RERANK_WIDEN_SCORE_MARGIN_BELOW
     use_file_head_document: bool = Defaults.CROSS_ENCODER_RERANK_USE_FILE_HEAD_DOCUMENT
+    # H-62: scan entire file for ALL KDocs, method signatures, class declarations, pick best content.
+    use_enhanced_file_document: bool = Defaults.CROSS_ENCODER_RERANK_USE_ENHANCED_FILE_DOCUMENT
+    # H-57: LLM-generated purpose blurb (1-2 sentences) from the source file.
+    use_llm_purpose_document: bool = Defaults.CROSS_ENCODER_RERANK_USE_LLM_PURPOSE_DOCUMENT
