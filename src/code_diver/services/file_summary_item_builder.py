@@ -13,6 +13,7 @@ LICENSE_OR_COPYRIGHT_RE = re.compile(
 IMPORT_RE = re.compile(r"^\s*(?:from\s+[\w.]+\s+import\s+.+|import\s+[\w.,\s;]+)\s*$")
 PACKAGE_RE = re.compile(r"^\s*package\s+[\w.]+")
 FILE_ANNOTATION_RE = re.compile(r"^\s*@file:\s*")
+IDENTIFIER_SPLIT_RE = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|[^A-Za-z0-9]+")
 
 TRUNCATION_MARKER = " ...[truncated]"
 
@@ -40,6 +41,8 @@ class FileSummaryItemBuilder:
             [
                 f"file: {rel_path}",
                 f"extension: {Path(rel_path).suffix.lower()}",
+                self._purpose_section(text),
+                self._terms_section(rel_path, symbols),
                 self._symbols_section(symbols),
                 self._head_section(text),
                 self._imports_section(text),
@@ -55,6 +58,26 @@ class FileSummaryItemBuilder:
                 CodeItemMetadata.INDEX_KIND: CodeItemIndexKind.FILE_SUMMARY,
             },
         )
+
+    def _purpose_section(self, text: str) -> str:
+        meaningful = self._skip_boilerplate(text)
+        purpose = self._cap_line(meaningful[0]) if meaningful else "none"
+        return f"purpose: {purpose}"
+
+    def _terms_section(self, rel_path: str, symbols: list[CodeSymbol]) -> str:
+        values = [Path(rel_path).stem, *Path(rel_path).parts]
+        for symbol in symbols[: self.max_symbols]:
+            values.extend([symbol.name, symbol.signature])
+        terms: list[str] = []
+        seen: set[str] = set()
+        for value in values:
+            for token in IDENTIFIER_SPLIT_RE.split(value):
+                normalized = token.lower()
+                if len(normalized) < 2 or normalized in seen:
+                    continue
+                seen.add(normalized)
+                terms.append(normalized)
+        return f"terms: {' '.join(terms) if terms else 'none'}"
 
     def _imports_section(self, text: str) -> str:
         imports = [line.strip() for line in text.splitlines() if IMPORT_RE.match(line)]
