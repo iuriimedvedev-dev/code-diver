@@ -6,9 +6,11 @@ from threading import Lock
 import pytest
 
 from code_diver.config.trace_config import TraceConfig
+from code_diver.config import GraphFileSearchConfig
 from code_diver.domain import CodeItem, EvalCase, SearchResult
+from code_diver.graph import CodeGraph, CodeGraphStore
 from code_diver.services.evaluation_service import EvaluationService
-from code_diver.strategies import RetrievalStrategy
+from code_diver.strategies import GraphFileRetrievalStrategy, RetrievalStrategy
 from code_diver.tracing import TraceLogger
 
 pytestmark = pytest.mark.unit
@@ -86,7 +88,7 @@ def test_evaluation_service_computes_ranked_metrics() -> None:
     assert results[0].file_reciprocal_rank == 0.5
 
 
-class WinningKindStrategy(RetrievalStrategy):
+class WinningKindBaseStrategy(RetrievalStrategy):
     def search(self, query: str, limit: int) -> list[SearchResult]:
         return [
             SearchResult(
@@ -94,16 +96,18 @@ class WinningKindStrategy(RetrievalStrategy):
                     id="target.py#1",
                     path="target.py",
                     title="Target",
-                    content="",
-                    metadata={"index_kind": "file_summary", "winning_index_kind": "symbol_chunk"},
+                    content="def target(): pass",
+                    metadata={"index_kind": "symbol_chunk"},
                 ),
                 0.9,
             )
         ][:limit]
 
 
-def test_evaluation_service_prefers_winning_kind_for_diagnostics() -> None:
-    metrics, results = EvaluationService(WinningKindStrategy()).evaluate(
+def test_evaluation_service_prefers_generated_winning_kind_for_diagnostics(tmp_path) -> None:
+    strategy = _graph_strategy_with_generated_winning_kind(tmp_path)
+
+    metrics, results = EvaluationService(strategy).evaluate(
         [EvalCase(id="case", query="find target", expected=["target.py"])],
         limit=1,
     )
@@ -126,14 +130,39 @@ def test_evaluation_service_uses_index_kind_for_legacy_results() -> None:
     assert metrics["first_relevant_kind.file_summary.rate"] == 1.0
 
 
-def test_evaluation_service_diagnostics_use_winning_kind_over_representative_kind() -> None:
-    _, results = EvaluationService(WinningKindStrategy()).evaluate(
+def test_evaluation_service_diagnostics_use_generated_winning_kind_over_representative_kind(tmp_path) -> None:
+    _, results = EvaluationService(_graph_strategy_with_generated_winning_kind(tmp_path)).evaluate(
         [EvalCase(id="case", query="find target", expected=["target.py"])],
         limit=1,
     )
 
     assert results[0].top_result_kind == "symbol_chunk"
     assert results[0].first_relevant_kind == "symbol_chunk"
+
+
+def _graph_strategy_with_generated_winning_kind(tmp_path) -> GraphFileRetrievalStrategy:
+    representative = CodeItem(
+        id="target-summary",
+        path="target.py",
+        title="target.py::file_summary",
+        content="file: target.py\nhead:\n- def target(): pass",
+        metadata={"index_kind": "file_summary"},
+    )
+    graph_store = CodeGraphStore(tmp_path / "graph.json")
+    graph_store.save(CodeGraph(items={representative.id: representative}, edges=[]))
+    return GraphFileRetrievalStrategy(
+        WinningKindBaseStrategy(),
+        graph_store,
+        GraphFileSearchConfig(
+            seed_limit=5,
+            lexical_seed_limit=0,
+            vector_weight=1.0,
+            lexical_weight=0.0,
+            path_weight=0.0,
+            symbol_weight=0.0,
+            graph_weight=0.0,
+        ),
+    )
 
 
 def test_evaluation_service_diagnostics_fall_back_to_legacy_index_kind() -> None:
