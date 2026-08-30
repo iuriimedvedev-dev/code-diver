@@ -116,9 +116,7 @@ class GraphFileRetrievalStrategy(RetrievalStrategy):
                 if item is None:
                     continue
                 file_score = file_scores.setdefault(item.path, FileScore(path=item.path, item=item))
-                if graph_score > file_score.graph_score:
-                    file_score.graph_score = graph_score
-                    file_score.winning_index_kind = self._index_kind(item)
+                self._update_max_score(file_score, "graph_score", graph_score, item)
 
             ranked = sorted(
                 file_scores.values(),
@@ -216,16 +214,22 @@ class GraphFileRetrievalStrategy(RetrievalStrategy):
         )
         for candidate in lexical_candidates[: self.config.lexical_seed_limit]:
             existing = scores.setdefault(candidate.path, FileScore(path=candidate.path, item=candidate.item))
-            if candidate.lexical_score > existing.lexical_score:
-                existing.lexical_score = candidate.lexical_score
-                existing.winning_index_kind = self._index_kind(candidate.item)
-            if candidate.path_score > existing.path_score:
-                existing.path_score = candidate.path_score
-                existing.winning_index_kind = self._index_kind(candidate.item)
-            if candidate.symbol_score > existing.symbol_score:
-                existing.symbol_score = candidate.symbol_score
-                existing.winning_index_kind = self._index_kind(candidate.item)
+            self._update_max_score(existing, "lexical_score", candidate.lexical_score, candidate.item)
+            self._update_max_score(existing, "path_score", candidate.path_score, candidate.item)
+            self._update_max_score(existing, "symbol_score", candidate.symbol_score, candidate.item)
         return scores
+
+    def _update_max_score(
+        self,
+        file_score: FileScore,
+        score_name: str,
+        score: float,
+        item: CodeItem,
+    ) -> None:
+        current_score = getattr(file_score, score_name)
+        if score > current_score:
+            setattr(file_score, score_name, score)
+            file_score.winning_index_kind = self._index_kind(item)
 
     def _propagate(
         self,
