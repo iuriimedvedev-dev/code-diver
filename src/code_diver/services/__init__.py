@@ -26,6 +26,7 @@ from .selected_code_item_builder import SelectedCodeItemBuilder
 from .selected_index_payload_parser import SelectedIndexPayloadParser
 from .selected_indexing_service import SelectedIndexingService
 from .structural_code_chunker import StructuralCodeChunker
+from .symbol_chunk_item_builder import SymbolChunkItemBuilder
 
 __all__ = [
     "BreadcrumbCodeItemEnricher",
@@ -55,4 +56,5 @@ __all__ = [
     "SelectedIndexPayloadParser",
     "SelectedIndexingService",
     "StructuralCodeChunker",
+    "SymbolChunkItemBuilder",
 ]

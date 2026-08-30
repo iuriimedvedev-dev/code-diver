@@ -5,6 +5,7 @@ class CodeItemIndexKind:
     CHUNK = "chunk"
     STRUCTURAL_CHUNK = "structural_chunk"
     SYMBOL = "symbol"
+    SYMBOL_CHUNK = "symbol_chunk"
     FILE_SUMMARY = "file_summary"
     FILE_MANIFEST = "file_manifest"
     FILE_API_MANIFEST = "file_api_manifest"

@@ -235,6 +235,77 @@ class UserService {
     assert "com.example.auth.Authorizer" in manifests[0].content
 
 
+def test_file_manifest_symbol_surface_replaces_path_boilerplate(tmp_path: Path) -> None:
+    source = tmp_path / "src" / "main" / "kotlin" / "com" / "example" / "UserService.kt"
+    source.parent.mkdir(parents=True)
+    source.write_text(
+        """
+// Copyright 2000-2024 JetBrains s.r.o.
+package com.example
+
+import com.example.auth.Authorizer
+
+/**
+ * Coordinates user lifecycle operations. More detail follows here.
+ */
+class UserService : UserManager, Disposable {
+    fun updateUserProfile() = Authorizer.authorize()
+}
+""".strip(),
+        encoding="utf-8",
+    )
+
+    items = CodebaseScanner(
+        include=["**/*.kt"],
+        line_chunks=False,
+        file_manifest_chunks=True,
+        file_manifest_symbol_surface=True,
+    ).scan(tmp_path)
+
+    manifest = next(
+        item for item in items if item.metadata["index_kind"] == "file_manifest"
+    )
+    assert manifest.path == "src/main/kotlin/com/example/UserService.kt"
+    assert manifest.title == "src/main/kotlin/com/example/UserService.kt::file_manifest"
+    assert manifest.content.startswith("declaration: class UserService : UserManager, Disposable")
+    assert "doc: Coordinates user lifecycle operations." in manifest.content
+    assert "updateUserProfile" in manifest.content
+    assert "filename: UserService.kt" in manifest.content
+    assert "package:" not in manifest.content
+    assert "imports:" not in manifest.content
+    assert "path_tokens:" not in manifest.content
+    assert "Copyright" not in manifest.content
+
+
+def test_file_manifest_symbol_surface_keeps_config_keys(tmp_path: Path) -> None:
+    config = tmp_path / "META-INF" / "plugin.xml"
+    config.parent.mkdir()
+    config.write_text(
+        """
+<idea-plugin>
+  <extensions defaultExtensionNs="com.intellij">
+    <toolWindow id="User Tool"/>
+  </extensions>
+</idea-plugin>
+""".strip(),
+        encoding="utf-8",
+    )
+
+    items = CodebaseScanner(
+        include=["**/*.xml"],
+        line_chunks=False,
+        file_manifest_chunks=True,
+        file_manifest_symbol_surface=True,
+    ).scan(tmp_path)
+
+    manifest = next(
+        item for item in items if item.metadata["index_kind"] == "file_manifest"
+    )
+    assert "filename: plugin.xml" in manifest.content
+    assert "config_keys:" in manifest.content
+    assert "toolWindow" in manifest.content
+
+
 def test_file_manifest_extracts_config_keys(tmp_path: Path) -> None:
     config = tmp_path / "META-INF" / "plugin.xml"
     config.parent.mkdir()

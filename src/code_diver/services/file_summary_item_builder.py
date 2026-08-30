@@ -28,6 +28,60 @@ MAX_TERM_COUNT = 40
 MAX_TERMS_LINE_CHARS = 220
 MAX_PURPOSE_LINE_CHARS = 220
 
+# H-66b: the embedder truncates the summary at ~500 chars, so only the first lines reach the
+# vector. Language keywords and repository-wide path words carry no discriminative signal and
+# are dropped from `terms:` when the compact budget mode is on.
+TERM_KEYWORD_STOPWORDS = frozenset(
+    {
+        "open",
+        "class",
+        "interface",
+        "object",
+        "fun",
+        "val",
+        "var",
+        "private",
+        "public",
+        "protected",
+        "internal",
+        "override",
+        "const",
+        "static",
+        "final",
+        "abstract",
+        "suspend",
+        "companion",
+        "get",
+        "set",
+        "constructor",
+        "return",
+        "void",
+        "new",
+        "extends",
+        "implements",
+        "package",
+        "import",
+        "this",
+        "super",
+        "null",
+        "true",
+        "false",
+    }
+)
+TERM_PATH_STOPWORDS = frozenset(
+    {
+        "src",
+        "com",
+        "intellij",
+        "jetbrains",
+        "main",
+        "java",
+        "kotlin",
+        "impl",
+    }
+)
+COMPACT_FILE_PATH_SEGMENTS = 2
+
 
 class FileSummaryItemBuilder:
     def __init__(
@@ -38,6 +92,7 @@ class FileSummaryItemBuilder:
         max_head_line_chars: int = 200,
         max_head_block_chars: int = 4000,
         max_head_import_lines: int = 5,
+        compact_budget: bool = False,
     ):
         self.max_imports = max_imports
         self.max_symbols = max_symbols
@@ -45,11 +100,22 @@ class FileSummaryItemBuilder:
         self.max_head_line_chars = max_head_line_chars
         self.max_head_block_chars = max_head_block_chars
         self.max_head_import_lines = max_head_import_lines
+        self.compact_budget = compact_budget
 
     def build(self, rel_path: str, text: str, symbols: list[CodeSymbol]) -> CodeItem:
         digest = hashlib.sha1(f"{rel_path}:file-summary".encode()).hexdigest()[:12]
-        content = "\n".join(
+        sections = (
             [
+                self._purpose_section(rel_path, text),
+                self._terms_section(rel_path, text, symbols),
+                f"file: {self._file_line_value(rel_path)}",
+                f"extension: {Path(rel_path).suffix.lower()}",
+                self._symbols_section(symbols),
+                self._head_section(text),
+                self._imports_section(text),
+            ]
+            if self.compact_budget
+            else [
                 f"file: {rel_path}",
                 f"extension: {Path(rel_path).suffix.lower()}",
                 self._purpose_section(rel_path, text),
@@ -58,7 +124,8 @@ class FileSummaryItemBuilder:
                 self._head_section(text),
                 self._imports_section(text),
             ]
-        ).strip()
+        )
+        content = "\n".join(sections).strip()
         return CodeItem(
             id=f"{rel_path}::file_summary#{digest}",
             path=rel_path,
@@ -69,6 +136,18 @@ class FileSummaryItemBuilder:
                 CodeItemMetadata.INDEX_KIND: CodeItemIndexKind.FILE_SUMMARY,
             },
         )
+
+    def _file_line_value(self, rel_path: str) -> str:
+        """Return the path fragment embedded in the summary text.
+
+        Compact budget mode keeps only the basename plus the last two directory
+        segments -- the full path stays in the item `path`/metadata, so path
+        scoring, dedup and retrieval are unaffected.
+        """
+        if not self.compact_budget:
+            return rel_path
+        parts = Path(rel_path).parts
+        return "/".join(parts[-(COMPACT_FILE_PATH_SEGMENTS + 1) :])
 
     def _purpose_section(self, rel_path: str, text: str) -> str:
         declaration = (
@@ -101,26 +180,16 @@ class FileSummaryItemBuilder:
         return self._cap_purpose(" ".join(words)) if words else "none"
 
     def _terms_section(self, rel_path: str, text: str, symbols: list[CodeSymbol]) -> str:
-        values = [Path(rel_path).stem, *Path(rel_path).parts]
-        declaration = (
-            self._primary_jvm_declaration(text)
-            if Path(rel_path).suffix.lower() in {".java", ".kt", ".kts"}
-            else None
-        )
-        if declaration:
-            _, name, tail, _ = declaration
-            values.extend([name, self._declaration_role(name), *self._supertypes(tail)])
-            package = self._package(text)
-            if package:
-                values.append(package)
-        for symbol in symbols[: self.max_symbols]:
-            values.extend([symbol.name, symbol.signature])
+        values = self._term_values(rel_path, text, symbols)
+        extension = Path(rel_path).suffix.lower().lstrip(".")
         terms: list[str] = []
         seen: set[str] = set()
         for value in values:
             for token in IDENTIFIER_SPLIT_RE.split(value):
                 normalized = token.lower()
                 if len(normalized) < 2 or normalized in seen:
+                    continue
+                if self.compact_budget and self._is_noise_term(normalized, extension):
                     continue
                 if len(f"terms: {' '.join(terms + [normalized])}") > MAX_TERMS_LINE_CHARS:
                     return f"terms: {' '.join(terms) if terms else 'none'}"
@@ -129,6 +198,46 @@ class FileSummaryItemBuilder:
                 if len(terms) >= MAX_TERM_COUNT:
                     return f"terms: {' '.join(terms)}"
         return f"terms: {' '.join(terms) if terms else 'none'}"
+
+    def _term_values(self, rel_path: str, text: str, symbols: list[CodeSymbol]) -> list[str]:
+        declaration = (
+            self._primary_jvm_declaration(text)
+            if Path(rel_path).suffix.lower() in {".java", ".kt", ".kts"}
+            else None
+        )
+        package = self._package(text)
+        if not self.compact_budget:
+            values = [Path(rel_path).stem, *Path(rel_path).parts]
+            if declaration:
+                _, name, tail, _ = declaration
+                values.extend([name, self._declaration_role(name), *self._supertypes(tail)])
+                if package:
+                    values.append(package)
+            for symbol in symbols[: self.max_symbols]:
+                values.extend([symbol.name, symbol.signature])
+            return values
+        # Compact budget: declaration identity first, then the API surface, then the
+        # package tail -- the head of the line is what survives the embedding window.
+        values = []
+        if declaration:
+            _, name, tail, _ = declaration
+            values.extend([name, self._declaration_role(name), *self._supertypes(tail)])
+        values.append(Path(rel_path).stem)
+        for symbol in symbols[: self.max_symbols]:
+            values.extend([symbol.name, symbol.signature])
+        if package:
+            values.append(package.split(".")[-1])
+        return values
+
+    @staticmethod
+    def _is_noise_term(normalized: str, extension: str) -> bool:
+        if normalized.isdigit():
+            return True
+        if normalized == extension:
+            return True
+        if normalized in TERM_KEYWORD_STOPWORDS:
+            return True
+        return normalized in TERM_PATH_STOPWORDS
 
     def _primary_jvm_declaration(self, text: str) -> tuple[str, str, str, int] | None:
         for line_number, line in enumerate(text.splitlines(), start=1):
@@ -179,7 +288,7 @@ class FileSummaryItemBuilder:
         return None
 
     def _supertypes(self, tail: str) -> list[str]:
-        match = re.search(r"(?::|\bextends\s+|\bimplements\s+)(.+)$", tail)
+        match = re.search(r"(?::|\bextends\s+|\bimplements\s+)(.+)$", self._strip_parens(tail))
         if not match:
             return []
         clauses = re.split(r"\b(?:extends|implements)\b", match.group(1))
@@ -189,6 +298,20 @@ class FileSummaryItemBuilder:
             for item in clause.split(",")
             if item.strip()
         ]
+
+    def _strip_parens(self, tail: str) -> str:
+        kept: list[str] = []
+        depth = 0
+        for char in tail:
+            if char == "(":
+                depth += 1
+                continue
+            if char == ")":
+                depth = max(depth - 1, 0)
+                continue
+            if depth == 0:
+                kept.append(char)
+        return "".join(kept)
 
     def _declaration_role(self, name: str) -> str:
         base = re.sub(r"Impl$", "", name)

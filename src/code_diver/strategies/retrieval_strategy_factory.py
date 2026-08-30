@@ -119,6 +119,7 @@ class RetrievalStrategyFactory:
                 vector_store,
                 config.hybrid_search.vector_kind_limits,
                 config.hybrid_search.vector_kind_multipliers,
+                config.hybrid_search.vector_kind_path_dedup,
             )
         return VectorRetrievalStrategy(provider, vector_store)
 

@@ -5,6 +5,7 @@ import math
 from ..domain import SearchResult
 from ..math_utils import normalize
 from ..providers import EmbeddingProvider
+from ..settings import Defaults
 from ..store import VectorStore
 from .retrieval_strategy import RetrievalStrategy
 
@@ -16,6 +17,7 @@ class MultiIndexVectorRetrievalStrategy(RetrievalStrategy):
         vector_store: VectorStore,
         kind_limits: dict[str, int],
         kind_multipliers: dict[str, float] | None = None,
+        path_dedup_kinds: list[str] | None = None,
     ):
         self.provider = provider
         self.vector_store = vector_store
@@ -25,6 +27,7 @@ class MultiIndexVectorRetrievalStrategy(RetrievalStrategy):
             for kind, multiplier in (kind_multipliers or {}).items()
             if multiplier > 0
         }
+        self.path_dedup_kinds = frozenset(path_dedup_kinds or ())
 
     def search(self, query: str, limit: int) -> list[SearchResult]:
         effective_limits = self._effective_limits(limit)
@@ -33,8 +36,23 @@ class MultiIndexVectorRetrievalStrategy(RetrievalStrategy):
         query_vector = normalize(self.provider.embed_query(query))
         results: list[SearchResult] = []
         for kind, kind_limit in effective_limits.items():
-            results.extend(self.vector_store.search_by_index_kind(query_vector, kind_limit, kind))
+            results.extend(self._kind_results(query_vector, kind, kind_limit))
         return self._ranked(results, limit)
+
+    def _kind_results(self, query_vector: list[float], kind: str, kind_limit: int) -> list[SearchResult]:
+        if kind not in self.path_dedup_kinds:
+            return self.vector_store.search_by_index_kind(query_vector, kind_limit, kind)
+        # A chunk lane holds many points per file, so `kind_limit` slots reach far fewer files
+        # than a file-level lane does. Over-fetch, then keep each file's best point, so the
+        # lane budget is spent on distinct candidate files instead of on one big file's methods.
+        overfetch = kind_limit * Defaults.HYBRID_VECTOR_KIND_PATH_DEDUP_OVERFETCH
+        best_by_path: dict[str, SearchResult] = {}
+        for result in self.vector_store.search_by_index_kind(query_vector, overfetch, kind):
+            current = best_by_path.get(result.item.path)
+            if current is None or result.score > current.score:
+                best_by_path[result.item.path] = result
+        ranked = sorted(best_by_path.values(), key=lambda result: (result.score, result.item.path), reverse=True)
+        return ranked[:kind_limit]
 
     def _effective_limits(self, limit: int) -> dict[str, int]:
         if self.kind_limits:

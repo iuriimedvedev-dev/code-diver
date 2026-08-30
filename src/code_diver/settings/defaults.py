@@ -119,10 +119,13 @@ class Defaults:
     FILE_SUMMARY_CHUNKS = True
     FILE_SUMMARY_HEAD_LINE_MAX_CHARS = 200
     FILE_SUMMARY_HEAD_BLOCK_MAX_CHARS = 4000
+    FILE_SUMMARY_COMPACT_BUDGET = False
     FILE_MANIFEST_CHUNKS = True
+    FILE_MANIFEST_SYMBOL_SURFACE = False
     FILE_API_MANIFEST_CHUNKS = False
     FILE_BODY_EVIDENCE_CHUNKS = False
     FILE_PURPOSE_CHUNKS = False
+    SYMBOL_CHUNK_CHUNKS = False
     DOCUMENTATION_SUMMARY_CHUNKS = False
     DOCUMENTATION_MANIFEST_CHUNKS = False
     DOCUMENTATION_CHUNK_CHUNKS = False
@@ -143,8 +146,18 @@ class Defaults:
     HYBRID_GRAPH_WEIGHT = 0.08333333333333334
     HYBRID_FILE_VOTE_WEIGHT = 0.0
     HYBRID_GRAPH_SCOPE = "item"
+    # H-64: with chunk-level points one large file owns many candidates. 0 disables the cap,
+    # which is the behaviour every collection without symbol chunks has always had.
+    HYBRID_PER_PATH_RESULT_LIMIT = 0
     HYBRID_VECTOR_KIND_LIMITS: ClassVar[dict[str, int]] = {"file_summary": 170, "file_manifest": 170}
     HYBRID_VECTOR_KIND_MULTIPLIERS: ClassVar[dict[str, float]] = {"file_summary": 1.0, "file_manifest": 1.08}
+    # H-64 arm 2: kinds whose vector lane must be deduplicated to one point per file path.
+    # A chunk lane spends its budget on many points of the same large file (measured: 170
+    # slots covered only 52-88 distinct files), so the lane reaches far fewer candidate
+    # files than a file-level lane. Empty means no lane is deduplicated, the historical
+    # behaviour of every collection without chunk points.
+    HYBRID_VECTOR_KIND_PATH_DEDUP: ClassVar[tuple[str, ...]] = ()
+    HYBRID_VECTOR_KIND_PATH_DEDUP_OVERFETCH = 4
     HYBRID_GRAPH_DEPTH = 0
     HYBRID_GRAPH_NEIGHBOR_LIMIT = 0
     HYBRID_LEXICAL_SCORING = "bm25"

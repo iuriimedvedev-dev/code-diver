@@ -482,7 +482,28 @@ class HybridRetrievalStrategy(RetrievalStrategy):
             ),
             reverse=True,
         )
+        ranked = self._cap_per_path(ranked, lambda score: score.item.path, config)
         return [SearchResult(item=score.item, score=self._weighted_total(score, config)) for score in ranked[:limit]]
+
+    def _cap_per_path(self, ranked: list, path_of, config: HybridSearchConfig) -> list:
+        """Keep at most `per_path_result_limit` already-ranked entries per file path.
+
+        H-64: chunk-level indexing puts many points on one path, and because the entries are
+        sorted best-first, dropping the tail keeps each file's best score while stopping one
+        large file from occupying the whole top-k that the file-level stage then dedups.
+        A limit of 0 disables the cap, which is how every non-chunk collection behaves.
+        """
+        if config.per_path_result_limit <= 0:
+            return ranked
+        seen: dict[str, int] = defaultdict(int)
+        capped = []
+        for entry in ranked:
+            path = path_of(entry)
+            if seen[path] >= config.per_path_result_limit:
+                continue
+            seen[path] += 1
+            capped.append(entry)
+        return capped
 
     def _preserve_vector_top(
         self,
@@ -549,6 +570,7 @@ class HybridRetrievalStrategy(RetrievalStrategy):
             key=lambda item: (item[1], scores[item[0]].item.path),
             reverse=True,
         )
+        ranked = self._cap_per_path(ranked, lambda entry: scores[entry[0]].item.path, config)
         return [SearchResult(item=scores[item_id].item, score=score) for item_id, score in ranked[:limit]]
 
     def _ranked_ids(self, scores: dict[str, HybridCandidateScore], value) -> list[str]:

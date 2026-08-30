@@ -285,7 +285,13 @@ class ConfigLoader:
             file_summary_head_block_max_chars=int(
                 mapping.get("file_summary_head_block_max_chars", Defaults.FILE_SUMMARY_HEAD_BLOCK_MAX_CHARS)
             ),
+            file_summary_compact_budget=bool(
+                mapping.get("file_summary_compact_budget", Defaults.FILE_SUMMARY_COMPACT_BUDGET)
+            ),
             file_manifest_chunks=bool(mapping.get("file_manifest_chunks", Defaults.FILE_MANIFEST_CHUNKS)),
+            file_manifest_symbol_surface=bool(
+                mapping.get("file_manifest_symbol_surface", Defaults.FILE_MANIFEST_SYMBOL_SURFACE)
+            ),
             file_api_manifest_chunks=bool(
                 mapping.get("file_api_manifest_chunks", Defaults.FILE_API_MANIFEST_CHUNKS)
             ),
@@ -294,6 +300,9 @@ class ConfigLoader:
             ),
             file_purpose_chunks=bool(
                 mapping.get("file_purpose_chunks", Defaults.FILE_PURPOSE_CHUNKS)
+            ),
+            symbol_chunk_chunks=bool(
+                mapping.get("symbol_chunk_chunks", Defaults.SYMBOL_CHUNK_CHUNKS)
             ),
             documentation_summary_chunks=bool(
                 mapping.get("documentation_summary_chunks", Defaults.DOCUMENTATION_SUMMARY_CHUNKS)
@@ -374,6 +383,12 @@ class ConfigLoader:
             graph_scope=str(
                 mapping.get("graph_scope", base.graph_scope if base is not None else Defaults.HYBRID_GRAPH_SCOPE)
             ),
+            per_path_result_limit=int(
+                mapping.get(
+                    "per_path_result_limit",
+                    base.per_path_result_limit if base is not None else Defaults.HYBRID_PER_PATH_RESULT_LIMIT,
+                )
+            ),
             vector_kind_limits=self._int_mapping(
                 mapping.get(
                     "vector_kind_limits",
@@ -385,6 +400,10 @@ class ConfigLoader:
                     "vector_kind_multipliers",
                     base.vector_kind_multipliers if base is not None else Defaults.HYBRID_VECTOR_KIND_MULTIPLIERS,
                 )
+            ),
+            vector_kind_path_dedup=self._string_list(mapping.get("vector_kind_path_dedup"))
+            or list(
+                base.vector_kind_path_dedup if base is not None else Defaults.HYBRID_VECTOR_KIND_PATH_DEDUP
             ),
             graph_depth=int(
                 mapping.get(

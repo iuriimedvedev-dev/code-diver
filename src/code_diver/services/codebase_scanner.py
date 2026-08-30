@@ -19,6 +19,7 @@ from .file_purpose_item_builder import FilePurposeItemBuilder
 from .file_manifest_item_builder import FileManifestItemBuilder
 from .file_summary_item_builder import FileSummaryItemBuilder
 from .structural_code_chunker import StructuralCodeChunker
+from .symbol_chunk_item_builder import SymbolChunkItemBuilder
 
 EXTRA_TEST_DIR_EXCLUDE_PATTERNS = ("**/testSrc/**", "**/testSources/**", "**/platform-tests/**")
 
@@ -98,10 +99,13 @@ class CodebaseScanner:
         file_summary_chunks: bool = False,
         file_summary_head_line_max_chars: int = 200,
         file_summary_head_block_max_chars: int = 4000,
+        file_summary_compact_budget: bool = False,
         file_manifest_chunks: bool = False,
+        file_manifest_symbol_surface: bool = False,
         file_api_manifest_chunks: bool = False,
         file_body_evidence_chunks: bool = False,
         file_purpose_chunks: bool = False,
+        symbol_chunk_chunks: bool = False,
         documentation_summary_chunks: bool = False,
         documentation_manifest_chunks: bool = False,
         documentation_chunk_chunks: bool = False,
@@ -112,6 +116,7 @@ class CodebaseScanner:
         file_api_manifest_builder: FileApiManifestItemBuilder | None = None,
         file_body_evidence_builder: FileBodyEvidenceItemBuilder | None = None,
         file_purpose_builder: FilePurposeItemBuilder | None = None,
+        symbol_chunk_builder: SymbolChunkItemBuilder | None = None,
         documentation_summary_builder: DocumentationSummaryItemBuilder | None = None,
         documentation_manifest_builder: DocumentationManifestItemBuilder | None = None,
         documentation_extractor: DocumentationMetadataExtractor | None = None,
@@ -129,10 +134,13 @@ class CodebaseScanner:
         self.file_summary_chunks = file_summary_chunks
         self.file_summary_head_line_max_chars = file_summary_head_line_max_chars
         self.file_summary_head_block_max_chars = file_summary_head_block_max_chars
+        self.file_summary_compact_budget = file_summary_compact_budget
         self.file_manifest_chunks = file_manifest_chunks
+        self.file_manifest_symbol_surface = file_manifest_symbol_surface
         self.file_api_manifest_chunks = file_api_manifest_chunks
         self.file_body_evidence_chunks = file_body_evidence_chunks
         self.file_purpose_chunks = file_purpose_chunks
+        self.symbol_chunk_chunks = symbol_chunk_chunks
         self.documentation_summary_chunks = documentation_summary_chunks
         self.documentation_manifest_chunks = documentation_manifest_chunks
         self.documentation_chunk_chunks = documentation_chunk_chunks
@@ -141,11 +149,15 @@ class CodebaseScanner:
         self.file_summary_builder = file_summary_builder or FileSummaryItemBuilder(
             max_head_line_chars=file_summary_head_line_max_chars,
             max_head_block_chars=file_summary_head_block_max_chars,
+            compact_budget=file_summary_compact_budget,
         )
-        self.file_manifest_builder = file_manifest_builder or FileManifestItemBuilder()
+        self.file_manifest_builder = file_manifest_builder or FileManifestItemBuilder(
+            symbol_surface=file_manifest_symbol_surface,
+        )
         self.file_api_manifest_builder = file_api_manifest_builder or FileApiManifestItemBuilder()
         self.file_body_evidence_builder = file_body_evidence_builder or FileBodyEvidenceItemBuilder()
         self.file_purpose_builder = file_purpose_builder or FilePurposeItemBuilder()
+        self.symbol_chunk_builder = symbol_chunk_builder or SymbolChunkItemBuilder()
         self.documentation_extractor = documentation_extractor or DocumentationMetadataExtractor()
         self.documentation_summary_builder = (
             documentation_summary_builder
@@ -231,6 +243,7 @@ class CodebaseScanner:
                 or self.file_manifest_chunks
                 or self.file_api_manifest_chunks
                 or self.file_body_evidence_chunks
+                or self.symbol_chunk_chunks
             )
             else []
         )
@@ -249,6 +262,8 @@ class CodebaseScanner:
             purpose_item = self.file_purpose_builder.build(rel_path, text, symbols)
             if purpose_item is not None:
                 items.append(purpose_item)
+        if self.symbol_chunk_chunks:
+            items.extend(self.symbol_chunk_builder.build(rel_path, text, symbols))
         return items
 
     def _uses_documentation_lane(self, rel_path: str) -> bool:

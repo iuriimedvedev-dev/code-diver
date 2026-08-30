@@ -1474,6 +1474,8 @@ def index_content_label(config: AppConfig) -> str:
         enabled.append("body evidence")
     if config.scanner.file_purpose_chunks:
         enabled.append("file purpose")
+    if config.scanner.symbol_chunk_chunks:
+        enabled.append("symbol chunks")
     if config.scanner.documentation_summary_chunks:
         enabled.append("doc summaries")
     if config.scanner.documentation_manifest_chunks:
@@ -3854,10 +3856,13 @@ def make_codebase_scanner(config: AppConfig):
         file_summary_chunks=config.scanner.file_summary_chunks,
         file_summary_head_line_max_chars=config.scanner.file_summary_head_line_max_chars,
         file_summary_head_block_max_chars=config.scanner.file_summary_head_block_max_chars,
+        file_summary_compact_budget=config.scanner.file_summary_compact_budget,
         file_manifest_chunks=config.scanner.file_manifest_chunks,
+        file_manifest_symbol_surface=config.scanner.file_manifest_symbol_surface,
         file_api_manifest_chunks=config.scanner.file_api_manifest_chunks,
         file_body_evidence_chunks=config.scanner.file_body_evidence_chunks,
         file_purpose_chunks=config.scanner.file_purpose_chunks,
+        symbol_chunk_chunks=config.scanner.symbol_chunk_chunks,
         documentation_summary_chunks=config.scanner.documentation_summary_chunks,
         documentation_manifest_chunks=config.scanner.documentation_manifest_chunks,
         documentation_chunk_chunks=config.scanner.documentation_chunk_chunks,

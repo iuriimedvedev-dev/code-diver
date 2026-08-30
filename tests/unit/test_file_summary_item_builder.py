@@ -196,6 +196,31 @@ def test_purpose_section_uses_action_role_suffix() -> None:
     assert "purpose: action FooAction" in item.content
 
 
+def test_purpose_section_ignores_kotlin_primary_constructor_parameters() -> None:
+    item = FileSummaryItemBuilder().build(
+        "FooManager.kt",
+        "class FooManager @Internal constructor(val project: Project, scope: CoroutineScope) : Disposable {\n",
+        symbols=[],
+    )
+    purpose = item.content.split("purpose: ", 1)[1].splitlines()[0]
+
+    assert purpose.startswith("manager FooManager for Disposable")
+    assert "CoroutineScope" not in purpose
+    assert ")" not in purpose
+
+
+def test_purpose_section_omits_supertypes_for_multiline_constructor_declaration() -> None:
+    item = FileSummaryItemBuilder().build(
+        "FooManager.kt",
+        "class FooManager(\n  val project: Project,\n) : Disposable {\n",
+        symbols=[],
+    )
+    purpose = item.content.split("purpose: ", 1)[1].splitlines()[0]
+
+    assert purpose.startswith("manager FooManager")
+    assert " for " not in purpose
+
+
 def test_purpose_section_uses_first_sentence_from_class_javadoc() -> None:
     text = (
         "/** Coordinates account synchronization.\n"
@@ -373,3 +398,49 @@ def test_terms_section_is_none_when_path_has_no_terms() -> None:
     item = FileSummaryItemBuilder().build("a", "pass", symbols=[])
 
     assert "terms: none" in item.content
+
+
+COMPACT_KT_TEXT = """
+// Copyright 2024 JetBrains
+package com.intellij.openapi.project.impl
+
+import com.intellij.openapi.Disposable
+
+open class ProjectManagerImpl : ProjectManagerEx(), Disposable {
+    override fun isLight(project: Project): Boolean = false
+}
+"""
+
+COMPACT_KT_PATH = "platform/platform-impl/src/com/intellij/openapi/project/impl/ProjectManagerImpl.kt"
+
+
+def test_compact_budget_puts_purpose_first_and_shortens_the_embedded_path() -> None:
+    item = FileSummaryItemBuilder(compact_budget=True).build(
+        COMPACT_KT_PATH, COMPACT_KT_TEXT, symbols=[]
+    )
+
+    assert item.content.startswith("purpose: ")
+    assert "file: project/impl/ProjectManagerImpl.kt" in item.content
+    assert f"file: {COMPACT_KT_PATH}" not in item.content
+    assert item.path == COMPACT_KT_PATH
+    assert item.title == f"{COMPACT_KT_PATH}::file_summary"
+
+
+def test_compact_budget_drops_keyword_and_path_noise_from_terms() -> None:
+    item = FileSummaryItemBuilder(compact_budget=True).build(
+        COMPACT_KT_PATH,
+        COMPACT_KT_TEXT,
+        symbols=[CodeSymbol("isLight", "function", 8, 8, "fun isLight(project: Project): Boolean")],
+    )
+    terms = item.content[item.content.index("terms: ") :].splitlines()[0].split()[1:]
+
+    for noise in ("open", "class", "fun", "override", "src", "com", "intellij", "kt", "impl"):
+        assert noise not in terms
+    assert terms[:2] == ["project", "manager"]
+    assert "disposable" in terms
+
+
+def test_compact_budget_is_off_by_default() -> None:
+    item = FileSummaryItemBuilder().build(COMPACT_KT_PATH, COMPACT_KT_TEXT, symbols=[])
+
+    assert item.content.startswith(f"file: {COMPACT_KT_PATH}")

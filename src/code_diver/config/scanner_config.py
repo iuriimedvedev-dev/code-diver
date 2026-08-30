@@ -18,10 +18,13 @@ class ScannerConfig:
     file_summary_chunks: bool = Defaults.FILE_SUMMARY_CHUNKS
     file_summary_head_line_max_chars: int = Defaults.FILE_SUMMARY_HEAD_LINE_MAX_CHARS
     file_summary_head_block_max_chars: int = Defaults.FILE_SUMMARY_HEAD_BLOCK_MAX_CHARS
+    file_summary_compact_budget: bool = Defaults.FILE_SUMMARY_COMPACT_BUDGET
     file_manifest_chunks: bool = Defaults.FILE_MANIFEST_CHUNKS
+    file_manifest_symbol_surface: bool = Defaults.FILE_MANIFEST_SYMBOL_SURFACE
     file_api_manifest_chunks: bool = Defaults.FILE_API_MANIFEST_CHUNKS
     file_body_evidence_chunks: bool = Defaults.FILE_BODY_EVIDENCE_CHUNKS
     file_purpose_chunks: bool = Defaults.FILE_PURPOSE_CHUNKS
+    symbol_chunk_chunks: bool = Defaults.SYMBOL_CHUNK_CHUNKS
     documentation_summary_chunks: bool = Defaults.DOCUMENTATION_SUMMARY_CHUNKS
     documentation_manifest_chunks: bool = Defaults.DOCUMENTATION_MANIFEST_CHUNKS
     documentation_chunk_chunks: bool = Defaults.DOCUMENTATION_CHUNK_CHUNKS

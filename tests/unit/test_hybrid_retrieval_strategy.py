@@ -694,6 +694,78 @@ def test_hybrid_strategy_family_penalty_leaves_small_families_untouched(tmp_path
     assert results[0].item.id == unique_match.id
 
 
+def test_hybrid_strategy_caps_candidates_per_path_when_configured(tmp_path: Path) -> None:
+    # H-64: chunk-level indexing puts many points on one path. Without a cap the top-k is all
+    # one file, and the file-level stage then dedups it down to a single useful result.
+    chunks = [
+        CodeItem(
+            id=f"big-chunk-{index}",
+            path="src/Big.kt",
+            title=f"src/Big.kt::handle{index}",
+            content=f"symbol: function Big.handle{index} authorization token",
+            metadata={"index_kind": "symbol_chunk"},
+        )
+        for index in range(5)
+    ]
+    other = CodeItem(
+        id="other",
+        path="src/Other.kt",
+        title="src/Other.kt",
+        content="symbol: class Other authorization token",
+        metadata={"index_kind": "symbol_chunk"},
+    )
+    graph_store = _graph_store(tmp_path, [*chunks, other], [])
+    config = HybridSearchConfig(
+        candidate_limit=10,
+        lexical_candidate_limit=10,
+        vector_weight=1.0,
+        lexical_weight=0.0,
+        path_weight=0.0,
+        symbol_weight=0.0,
+        graph_weight=0.0,
+        preserve_vector_top=False,
+        per_path_result_limit=2,
+    )
+    vector = FakeRetrievalStrategy(
+        [*(SearchResult(chunk, 0.9 - index * 0.01) for index, chunk in enumerate(chunks)), SearchResult(other, 0.5)]
+    )
+
+    results = HybridRetrievalStrategy(vector, graph_store, config).search("authorization token", limit=4)
+
+    assert [result.item.path for result in results].count("src/Big.kt") == 2
+    assert "src/Other.kt" in [result.item.path for result in results]
+
+
+def test_hybrid_strategy_keeps_every_candidate_when_per_path_cap_is_disabled(tmp_path: Path) -> None:
+    chunks = [
+        CodeItem(
+            id=f"big-chunk-{index}",
+            path="src/Big.kt",
+            title=f"src/Big.kt::handle{index}",
+            content=f"symbol: function Big.handle{index} authorization token",
+        )
+        for index in range(4)
+    ]
+    graph_store = _graph_store(tmp_path, chunks, [])
+    config = HybridSearchConfig(
+        candidate_limit=10,
+        lexical_candidate_limit=10,
+        vector_weight=1.0,
+        lexical_weight=0.0,
+        path_weight=0.0,
+        symbol_weight=0.0,
+        graph_weight=0.0,
+        preserve_vector_top=False,
+    )
+    vector = FakeRetrievalStrategy(
+        [SearchResult(chunk, 0.9 - index * 0.01) for index, chunk in enumerate(chunks)]
+    )
+
+    results = HybridRetrievalStrategy(vector, graph_store, config).search("authorization token", limit=4)
+
+    assert len(results) == 4
+
+
 def _spy_on_graph_scores(strategy: HybridRetrievalStrategy) -> Callable[[], int]:
     original = strategy._graph_scores
     calls = {"count": 0}
