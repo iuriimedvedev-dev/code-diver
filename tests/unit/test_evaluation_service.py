@@ -86,6 +86,46 @@ def test_evaluation_service_computes_ranked_metrics() -> None:
     assert results[0].file_reciprocal_rank == 0.5
 
 
+class WinningKindStrategy(RetrievalStrategy):
+    def search(self, query: str, limit: int) -> list[SearchResult]:
+        return [
+            SearchResult(
+                CodeItem(
+                    id="target.py#1",
+                    path="target.py",
+                    title="Target",
+                    content="",
+                    metadata={"index_kind": "file_summary", "winning_index_kind": "symbol_chunk"},
+                ),
+                0.9,
+            )
+        ][:limit]
+
+
+def test_evaluation_service_prefers_winning_kind_for_diagnostics() -> None:
+    metrics, results = EvaluationService(WinningKindStrategy()).evaluate(
+        [EvalCase(id="case", query="find target", expected=["target.py"])],
+        limit=1,
+    )
+
+    assert results[0].top_result_kind == "symbol_chunk"
+    assert results[0].first_relevant_kind == "symbol_chunk"
+    assert metrics["top_result_kind.symbol_chunk.rate"] == 1.0
+    assert metrics["first_relevant_kind.symbol_chunk.rate"] == 1.0
+
+
+def test_evaluation_service_uses_index_kind_for_legacy_results() -> None:
+    metrics, results = EvaluationService(StaticStrategy()).evaluate(
+        [EvalCase(id="case", query="find target", expected=["target.py"])],
+        limit=2,
+    )
+
+    assert results[0].top_result_kind == "chunk"
+    assert results[0].first_relevant_kind == "file_summary"
+    assert metrics["top_result_kind.chunk.rate"] == 1.0
+    assert metrics["first_relevant_kind.file_summary.rate"] == 1.0
+
+
 class DuplicateFileStrategy(RetrievalStrategy):
     def search(self, query: str, limit: int) -> list[SearchResult]:
         return [

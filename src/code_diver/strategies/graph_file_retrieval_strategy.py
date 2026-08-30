@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import os
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from threading import RLock
 
 from ..config import GraphFileSearchConfig
@@ -43,6 +43,7 @@ class FileScore:
     path_score: float = 0.0
     symbol_score: float = 0.0
     graph_score: float = 0.0
+    winning_index_kind: str = ""
 
     def total(self, config: GraphFileSearchConfig) -> float:
         return (
@@ -115,7 +116,9 @@ class GraphFileRetrievalStrategy(RetrievalStrategy):
                 if item is None:
                     continue
                 file_score = file_scores.setdefault(item.path, FileScore(path=item.path, item=item))
-                file_score.graph_score = max(file_score.graph_score, graph_score)
+                if graph_score > file_score.graph_score:
+                    file_score.graph_score = graph_score
+                    file_score.winning_index_kind = self._index_kind(item)
 
             ranked = sorted(
                 file_scores.values(),
@@ -123,7 +126,16 @@ class GraphFileRetrievalStrategy(RetrievalStrategy):
                 reverse=True,
             )
             results = [
-                SearchResult(item=score.item, score=score.total(config))
+                SearchResult(
+                    item=replace(
+                        score.item,
+                        metadata={
+                            **score.item.metadata,
+                            "winning_index_kind": score.winning_index_kind or self._index_kind(score.item),
+                        },
+                    ),
+                    score=score.total(config),
+                )
                 for score in ranked[:limit]
             ]
             if not results:
@@ -141,6 +153,7 @@ class GraphFileRetrievalStrategy(RetrievalStrategy):
         scores: dict[str, FileScore] = {}
         base_scores: dict[str, float] = {}
         base_items: dict[str, CodeItem] = {}
+        base_winning_index_kinds: dict[str, str] = {}
         for result in self.base_strategy.search(query, max(limit, self.config.seed_limit)):
             item = self._item_for_path(catalog, result.item.path)
             if item is not None:
@@ -149,7 +162,10 @@ class GraphFileRetrievalStrategy(RetrievalStrategy):
             else:
                 path = _normalize_path(result.item.path) or result.item.path
                 rep_item = result.item
-            base_scores[path] = max(base_scores.get(path, 0.0), result.score)
+            current_score = base_scores.get(path, 0.0)
+            base_scores[path] = max(current_score, result.score)
+            if result.score > current_score:
+                base_winning_index_kinds[path] = self._index_kind(result.item)
             if path not in base_items:
                 base_items[path] = rep_item
 
@@ -160,7 +176,9 @@ class GraphFileRetrievalStrategy(RetrievalStrategy):
                 rep_item = self._item_for_path(catalog, path)
             if rep_item is None:
                 continue
-            scores.setdefault(path, FileScore(path=path, item=rep_item)).vector_score = vector_score
+            file_score = scores.setdefault(path, FileScore(path=path, item=rep_item))
+            file_score.vector_score = vector_score
+            file_score.winning_index_kind = base_winning_index_kinds.get(path, "")
 
         query_model = HybridQuery(text=query, terms=self._query_terms(query))
         scorer = HybridCandidateScorer(
@@ -198,9 +216,15 @@ class GraphFileRetrievalStrategy(RetrievalStrategy):
         )
         for candidate in lexical_candidates[: self.config.lexical_seed_limit]:
             existing = scores.setdefault(candidate.path, FileScore(path=candidate.path, item=candidate.item))
-            existing.lexical_score = max(existing.lexical_score, candidate.lexical_score)
-            existing.path_score = max(existing.path_score, candidate.path_score)
-            existing.symbol_score = max(existing.symbol_score, candidate.symbol_score)
+            if candidate.lexical_score > existing.lexical_score:
+                existing.lexical_score = candidate.lexical_score
+                existing.winning_index_kind = self._index_kind(candidate.item)
+            if candidate.path_score > existing.path_score:
+                existing.path_score = candidate.path_score
+                existing.winning_index_kind = self._index_kind(candidate.item)
+            if candidate.symbol_score > existing.symbol_score:
+                existing.symbol_score = candidate.symbol_score
+                existing.winning_index_kind = self._index_kind(candidate.item)
         return scores
 
     def _propagate(
@@ -362,7 +386,7 @@ class GraphFileRetrievalStrategy(RetrievalStrategy):
         return self._items_by_norm_path
 
     def _representative_rank(self, item: CodeItem) -> int:
-        index_kind = str(item.metadata.get("index_kind") or "")
+        index_kind = self._index_kind(item)
         if index_kind == "file_summary":
             return 0
         if index_kind == "file_api_manifest":
@@ -376,6 +400,9 @@ class GraphFileRetrievalStrategy(RetrievalStrategy):
         if index_kind == "doc_manifest":
             return 5
         return 6
+
+    def _index_kind(self, item: CodeItem) -> str:
+        return str(item.metadata.get("index_kind") or "")
 
     def _load_catalog(self) -> FileGraphCatalog:
         if self._catalog is not None:

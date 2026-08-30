@@ -184,6 +184,64 @@ def test_graph_file_strategy_keeps_best_base_score_when_file_has_duplicate_items
     assert [result.item.path for result in results] == ["src/target.py", "src/other.py"]
 
 
+def test_graph_file_strategy_keeps_file_summary_representative_and_winning_kind(tmp_path: Path) -> None:
+    summary = CodeItem(
+        id="summary",
+        path="src/target.py",
+        title="src/target.py::file_summary",
+        content="file: src/target.py\nhead:\n- def target(): pass",
+        metadata={"index_kind": "file_summary"},
+    )
+    symbol_chunk = CodeItem(
+        id="symbol-chunk",
+        path="src/target.py",
+        title="src/target.py::symbol_chunk",
+        content="def target(): pass",
+        metadata={"index_kind": "symbol_chunk"},
+    )
+    store = _graph_store(tmp_path, [summary], [])
+    strategy = GraphFileRetrievalStrategy(
+        FakeRetrievalStrategy([SearchResult(symbol_chunk, 0.95)]),
+        store,
+        GraphFileSearchConfig(
+            seed_limit=5,
+            lexical_seed_limit=0,
+            vector_weight=1.0,
+            lexical_weight=0.0,
+            path_weight=0.0,
+            symbol_weight=0.0,
+            graph_weight=0.0,
+        ),
+    )
+
+    result = strategy.search("target", limit=1)[0]
+
+    assert result.item.id == "summary"
+    assert result.item.metadata["index_kind"] == "file_summary"
+    assert result.item.metadata["winning_index_kind"] == "symbol_chunk"
+
+
+def test_graph_file_strategy_reports_single_kind_collection_kind(tmp_path: Path) -> None:
+    summary = CodeItem(
+        id="summary",
+        path="src/target.py",
+        title="src/target.py::file_summary",
+        content="file: src/target.py\nhead:\n- def target(): pass",
+        metadata={"index_kind": "file_summary"},
+    )
+    store = _graph_store(tmp_path, [summary], [])
+    strategy = GraphFileRetrievalStrategy(
+        FakeRetrievalStrategy([SearchResult(summary, 0.95)]),
+        store,
+        GraphFileSearchConfig(seed_limit=5, lexical_seed_limit=0, vector_weight=1.0, graph_weight=0.0),
+    )
+
+    result = strategy.search("target", limit=1)[0]
+
+    assert result.item.metadata["index_kind"] == "file_summary"
+    assert result.item.metadata["winning_index_kind"] == "file_summary"
+
+
 def test_graph_file_strategy_can_promote_documentation_representatives(tmp_path: Path) -> None:
     code = CodeItem(
         id="code-summary",

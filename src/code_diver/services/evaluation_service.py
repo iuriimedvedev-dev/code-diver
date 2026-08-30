@@ -249,12 +249,15 @@ class EvaluationService:
     def _top_result_kind(self, search_results: list[Any]) -> str:
         if not search_results:
             return "none"
-        return self.index_kind_resolver.resolve(search_results[0].item)
+        result = search_results[0]
+        winning_index_kind = result.item.metadata.get("winning_index_kind")
+        return winning_index_kind if winning_index_kind is not None else self.index_kind_resolver.resolve(result.item)
 
     def _first_relevant_kind(self, search_results: list[Any], expected: list[str]) -> str:
         for result in search_results:
             if self._matches_any_expected(result.item, expected):
-                return self.index_kind_resolver.resolve(result.item)
+                winning_index_kind = result.item.metadata.get("winning_index_kind")
+                return winning_index_kind if winning_index_kind is not None else self.index_kind_resolver.resolve(result.item)
         return "none"
 
     def _bucket_metrics(self, results: list[EvalResult], limit: int) -> dict[str, Any]:
