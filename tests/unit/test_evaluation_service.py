@@ -126,6 +126,26 @@ def test_evaluation_service_uses_index_kind_for_legacy_results() -> None:
     assert metrics["first_relevant_kind.file_summary.rate"] == 1.0
 
 
+def test_evaluation_service_diagnostics_use_winning_kind_over_representative_kind() -> None:
+    _, results = EvaluationService(WinningKindStrategy()).evaluate(
+        [EvalCase(id="case", query="find target", expected=["target.py"])],
+        limit=1,
+    )
+
+    assert results[0].top_result_kind == "symbol_chunk"
+    assert results[0].first_relevant_kind == "symbol_chunk"
+
+
+def test_evaluation_service_diagnostics_fall_back_to_legacy_index_kind() -> None:
+    _, results = EvaluationService(StaticStrategy()).evaluate(
+        [EvalCase(id="case", query="find target", expected=["target.py"])],
+        limit=2,
+    )
+
+    assert results[0].top_result_kind == "chunk"
+    assert results[0].first_relevant_kind == "file_summary"
+
+
 class DuplicateFileStrategy(RetrievalStrategy):
     def search(self, query: str, limit: int) -> list[SearchResult]:
         return [
