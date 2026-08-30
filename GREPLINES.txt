@@ -1,0 +1,22 @@
+src/code_diver/strategies/graph_file_retrieval_strategy.py:46:    winning_index_kind: str = ""
+src/code_diver/strategies/graph_file_retrieval_strategy.py:132:                            "winning_index_kind": score.winning_index_kind or self._index_kind(score.item),
+src/code_diver/strategies/graph_file_retrieval_strategy.py:154:        base_winning_index_kinds: dict[str, str] = {}
+src/code_diver/strategies/graph_file_retrieval_strategy.py:166:                base_winning_index_kinds[path] = self._index_kind(result.item)
+src/code_diver/strategies/graph_file_retrieval_strategy.py:179:            file_score.winning_index_kind = base_winning_index_kinds.get(path, "")
+src/code_diver/strategies/graph_file_retrieval_strategy.py:232:            file_score.winning_index_kind = self._index_kind(item)
+145:    def _seed_scores(
+222:    def _update_max_score(
+392:    def _representative_rank(self, item: CodeItem) -> int:
+440:    def _normalize(self, scores: dict[str, float]) -> dict[str, float]:
+173:                top_result_kind="none",
+174:                first_relevant_kind="none",
+237:                top_result_kind=self._top_result_kind(search_results),
+238:                first_relevant_kind=self._first_relevant_kind(search_results, case.expected),
+249:    def _top_result_kind(self, search_results: list[Any]) -> str:
+256:    def _first_relevant_kind(self, search_results: list[Any], expected: list[str]) -> str:
+301:                hit_count = max(sum(1 for result in results if result.first_relevant_kind != "none"), 1)
+302:                top_counts = Counter(result.top_result_kind for result in results)
+303:                relevant_counts = Counter(result.first_relevant_kind for result in results)
+305:            metrics[f"top_result_kind.{kind}.rate"] = count / total
+308:                metrics["first_relevant_kind.none.rate"] = count / total
+310:            metrics[f"first_relevant_kind.{kind}.rate"] = count / hit_count
