@@ -31,6 +31,7 @@ class HybridLexicalIndex:
                 self.item_ids_by_term[term].add(item.id)
         total_length = sum(self.document_lengths_by_id.values())
         self.average_document_length = total_length / max(len(self.document_lengths_by_id), 1)
+        self._native_snapshot: tuple[dict[str, dict[str, int]], dict[str, int], dict[str, set[str]]] | None = None
 
     def candidates(self, terms: tuple[str, ...]) -> list[CodeItem]:
         item_ids: set[str] = set()
@@ -46,25 +47,41 @@ class HybridLexicalIndex:
         """Convert term_frequencies_by_id to plain dict for native bridge."""
         return {k: dict(v) for k, v in self.term_frequencies_by_id.items()}
 
+    def _native_inputs(self) -> tuple[dict[str, dict[str, int]], dict[str, int], dict[str, set[str]]]:
+        """Snapshot the corpus once per index; the index is immutable after __init__.
+
+        Rebuilding it per query costs seconds of GIL-bound work on a large corpus and
+        serialises otherwise parallel probes.
+        """
+        if self._native_snapshot is None:
+            self._native_snapshot = (
+                self._tf_as_dict(),
+                self._dl_as_dict(),
+                self._postings_as_dict(),
+            )
+        return self._native_snapshot
+
     def _dl_as_dict(self) -> dict[str, int]:
         """Convert document_lengths_by_id to plain dict for native bridge."""
         return dict(self.document_lengths_by_id)
 
     def bm25_scores(self, terms: tuple[str, ...], *, k1: float, b: float) -> dict[str, float]:
         # Try native BM25 (dual-path, off by default)
-        from ..native_search import try_bm25_scores
+        from ..native_search import native_module, try_bm25_scores
 
-        native = try_bm25_scores(
-            self._tf_as_dict(),
-            self._dl_as_dict(),
-            self._postings_as_dict(),
-            self.average_document_length,
-            list(terms),
-            k1=k1,
-            b=b,
-        )
-        if native is not None:
-            return native
+        if native_module() is not None:
+            frequencies, lengths, postings = self._native_inputs()
+            native = try_bm25_scores(
+                frequencies,
+                lengths,
+                postings,
+                self.average_document_length,
+                list(terms),
+                k1=k1,
+                b=b,
+            )
+            if native is not None:
+                return native
 
         # Python fallback
         item_ids = {item.id for item in self.candidates(terms)}

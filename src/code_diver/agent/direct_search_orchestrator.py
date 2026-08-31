@@ -6,6 +6,7 @@ from pathlib import Path
 from time import perf_counter
 from typing import Any
 
+from ..config import FanOutFusionConfig
 from ..generation import GenerationProvider, GenerationResult
 from .direct_agent_logger import DirectAgentLogger
 from .direct_search_prompt_builder import DirectSearchPromptBuilder
@@ -39,6 +40,8 @@ class DirectSearchOrchestrator:
         ephemeral_search_handler: Callable[[str, list[str], int, dict[str, Any]], dict[str, Any]] | None = None,
         exclude: list[str] | None = None,
         max_file_bytes: int = 1_000_000,
+        fan_out_fusion: FanOutFusionConfig | None = None,
+        fan_out_union_handler: Callable[[list[str], int, int], list[str]] | None = None,
     ):
         self.root = root
         self.generation_provider = generation_provider
@@ -49,6 +52,8 @@ class DirectSearchOrchestrator:
         self.ephemeral_search_handler = ephemeral_search_handler
         self.exclude = exclude or []
         self.max_file_bytes = max_file_bytes
+        self.fan_out_fusion = fan_out_fusion
+        self.fan_out_union_handler = fan_out_union_handler
         self.logger = DirectAgentLogger(log_path, include_prompts=include_prompts)
         self.prompt_builder = DirectSearchPromptBuilder()
         self.response_parser = JsonResponseParser()
@@ -80,6 +85,14 @@ class DirectSearchOrchestrator:
         )
         fallback_paths: list[str] = []
         baseline_paths: list[str] = []
+        if self.fan_out_fusion is not None and self.fan_out_fusion.enabled:
+            return self._fan_out_search(
+                executor=executor,
+                result=result,
+                case_id=case_id,
+                query=query,
+                limit=limit,
+            )
         try:
             read_calls_used = 0
             tool_names_used: set[str] = set()
@@ -418,6 +431,195 @@ class DirectSearchOrchestrator:
                 )
             self.logger.write("search_case_failed", {"case_id": case_id, "error": result.error})
             return result
+
+    def _fan_out_search(
+        self,
+        *,
+        executor: DirectToolExecutor,
+        result: DirectSearchResult,
+        case_id: str,
+        query: str,
+        limit: int,
+    ) -> DirectSearchResult:
+        settings = self.fan_out_fusion
+        try:
+            queries = self._fan_out_queries(query, settings, result, case_id)
+            if settings.union_rerank and self.fan_out_union_handler is not None:
+                return self._fan_out_union_search(
+                    result=result,
+                    case_id=case_id,
+                    queries=queries,
+                    limit=limit,
+                    settings=settings,
+                )
+            calls = [
+                ToolCall("code_diver_search", {"query": item, "limit": max(limit, settings.search_limit)})
+                for item in queries
+            ]
+            tool_results, _ = self._execute_tools(executor, calls, result, case_id, 0)
+            baseline_paths = (
+                self._paths_from_tool_result(tool_results[0])
+                if tool_results and tool_results[0].ok
+                else []
+            )
+            ranked_lists = [self._paths_from_tool_result(item) for item in tool_results if item.ok]
+            fused = self._reciprocal_rank_fusion(ranked_lists, settings.rrf_k)
+            fusion_mode = "rrf"
+            head = baseline_paths[: settings.baseline_head] if settings.baseline_head > 0 else baseline_paths
+            if settings.monotonic:
+                extras = [path for path in fused if path not in set(head)]
+                fusion_mode = "monotonic_rrf"
+            if settings.rerank and self.rerank_handler is not None and fused:
+                pool = extras if settings.monotonic else fused
+                if pool:
+                    candidates = self._fan_out_rerank_candidates(tool_results, pool, settings.rerank_pool)
+                    rerank_results, _ = self._execute_tools(
+                        executor,
+                        [ToolCall("code_diver_rerank", {"query": query, "limit": limit, "candidates": candidates})],
+                        result,
+                        case_id,
+                        0,
+                    )
+                    reranked = self._fallback_paths(rerank_results)
+                    if reranked:
+                        if settings.monotonic:
+                            extras = self._merge_paths(
+                                [path for path in reranked if path not in set(head)],
+                                extras,
+                                max(limit, len(extras)),
+                            )
+                            fusion_mode = "monotonic_rrf_llm_rerank"
+                        else:
+                            fused = self._merge_paths(reranked, fused, max(limit, len(fused)))
+                            fusion_mode = "rrf_llm_rerank"
+            if settings.monotonic:
+                fused = self._merge_paths(head, extras, max(limit, len(head) + len(extras)))
+            result.retrieved = fused[:limit]
+            if not result.retrieved:
+                result.error = "fan_out_fusion_returned_no_paths"
+            self.logger.write(
+                "fan_out_fusion_completed",
+                {
+                    "case_id": case_id,
+                    "queries": queries,
+                    "fusion": fusion_mode,
+                    "baseline": baseline_paths[:limit],
+                    "baseline_head": settings.baseline_head,
+                    "retrieved": result.retrieved,
+                    "usage": result.usage_json(),
+                },
+            )
+            return result
+        except Exception as exc:
+            result.error = str(exc)
+            self.logger.write("search_case_failed", {"case_id": case_id, "error": result.error})
+            return result
+
+    def _fan_out_union_search(
+        self,
+        *,
+        result: DirectSearchResult,
+        case_id: str,
+        queries: list[str],
+        limit: int,
+        settings: FanOutFusionConfig,
+    ) -> DirectSearchResult:
+        """H-76: probes without the cross-encoder, then one cross-encoder pass over their union."""
+        per_query_limit = settings.probe_search_limit or max(limit, settings.search_limit)
+        wanted = max(limit, 20)
+        started = perf_counter()
+        paths = self.fan_out_union_handler(queries, wanted, per_query_limit)
+        duration_ms = (perf_counter() - started) * 1000
+        result.retrieved = paths[:limit]
+        if not result.retrieved:
+            result.error = "fan_out_union_returned_no_paths"
+        self.logger.write(
+            "fan_out_union_completed",
+            {
+                "case_id": case_id,
+                "queries": queries,
+                "fusion": "union_cross_encoder",
+                "per_query_limit": per_query_limit,
+                "duration_ms": duration_ms,
+                "retrieved": result.retrieved,
+                "retrieved_wide": paths[:wanted],
+                "usage": result.usage_json(),
+            },
+        )
+        return result
+
+    def _fan_out_queries(
+        self,
+        query: str,
+        settings: FanOutFusionConfig,
+        result: DirectSearchResult,
+        case_id: str,
+    ) -> list[str]:
+        wanted = max(1, settings.queries)
+        if wanted == 1:
+            return [query]
+        prompt = self._fan_out_prompt(query, wanted)
+        response = self._generate(prompt, result)
+        self._log_model_turn(case_id, 1, prompt, response)
+        queries = [query]
+        try:
+            parsed = self.response_parser.parse(response.text)
+            values = parsed.get("queries") if isinstance(parsed, dict) else None
+            for value in values or []:
+                candidate = str(value).strip()
+                if candidate and candidate not in queries:
+                    queries.append(candidate)
+        except Exception as exc:
+            self.logger.write(
+                "fan_out_rewrite_failed",
+                {"case_id": case_id, "error": str(exc)},
+            )
+        return queries[:wanted]
+
+    def _fan_out_prompt(self, query: str, wanted: int) -> str:
+        return (
+            "You rewrite a natural-language code search question into complementary search queries "
+            "for a semantic code search engine over a large Java/Kotlin codebase.\n"
+            f'User question: "{query}"\n'
+            f"Return exactly {wanted - 1} alternative queries that cover different phrasings, likely class "
+            "or API names, and the subsystem vocabulary a developer would use. Do not repeat the original "
+            "wording. Each query is a short phrase, not a sentence.\n"
+            'Respond with one JSON object only: {"queries": ["...", "..."]}'
+        )
+
+    def _reciprocal_rank_fusion(self, ranked_lists: list[list[str]], rrf_k: int) -> list[str]:
+        scores: dict[str, float] = {}
+        order: list[str] = []
+        for paths in ranked_lists:
+            for rank, path in enumerate(paths, start=1):
+                if path not in scores:
+                    scores[path] = 0.0
+                    order.append(path)
+                scores[path] += 1.0 / (rrf_k + rank)
+        return sorted(order, key=lambda path: (-scores[path], order.index(path)))
+
+    def _fan_out_rerank_candidates(
+        self,
+        tool_results: list[ToolResult],
+        fused: list[str],
+        pool: int,
+    ) -> list[dict[str, Any]]:
+        rows: dict[str, dict[str, Any]] = {}
+        for result in tool_results:
+            try:
+                payload = json.loads(result.content)
+            except json.JSONDecodeError:
+                continue
+            candidates = (payload.get("result") or {}).get("candidates") or []
+            if not isinstance(candidates, list):
+                continue
+            for candidate in candidates:
+                if not isinstance(candidate, dict):
+                    continue
+                path = str(candidate.get("path") or "").strip()
+                if path and path not in rows:
+                    rows[path] = candidate
+        return [rows[path] for path in fused[:pool] if path in rows]
 
     def _should_force_rerank(self, hypothesis_name: str, tool_names_used: set[str]) -> bool:
         if "rerank" not in hypothesis_name and not self._adaptive_hypothesis(hypothesis_name):

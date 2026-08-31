@@ -16,6 +16,7 @@ from .env_file_config import EnvFileConfig
 from .evaluation_config import EvaluationConfig
 from .experiment_hypothesis_config import ExperimentHypothesisConfig
 from .experiments_config import ExperimentsConfig
+from .fan_out_fusion_config import FanOutFusionConfig
 from .generation_config import GenerationConfig
 from .graph_config import GraphConfig
 from .graph_file_search_config import GraphFileSearchConfig
@@ -288,6 +289,16 @@ class ConfigLoader:
             file_summary_compact_budget=bool(
                 mapping.get("file_summary_compact_budget", Defaults.FILE_SUMMARY_COMPACT_BUDGET)
             ),
+            file_summary_compact_path=(
+                None
+                if mapping.get("file_summary_compact_path", Defaults.FILE_SUMMARY_COMPACT_PATH) is None
+                else bool(mapping.get("file_summary_compact_path"))
+            ),
+            file_summary_term_stopwords=(
+                None
+                if mapping.get("file_summary_term_stopwords", Defaults.FILE_SUMMARY_TERM_STOPWORDS) is None
+                else bool(mapping.get("file_summary_term_stopwords"))
+            ),
             file_manifest_chunks=bool(mapping.get("file_manifest_chunks", Defaults.FILE_MANIFEST_CHUNKS)),
             file_manifest_symbol_surface=bool(
                 mapping.get("file_manifest_symbol_surface", Defaults.FILE_MANIFEST_SYMBOL_SURFACE)
@@ -521,6 +532,28 @@ class ConfigLoader:
                 mapping.get(
                     "prose_symbol_weight",
                     base.prose_symbol_weight if base is not None else Defaults.HYBRID_PROSE_SYMBOL_WEIGHT,
+                )
+            ),
+            secondary_collection=self._optional_string(
+                mapping.get(
+                    "secondary_collection",
+                    base.secondary_collection if base is not None else Defaults.HYBRID_SECONDARY_COLLECTION,
+                )
+            ),
+            secondary_collection_fusion=str(
+                mapping.get(
+                    "secondary_collection_fusion",
+                    base.secondary_collection_fusion
+                    if base is not None
+                    else Defaults.HYBRID_SECONDARY_COLLECTION_FUSION,
+                )
+            ),
+            secondary_collection_rrf_k=int(
+                mapping.get(
+                    "secondary_collection_rrf_k",
+                    base.secondary_collection_rrf_k
+                    if base is not None
+                    else Defaults.HYBRID_SECONDARY_COLLECTION_RRF_K,
                 )
             ),
         )
@@ -929,10 +962,30 @@ class ConfigLoader:
                     )
                     if mapping.get("cross_encoder_rerank") is not None
                     else None,
+                    fan_out_fusion=self._fan_out_fusion(mapping.get("fan_out_fusion"))
+                    if mapping.get("fan_out_fusion") is not None
+                    else None,
                     description=self._optional_string(mapping.get("description")),
                 )
             )
         return hypotheses
+
+    def _fan_out_fusion(self, data: Any) -> FanOutFusionConfig:
+        mapping = self._mapping(data)
+        base = FanOutFusionConfig()
+        return FanOutFusionConfig(
+            enabled=bool(mapping.get("enabled", base.enabled)),
+            queries=int(mapping.get("queries", base.queries)),
+            search_limit=int(mapping.get("search_limit", base.search_limit)),
+            rrf_k=int(mapping.get("rrf_k", base.rrf_k)),
+            rerank=bool(mapping.get("rerank", base.rerank)),
+            rerank_pool=int(mapping.get("rerank_pool", base.rerank_pool)),
+            monotonic=bool(mapping.get("monotonic", base.monotonic)),
+            baseline_head=int(mapping.get("baseline_head", base.baseline_head)),
+            union_rerank=bool(mapping.get("union_rerank", base.union_rerank)),
+            union_candidate_limit=int(mapping.get("union_candidate_limit", base.union_candidate_limit)),
+            probe_search_limit=int(mapping.get("probe_search_limit", base.probe_search_limit)),
+        )
 
     def _metrics(self, data: Any) -> MetricsConfig:
         mapping = self._mapping(data)

@@ -23,6 +23,8 @@ class EmbeddingTextPreparer:
 
 
 _MODEL_MAX_TOKENS = 512
+# Leave headroom for special tokens and Qwen vs tiktoken mismatch.
+_TOKEN_SAFETY_MARGIN = 32
 
 
 def truncate_embedding_text(text: str, max_input_chars: int, tokenizer: Any | None = None) -> str:
@@ -33,13 +35,10 @@ def truncate_embedding_text(text: str, max_input_chars: int, tokenizer: Any | No
     limit (`_MODEL_MAX_TOKENS`, default 512) is used for token-level
     truncation so the embedding server never rejects the input.
 
-    When tokenizer is available, the text is truncated to `_MODEL_MAX_TOKENS`
-    tokens, then further limited to `max_input_chars` chars if needed.
+    When tokenizer is available, the text is truncated to the safe token budget,
+    then further limited to `max_input_chars` chars if needed.
     """
-    if len(text) <= max_input_chars:
-        max_tokens = _MODEL_MAX_TOKENS
-    else:
-        max_tokens = min(_MODEL_MAX_TOKENS, max_input_chars)
+    max_tokens = max(1, _MODEL_MAX_TOKENS - _TOKEN_SAFETY_MARGIN)
     try:
         if tokenizer is not None:
             token_ids = tokenizer.encode(text, add_special_tokens=False)
@@ -71,7 +70,7 @@ def truncate_embedding_text(text: str, max_input_chars: int, tokenizer: Any | No
             return result[:max_input_chars]
         return result
     except Exception:
-        return text[:max_input_chars]
+        return text[: min(max_input_chars, max_tokens * 3)]
 
 
 def shrink_embedding_text(text: str, tokenizer: Any | None = None) -> str:

@@ -78,6 +78,7 @@ class OrchestratedCodebaseScanner:
             file_summary_head_line_max_chars=self.config.scanner.file_summary_head_line_max_chars,
             file_summary_head_block_max_chars=self.config.scanner.file_summary_head_block_max_chars,
             file_summary_compact_budget=self.config.scanner.file_summary_compact_budget,
+            file_summary_compact_path=self.config.scanner.file_summary_compact_path,
             file_manifest_chunks=self.config.scanner.file_manifest_chunks,
             file_manifest_symbol_surface=self.config.scanner.file_manifest_symbol_surface,
             file_api_manifest_chunks=self.config.scanner.file_api_manifest_chunks,

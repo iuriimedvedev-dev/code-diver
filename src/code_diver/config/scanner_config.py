@@ -19,6 +19,8 @@ class ScannerConfig:
     file_summary_head_line_max_chars: int = Defaults.FILE_SUMMARY_HEAD_LINE_MAX_CHARS
     file_summary_head_block_max_chars: int = Defaults.FILE_SUMMARY_HEAD_BLOCK_MAX_CHARS
     file_summary_compact_budget: bool = Defaults.FILE_SUMMARY_COMPACT_BUDGET
+    file_summary_compact_path: bool | None = Defaults.FILE_SUMMARY_COMPACT_PATH
+    file_summary_term_stopwords: bool | None = Defaults.FILE_SUMMARY_TERM_STOPWORDS
     file_manifest_chunks: bool = Defaults.FILE_MANIFEST_CHUNKS
     file_manifest_symbol_surface: bool = Defaults.FILE_MANIFEST_SYMBOL_SURFACE
     file_api_manifest_chunks: bool = Defaults.FILE_API_MANIFEST_CHUNKS

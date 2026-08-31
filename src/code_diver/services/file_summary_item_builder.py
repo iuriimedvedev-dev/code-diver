@@ -93,6 +93,8 @@ class FileSummaryItemBuilder:
         max_head_block_chars: int = 4000,
         max_head_import_lines: int = 5,
         compact_budget: bool = False,
+        compact_path: bool | None = None,
+        term_stopwords: bool | None = None,
     ):
         self.max_imports = max_imports
         self.max_symbols = max_symbols
@@ -101,6 +103,9 @@ class FileSummaryItemBuilder:
         self.max_head_block_chars = max_head_block_chars
         self.max_head_import_lines = max_head_import_lines
         self.compact_budget = compact_budget
+        self.compact_path = compact_path
+        # None → follow compact_budget (H-66b). False → keep path/keyword tokens (H-69).
+        self.term_stopwords = term_stopwords
 
     def build(self, rel_path: str, text: str, symbols: list[CodeSymbol]) -> CodeItem:
         digest = hashlib.sha1(f"{rel_path}:file-summary".encode()).hexdigest()[:12]
@@ -116,7 +121,7 @@ class FileSummaryItemBuilder:
             ]
             if self.compact_budget
             else [
-                f"file: {rel_path}",
+                f"file: {self._file_line_value(rel_path)}",
                 f"extension: {Path(rel_path).suffix.lower()}",
                 self._purpose_section(rel_path, text),
                 self._terms_section(rel_path, text, symbols),
@@ -140,11 +145,13 @@ class FileSummaryItemBuilder:
     def _file_line_value(self, rel_path: str) -> str:
         """Return the path fragment embedded in the summary text.
 
-        Compact budget mode keeps only the basename plus the last two directory
+        Compact path mode keeps only the basename plus the last two directory
         segments -- the full path stays in the item `path`/metadata, so path
-        scoring, dedup and retrieval are unaffected.
+        scoring, dedup and retrieval are unaffected. When `compact_path` is left
+        unset it follows `compact_budget`, preserving existing behaviour.
         """
-        if not self.compact_budget:
+        compact = self.compact_budget if self.compact_path is None else self.compact_path
+        if not compact:
             return rel_path
         parts = Path(rel_path).parts
         return "/".join(parts[-(COMPACT_FILE_PATH_SEGMENTS + 1) :])
@@ -189,7 +196,7 @@ class FileSummaryItemBuilder:
                 normalized = token.lower()
                 if len(normalized) < 2 or normalized in seen:
                     continue
-                if self.compact_budget and self._is_noise_term(normalized, extension):
+                if self._term_stopwords_enabled() and self._is_noise_term(normalized, extension):
                     continue
                 if len(f"terms: {' '.join(terms + [normalized])}") > MAX_TERMS_LINE_CHARS:
                     return f"terms: {' '.join(terms) if terms else 'none'}"
@@ -227,7 +234,18 @@ class FileSummaryItemBuilder:
             values.extend([symbol.name, symbol.signature])
         if package:
             values.append(package.split(".")[-1])
+        # H-69: when stopwords are off, also inject full path parts so src/com/intellij/impl
+        # re-enter the terms vocabulary (compact mode previously omitted them entirely).
+        if not self._term_stopwords_enabled():
+            values.extend(Path(rel_path).parts)
+            if package:
+                values.append(package)
         return values
+
+    def _term_stopwords_enabled(self) -> bool:
+        if self.term_stopwords is None:
+            return self.compact_budget
+        return self.term_stopwords
 
     @staticmethod
     def _is_noise_term(normalized: str, extension: str) -> bool:

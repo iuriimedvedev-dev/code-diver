@@ -49,3 +49,7 @@ class HybridSearchConfig:
     prose_fusion_router_enabled: bool = Defaults.HYBRID_PROSE_FUSION_ROUTER_ENABLED
     prose_path_weight: float = Defaults.HYBRID_PROSE_PATH_WEIGHT
     prose_symbol_weight: float = Defaults.HYBRID_PROSE_SYMBOL_WEIGHT
+    # H-73: dual-collection vector fusion. Empty/None keeps single-collection behaviour.
+    secondary_collection: str | None = Defaults.HYBRID_SECONDARY_COLLECTION
+    secondary_collection_fusion: str = Defaults.HYBRID_SECONDARY_COLLECTION_FUSION
+    secondary_collection_rrf_k: int = Defaults.HYBRID_SECONDARY_COLLECTION_RRF_K

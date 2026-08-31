@@ -9,8 +9,10 @@ from ..providers import EmbeddingProvider
 from ..reranking import RerankProviderFactory
 from ..settings import RetrievalStrategyId
 from ..store import VectorStore
+from ..store.qdrant_vector_store import QdrantVectorStore
 from ..tracing import TraceLogger
 from .cross_encoder_rerank_retrieval_strategy import CrossEncoderRerankRetrievalStrategy
+from .dual_collection_vector_retrieval_strategy import DualCollectionVectorRetrievalStrategy
 from .graph_file_retrieval_strategy import GraphFileRetrievalStrategy
 from .graph_retrieval_strategy import GraphRetrievalStrategy
 from .hybrid_retrieval_strategy import HybridRetrievalStrategy
@@ -113,6 +115,25 @@ class RetrievalStrategyFactory:
         provider: EmbeddingProvider,
         vector_store: VectorStore,
     ) -> RetrievalStrategy:
+        primary = self._single_vector_strategy(config, provider, vector_store)
+        secondary_collection = (config.hybrid_search.secondary_collection or "").strip()
+        if not secondary_collection:
+            return primary
+        secondary_store = self._secondary_vector_store(config, secondary_collection)
+        secondary = self._single_vector_strategy(config, provider, secondary_store)
+        return DualCollectionVectorRetrievalStrategy(
+            primary,
+            secondary,
+            fusion=config.hybrid_search.secondary_collection_fusion,
+            rrf_k=config.hybrid_search.secondary_collection_rrf_k,
+        )
+
+    def _single_vector_strategy(
+        self,
+        config: AppConfig,
+        provider: EmbeddingProvider,
+        vector_store: VectorStore,
+    ) -> RetrievalStrategy:
         if config.hybrid_search.vector_kind_limits or config.hybrid_search.vector_kind_multipliers:
             return MultiIndexVectorRetrievalStrategy(
                 provider,
@@ -122,6 +143,17 @@ class RetrievalStrategyFactory:
                 config.hybrid_search.vector_kind_path_dedup,
             )
         return VectorRetrievalStrategy(provider, vector_store)
+
+    def _secondary_vector_store(self, config: AppConfig, collection: str) -> VectorStore:
+        qdrant = config.storage.qdrant
+        return QdrantVectorStore(
+            url=qdrant.url,
+            location=qdrant.location,
+            collection=collection,
+            api_key=qdrant.api_key,
+            api_key_env=qdrant.api_key_env,
+            batch_size=qdrant.batch_size,
+        )
 
     def _graph_file_strategy(
         self,

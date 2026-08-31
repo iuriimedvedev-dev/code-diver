@@ -100,6 +100,8 @@ class CodebaseScanner:
         file_summary_head_line_max_chars: int = 200,
         file_summary_head_block_max_chars: int = 4000,
         file_summary_compact_budget: bool = False,
+        file_summary_compact_path: bool | None = None,
+        file_summary_term_stopwords: bool | None = None,
         file_manifest_chunks: bool = False,
         file_manifest_symbol_surface: bool = False,
         file_api_manifest_chunks: bool = False,
@@ -135,6 +137,8 @@ class CodebaseScanner:
         self.file_summary_head_line_max_chars = file_summary_head_line_max_chars
         self.file_summary_head_block_max_chars = file_summary_head_block_max_chars
         self.file_summary_compact_budget = file_summary_compact_budget
+        self.file_summary_compact_path = file_summary_compact_path
+        self.file_summary_term_stopwords = file_summary_term_stopwords
         self.file_manifest_chunks = file_manifest_chunks
         self.file_manifest_symbol_surface = file_manifest_symbol_surface
         self.file_api_manifest_chunks = file_api_manifest_chunks
@@ -150,6 +154,8 @@ class CodebaseScanner:
             max_head_line_chars=file_summary_head_line_max_chars,
             max_head_block_chars=file_summary_head_block_max_chars,
             compact_budget=file_summary_compact_budget,
+            compact_path=file_summary_compact_path,
+            term_stopwords=file_summary_term_stopwords,
         )
         self.file_manifest_builder = file_manifest_builder or FileManifestItemBuilder(
             symbol_surface=file_manifest_symbol_surface,

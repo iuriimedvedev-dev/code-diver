@@ -133,7 +133,9 @@ from .settings import (
     VectorStoreProviderId,
 )
 from .store import create_vector_store
+from .reranking import RerankProviderFactory
 from .strategies import RetrievalStrategyFactory
+from .strategies.fan_out_union_rerank_search import FanOutUnionRerankSearch
 from .strategies.retrieval_strategy_builder import make_retrieval_strategy
 from .tracing import TraceLogger
 from .ui import (
@@ -2586,6 +2588,7 @@ def cmd_evaluate_search_tools(args: argparse.Namespace, config: AppConfig) -> in
         try:
             search_handler = None
             h3_search_handler = None
+            fan_out_union_handler = None
             generation_provider = create_generation_provider(eval_config)
             rerank_generation_provider = generation_provider
             if getattr(hypothesis, "rerank_generation", None) is not None:
@@ -2613,6 +2616,13 @@ def cmd_evaluate_search_tools(args: argparse.Namespace, config: AppConfig) -> in
                             eval_config, search_provider, search_vector_store
                         )
                     )
+                if fan_out_union_rerank_enabled(hypothesis):
+                    fan_out_union_handler = make_fan_out_union_handler(
+                        eval_config,
+                        search_provider,
+                        search_vector_store,
+                        hypothesis.fan_out_fusion,
+                    )
                 if "code_diver_h3_search" in tools:
                     h3_handler = H3SearchToolHandler(
                         eval_config,
@@ -2633,6 +2643,8 @@ def cmd_evaluate_search_tools(args: argparse.Namespace, config: AppConfig) -> in
                 ephemeral_search_handler=ephemeral_search_handler,
                 exclude=inspection_exclude_patterns(eval_config),
                 max_file_bytes=eval_config.scanner.max_file_bytes,
+                fan_out_fusion=getattr(hypothesis, "fan_out_fusion", None),
+                fan_out_union_handler=fan_out_union_handler,
             )
 
             def run_case(
@@ -3857,6 +3869,8 @@ def make_codebase_scanner(config: AppConfig):
         file_summary_head_line_max_chars=config.scanner.file_summary_head_line_max_chars,
         file_summary_head_block_max_chars=config.scanner.file_summary_head_block_max_chars,
         file_summary_compact_budget=config.scanner.file_summary_compact_budget,
+        file_summary_compact_path=config.scanner.file_summary_compact_path,
+        file_summary_term_stopwords=config.scanner.file_summary_term_stopwords,
         file_manifest_chunks=config.scanner.file_manifest_chunks,
         file_manifest_symbol_surface=config.scanner.file_manifest_symbol_surface,
         file_api_manifest_chunks=config.scanner.file_api_manifest_chunks,
@@ -4022,6 +4036,34 @@ def make_graph_indexer(config: AppConfig):
 
 def suffixed_artifact_path(path: Path, hypothesis_name: str, run_id: str) -> Path:
     return path.with_name(f"{path.stem}_{hypothesis_name}_{run_id}{path.suffix}")
+
+
+def fan_out_union_rerank_enabled(hypothesis: Any) -> bool:
+    settings = getattr(hypothesis, "fan_out_fusion", None)
+    return bool(settings is not None and settings.enabled and settings.union_rerank)
+
+
+def make_fan_out_union_handler(
+    config: AppConfig,
+    provider: Any,
+    vector_store: Any,
+    settings: Any,
+):
+    """H-76: probes on the cross-encoder-less champion base, one cross-encoder pass over the union."""
+    search = FanOutUnionRerankSearch(
+        RetrievalStrategyFactory().create(
+            RetrievalStrategyId.GRAPH_FILE.value, config, provider, vector_store
+        ),
+        RerankProviderFactory().create(config.cross_encoder_rerank),
+        config.cross_encoder_rerank,
+        repository_root=config.root,
+        union_candidate_limit=settings.union_candidate_limit,
+    )
+
+    def handle(queries: list[str], limit: int, per_query_limit: int) -> list[str]:
+        return search.paths(queries, limit, per_query_limit)
+
+    return handle
 
 
 def make_search_tool_handler(strategy: Any):

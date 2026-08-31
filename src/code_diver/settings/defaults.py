@@ -120,6 +120,10 @@ class Defaults:
     FILE_SUMMARY_HEAD_LINE_MAX_CHARS = 200
     FILE_SUMMARY_HEAD_BLOCK_MAX_CHARS = 4000
     FILE_SUMMARY_COMPACT_BUDGET = False
+    FILE_SUMMARY_COMPACT_PATH: bool | None = None
+    # H-69: None keeps H-66b behaviour (stopwords on iff compact_budget). False disables the
+    # term stopword filter so path vocabulary (src/com/intellij/impl) survives in terms:.
+    FILE_SUMMARY_TERM_STOPWORDS: bool | None = None
     FILE_MANIFEST_CHUNKS = True
     FILE_MANIFEST_SYMBOL_SURFACE = False
     FILE_API_MANIFEST_CHUNKS = False
@@ -169,6 +173,12 @@ class Defaults:
     HYBRID_PROSE_FUSION_ROUTER_ENABLED = False
     HYBRID_PROSE_PATH_WEIGHT = 0.08
     HYBRID_PROSE_SYMBOL_WEIGHT = 0.05
+    # H-73 dual-collection rank fusion. Off by default — every existing config stays bit-identical.
+    HYBRID_SECONDARY_COLLECTION = None
+    # Default fusion mode for the OFF path is irrelevant; H-73 config sets this explicitly.
+    # "rrf" remains available; "union" preserves primary order and only adds new paths.
+    HYBRID_SECONDARY_COLLECTION_FUSION = "rrf"
+    HYBRID_SECONDARY_COLLECTION_RRF_K = 60
     HYBRID_PRESERVE_VECTOR_TOP = True
     HYBRID_VECTOR_TOP_SCORE_MARGIN = 0.03
     HYBRID_ITEM_KIND_WEIGHTS: ClassVar[dict[str, float]] = {"file_summary": 1.0, "file_manifest": 1.08}

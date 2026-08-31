@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import json
+import os
 from typing import Any, ClassVar
 
-from ..settings import Defaults
+from ..settings import Defaults, EnvironmentVariable
 from .generation_result import GenerationResult
 from .openai_generation_provider import OpenAIGenerationProvider
 from .served_model_identity import ServedModelIdentity
@@ -39,9 +40,19 @@ class OpenAICompatibleGenerationProvider(OpenAIGenerationProvider):
         retry_base_delay_seconds: float = Defaults.GENERATION_RETRY_BASE_DELAY_SECONDS,
         retry_max_delay_seconds: float = Defaults.GENERATION_RETRY_MAX_DELAY_SECONDS,
     ):
+        # Literal keys still win (local servers use api_key: local). When omitted, resolve
+        # from the process env after EnvFileLoader has loaded `.env` — LITE_LLM_KEY for the
+        # labs gateway, then OPENAI_API_KEY, then the local placeholder.
+        resolved_api_key = api_key
+        if resolved_api_key is None or str(resolved_api_key).strip() == "":
+            resolved_api_key = (
+                os.environ.get("LITE_LLM_KEY")
+                or os.environ.get(EnvironmentVariable.OPENAI_API_KEY.value)
+                or "local"
+            )
         super().__init__(
             model=model,
-            api_key=api_key or "local",
+            api_key=resolved_api_key,
             url=url or f"{Defaults.LOCAL_OPENAI_BASE_URL}/chat/completions",
             timeout_seconds=timeout_seconds,
             retry_attempts=retry_attempts,

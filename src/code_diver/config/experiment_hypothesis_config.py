@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from .cross_encoder_rerank_config import CrossEncoderRerankConfig
+from .fan_out_fusion_config import FanOutFusionConfig
 from .generation_config import GenerationConfig
 from .graph_file_search_config import GraphFileSearchConfig
 from .hybrid_search_config import HybridSearchConfig
@@ -21,4 +22,5 @@ class ExperimentHypothesisConfig:
     hybrid_search: HybridSearchConfig | None = None
     llm_rerank: LlmRerankConfig | None = None
     cross_encoder_rerank: CrossEncoderRerankConfig | None = None
+    fan_out_fusion: FanOutFusionConfig | None = None
     description: str | None = None

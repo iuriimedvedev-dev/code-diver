@@ -80,35 +80,69 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
     def _prefixed(self, prefix: str | None, text: str) -> str:
         return f"{prefix}{text}" if prefix else text
 
+    # Model context is 512 tokens; keep margin for special tokens + tokenizer mismatch
+    # between local Qwen count and the server (rejects observed at 513 with margin=2).
     _MODEL_MAX_TOKENS = 512
+    _TOKEN_SAFETY_MARGIN = 32
 
     def _bounded_prefixed(self, prefix: str | None, text: str, limit: int | None = None) -> str:
+        """Cap by chars then by tokens. Never trust char/token ratio heuristics.
+
+        H-70: with max_input_chars raised toward the real window (~2000), the old
+        early-exit `len <= max_tokens * 5` skipped token truncation and let 513+
+        token payloads reach the server. Always enforce the token budget.
+        """
         prefixed = self._prefixed(prefix, text)
         max_input_chars = self.max_input_chars if limit is None else limit
         if max_input_chars is None or max_input_chars <= 0:
-            return prefixed
-        max_tokens = min(self._MODEL_MAX_TOKENS, max_input_chars)
-        if len(prefixed) <= max_input_chars and len(prefixed) <= max_tokens * 5:
-            return prefixed
+            # Still enforce the model token window when no char cap is configured.
+            max_input_chars = 10**9
+        if len(prefixed) > max_input_chars:
+            prefixed = prefixed[:max_input_chars]
+        token_budget = max(1, self._MODEL_MAX_TOKENS - self._TOKEN_SAFETY_MARGIN)
+        # Optional `limit` callers (context-retry) pass a tighter token-ish budget.
+        if limit is not None and limit < token_budget:
+            token_budget = max(1, limit)
         try:
+            self._ensure_tokenizer()
             if self.tokenizer is not None:
-                return self._truncate_with_tokenizer(prefixed, max_tokens)
-            if tiktoken is None:
-                raise ImportError("tiktoken is unavailable")
-            try:
-                encoding = tiktoken.encoding_for_model(self.model)
-            except Exception:
-                encoding = tiktoken.get_encoding("cl100k_base")
-            token_ids = encoding.encode(prefixed)
-            if len(token_ids) <= max_tokens:
-                result = prefixed
+                truncated = self._truncate_with_tokenizer(prefixed, token_budget)
             else:
-                result = encoding.decode(token_ids[:max_tokens])
-            if len(result) > max_input_chars:
-                return result[:max_input_chars]
-            return result
+                if tiktoken is None:
+                    raise ImportError("tiktoken is unavailable")
+                try:
+                    encoding = tiktoken.encoding_for_model(self.model)
+                except Exception:
+                    encoding = tiktoken.get_encoding("cl100k_base")
+                token_ids = encoding.encode(prefixed)
+                if len(token_ids) <= token_budget:
+                    truncated = prefixed
+                else:
+                    truncated = encoding.decode(token_ids[:token_budget])
+            if len(truncated) > max_input_chars:
+                return truncated[:max_input_chars]
+            return truncated
         except Exception:
-            return prefixed[:max_input_chars]
+            # Conservative char fallback: ~2.5 chars/token undercounts code density less
+            # badly than the previous *5 heuristic that skipped truncation entirely.
+            char_cap = min(max_input_chars, token_budget * 3)
+            return prefixed[:char_cap]
+
+    def _ensure_tokenizer(self) -> None:
+        """Lazily bind a real model tokenizer for Qwen/local embeds when available."""
+        if self.tokenizer is not None or getattr(self, "_tokenizer_load_attempted", False):
+            return
+        self._tokenizer_load_attempted = True
+        model = (self.model or "").lower()
+        if "qwen" not in model and "embedding" not in model:
+            return
+        try:
+            from transformers import AutoTokenizer
+
+            self.tokenizer = AutoTokenizer.from_pretrained(self.model, trust_remote_code=True)
+        except Exception:
+            # Leave tokenizer as None; tiktoken/char fallback still applies.
+            self.tokenizer = None
 
     def _get_tiktoken_encoding(self) -> Any | None:
         if self._tiktoken_encoding_loaded:
@@ -171,7 +205,9 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
     def _embed_with_context_retry(self, texts: list[str]) -> list[list[float]]:
         try:
             return self._embed(texts)
-        except BadRequestError as exc:
+        except Exception as exc:
+            # Catch broad Exception: openai.BadRequestError needs an httpx response we
+            # do not have from urllib, so context-length 400s are raised as RuntimeError.
             if not _is_context_length_bad_request(exc):
                 raise
             if len(texts) == 1:
@@ -227,17 +263,9 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
                 return json.loads(response.read().decode("utf-8"))
         except HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace")
-            if exc.code == 400:
-                try:
-                    raise BadRequestError(
-                        f"OpenAI embeddings request failed: HTTP {exc.code}: {detail}",
-                        response=exc,
-                        body=detail,
-                    ) from exc
-                except TypeError:
-                    raise BadRequestError(
-                        f"OpenAI embeddings request failed: HTTP {exc.code}: {detail}"
-                    ) from exc
+            # Always RuntimeError: openai.BadRequestError requires httpx response/body
+            # kwargs that urllib cannot supply (raises APIStatusError init TypeError and
+            # previously masked the real context-length payload).
             raise RuntimeError(f"OpenAI embeddings request failed: HTTP {exc.code}: {detail}") from exc
         except URLError as exc:
             raise RuntimeError(f"OpenAI embeddings API is not reachable: {exc.reason}") from exc
@@ -255,4 +283,13 @@ def _batches(items: list[str], size: int):
 
 
 def _is_context_length_bad_request(exc: Exception) -> bool:
-    return "maximum context length" in str(exc).lower()
+    message = str(exc).lower()
+    return any(
+        marker in message
+        for marker in (
+            "maximum context length",
+            "context length",
+            "input_tokens",
+            "please reduce the length of the input",
+        )
+    )

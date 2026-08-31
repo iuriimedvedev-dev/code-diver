@@ -444,3 +444,75 @@ def test_compact_budget_is_off_by_default() -> None:
     item = FileSummaryItemBuilder().build(COMPACT_KT_PATH, COMPACT_KT_TEXT, symbols=[])
 
     assert item.content.startswith(f"file: {COMPACT_KT_PATH}")
+
+
+def test_compact_path_off_keeps_the_full_path_with_purpose_first_and_filtered_terms() -> None:
+    item = FileSummaryItemBuilder(compact_budget=True, compact_path=False).build(
+        COMPACT_KT_PATH,
+        COMPACT_KT_TEXT,
+        symbols=[CodeSymbol("isLight", "function", 8, 8, "fun isLight(project: Project): Boolean")],
+    )
+    terms = item.content[item.content.index("terms: ") :].splitlines()[0].split()[1:]
+
+    assert item.content.startswith("purpose: ")
+    assert f"file: {COMPACT_KT_PATH}" in item.content
+    assert "file: project/impl/ProjectManagerImpl.kt" not in item.content
+    for noise in ("open", "class", "fun", "override", "src", "com", "intellij", "kt", "impl"):
+        assert noise not in terms
+    assert terms[:2] == ["project", "manager"]
+
+
+def test_compact_path_on_shortens_the_embedded_path_without_compact_budget() -> None:
+    item = FileSummaryItemBuilder(compact_budget=False, compact_path=True).build(
+        COMPACT_KT_PATH, COMPACT_KT_TEXT, symbols=[]
+    )
+
+    assert "file: project/impl/ProjectManagerImpl.kt" in item.content
+    assert f"file: {COMPACT_KT_PATH}" not in item.content
+    assert item.path == COMPACT_KT_PATH
+
+
+def test_compact_path_defaults_to_following_compact_budget() -> None:
+    compact = FileSummaryItemBuilder(compact_budget=True).build(
+        COMPACT_KT_PATH, COMPACT_KT_TEXT, symbols=[]
+    )
+    plain = FileSummaryItemBuilder(compact_budget=False).build(
+        COMPACT_KT_PATH, COMPACT_KT_TEXT, symbols=[]
+    )
+
+    assert "file: project/impl/ProjectManagerImpl.kt" in compact.content
+    assert f"file: {COMPACT_KT_PATH}" in plain.content
+
+
+def test_h69_term_stopwords_off_keeps_path_vocabulary_in_terms() -> None:
+    # H-69: compact budget layout, but no stopword filter + path parts restored.
+    item = FileSummaryItemBuilder(compact_budget=True, term_stopwords=False).build(
+        COMPACT_KT_PATH, COMPACT_KT_TEXT, symbols=[]
+    )
+    terms_line = next(line for line in item.content.splitlines() if line.startswith("terms:"))
+    terms = terms_line.split()[1:]
+
+    assert item.content.startswith("purpose: ")
+    assert "file: project/impl/ProjectManagerImpl.kt" in item.content
+    for token in ("src", "com", "intellij", "impl", "project", "manager"):
+        assert token in terms
+    # Baseline compact+stopwords drops these path tokens.
+    baseline = FileSummaryItemBuilder(compact_budget=True).build(
+        COMPACT_KT_PATH, COMPACT_KT_TEXT, symbols=[]
+    )
+    baseline_terms = next(line for line in baseline.content.splitlines() if line.startswith("terms:")).split()[1:]
+    assert "src" not in baseline_terms
+    assert "impl" not in baseline_terms
+
+
+def test_term_stopwords_none_follows_compact_budget() -> None:
+    on = FileSummaryItemBuilder(compact_budget=True, term_stopwords=None).build(
+        COMPACT_KT_PATH, COMPACT_KT_TEXT, symbols=[]
+    )
+    off_budget = FileSummaryItemBuilder(compact_budget=False, term_stopwords=None).build(
+        COMPACT_KT_PATH, COMPACT_KT_TEXT, symbols=[]
+    )
+    on_terms = next(line for line in on.content.splitlines() if line.startswith("terms:")).split()[1:]
+    off_terms = next(line for line in off_budget.content.splitlines() if line.startswith("terms:")).split()[1:]
+    assert "src" not in on_terms
+    assert "src" in off_terms

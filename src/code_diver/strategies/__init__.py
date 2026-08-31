@@ -1,4 +1,5 @@
 from .cross_encoder_rerank_retrieval_strategy import CrossEncoderRerankRetrievalStrategy
+from .dual_collection_vector_retrieval_strategy import DualCollectionVectorRetrievalStrategy
 from .graph_file_retrieval_strategy import GraphFileRetrievalStrategy
 from .graph_retrieval_strategy import GraphRetrievalStrategy
 from .hybrid_rank_context import HybridRankContext
@@ -12,6 +13,7 @@ from .vector_retrieval_strategy import VectorRetrievalStrategy
 
 __all__ = [
     "CrossEncoderRerankRetrievalStrategy",
+    "DualCollectionVectorRetrievalStrategy",
     "GraphFileRetrievalStrategy",
     "GraphRetrievalStrategy",
     "HybridRankContext",

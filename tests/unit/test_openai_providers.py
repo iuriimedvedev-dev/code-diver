@@ -503,3 +503,52 @@ def test_openai_compatible_embedding_provider_retries_transient_failures(monkeyp
 
     assert provider.embed_query("query") == [0.1, 0.2]
     assert calls == 2
+
+
+def test_h70_bounded_prefixed_token_truncates_inside_high_char_cap() -> None:
+    """Raising max_input_chars must still enforce the 512-token model window.
+
+    Regression for H-70: the old len <= max_tokens*5 early-exit skipped truncation
+    and sent 513+ token payloads when max_input_chars was 2000.
+    """
+
+    class FakeTok:
+        def encode(self, text, add_special_tokens=False):
+            # 1 token per char — denser than real code, forces truncation.
+            return list(range(len(text)))
+
+        def decode(self, token_ids, skip_special_tokens=True):
+            return "x" * len(token_ids)
+
+    provider = OpenAICompatibleEmbeddingProvider(
+        model="mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ",
+        dimensions=None,
+        api_key="local",
+        max_input_chars=2000,
+    )
+    provider.tokenizer = FakeTok()
+    provider._tokenizer_load_attempted = True
+
+    out = provider._bounded_prefixed(None, "y" * 2000)
+    assert len(out) == 480  # 512 - safety margin
+    assert provider._token_count(out) <= 480
+
+
+def test_bad_request_from_urllib_does_not_mask_context_length(monkeypatch) -> None:
+    from io import BytesIO
+    from urllib.error import HTTPError
+
+    import code_diver.providers.openai_embedding_provider as mod
+
+    provider = OpenAICompatibleEmbeddingProvider(model="embed", dimensions=None, api_key="local")
+
+    def fake_urlopen(_request, timeout=0):
+        body = b'{"error":{"message":"maximum context length is 512 tokens"}}'
+        raise HTTPError("http://x", 400, "Bad Request", hdrs=None, fp=BytesIO(body))
+
+    monkeypatch.setattr(mod, "urlopen", fake_urlopen)
+    with pytest.raises(Exception) as excinfo:
+        provider._post({"model": "embed", "input": ["z"]})
+    message = str(excinfo.value).lower()
+    assert "maximum context length" in message
+    assert "has no attribute 'request'" not in message
