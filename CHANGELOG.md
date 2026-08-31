@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **Promoted H-66b to the new IntelliJ champion.** The default configuration for IntelliJ Community is now `configs/intellij/intellij-h66b-champion.yml`. This flip favors the best-measured WHERE arm (+0.073 recall / +0.078 MRR) over the strict 1065 recall gate. While a slight regression on 1065 recall is accepted (-0.0117), the configuration improves hit@1 (+0.0113) and achieves the best-on-record performance for the workflow bucket (0.8027). H-46 remains available as an archived reference.
+
 ### Fixed
 
 - **`code-diver` failed to start on any install without the optional Google stack.**
@@ -32,6 +36,7 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- **H-66b (`configs/intellij/intellij-h66b-champion.yml`) was promoted to the new IntelliJ champion.** This flips the default to the best-measured WHERE arm (+0.073 recall / +0.078 MRR); a regression on the 1065 gate (-0.0117 recall) was explicitly accepted in exchange for improved hit@1 (+0.0113) and workflow bucket performance (0.8027). H-46 (`configs/intellij/intellij-h46-preserve-top.yml`) remains an archived reference.
 - **`datasets` and `google-genai` moved out of the required dependency set** into the
   `benchmarks` and `gemini` extras. Both were already lazily imported behind `ImportError`
   guards, so nothing in the base code path needed them. A base install drops from ~314 MB

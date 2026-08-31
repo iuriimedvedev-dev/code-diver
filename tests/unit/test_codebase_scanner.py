@@ -638,9 +638,9 @@ def test_both_enumeration_branches_consult_the_shared_exclusion_predicate(
     seen: set[str] = set()
     original = scanner._is_excluded
 
-    def tracking(rel_path: str) -> bool:
+    def tracking(rel_path: str, is_dir: bool = False) -> bool:
         seen.add(rel_path)
-        return original(rel_path)
+        return original(rel_path, is_dir=is_dir)
 
     monkeypatch.setattr(scanner, "_is_excluded", tracking)
 
