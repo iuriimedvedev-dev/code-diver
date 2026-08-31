@@ -4,6 +4,7 @@ import argparse
 import contextlib
 import fnmatch
 import json
+import os
 import shutil
 import sys
 import uuid
@@ -100,10 +101,12 @@ from .providers import (
 from .providers.embedding_provider_builder import (
     make_embedding_provider,
 )
+from .reranking import RerankProviderFactory
 from .runtime import (
     QdrantRuntimeManager,
     RuntimeConfigStore,
     RuntimeSetupWizard,
+    SearchRuntime,
 )
 from .services import (
     CandidateFileScanner,
@@ -133,7 +136,6 @@ from .settings import (
     VectorStoreProviderId,
 )
 from .store import create_vector_store
-from .reranking import RerankProviderFactory
 from .strategies import RetrievalStrategyFactory
 from .strategies.fan_out_union_rerank_search import FanOutUnionRerankSearch
 from .strategies.retrieval_strategy_builder import make_retrieval_strategy
@@ -2580,6 +2582,7 @@ def cmd_evaluate_search_tools(args: argparse.Namespace, config: AppConfig) -> in
         tools = resolve_hypothesis_tools(config, hypothesis.name)
         log_path = search_hypothesis_log_path(eval_config, hypothesis.name, run_id)
         search_vector_store = None
+        search_runtime = None
         started = perf_counter()
         eval_results: list[Any] = []
         durations_ms: list[float] = []
@@ -2606,31 +2609,50 @@ def cmd_evaluate_search_tools(args: argparse.Namespace, config: AppConfig) -> in
                 else None
             )
             if "code_diver_search" in tools or "code_diver_h3_search" in tools:
-                search_vector_store = make_vector_store(eval_config)
-                search_provider = make_embedding_provider(
-                    eval_config, search_vector_store.metadata()
-                )
+                persistent_runtime = eval_config.search.persistent_runtime or os.environ.get(
+                    "CODE_DIVER_PERSISTENT_SEARCH_RUNTIME"
+                ) == "1"
+                if persistent_runtime:
+                    search_runtime = SearchRuntime(
+                        eval_config,
+                        fan_out_fusion=getattr(hypothesis, "fan_out_fusion", None),
+                    )
+                    search_runtime.warm()
+                    search_vector_store = search_runtime.vector_store
+                    search_provider = search_runtime.provider
+                else:
+                    search_vector_store = make_vector_store(eval_config)
+                    search_provider = make_embedding_provider(
+                        eval_config, search_vector_store.metadata()
+                    )
                 if "code_diver_search" in tools:
                     search_handler = make_search_tool_handler(
-                        make_retrieval_strategy(
-                            eval_config, search_provider, search_vector_store
-                        )
+                        search_runtime.base_strategy
+                        if search_runtime is not None
+                        else make_retrieval_strategy(eval_config, search_provider, search_vector_store)
                     )
                 if fan_out_union_rerank_enabled(hypothesis):
-                    fan_out_union_handler = make_fan_out_union_handler(
-                        eval_config,
-                        search_provider,
-                        search_vector_store,
-                        hypothesis.fan_out_fusion,
+                    fan_out_union_handler = (
+                        search_runtime.fan_out_handler
+                        if search_runtime is not None
+                        else make_fan_out_union_handler(
+                            eval_config,
+                            search_provider,
+                            search_vector_store,
+                            hypothesis.fan_out_fusion,
+                        )
                     )
                 if "code_diver_h3_search" in tools:
-                    h3_handler = H3SearchToolHandler(
-                        eval_config,
-                        search_provider,
-                        search_vector_store,
-                        exclude=inspection_exclude_patterns(eval_config),
+                    h3_search_handler = (
+                        search_runtime.h3_handler
+                        if search_runtime is not None
+                        else H3SearchToolHandler(
+                            eval_config,
+                            search_provider,
+                            search_vector_store,
+                            exclude=inspection_exclude_patterns(eval_config),
+                        ).search
                     )
-                    h3_search_handler = h3_handler.search
             orchestrator = DirectSearchOrchestrator(
                 root=eval_config.root,
                 generation_provider=generation_provider,
@@ -2709,7 +2731,9 @@ def cmd_evaluate_search_tools(args: argparse.Namespace, config: AppConfig) -> in
             ]
             durations_ms = durations_by_index[: len(eval_results)]
         finally:
-            if search_vector_store is not None:
+            if search_runtime is not None:
+                search_runtime.close()
+            elif search_vector_store is not None:
                 close_vector_store(search_vector_store)
         metrics = direct_search_metrics(eval_results, durations_ms, limit)
         metrics["duration_ms"] = (perf_counter() - started) * 1000
@@ -4050,6 +4074,8 @@ def make_fan_out_union_handler(
     settings: Any,
 ):
     """H-76: probes on the cross-encoder-less champion base, one cross-encoder pass over the union."""
+    workers = int(getattr(settings, "max_probe_workers", 6) or 6)
+    parallel = bool(getattr(settings, "parallel_probes", True))
     search = FanOutUnionRerankSearch(
         RetrievalStrategyFactory().create(
             RetrievalStrategyId.GRAPH_FILE.value, config, provider, vector_store
@@ -4057,7 +4083,9 @@ def make_fan_out_union_handler(
         RerankProviderFactory().create(config.cross_encoder_rerank),
         config.cross_encoder_rerank,
         repository_root=config.root,
+        max_workers=workers if parallel else 1,
         union_candidate_limit=settings.union_candidate_limit,
+        parallel_probes=parallel,
     )
 
     def handle(queries: list[str], limit: int, per_query_limit: int) -> list[str]:

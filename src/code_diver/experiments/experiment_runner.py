@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from dataclasses import replace
 from pathlib import Path
 from time import perf_counter
@@ -9,6 +10,7 @@ from ..config import AppConfig
 from ..config.experiment_hypothesis_config import ExperimentHypothesisConfig
 from ..domain import EvalCase
 from ..providers import EmbeddingProvider
+from ..runtime import SearchRuntime
 from ..services.evaluation_service import EvaluationService
 from ..store import VectorStore
 from ..strategies import RetrievalStrategyFactory
@@ -42,23 +44,33 @@ class ExperimentRunner:
                 strategy_config = replace(strategy_config, llm_rerank=hypothesis.llm_rerank)
             if hypothesis.cross_encoder_rerank is not None:
                 strategy_config = replace(strategy_config, cross_encoder_rerank=hypothesis.cross_encoder_rerank)
-            retrieval_strategy = self.strategy_factory.create(
-                hypothesis.strategy,
-                strategy_config,
-                self.provider,
-                self.vector_store,
-            )
+            runtime = None
+            if strategy_config.search.persistent_runtime or os.environ.get("CODE_DIVER_PERSISTENT_SEARCH_RUNTIME") == "1":
+                runtime = SearchRuntime(strategy_config)
+                runtime.warm()
+                retrieval_strategy = runtime.base_strategy
+            else:
+                retrieval_strategy = self.strategy_factory.create(
+                    hypothesis.strategy,
+                    strategy_config,
+                    self.provider,
+                    self.vector_store,
+                )
             started = perf_counter()
             trace_logger = TraceLogger(config.trace)
             trace_logger.write(
                 "experiment_strategy_started",
                 {"run_id": run_id, "strategy": hypothesis.name, "cases": len(cases)},
             )
-            metrics, results = EvaluationService(retrieval_strategy, trace_logger=trace_logger).evaluate(
-                cases,
-                config.evaluation.limit,
-                workers=config.evaluation.workers,
-            )
+            try:
+                metrics, results = EvaluationService(retrieval_strategy, trace_logger=trace_logger).evaluate(
+                    cases,
+                    config.evaluation.limit,
+                    workers=config.evaluation.workers,
+                )
+            finally:
+                if runtime is not None:
+                    runtime.close()
             duration_ms = (perf_counter() - started) * 1000
             metrics["duration_ms"] = duration_ms
             metrics.update(self._index_metrics(config))

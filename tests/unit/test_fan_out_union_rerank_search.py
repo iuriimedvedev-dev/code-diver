@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import time
+
 from code_diver.config.cross_encoder_rerank_config import CrossEncoderRerankConfig
 from code_diver.domain import CodeItem, SearchResult
 from code_diver.reranking.rerank_score import RerankScore
@@ -18,6 +20,16 @@ class StubStrategy:
     def search(self, query: str, limit: int) -> list[SearchResult]:
         self.queries.append(query)
         return self.by_query.get(query, [])[:limit]
+
+
+class DelayedStrategy(StubStrategy):
+    def __init__(self, by_query: dict[str, list[SearchResult]], delay: float = 0.03):
+        super().__init__(by_query)
+        self.delay = delay
+
+    def search(self, query: str, limit: int) -> list[SearchResult]:
+        time.sleep(self.delay)
+        return super().search(query, limit)
 
 
 class StubRerankProvider:
@@ -110,3 +122,42 @@ def test_rerank_failure_falls_back_to_fused_union_order():
 def test_empty_queries_return_no_paths():
     strategy = StubStrategy({})
     assert make_search(strategy, StubRerankProvider()).paths(["  "], 10, 10) == []
+
+
+def test_parallel_probe_searches_reduce_elapsed_time_and_preserve_query_order():
+    strategy = DelayedStrategy({query: [result(query, f"{query}.py", 1.0)] for query in ("q1", "q2", "q3")})
+    search = FanOutUnionRerankSearch(
+        strategy,
+        StubRerankProvider(),
+        CrossEncoderRerankConfig(candidate_limit=50),
+        union_candidate_limit=50,
+        max_workers=3,
+        parallel_probes=True,
+    )
+
+    started = time.perf_counter()
+    ranked = search._probe(["q1", "q2", "q3"], 10)
+    elapsed = time.perf_counter() - started
+
+    assert elapsed < 0.08
+    assert [items[0].item.path for items in ranked] == ["q1.py", "q2.py", "q3.py"]
+
+
+def test_serial_probe_searches_preserve_order_and_honor_serial_mode():
+    strategy = DelayedStrategy({query: [result(query, f"{query}.py", 1.0)] for query in ("q1", "q2", "q3")})
+    search = FanOutUnionRerankSearch(
+        strategy,
+        StubRerankProvider(),
+        CrossEncoderRerankConfig(candidate_limit=50),
+        union_candidate_limit=50,
+        max_workers=3,
+        parallel_probes=False,
+    )
+
+    started = time.perf_counter()
+    ranked = search._probe(["q1", "q2", "q3"], 10)
+    elapsed = time.perf_counter() - started
+
+    assert elapsed >= 0.08
+    assert strategy.queries == ["q1", "q2", "q3"]
+    assert [items[0].item.path for items in ranked] == ["q1.py", "q2.py", "q3.py"]

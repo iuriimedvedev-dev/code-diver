@@ -10,3 +10,4 @@ class SearchConfig:
     limit: int = Defaults.SEARCH_LIMIT
     preview_lines: int = Defaults.PREVIEW_LINES
     strategy: str = Defaults.SEARCH_STRATEGY
+    persistent_runtime: bool = False

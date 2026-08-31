@@ -72,6 +72,9 @@ class DirectSearchOrchestrator:
             max_file_bytes=self.max_file_bytes,
             candidate_only_after_search=self._adaptive_hypothesis(hypothesis_name),
         )
+        reset_budget = getattr(executor, "reset_read_budget", None)
+        if callable(reset_budget):
+            reset_budget()
         history: list[dict[str, Any]] = []
         result = DirectSearchResult()
         self.logger.write(

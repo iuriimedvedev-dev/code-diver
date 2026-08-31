@@ -32,6 +32,7 @@ class FanOutUnionRerankSearch:
         repository_root: Path | None = None,
         max_workers: int = 6,
         union_candidate_limit: int = 0,
+        parallel_probes: bool = True,
     ):
         self.base_strategy = base_strategy
         self.rerank_provider = rerank_provider
@@ -39,6 +40,7 @@ class FanOutUnionRerankSearch:
         self.repository_root = repository_root
         self.max_workers = max(1, max_workers)
         self.union_candidate_limit = union_candidate_limit
+        self.parallel_probes = parallel_probes
 
     def paths(self, queries: list[str], limit: int, per_query_limit: int) -> list[str]:
         """Ranked unique file paths; the first query is the original user query."""
@@ -80,8 +82,8 @@ class FanOutUnionRerankSearch:
         return self._ordered(pool, tail, scores)
 
     def _probe(self, probes: list[str], per_query_limit: int) -> list[list[SearchResult]]:
-        if len(probes) == 1:
-            return [self.base_strategy.search(probes[0], per_query_limit)]
+        if len(probes) == 1 or not self.parallel_probes or self.max_workers <= 1:
+            return [self.base_strategy.search(item, per_query_limit) for item in probes]
         with ThreadPoolExecutor(max_workers=min(self.max_workers, len(probes))) as pool:
             return list(pool.map(lambda item: self.base_strategy.search(item, per_query_limit), probes))
 

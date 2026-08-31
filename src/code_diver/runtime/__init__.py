@@ -3,6 +3,7 @@ from .qdrant_runtime_manager import QdrantRuntimeManager, QdrantRuntimeStatus
 from .runtime_config import RuntimeConfig
 from .runtime_config_store import RuntimeConfigStore
 from .runtime_setup_wizard import RuntimeSetupWizard
+from .search_runtime import SearchRuntime
 
 __all__ = [
     "EmbeddingRuntimeManager",
@@ -11,4 +12,5 @@ __all__ = [
     "RuntimeConfig",
     "RuntimeConfigStore",
     "RuntimeSetupWizard",
+    "SearchRuntime",
 ]

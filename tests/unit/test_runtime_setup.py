@@ -4,15 +4,61 @@ from pathlib import Path
 
 import pytest
 
+from code_diver.config import AppConfig
 from code_diver.runtime import (
     EmbeddingRuntimeManager,
     RuntimeConfig,
     RuntimeConfigStore,
     RuntimeSetupWizard,
+    SearchRuntime,
     embedding_runtime_manager,
 )
 
 pytestmark = pytest.mark.unit
+
+
+def test_search_runtime_lazily_caches_components_and_closes_store(monkeypatch) -> None:
+    import code_diver.runtime.search_runtime as module
+
+    calls: list[str] = []
+
+    class Store:
+        def metadata(self):
+            calls.append("metadata")
+            return {}
+
+        def close(self):
+            calls.append("close")
+
+    class Factory:
+        def create(self, strategy, config, provider, store):
+            calls.append(f"strategy:{strategy}")
+            return object()
+
+    class Handler:
+        def __init__(self, *args, **kwargs):
+            calls.append("h3")
+
+        def search(self, query, limit, args):
+            return {}
+
+    monkeypatch.setattr(module, "create_vector_store", lambda config: (calls.append("store") or Store()))
+    monkeypatch.setattr(
+        "code_diver.providers.embedding_provider_builder.make_embedding_provider",
+        lambda config, payload: (calls.append("provider") or object()),
+    )
+    monkeypatch.setattr(module, "RetrievalStrategyFactory", Factory)
+    monkeypatch.setattr(module, "H3SearchToolHandler", Handler)
+
+    runtime = SearchRuntime(AppConfig())
+    runtime.warm()
+    runtime.warm()
+    runtime.close()
+
+    assert calls.count("store") == 1
+    assert calls.count("provider") == 1
+    assert calls.count("h3") == 1
+    assert calls.count("close") == 1
 
 
 def test_runtime_setup_wizard_writes_external_runtime_without_install(tmp_path: Path) -> None:

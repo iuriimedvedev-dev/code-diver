@@ -26,3 +26,6 @@ class FanOutFusionConfig:
     union_rerank: bool = False
     union_candidate_limit: int = 0
     probe_search_limit: int = 0
+    # Concurrent probe searches (HTTP-bound). Set false for serial A/B.
+    parallel_probes: bool = True
+    max_probe_workers: int = 6

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from time import perf_counter
 from typing import Any
@@ -35,6 +36,8 @@ class H3SearchToolHandler:
         self.alias_locator: IdentifierAliasLocator | None = None
         self.alias_locator_loaded = False
         self.profile_strategies: dict[str, Any] = {}
+        # Default OFF: parallel Qdrant kind lanes after a single embed.
+        self.parallel_vector_lanes = False
 
     def search(self, query: str, limit: int, args: dict[str, Any]) -> dict[str, Any]:
         started = perf_counter()
@@ -88,10 +91,24 @@ class H3SearchToolHandler:
         limit: int,
     ) -> tuple[list[dict[str, Any]], list[tuple[list[dict[str, Any]], float]], int]:
         query_vector = normalize(self.provider.embed_query(query))
-        groups = [
-            (self._vector_kind_candidates(query_vector, limit, "file_manifest", "h3:fast_manifest"), 0.62),
-            (self._vector_kind_candidates(query_vector, limit, "file_summary", "h3:fast_summary"), 0.38),
+        kind_specs = [
+            ("file_manifest", "h3:fast_manifest", 0.62),
+            ("file_summary", "h3:fast_summary", 0.38),
         ]
+        if self.parallel_vector_lanes and len(kind_specs) > 1:
+            with ThreadPoolExecutor(max_workers=len(kind_specs)) as pool:
+                rows_list = list(
+                    pool.map(
+                        lambda spec: self._vector_kind_candidates(query_vector, limit, spec[0], spec[1]),
+                        kind_specs,
+                    )
+                )
+            groups = [(rows, weight) for rows, (_, _, weight) in zip(rows_list, kind_specs, strict=True)]
+        else:
+            groups = [
+                (self._vector_kind_candidates(query_vector, limit, kind, source), weight)
+                for kind, source, weight in kind_specs
+            ]
         raw = [candidate for rows, _ in groups for candidate in rows]
         return raw, groups, len(groups)
 
@@ -245,29 +262,48 @@ class H3SearchToolHandler:
             "rgFailures": 0,
         }
         pattern = "|".join(re.escape(term) for term in self._terms(query)[:5])
-        for candidate in rows:
-            path = str(candidate.get("path") or "")
-            if not path:
-                continue
+        paths = [str(candidate.get("path") or "") for candidate in rows if str(candidate.get("path") or "")]
+
+        def _probe_one(path: str) -> tuple[list[dict[str, Any]], dict[str, int]]:
+            local_candidates: list[dict[str, Any]] = []
+            local_metrics = {
+                "outlineCalls": 0,
+                "symbolCalls": 0,
+                "rgCalls": 0,
+                "outlineFailures": 0,
+                "symbolFailures": 0,
+                "rgFailures": 0,
+            }
             try:
                 outline_payload = self.outline.structured(path, symbol_limit=80, import_limit=30)
-                metrics["outlineCalls"] += 1
-                candidates.extend(self._outline_candidates(outline_payload))
+                local_metrics["outlineCalls"] += 1
+                local_candidates.extend(self._outline_candidates(outline_payload))
             except Exception:  # best-effort probe; failure is counted, not swallowed
-                metrics["outlineFailures"] += 1
+                local_metrics["outlineFailures"] += 1
             try:
                 symbol_payload = self.symbols.structured(path=path, limit=40, query=query)
-                metrics["symbolCalls"] += 1
-                candidates.extend(self._tool_candidates(symbol_payload, "symbols"))
+                local_metrics["symbolCalls"] += 1
+                local_candidates.extend(self._tool_candidates(symbol_payload, "symbols"))
             except Exception:  # best-effort probe; failure is counted, not swallowed
-                metrics["symbolFailures"] += 1
+                local_metrics["symbolFailures"] += 1
             if pattern:
                 try:
                     rg_payload = self.rg.structured(pattern, path=path, limit=20, include_text=False)
-                    metrics["rgCalls"] += 1
-                    candidates.extend(self._tool_candidates(rg_payload, "rg"))
+                    local_metrics["rgCalls"] += 1
+                    local_candidates.extend(self._tool_candidates(rg_payload, "rg"))
                 except Exception:  # best-effort probe; failure is counted, not swallowed
-                    metrics["rgFailures"] += 1
+                    local_metrics["rgFailures"] += 1
+            return local_candidates, local_metrics
+
+        if self.parallel_vector_lanes and len(paths) > 1:
+            with ThreadPoolExecutor(max_workers=min(4, len(paths))) as pool:
+                parts = list(pool.map(_probe_one, paths))
+        else:
+            parts = [_probe_one(path) for path in paths]
+        for part_candidates, part_metrics in parts:
+            candidates.extend(part_candidates)
+            for key, value in part_metrics.items():
+                metrics[key] += value
         return candidates, metrics
 
     def _alias_candidates(self, query: str, limit: int) -> list[dict[str, Any]]:

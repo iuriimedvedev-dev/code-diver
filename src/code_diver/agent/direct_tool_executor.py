@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from collections.abc import Callable
 from pathlib import Path
+from threading import Lock
 from time import perf_counter
 from typing import Any
 
@@ -43,7 +44,31 @@ class DirectToolExecutor:
         self.max_inspect_reads = max_inspect_reads
         self.candidate_only_after_search = candidate_only_after_search
         self.scoped_search = CandidateScopedSearch(max_scoped_probe_files)
-        self.candidate_bank: list[dict[str, Any]] = []
+        self._candidate_bank_lock = Lock()
+        self._candidate_bank: list[dict[str, Any]] = []
+        self._read_budget_used = 0
+
+    @property
+    def candidate_bank(self) -> list[dict[str, Any]]:
+        with self._candidate_bank_lock:
+            return list(self._candidate_bank)
+
+    @candidate_bank.setter
+    def candidate_bank(self, candidates: list[dict[str, Any]]) -> None:
+        with self._candidate_bank_lock:
+            self._candidate_bank = list(candidates)
+
+    def reset_read_budget(self) -> None:
+        with self._candidate_bank_lock:
+            self._read_budget_used = 0
+
+    def reserve_reads(self, requested: int) -> int:
+        requested = max(0, requested)
+        with self._candidate_bank_lock:
+            available = max(self.max_inspect_reads - self._read_budget_used, 0)
+            reserved = min(requested, available)
+            self._read_budget_used += reserved
+            return reserved
 
     def execute(self, call: ToolCall) -> ToolResult:
         started = perf_counter()
@@ -99,7 +124,7 @@ class DirectToolExecutor:
                 raise ValueError("code_diver_rerank is not available without a rerank handler")
             candidates = args.get("candidates")
             if not isinstance(candidates, list) or not candidates:
-                candidates = self.candidate_bank
+                candidates = self._candidate_bank_snapshot()
             candidates = self._filtered_candidates(candidates, args.get("candidateIds") or args.get("candidate_ids"))
             query = str(args.get("query") or "")
             return self.rerank_handler(query, candidates, int(args.get("limit") or 10), args)
@@ -109,7 +134,7 @@ class DirectToolExecutor:
             query = str(args.get("query") or "")
             files = self._candidate_files(args.get("files") or args.get("paths") or args.get("candidateFiles"))
             if not files:
-                files = self._candidate_files(self.candidate_bank)
+                files = self._candidate_files(self._candidate_bank_snapshot())
             if not files:
                 raise ValueError("code_diver_ephemeral_search requires candidate files")
             return self.ephemeral_search_handler(query, files, int(args.get("limit") or 10), args)
@@ -117,6 +142,8 @@ class DirectToolExecutor:
 
     def _inspect(self, args: dict[str, Any]) -> dict[str, Any]:
         sections: list[dict[str, Any]] = []
+        reads = args.get("reads") or []
+        reserved_reads = self.reserve_reads(len(reads) if isinstance(reads, list) else 0)
         reads_used = 0
         for value in args.get("trees") or []:
             value = self._object_value(value, "path")
@@ -180,9 +207,9 @@ class DirectToolExecutor:
                     "result": self._rg(value),
                 }
             )
-        for value in args.get("reads") or []:
+        for value in reads:
             value = self._object_value(value, "file")
-            if reads_used >= self.max_inspect_reads:
+            if reads_used >= reserved_reads:
                 sections.append(
                     {
                         "kind": "read",
@@ -267,10 +294,11 @@ class DirectToolExecutor:
         )
 
     def _candidate_scope_paths(self, requested_path: str | None) -> list[str]:
-        paths = self.scoped_search.paths(requested_path, self.candidate_bank)
-        if not paths and self.candidate_only_after_search and self.candidate_bank and requested_path:
+        candidates = self._candidate_bank_snapshot()
+        paths = self.scoped_search.paths(requested_path, candidates)
+        if not paths and self.candidate_only_after_search and candidates and requested_path:
             normalized = requested_path.strip().removeprefix("./").rstrip("/")
-            candidate_paths = self._candidate_bank_paths()
+            candidate_paths = self._candidate_bank_paths(candidates)
             paths = [
                 path
                 for path in candidate_paths
@@ -286,7 +314,8 @@ class DirectToolExecutor:
         return valid_paths
 
     def _candidate_scope_paths_under(self, requested_path: str | None) -> list[str]:
-        if not requested_path or not self.candidate_bank:
+        candidates = self._candidate_bank_snapshot()
+        if not requested_path or not candidates:
             return []
         resolved = self.guard.resolve(requested_path)
         if resolved.is_file():
@@ -295,7 +324,7 @@ class DirectToolExecutor:
         if not prefix:
             return []
         paths: list[str] = []
-        for candidate in self.candidate_bank:
+        for candidate in candidates:
             path = str(candidate.get("path") or candidate.get("file") or "").strip().removeprefix("./")
             if not path:
                 continue
@@ -435,9 +464,10 @@ class DirectToolExecutor:
 
     def _validated_required_candidate_path(self, value: Any) -> str:
         path = self._validated_required_path(value)
-        if self.candidate_only_after_search and self.candidate_bank:
+        candidates = self._candidate_bank_snapshot()
+        if self.candidate_only_after_search and candidates:
             normalized = path.strip().removeprefix("./").rstrip("/")
-            if normalized not in self._candidate_bank_paths():
+            if normalized not in self._candidate_bank_paths(candidates):
                 raise ValueError(
                     "candidate_scope_violation: after search, read/outline tools may only inspect candidate files"
                 )
@@ -501,9 +531,10 @@ class DirectToolExecutor:
 
     def _search_payload(self, raw: str) -> dict[str, Any]:
         try:
-            candidates = json.loads(raw)
+            payload = json.loads(raw)
         except json.JSONDecodeError:
-            candidates = []
+            payload = []
+        candidates = (payload.get("result") or {}).get("candidates", []) if isinstance(payload, dict) else payload
         if not isinstance(candidates, list):
             candidates = []
         return {
@@ -515,10 +546,16 @@ class DirectToolExecutor:
         }
 
     def _remember_candidates(self, result: dict[str, Any]) -> None:
-        for candidate in self._candidate_rows(result):
-            if isinstance(candidate, dict):
-                self.candidate_bank.append(candidate)
-        self.candidate_bank = self._dedupe_candidates(self.candidate_bank)[-200:]
+        candidates = [candidate for candidate in self._candidate_rows(result) if isinstance(candidate, dict)]
+        if not candidates:
+            return
+        with self._candidate_bank_lock:
+            self._candidate_bank.extend(candidates)
+            self._candidate_bank = self._dedupe_candidates(self._candidate_bank)[-200:]
+
+    def _candidate_bank_snapshot(self) -> list[dict[str, Any]]:
+        with self._candidate_bank_lock:
+            return list(self._candidate_bank)
 
     def _candidate_rows(self, value: Any) -> list[Any]:
         if not isinstance(value, dict):
@@ -572,9 +609,9 @@ class DirectToolExecutor:
                 paths.append(path)
         return paths
 
-    def _candidate_bank_paths(self) -> list[str]:
+    def _candidate_bank_paths(self, candidates: list[dict[str, Any]] | None = None) -> list[str]:
         paths: list[str] = []
-        for path in self._candidate_files(self.candidate_bank):
+        for path in self._candidate_files(candidates if candidates is not None else self._candidate_bank_snapshot()):
             normalized = path.strip().removeprefix("./").rstrip("/")
             if normalized and normalized not in paths:
                 paths.append(normalized)

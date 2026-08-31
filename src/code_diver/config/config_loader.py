@@ -333,6 +333,7 @@ class ConfigLoader:
             limit=int(mapping.get("limit", Defaults.SEARCH_LIMIT)),
             preview_lines=int(mapping.get("preview_lines", Defaults.PREVIEW_LINES)),
             strategy=str(mapping.get("strategy", Defaults.SEARCH_STRATEGY)),
+            persistent_runtime=bool(mapping.get("persistent_runtime", False)),
         )
 
     def _recursive_search(self, data: Any) -> RecursiveSearchConfig:
@@ -985,6 +986,8 @@ class ConfigLoader:
             union_rerank=bool(mapping.get("union_rerank", base.union_rerank)),
             union_candidate_limit=int(mapping.get("union_candidate_limit", base.union_candidate_limit)),
             probe_search_limit=int(mapping.get("probe_search_limit", base.probe_search_limit)),
+            parallel_probes=bool(mapping.get("parallel_probes", base.parallel_probes)),
+            max_probe_workers=int(mapping.get("max_probe_workers", base.max_probe_workers)),
         )
 
     def _metrics(self, data: Any) -> MetricsConfig:

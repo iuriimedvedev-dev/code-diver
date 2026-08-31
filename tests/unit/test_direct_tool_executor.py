@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -817,3 +818,62 @@ def test_direct_tool_executor_reranks_candidates_from_batched_inspect(tmp_path: 
     payload = json.loads(rerank.content)
     assert payload["ok"] is True
     assert payload["result"]["candidates"][0]["path"] == "src/service.py"
+
+
+def test_direct_tool_executor_reserves_inspect_reads_across_concurrent_calls(tmp_path: Path) -> None:
+    source = tmp_path / "src" / "service.py"
+    source.parent.mkdir()
+    source.write_text("line one\n", encoding="utf-8")
+    executor = DirectToolExecutor(tmp_path, ["code_diver_inspect"], max_inspect_reads=2)
+
+    calls = [
+        ToolCall("code_diver_inspect", {"reads": [{"file": "src/service.py"}]})
+        for _ in range(4)
+    ]
+    with ThreadPoolExecutor(max_workers=4) as workers:
+        payloads = [json.loads(result.content) for result in workers.map(executor.execute, calls)]
+
+    assert sorted(payload["result"]["metrics"]["readCount"] for payload in payloads) == [0, 0, 1, 1]
+
+
+def test_direct_tool_executor_rerank_default_uses_thread_safe_candidate_snapshot(tmp_path: Path) -> None:
+    seen: list[dict] = []
+
+    def rerank_handler(query: str, candidates: list[dict], limit: int, args: dict) -> dict:
+        seen.extend(candidates)
+        return {"candidates": candidates[:limit], "metrics": {}}
+
+    executor = DirectToolExecutor(tmp_path, ["code_diver_rerank"], rerank_handler=rerank_handler)
+    executor.candidate_bank = [{"id": "a", "path": "src/a.py"}]
+
+    with ThreadPoolExecutor(max_workers=2) as workers:
+        results = list(
+            workers.map(
+                executor.execute,
+                [ToolCall("code_diver_rerank", {"query": "a"}) for _ in range(2)],
+            )
+        )
+
+    assert all(result.ok for result in results)
+    assert [candidate["id"] for candidate in seen] == ["a", "a"]
+
+
+def test_candidate_bank_concurrent_updates_do_not_lose_candidates(tmp_path: Path) -> None:
+    def search_handler(query: str, limit: int) -> str:
+        path = f"{query}.java"
+        return json.dumps(
+            [{"id": path, "path": path, "score": 1.0, "startLine": 1, "endLine": 1}]
+        )
+
+    executor = DirectToolExecutor(tmp_path, ["code_diver_search"], search_handler=search_handler)
+
+    def run(i: int):
+        return executor.execute(ToolCall("code_diver_search", {"query": f"q{i}", "limit": 5}))
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        results = list(pool.map(run, range(20)))
+
+    assert all(item.ok for item in results)
+    paths = {str(row.get("path")) for row in executor.candidate_bank}
+    assert paths == {f"q{i}.java" for i in range(20)}
+    assert len(executor.candidate_bank) == 20

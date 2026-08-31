@@ -9,6 +9,35 @@ from code_diver.config import ConfigLoader
 pytestmark = pytest.mark.unit
 
 
+def test_config_loader_defaults_persistent_search_runtime_to_false(tmp_path: Path) -> None:
+    config = ConfigLoader().load(tmp_path / "missing.yml")
+    assert config.search.persistent_runtime is False
+
+
+def test_config_loader_loads_persistent_search_runtime(tmp_path: Path) -> None:
+    config_path = tmp_path / "code-diver.yml"
+    config_path.write_text("search:\n  persistent_runtime: true\n", encoding="utf-8")
+
+    config = ConfigLoader().load(config_path)
+
+    assert config.search.persistent_runtime is True
+
+
+def test_config_loader_loads_fan_out_probe_workers_and_parallel_mode(tmp_path: Path) -> None:
+    config_path = tmp_path / "code-diver.yml"
+    config_path.write_text(
+        "experiments:\n  hypotheses:\n    - name: fanout\n      fan_out_fusion:\n        parallel_probes: false\n        max_probe_workers: 3\n",
+        encoding="utf-8",
+    )
+
+    config = ConfigLoader().load(config_path)
+    fan_out = config.experiments.hypotheses[0].fan_out_fusion
+
+    assert fan_out is not None
+    assert fan_out.parallel_probes is False
+    assert fan_out.max_probe_workers == 3
+
+
 def test_config_loader_maps_yaml_to_typed_config(tmp_path: Path) -> None:
     config_path = tmp_path / "code-diver.yml"
     config_path.write_text(
