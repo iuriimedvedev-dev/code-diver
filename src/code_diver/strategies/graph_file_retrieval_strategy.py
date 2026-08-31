@@ -212,11 +212,30 @@ class GraphFileRetrievalStrategy(RetrievalStrategy):
             key=lambda score: (score.lexical_score, score.path_score, score.symbol_score, score.path),
             reverse=True,
         )
+        lexical_seed_paths: set[str] = set()
         for candidate in lexical_candidates[: self.config.lexical_seed_limit]:
+            lexical_seed_paths.add(candidate.path)
             existing = scores.setdefault(candidate.path, FileScore(path=candidate.path, item=candidate.item))
             self._update_max_score(existing, "lexical_score", candidate.lexical_score, candidate.item)
             self._update_max_score(existing, "path_score", candidate.path_score, candidate.item)
             self._update_max_score(existing, "symbol_score", candidate.symbol_score, candidate.item)
+
+        if getattr(self.config, "seed_score_parity", False):
+            for path in vector_scores:
+                if path in lexical_seed_paths:
+                    continue
+                existing = scores.get(path)
+                if existing is None:
+                    continue
+                candidate = scorer.score(existing.item)
+                self._update_max_score(existing, "lexical_score", candidate.lexical_score, existing.item)
+                self._update_max_score(existing, "path_score", candidate.path_score, existing.item)
+                self._update_max_score(
+                    existing,
+                    "symbol_score",
+                    max(candidate.symbol_score, candidate.symbol_match_score),
+                    existing.item,
+                )
         return scores
 
     def _update_max_score(
