@@ -17,6 +17,8 @@ class EmbeddingConfig:
     batch_size: int = Defaults.EMBEDDING_BATCH_SIZE
     workers: int = Defaults.EMBEDDING_WORKERS
     max_input_chars: int | None = Defaults.EMBEDDING_MAX_INPUT_CHARS
+    max_input_tokens: int = Defaults.EMBEDDING_MAX_INPUT_TOKENS
+    token_safety_margin: int = Defaults.EMBEDDING_TOKEN_SAFETY_MARGIN
     retry_attempts: int = Defaults.EMBEDDING_RETRY_ATTEMPTS
     retry_delay_seconds: float = Defaults.EMBEDDING_RETRY_DELAY_SECONDS
     document_prefix: str | None = Defaults.EMBEDDING_DOCUMENT_PREFIX

@@ -643,6 +643,69 @@ graph_file_search:
     assert config.graph_file_search.frontier_limit == 12
 
 
+def test_cross_encoder_preserve_top_depth_defaults_to_one(tmp_path: Path) -> None:
+    """Depth 1 is the historical top-1-only behaviour, so the option is off by default."""
+    config_path = tmp_path / "code-diver.yml"
+    config_path.write_text(
+        """
+cross_encoder_rerank:
+  preserve_top_candidate: true
+""".strip(),
+        encoding="utf-8",
+    )
+
+    config = ConfigLoader().load(config_path)
+
+    assert config.cross_encoder_rerank.preserve_top_depth == 1
+
+
+def test_cross_encoder_preserve_top_depth_is_read_from_the_config(tmp_path: Path) -> None:
+    config_path = tmp_path / "code-diver.yml"
+    config_path.write_text(
+        """
+cross_encoder_rerank:
+  preserve_top_candidate: true
+  preserve_top_depth: 3
+""".strip(),
+        encoding="utf-8",
+    )
+
+    config = ConfigLoader().load(config_path)
+
+    assert config.cross_encoder_rerank.preserve_top_depth == 3
+
+
+def test_graph_file_seed_score_parity_is_off_by_default(tmp_path: Path) -> None:
+    config_path = tmp_path / "code-diver.yml"
+    config_path.write_text(
+        """
+graph_file_search:
+  neighbor_limit: 40
+""".strip(),
+        encoding="utf-8",
+    )
+
+    config = ConfigLoader().load(config_path)
+
+    assert config.graph_file_search.seed_score_parity is False
+
+
+def test_graph_file_seed_score_parity_is_read_from_the_config(tmp_path: Path) -> None:
+    config_path = tmp_path / "code-diver.yml"
+    config_path.write_text(
+        """
+graph_file_search:
+  neighbor_limit: 40
+  seed_score_parity: true
+""".strip(),
+        encoding="utf-8",
+    )
+
+    config = ConfigLoader().load(config_path)
+
+    assert config.graph_file_search.seed_score_parity is True
+
+
 def test_llm_rerank_chunking_is_unset_by_default(tmp_path: Path) -> None:
     config_path = tmp_path / "code-diver.yml"
     config_path.write_text(

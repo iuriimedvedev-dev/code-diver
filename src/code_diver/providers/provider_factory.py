@@ -24,6 +24,8 @@ def create_embedding_provider(
     document_prefix: str | None = Defaults.EMBEDDING_DOCUMENT_PREFIX,
     query_prefix: str | None = Defaults.EMBEDDING_QUERY_PREFIX,
     max_input_chars: int | None = Defaults.EMBEDDING_MAX_INPUT_CHARS,
+    max_input_tokens: int = Defaults.EMBEDDING_MAX_INPUT_TOKENS,
+    token_safety_margin: int = Defaults.EMBEDDING_TOKEN_SAFETY_MARGIN,
 ) -> EmbeddingProvider:
     provider_id = EmbeddingProviderId(provider)
     if provider_id is EmbeddingProviderId.HASH:
@@ -58,6 +60,8 @@ def create_embedding_provider(
             document_prefix=document_prefix,
             query_prefix=query_prefix,
             max_input_chars=max_input_chars,
+            max_input_tokens=max_input_tokens,
+            token_safety_margin=token_safety_margin,
             retry_attempts=retry_attempts,
             retry_delay_seconds=retry_delay_seconds,
         )
@@ -71,6 +75,8 @@ def create_embedding_provider(
             document_prefix=document_prefix,
             query_prefix=query_prefix,
             max_input_chars=max_input_chars,
+            max_input_tokens=max_input_tokens,
+            token_safety_margin=token_safety_margin,
             retry_attempts=retry_attempts,
             retry_delay_seconds=retry_delay_seconds,
         )

@@ -3,12 +3,16 @@ from __future__ import annotations
 import logging
 import os
 from collections import defaultdict
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from threading import RLock
 
 from ..config import GraphFileSearchConfig
 from ..domain import CodeItem, SearchResult
 from ..graph import CodeGraphStore
+from ..ranking.ltr_feature_extractor import LtrCandidate, LtrFeatureExtractor
+from ..ranking.ltr_feature_row import LtrFeatureRow
+from ..ranking.ltr_ranker_model import LtrRankerModel
 from ..services.tokenizer import tokenize
 from .file_graph_catalog import FileGraphCatalog
 from .file_graph_catalog_store import FileGraphCatalogStore
@@ -61,12 +65,19 @@ class GraphFileRetrievalStrategy(RetrievalStrategy):
         base_strategy: RetrievalStrategy,
         graph_store: CodeGraphStore,
         config: GraphFileSearchConfig,
+        feature_sink: Callable[[str, list[LtrFeatureRow]], None] | None = None,
     ):
         self.base_strategy = base_strategy
         self.graph_store = graph_store
         self.config = config
         self.fusion_router = QueryFusionRouter()
         self.profiler = HybridItemProfiler()
+        # H-80: set by the feature export only. When it is None and the learned ranker is
+        # off, no feature is ever computed and this class behaves exactly as before.
+        self.feature_sink = feature_sink
+        self.feature_extractor = LtrFeatureExtractor()
+        self._ltr_model: LtrRankerModel | None = None
+        self._ltr_model_loaded = False
         self._catalog: FileGraphCatalog | None = None
         self._items_by_path: dict[str, list[CodeItem]] | None = None
         self._items_by_norm_path: dict[str, list[CodeItem]] | None = None
@@ -123,6 +134,7 @@ class GraphFileRetrievalStrategy(RetrievalStrategy):
                 key=lambda score: (score.total(config), score.graph_score, score.path),
                 reverse=True,
             )
+            ordered = self._ordered_with_ltr(query, ranked, config)
             results = [
                 SearchResult(
                     item=replace(
@@ -132,15 +144,69 @@ class GraphFileRetrievalStrategy(RetrievalStrategy):
                             "winning_index_kind": score.winning_index_kind or self._index_kind(score.item),
                         },
                     ),
-                    score=score.total(config),
+                    score=result_score,
                 )
-                for score in ranked[:limit]
+                for score, result_score in ordered[:limit]
             ]
             if not results:
                 return self.base_strategy.search(query, limit)
             return results
         except Exception:
             return self.base_strategy.search(query, limit)
+
+    def _ordered_with_ltr(
+        self,
+        query: str,
+        ranked: Sequence[FileScore],
+        config: GraphFileSearchConfig,
+    ) -> list[tuple[FileScore, float]]:
+        """Final ordering: hand-tuned fusion, optionally replaced by the learned ranker.
+
+        H-80. The learned ranker is off by default and needs a loadable artifact, so the
+        common path is the plain fused order this method has always returned. Features are
+        only computed when someone actually wants them -- the export or the model.
+        """
+        fused = [(score, score.total(config)) for score in ranked]
+        if not self.config.ltr_ranker_enabled and self.feature_sink is None:
+            return fused
+
+        rows = self.feature_extractor.extract(
+            len(self._query_terms(query)),
+            [
+                LtrCandidate(
+                    item_id=score.item.id,
+                    path=score.path,
+                    vector_score=score.vector_score,
+                    lexical_score=score.lexical_score,
+                    path_score=score.path_score,
+                    symbol_score=score.symbol_score,
+                    graph_score=score.graph_score,
+                    fused_score=fused_score,
+                )
+                for score, fused_score in fused
+            ],
+        )
+        if self.feature_sink is not None:
+            self.feature_sink(query, rows)
+        if not self.config.ltr_ranker_enabled:
+            return fused
+        model = self._ranker_model()
+        if model is None:
+            return fused
+        scores = model.score(rows)
+        if scores is None:
+            return fused
+        scored = list(zip((score for score, _ in fused), scores, strict=True))
+        # Ties keep the fused order: `sorted` is stable and `fused` is already sorted.
+        scored.sort(key=lambda entry: entry[1], reverse=True)
+        return scored
+
+    def _ranker_model(self) -> LtrRankerModel | None:
+        with self._cache_lock:
+            if not self._ltr_model_loaded:
+                self._ltr_model = LtrRankerModel.load(self.config.ltr_model_path)
+                self._ltr_model_loaded = True
+            return self._ltr_model
 
     def _seed_scores(
         self,
@@ -220,7 +286,7 @@ class GraphFileRetrievalStrategy(RetrievalStrategy):
             self._update_max_score(existing, "path_score", candidate.path_score, candidate.item)
             self._update_max_score(existing, "symbol_score", candidate.symbol_score, candidate.item)
 
-        if getattr(self.config, "seed_score_parity", False):
+        if self.config.seed_score_parity:
             for path in vector_scores:
                 if path in lexical_seed_paths:
                     continue

@@ -1,6 +1,9 @@
 .code-diver/
 .env
 
+# Local experiment artifacts (feature dumps, trained rankers)
+artifacts/
+
 # Python
 __pycache__/
 *.pyc

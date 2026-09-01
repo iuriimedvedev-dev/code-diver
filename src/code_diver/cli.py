@@ -101,6 +101,7 @@ from .providers import (
 from .providers.embedding_provider_builder import (
     make_embedding_provider,
 )
+from .ranking import LtrFeatureCollector, LtrFeatureSinkAttacher
 from .reranking import RerankProviderFactory
 from .runtime import (
     QdrantRuntimeManager,
@@ -425,6 +426,12 @@ def build_parser(include_advanced: bool = False) -> argparse.ArgumentParser:
         type=int,
         default=50,
         help="Number of local evaluation cases to generate with --generate-dataset.",
+    )
+    evaluate.add_argument(
+        "--dump-features",
+        type=Path,
+        default=None,
+        help="Write one learning-to-rank training row per (query, candidate) to PATH.",
     )
     evaluate.add_argument(
         OptionName.YES.value,
@@ -1725,6 +1732,8 @@ def cmd_index_selected(args: argparse.Namespace, config: AppConfig) -> int:
             embedding_batch_size=config.embedding.batch_size,
             embedding_workers=config.embedding.workers,
             embedding_max_input_chars=config.embedding.max_input_chars,
+            embedding_max_input_tokens=config.embedding.max_input_tokens,
+            embedding_token_safety_margin=config.embedding.token_safety_margin,
             progress=True,
         ),
         make_trace_logger(config),
@@ -2294,6 +2303,15 @@ def cmd_evaluate(args: argparse.Namespace, config: AppConfig) -> int:
         case.query = plugin_manager.prepare_query(case.query)
 
     strategy = make_retrieval_strategy(config, provider, vector_store)
+    feature_dump_path = getattr(args, "dump_features", None)
+    feature_collector: LtrFeatureCollector | None = None
+    if feature_dump_path is not None:
+        feature_collector = LtrFeatureCollector()
+        if not LtrFeatureSinkAttacher().attach(strategy, feature_collector.collect):
+            raise SystemExit(
+                f"--dump-features needs a strategy that fuses per-file scores; "
+                f"{config.search.strategy} does not."
+            )
     settings = evaluation_settings(
         config,
         dataset,
@@ -2346,6 +2364,13 @@ def cmd_evaluate(args: argparse.Namespace, config: AppConfig) -> int:
             limit,
             workers=config.evaluation.workers,
         )
+    if feature_collector is not None:
+        written = feature_collector.write_jsonl(Path(feature_dump_path), cases)
+        if not bool(args.json):
+            render_status_line(
+                f"wrote {written} learning-to-rank feature rows: {feature_dump_path}",
+                "green",
+            )
     if args.json:
         print(
             json.dumps(
@@ -2434,12 +2459,17 @@ def graph_file_settings_label(config: AppConfig) -> str:
     }:
         return "disabled"
     graph_file = config.graph_file_search
-    return (
+    label = (
         f"seeds={graph_file.seed_limit}, lexical={graph_file.lexical_seed_limit}, "
         f"depth={graph_file.depth}, neighbors={graph_file.neighbor_limit}, decay={graph_file.decay}, "
         f"weights=vector:{graph_file.vector_weight}/lexical:{graph_file.lexical_weight}/"
         f"path:{graph_file.path_weight}/symbol:{graph_file.symbol_weight}/graph:{graph_file.graph_weight}"
     )
+    # Only appended when the learned ranker is on, so reports of existing configs are
+    # unchanged -- but a run that used a model can never be mistaken for one that did not.
+    if graph_file.ltr_ranker_enabled:
+        label += f", ltr={graph_file.ltr_model_path or 'no-artifact'}"
+    return label
 
 
 def final_rerank_settings(reranker: object | None) -> dict[str, Any]:
@@ -2486,6 +2516,8 @@ def cmd_evaluate_indexing(args: argparse.Namespace, config: AppConfig) -> int:
                 embedding_batch_size=eval_config.embedding.batch_size,
                 embedding_workers=eval_config.embedding.workers,
                 embedding_max_input_chars=eval_config.embedding.max_input_chars,
+                embedding_max_input_tokens=eval_config.embedding.max_input_tokens,
+                embedding_token_safety_margin=eval_config.embedding.token_safety_margin,
                 progress=True,
             ),
             log_path=log_path,
@@ -3851,6 +3883,8 @@ def make_indexing_service(config: AppConfig, progress: bool = True) -> IndexingS
             embedding_batch_size=config.embedding.batch_size,
             embedding_workers=config.embedding.workers,
             embedding_max_input_chars=config.embedding.max_input_chars,
+            embedding_max_input_tokens=config.embedding.max_input_tokens,
+            embedding_token_safety_margin=config.embedding.token_safety_margin,
             progress=progress,
         ),
         make_trace_logger(config),
@@ -4168,6 +4202,8 @@ def make_ephemeral_search_tool_handler(config: AppConfig):
             embedding_batch_size=config.embedding.batch_size,
             embedding_workers=config.embedding.workers,
             embedding_max_input_chars=config.embedding.max_input_chars,
+            embedding_max_input_tokens=config.embedding.max_input_tokens,
+            embedding_token_safety_margin=config.embedding.token_safety_margin,
             progress=False,
         ),
     )

@@ -13,6 +13,7 @@ from ..strategies import RetrievalStrategy
 from ..tracing import TraceLogger
 from .eval_case_bucket_classifier import EvalCaseBucketClassifier
 from .evaluation_statistics import EvaluationStatistics
+from .expected_path_matcher import ExpectedPathMatcher
 
 
 class EvaluationService:
@@ -26,6 +27,7 @@ class EvaluationService:
         self.bucket_classifier = EvalCaseBucketClassifier()
         self.index_kind_resolver = CodeItemIndexKindResolver()
         self.statistics = EvaluationStatistics()
+        self.expected_path_matcher = ExpectedPathMatcher()
         self.trace_logger = trace_logger or TraceLogger.disabled()
         self.progress_interval = max(int(progress_interval or 1), 1)
 
@@ -434,10 +436,7 @@ class EvaluationService:
         return any(self._matches_path_expected(path, value) for value in expected)
 
     def _matches_path_expected(self, path: str, expected: str) -> bool:
-        normalized = expected.strip()
-        if normalized.startswith("glob:"):
-            return fnmatch.fnmatchcase(path, normalized.removeprefix("glob:"))
-        return path == normalized or path.startswith(normalized.rstrip("/") + "/")
+        return self.expected_path_matcher.matches(path, expected)
 
     def _ndcg(self, files: list[str], expected: list[str], limit: int) -> float:
         dcg = 0.0

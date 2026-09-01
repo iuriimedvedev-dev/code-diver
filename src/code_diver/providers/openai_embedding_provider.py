@@ -37,6 +37,8 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
         document_prefix: str | None = Defaults.EMBEDDING_DOCUMENT_PREFIX,
         query_prefix: str | None = Defaults.EMBEDDING_QUERY_PREFIX,
         max_input_chars: int | None = Defaults.EMBEDDING_MAX_INPUT_CHARS,
+        max_input_tokens: int = Defaults.EMBEDDING_MAX_INPUT_TOKENS,
+        token_safety_margin: int = Defaults.EMBEDDING_TOKEN_SAFETY_MARGIN,
         send_dimensions: bool = True,
         retry_attempts: int = Defaults.EMBEDDING_RETRY_ATTEMPTS,
         retry_delay_seconds: float = Defaults.EMBEDDING_RETRY_DELAY_SECONDS,
@@ -51,6 +53,8 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
         self.document_prefix = document_prefix
         self.query_prefix = query_prefix
         self.max_input_chars = max_input_chars
+        self.max_input_tokens = max(1, int(max_input_tokens))
+        self.token_safety_margin = max(0, int(token_safety_margin))
         self.send_dimensions = send_dimensions
         self.tokenizer = tokenizer
         self._tiktoken_encoding: Any | None = None
@@ -80,10 +84,12 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
     def _prefixed(self, prefix: str | None, text: str) -> str:
         return f"{prefix}{text}" if prefix else text
 
-    # Model context is 512 tokens; keep margin for special tokens + tokenizer mismatch
-    # between local Qwen count and the server (rejects observed at 513 with margin=2).
-    _MODEL_MAX_TOKENS = 512
-    _TOKEN_SAFETY_MARGIN = 32
+    # Class-level fallbacks for subclasses/tests that bypass __init__. The effective values are
+    # the instance attributes fed from `embedding.max_input_tokens` / `embedding.token_safety_margin`.
+    # Keep margin for special tokens + tokenizer mismatch between the local Qwen count and the
+    # server (rejects observed at 513 with margin=2).
+    _MODEL_MAX_TOKENS = Defaults.EMBEDDING_MAX_INPUT_TOKENS
+    _TOKEN_SAFETY_MARGIN = Defaults.EMBEDDING_TOKEN_SAFETY_MARGIN
 
     def _bounded_prefixed(self, prefix: str | None, text: str, limit: int | None = None) -> str:
         """Cap by chars then by tokens. Never trust char/token ratio heuristics.
@@ -99,7 +105,7 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
             max_input_chars = 10**9
         if len(prefixed) > max_input_chars:
             prefixed = prefixed[:max_input_chars]
-        token_budget = max(1, self._MODEL_MAX_TOKENS - self._TOKEN_SAFETY_MARGIN)
+        token_budget = self._effective_token_budget()
         # Optional `limit` callers (context-retry) pass a tighter token-ish budget.
         if limit is not None and limit < token_budget:
             token_budget = max(1, limit)
@@ -127,6 +133,11 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
             # badly than the previous *5 heuristic that skipped truncation entirely.
             char_cap = min(max_input_chars, token_budget * 3)
             return prefixed[:char_cap]
+
+    def _effective_token_budget(self) -> int:
+        max_tokens = getattr(self, "max_input_tokens", self._MODEL_MAX_TOKENS)
+        margin = getattr(self, "token_safety_margin", self._TOKEN_SAFETY_MARGIN)
+        return max(1, int(max_tokens) - int(margin))
 
     def _ensure_tokenizer(self) -> None:
         """Lazily bind a real model tokenizer for Qwen/local embeds when available."""
@@ -222,7 +233,7 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
         budget = self.max_input_chars if self.max_input_chars and self.max_input_chars > 0 else len(text)
         for attempt in range(2, 4):
             budget = max(budget // 2, 1)
-            max_tokens = min(self._MODEL_MAX_TOKENS, budget)
+            max_tokens = min(getattr(self, "max_input_tokens", self._MODEL_MAX_TOKENS), budget)
             shortened = self._bounded_prefixed(None, current, max_tokens)
             if len(shortened) >= len(current):
                 shortened = current[: max(len(current) // 2, 1)]

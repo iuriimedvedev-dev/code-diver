@@ -151,6 +151,8 @@ graph_file_search:
   # same HybridCandidateScorer. WHERE-79 recall@10 0.5757 -> 0.6120, mech150 guard slice
   # 0.7977 -> 0.8381 with every mechanical bucket up, latency flat or better.
   seed_score_parity: true
+  ltr_ranker_enabled: true
+  ltr_model_path: artifacts/ltr/ranker.json
 
 # Champion block, verbatim. :8080 holds an unrelated jbcc-api listener on this machine, so
 # the reranker is on :8081.
@@ -182,7 +184,7 @@ evaluation:
   workers: 1
 
 experiments:
-  suite: champion-h66b
+  suite: h80-ltr
 
 metrics:
   enabled: false

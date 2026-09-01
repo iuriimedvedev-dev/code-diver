@@ -1,30 +1,35 @@
-# H-66b Champion: best-measured WHERE arm.
-# Promoted to champion on 2026-08-31.
+# H-70 wide window: verbatim copy of intellij-h66b-champion.yml with ONE value changed --
+# embedding.max_input_chars 500 -> 1800 -- plus the new collection that change forces.
 #
-# Metrics (IntelliJ Community):
+# Rationale (measured 2026-09-01, 200-file IntelliJ sample, embedder's own Qwen tokenizer,
+# scripts/measure_summary_token_lengths.py):
+#   uncapped compact summary : median 553 tok, p95 1178 tok
+#   at max_input_chars=500   : median 109 tok, p95 131, max 163 -- 21% of the 512 window,
+#                              and 193/200 files (96.5%) lose content to the char cap
+#   at max_input_chars=1800  : median 370 tok, p95 432, p99 460, max 491
+#                              0/200 over the 512 model window, 1/200 over the 480 effective
+#                              budget (512 - 32 token safety margin)
+# 1900/1965 were also measured and stay under 512 (max 496/511) but leave no headroom for
+# files outside the sample, so 1800 is the chosen budget.
+#
+# NEW COLLECTION REQUIRED: the embedded text changes (more of the summary reaches the vector),
+# so intellij_h66b_budget_qwen must NOT be reused or overwritten.
+#
+# Inherited champion metrics for reference (IntelliJ Community):
 # - WHERE-79: 0.5757-0.5905 recall@10 / 0.3630-0.3708 MRR
 # - 1065: 0.8175 recall@10 (-0.0117 vs H46), 0.6376 hit@1 (+0.0113)
 # - Workflow bucket: 0.8027 (best on record)
 #
-# NEW COLLECTION REQUIRED: build a new collection at index time. Changing purpose+terms content
-# changes embedded/indexed content, so the H46 collection cannot be reused. The indexed file
-# summary must use the purpose+terms section immediately after file/extension and
-# before symbols, matching FileSummaryItemBuilder's file, extension, purpose+terms, symbols, imports order.
-#
-# H-66b budget: the embedder truncates at max_input_chars=500, so only the first lines reach the
-# vector. This config enables file_summary_compact_budget: purpose+terms first, keyword/path noise
-# dropped from terms, and the embedded file: line shortened to basename + last two segments.
-# Weights are identical to H-66 -- only the collection, the suite label and the scanner flag differ.
-#
-# H46 is intentionally archived. This config copies its full schema and values, except for
-# the experiment identifier and the collection name required by the changed indexed content.
+# Inherited from H-66b: file_summary_compact_budget puts purpose+terms first, drops keyword/path
+# noise from terms, and shortens the embedded file: line to basename + last two segments. Every
+# weight, scanner flag and strategy block below is byte-identical to the champion.
 root: ../intellij-community
 
 storage:
   provider: qdrant
   qdrant:
     url: http://localhost:6333
-    collection: intellij_h66b_budget_qwen
+    collection: intellij_h70_wide_window_qwen
     batch_size: 1024
 
 # Verbatim from intellij-postrank-h3-manifest.yml -- must match how the collection was built.
@@ -36,7 +41,8 @@ embedding:
   api_key: local
   batch_size: 128
   workers: 4
-  max_input_chars: 500
+  # H-70: the only changed value vs the champion. 500 chars used ~109 of the 512-token window.
+  max_input_chars: 1800
 
 search:
   limit: 10
@@ -182,7 +188,7 @@ evaluation:
   workers: 1
 
 experiments:
-  suite: champion-h66b
+  suite: h70-wide-window
 
 metrics:
   enabled: false

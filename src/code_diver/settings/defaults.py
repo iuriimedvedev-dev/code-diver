@@ -26,6 +26,11 @@ class Defaults:
     EMBEDDING_BATCH_SIZE = 96
     EMBEDDING_WORKERS = 4
     EMBEDDING_MAX_INPUT_CHARS = 1200
+    # H-70: the embedder's real context window in TOKENS, and the headroom kept for special
+    # tokens plus local-tokenizer vs server mismatch. Both were hard-coded in the providers;
+    # defaults reproduce the previous constants exactly, so every existing config is unchanged.
+    EMBEDDING_MAX_INPUT_TOKENS = 512
+    EMBEDDING_TOKEN_SAFETY_MARGIN = 32
     EMBEDDING_URL = "http://127.0.0.1:8001/v1/embeddings"
     EMBEDDING_API_KEY = None
     EMBEDDING_RETRY_ATTEMPTS = 3
@@ -268,6 +273,7 @@ class Defaults:
     CROSS_ENCODER_RERANK_TIMEOUT_MS = 20_000
     CROSS_ENCODER_RERANK_PRESERVE_TOP_CANDIDATE = False
     CROSS_ENCODER_RERANK_PRESERVE_TOP_SCORE_MARGIN = 0.0
+    CROSS_ENCODER_RERANK_PRESERVE_TOP_DEPTH = 1
     CROSS_ENCODER_RERANK_SKIP_WHEN_TOP_MARGIN_AT_LEAST = None
     # H49: when the base fusion ranking is "flat" near the top (no confident leader), the
     # correct file for a semantic query is more likely to be buried past candidate_limit. Widen

@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from ..domain import CodeItem
+from ..settings import Defaults
 
 try:
     import tiktoken
@@ -11,23 +12,43 @@ except Exception:  # pragma: no cover - optional dependency
 
 
 class EmbeddingTextPreparer:
-    def __init__(self, max_input_chars: int | None = None, tokenizer: Any | None = None):
+    def __init__(
+        self,
+        max_input_chars: int | None = None,
+        tokenizer: Any | None = None,
+        max_input_tokens: int = Defaults.EMBEDDING_MAX_INPUT_TOKENS,
+        token_safety_margin: int = Defaults.EMBEDDING_TOKEN_SAFETY_MARGIN,
+    ):
         self.max_input_chars = max_input_chars
         self.tokenizer = tokenizer
+        self.max_input_tokens = max_input_tokens
+        self.token_safety_margin = token_safety_margin
 
     def prepare(self, item: CodeItem) -> str:
         text = item.to_embedding_text()
         if self.max_input_chars is None or self.max_input_chars <= 0:
             return text
-        return truncate_embedding_text(text, self.max_input_chars, self.tokenizer)
+        return truncate_embedding_text(
+            text,
+            self.max_input_chars,
+            self.tokenizer,
+            max_input_tokens=self.max_input_tokens,
+            token_safety_margin=self.token_safety_margin,
+        )
 
 
-_MODEL_MAX_TOKENS = 512
+_MODEL_MAX_TOKENS = Defaults.EMBEDDING_MAX_INPUT_TOKENS
 # Leave headroom for special tokens and Qwen vs tiktoken mismatch.
-_TOKEN_SAFETY_MARGIN = 32
+_TOKEN_SAFETY_MARGIN = Defaults.EMBEDDING_TOKEN_SAFETY_MARGIN
 
 
-def truncate_embedding_text(text: str, max_input_chars: int, tokenizer: Any | None = None) -> str:
+def truncate_embedding_text(
+    text: str,
+    max_input_chars: int,
+    tokenizer: Any | None = None,
+    max_input_tokens: int = Defaults.EMBEDDING_MAX_INPUT_TOKENS,
+    token_safety_margin: int = Defaults.EMBEDDING_TOKEN_SAFETY_MARGIN,
+) -> str:
     """Use token-aware truncation when available, with a character fallback.
 
     `max_input_chars` is the maximum CHARACTER count of the summary text
@@ -38,7 +59,7 @@ def truncate_embedding_text(text: str, max_input_chars: int, tokenizer: Any | No
     When tokenizer is available, the text is truncated to the safe token budget,
     then further limited to `max_input_chars` chars if needed.
     """
-    max_tokens = max(1, _MODEL_MAX_TOKENS - _TOKEN_SAFETY_MARGIN)
+    max_tokens = max(1, int(max_input_tokens) - int(token_safety_margin))
     try:
         if tokenizer is not None:
             token_ids = tokenizer.encode(text, add_special_tokens=False)
@@ -73,10 +94,21 @@ def truncate_embedding_text(text: str, max_input_chars: int, tokenizer: Any | No
         return text[: min(max_input_chars, max_tokens * 3)]
 
 
-def shrink_embedding_text(text: str, tokenizer: Any | None = None) -> str:
+def shrink_embedding_text(
+    text: str,
+    tokenizer: Any | None = None,
+    max_input_tokens: int = Defaults.EMBEDDING_MAX_INPUT_TOKENS,
+    token_safety_margin: int = Defaults.EMBEDDING_TOKEN_SAFETY_MARGIN,
+) -> str:
     """Reduce an overflowing input without cutting through a decoded token when possible."""
     if not text:
         return text
     if len(text) == 1:
         return ""
-    return truncate_embedding_text(text, max(len(text) // 2, 1), tokenizer)
+    return truncate_embedding_text(
+        text,
+        max(len(text) // 2, 1),
+        tokenizer,
+        max_input_tokens=max_input_tokens,
+        token_safety_margin=token_safety_margin,
+    )

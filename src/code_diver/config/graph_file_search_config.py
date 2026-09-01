@@ -28,3 +28,9 @@ class GraphFileSearchConfig:
     prose_fusion_router_enabled: bool = Defaults.GRAPH_FILE_PROSE_FUSION_ROUTER_ENABLED
     prose_path_weight: float = Defaults.GRAPH_FILE_PROSE_PATH_WEIGHT
     prose_symbol_weight: float = Defaults.GRAPH_FILE_PROSE_SYMBOL_WEIGHT
+    seed_score_parity: bool = False
+    # H-80: replace the hand-tuned weighted sum above with a model trained on our own eval
+    # data. Default off, and a missing or incompatible artifact falls back to the weighted
+    # sum, so every existing config keeps its exact ordering.
+    ltr_ranker_enabled: bool = False
+    ltr_model_path: str | None = None

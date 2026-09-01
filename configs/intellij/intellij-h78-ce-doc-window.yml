@@ -1,3 +1,16 @@
+# H-78 CE document window: verbatim copy of intellij-h77-seed-parity.yml (seed_score_parity
+# stays on) with exactly one further change -- cross_encoder_rerank.max_document_chars
+# 850 -> 1600. It stacks on H-77, which measured 0.6120 recall@10 / 0.3679 MRR@10 /
+# 54-79 hit@10 against a same-sitting champion floor of 0.5757 / 0.3708 / 51-79.
+#
+# Hypothesis: in the H-77 pool the cross-encoder scores a handful of correct files at ~0.1,
+# which looks like body truncation -- at 850 chars a file summary can be cut before the part
+# that actually answers the query, so the reranker judges a fragment. Widening the window
+# gives it more of the same document. Cost: roughly 2x document text per rerank request, so
+# latency is the metric to watch alongside recall.
+#
+# Inherited H-77 / champion header below.
+#
 # H-66b Champion: best-measured WHERE arm.
 # Promoted to champion on 2026-08-31.
 #
@@ -145,11 +158,7 @@ graph_file_search:
   neighbor_limit: 40
   decay: 0.65
   min_token_length: 3
-  # H-77, promoted 2026-08-31. Candidates that reach _seed_scores through the vector lane
-  # used to keep structural lexical/path/symbol zeros (they were simply absent from the
-  # lexical seed top-280), capping them at vector_weight alone. Parity rescores them with the
-  # same HybridCandidateScorer. WHERE-79 recall@10 0.5757 -> 0.6120, mech150 guard slice
-  # 0.7977 -> 0.8381 with every mechanical bucket up, latency flat or better.
+  # The only deviation from the champion.
   seed_score_parity: true
 
 # Champion block, verbatim. :8080 holds an unrelated jbcc-api listener on this machine, so
@@ -159,7 +168,8 @@ cross_encoder_rerank:
   model: Qwen3-Reranker-0.6B
   url: http://127.0.0.1:8081/v1/rerank
   candidate_limit: 34
-  max_document_chars: 850
+  # The only deviation from H-77.
+  max_document_chars: 1600
   preserve_top_candidate: true
   preserve_top_score_margin: 0.1
   timeout_ms: 60000
@@ -182,7 +192,7 @@ evaluation:
   workers: 1
 
 experiments:
-  suite: champion-h66b
+  suite: h78-ce-doc-window
 
 metrics:
   enabled: false

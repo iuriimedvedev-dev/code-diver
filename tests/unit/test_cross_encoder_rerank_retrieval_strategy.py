@@ -149,6 +149,110 @@ def test_cross_encoder_rerank_preserves_confident_top_candidate() -> None:
     ]
 
 
+def _preserve_depth_case(preserve_top_depth: int) -> list[SearchResult]:
+    """Base rank 2 holds the correct file and the cross-encoder demotes it below rank 3."""
+    results = [
+        _result("a", "src/a.py", 0.95),
+        _result("target", "src/target.py", 0.90),
+        _result("c", "src/c.py", 0.40),
+    ]
+    provider = FakeRerankProvider(
+        [
+            RerankScore(index=0, score=0.99),
+            RerankScore(index=2, score=0.80),
+            RerankScore(index=1, score=0.10),
+        ]
+    )
+    strategy = CrossEncoderRerankRetrievalStrategy(
+        FakeStrategy(results),
+        provider,
+        CrossEncoderRerankConfig(
+            candidate_limit=3,
+            preserve_top_candidate=True,
+            preserve_top_score_margin=0.1,
+            preserve_top_depth=preserve_top_depth,
+        ),
+    )
+    return strategy.search("query", 3)
+
+
+def test_cross_encoder_rerank_default_depth_still_lets_rank_two_be_demoted() -> None:
+    """Depth 1 is the historical behaviour: only base rank 1 is protected."""
+    assert [result.item.path for result in _preserve_depth_case(1)] == [
+        "src/a.py",
+        "src/c.py",
+        "src/target.py",
+    ]
+
+
+def test_cross_encoder_rerank_preserve_top_depth_two_protects_base_rank_two() -> None:
+    assert [result.item.path for result in _preserve_depth_case(2)] == [
+        "src/a.py",
+        "src/target.py",
+        "src/c.py",
+    ]
+
+
+def test_cross_encoder_rerank_preserve_top_depth_respects_the_margin_gate() -> None:
+    """The gate compares the last protected candidate with the first unprotected one."""
+    results = [
+        _result("a", "src/a.py", 0.95),
+        _result("target", "src/target.py", 0.90),
+        # Rank 3 is only 0.01 behind rank 2, so the base order is not confident at the cut
+        # point and the cross-encoder order must win even at depth 2.
+        _result("c", "src/c.py", 0.89),
+    ]
+    provider = FakeRerankProvider(
+        [
+            RerankScore(index=0, score=0.99),
+            RerankScore(index=2, score=0.80),
+            RerankScore(index=1, score=0.10),
+        ]
+    )
+    strategy = CrossEncoderRerankRetrievalStrategy(
+        FakeStrategy(results),
+        provider,
+        CrossEncoderRerankConfig(
+            candidate_limit=3,
+            preserve_top_candidate=True,
+            preserve_top_score_margin=0.1,
+            preserve_top_depth=2,
+        ),
+    )
+
+    assert [result.item.path for result in strategy.search("query", 3)] == [
+        "src/a.py",
+        "src/c.py",
+        "src/target.py",
+    ]
+
+
+def test_cross_encoder_rerank_preserve_top_depth_is_inert_without_preserve_top_candidate() -> None:
+    results = [
+        _result("a", "src/a.py", 0.95),
+        _result("target", "src/target.py", 0.90),
+        _result("c", "src/c.py", 0.40),
+    ]
+    provider = FakeRerankProvider(
+        [
+            RerankScore(index=2, score=0.99),
+            RerankScore(index=0, score=0.80),
+            RerankScore(index=1, score=0.10),
+        ]
+    )
+    strategy = CrossEncoderRerankRetrievalStrategy(
+        FakeStrategy(results),
+        provider,
+        CrossEncoderRerankConfig(candidate_limit=3, preserve_top_depth=3),
+    )
+
+    assert [result.item.path for result in strategy.search("query", 3)] == [
+        "src/c.py",
+        "src/a.py",
+        "src/target.py",
+    ]
+
+
 def test_cross_encoder_rerank_skips_provider_for_confident_base_top(
     tmp_path: Path,
 ) -> None:

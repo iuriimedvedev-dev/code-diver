@@ -128,6 +128,10 @@ class ConfigLoader:
             batch_size=int(mapping.get("batch_size", Defaults.EMBEDDING_BATCH_SIZE)),
             workers=int(mapping.get("workers", Defaults.EMBEDDING_WORKERS)),
             max_input_chars=self._optional_int(mapping.get("max_input_chars", Defaults.EMBEDDING_MAX_INPUT_CHARS)),
+            max_input_tokens=int(mapping.get("max_input_tokens", Defaults.EMBEDDING_MAX_INPUT_TOKENS)),
+            token_safety_margin=int(
+                mapping.get("token_safety_margin", Defaults.EMBEDDING_TOKEN_SAFETY_MARGIN)
+            ),
             retry_attempts=int(mapping.get("retry_attempts", Defaults.EMBEDDING_RETRY_ATTEMPTS)),
             retry_delay_seconds=float(mapping.get("retry_delay_seconds", Defaults.EMBEDDING_RETRY_DELAY_SECONDS)),
             document_prefix=self._optional_raw_string(
@@ -626,6 +630,18 @@ class ConfigLoader:
                     base.prose_symbol_weight if base is not None else Defaults.GRAPH_FILE_PROSE_SYMBOL_WEIGHT,
                 )
             ),
+            seed_score_parity=bool(
+                mapping.get("seed_score_parity", base.seed_score_parity if base is not None else False)
+            ),
+            ltr_ranker_enabled=bool(
+                mapping.get(
+                    "ltr_ranker_enabled",
+                    base.ltr_ranker_enabled if base is not None else False,
+                )
+            ),
+            ltr_model_path=self._optional_string(
+                mapping.get("ltr_model_path", base.ltr_model_path if base is not None else None)
+            ),
         )
 
     def _llm_rerank(
@@ -770,6 +786,14 @@ class ConfigLoader:
                     base.preserve_top_score_margin
                     if base is not None
                     else Defaults.CROSS_ENCODER_RERANK_PRESERVE_TOP_SCORE_MARGIN,
+                )
+            ),
+            preserve_top_depth=int(
+                mapping.get(
+                    "preserve_top_depth",
+                    base.preserve_top_depth
+                    if base is not None
+                    else Defaults.CROSS_ENCODER_RERANK_PRESERVE_TOP_DEPTH,
                 )
             ),
             skip_when_top_margin_at_least=self._optional_float(

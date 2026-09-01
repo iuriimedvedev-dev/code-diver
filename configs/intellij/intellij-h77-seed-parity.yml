@@ -1,3 +1,15 @@
+# H-77 seed score parity: verbatim copy of intellij-h66b-champion.yml with the single new
+# graph_file_search.seed_score_parity flag enabled. Nothing else differs (same collection,
+# same weights, same cross-encoder block), so the arm isolates one mechanism:
+# GraphFileRetrievalStrategy._seed_scores used to rebuild the fused score from two independent
+# sources, so a candidate that arrived only through the vector lane -- and was therefore absent
+# from the lexical seed top-280 -- kept lexical=path=symbol=0.0 structurally, by absence rather
+# than by lack of match, capping it at vector_weight=0.25 of ~0.80. With the flag on, those
+# vector-side candidates are scored with the same HybridCandidateScorer (and the same, already
+# built, item profiles) as the lexical seeds.
+#
+# Inherited champion header below.
+#
 # H-66b Champion: best-measured WHERE arm.
 # Promoted to champion on 2026-08-31.
 #
@@ -145,11 +157,7 @@ graph_file_search:
   neighbor_limit: 40
   decay: 0.65
   min_token_length: 3
-  # H-77, promoted 2026-08-31. Candidates that reach _seed_scores through the vector lane
-  # used to keep structural lexical/path/symbol zeros (they were simply absent from the
-  # lexical seed top-280), capping them at vector_weight alone. Parity rescores them with the
-  # same HybridCandidateScorer. WHERE-79 recall@10 0.5757 -> 0.6120, mech150 guard slice
-  # 0.7977 -> 0.8381 with every mechanical bucket up, latency flat or better.
+  # The only deviation from the champion.
   seed_score_parity: true
 
 # Champion block, verbatim. :8080 holds an unrelated jbcc-api listener on this machine, so
@@ -182,7 +190,7 @@ evaluation:
   workers: 1
 
 experiments:
-  suite: champion-h66b
+  suite: h77-seed-parity
 
 metrics:
   enabled: false

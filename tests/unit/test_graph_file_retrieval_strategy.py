@@ -685,3 +685,87 @@ def test_graph_file_strategy_preserves_vector_hits_missing_from_catalog(tmp_path
     assert len(results) == 1
     assert results[0].item.path == "external/unindexed_module.py"
     assert results[0].item.id == "unindexed-1"
+
+
+def _seed_parity_fixture(tmp_path: Path, *, seed_score_parity: bool) -> tuple[
+    GraphFileRetrievalStrategy, str
+]:
+    """A vector-only gold file that the lexical seed slice cannot reach.
+
+    The distractor outranks the gold on raw lexical score, so with lexical_seed_limit=1 it
+    takes the single seed slot and the gold reaches _seed_scores through the vector lane only.
+    """
+    gold = CodeItem(
+        id="gold",
+        path="src/editor/caret/CaretMoveHandler.kt",
+        title="src/editor/caret/CaretMoveHandler.kt::file_manifest",
+        content="symbols:\n- class CaretMover",
+        metadata={"index_kind": "file_manifest", "symbol": "CaretMoveHandler"},
+    )
+    distractor = CodeItem(
+        id="distractor",
+        path="src/other/notes.kt",
+        title="src/other/notes.kt::file_manifest",
+        content="caret move handler\nsymbols:\n- function caret_move_handler",
+        metadata={"index_kind": "file_manifest"},
+    )
+    store = _graph_store(tmp_path, [gold, distractor], [])
+    strategy = GraphFileRetrievalStrategy(
+        FakeRetrievalStrategy([SearchResult(gold, 0.95)]),
+        store,
+        GraphFileSearchConfig(
+            seed_limit=5,
+            lexical_seed_limit=1,
+            vector_weight=0.25,
+            lexical_weight=0.25,
+            path_weight=0.20,
+            symbol_weight=0.10,
+            graph_weight=0.0,
+            seed_score_parity=seed_score_parity,
+        ),
+    )
+    return strategy, gold.path
+
+
+def test_seed_score_parity_off_leaves_vector_only_candidate_with_zero_lexical(
+    tmp_path: Path,
+) -> None:
+    strategy, gold_path = _seed_parity_fixture(tmp_path, seed_score_parity=False)
+
+    scores = strategy._seed_scores("caret move handler", strategy._load_catalog(), 10)
+
+    gold_score = scores[gold_path]
+    assert gold_score.vector_score > 0.0
+    assert gold_score.lexical_score == 0.0
+    assert gold_score.path_score == 0.0
+    assert gold_score.symbol_score == 0.0
+
+
+def test_seed_score_parity_on_scores_vector_only_candidate_lexically(tmp_path: Path) -> None:
+    strategy, gold_path = _seed_parity_fixture(tmp_path, seed_score_parity=True)
+
+    scores = strategy._seed_scores("caret move handler", strategy._load_catalog(), 10)
+
+    gold_score = scores[gold_path]
+    assert gold_score.vector_score > 0.0
+    assert gold_score.lexical_score > 0.0
+    assert gold_score.path_score > 0.0
+    assert gold_score.symbol_score > 0.0
+
+
+def test_seed_score_parity_widens_vector_only_gold_margin(tmp_path: Path) -> None:
+    baseline_strategy, gold_path = _seed_parity_fixture(tmp_path, seed_score_parity=False)
+    parity_strategy, _ = _seed_parity_fixture(tmp_path, seed_score_parity=True)
+
+    baseline = {
+        result.item.path: result.score
+        for result in baseline_strategy.search("caret move handler", limit=2)
+    }
+    parity = {
+        result.item.path: result.score
+        for result in parity_strategy.search("caret move handler", limit=2)
+    }
+
+    assert parity[gold_path] > baseline[gold_path]
+    distractor_path = next(path for path in baseline if path != gold_path)
+    assert parity[distractor_path] == pytest.approx(baseline[distractor_path])

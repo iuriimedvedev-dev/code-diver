@@ -142,23 +142,40 @@ class CrossEncoderRerankRetrievalStrategy(RetrievalStrategy):
             seen.add(score.index)
         reranked = [candidates[index] for index in selected_indices]
         reranked.extend(candidate for index, candidate in enumerate(candidates) if index not in seen)
-        if self._should_preserve_top(candidates, reranked):
+        preserved = self._preserved_prefix_size(candidates, reranked)
+        if preserved:
+            prefix = candidates[:preserved]
+            prefix_ids = {candidate.item.id for candidate in prefix}
             reranked = [
-                candidates[0],
-                *(candidate for candidate in reranked if candidate.item.id != candidates[0].item.id),
+                *prefix,
+                *(candidate for candidate in reranked if candidate.item.id not in prefix_ids),
             ]
         reranked.extend(tail_candidates)
         return reranked[:limit]
 
-    def _should_preserve_top(self, candidates: list[SearchResult], reranked: list[SearchResult]) -> bool:
+    def _preserved_prefix_size(self, candidates: list[SearchResult], reranked: list[SearchResult]) -> int:
+        """How many leading base candidates keep their base order in front of the rerank.
+
+        H-79: `preserve_top_candidate` only ever protected base rank 1, but the cross-encoder
+        also demotes correct files sitting at base rank 2-3 (measured on WHERE-79:
+        where-go-to-declaration-navigation 7 -> 12, where-code-folding 9 -> 28). `preserve_top_depth`
+        widens the protected prefix. It defaults to 1, which reproduces the previous top-1-only
+        behaviour exactly, so the option is off unless a config asks for it.
+
+        The margin gate keeps its meaning: it compares the last protected candidate with the
+        first unprotected one, i.e. it only trusts the base order when the base ranking itself
+        is confident at the cut point.
+        """
         if not self.config.preserve_top_candidate or not candidates or not reranked:
-            return False
-        if reranked[0].item.id == candidates[0].item.id:
-            return False
-        if len(candidates) == 1:
-            return True
-        margin = candidates[0].score - candidates[1].score
-        return margin >= self.config.preserve_top_score_margin
+            return 0
+        depth = min(max(self.config.preserve_top_depth, 1), len(candidates))
+        base_prefix = [candidate.item.id for candidate in candidates[:depth]]
+        if [candidate.item.id for candidate in reranked[:depth]] == base_prefix:
+            return 0
+        if len(candidates) <= depth:
+            return depth
+        margin = candidates[depth - 1].score - candidates[depth].score
+        return depth if margin >= self.config.preserve_top_score_margin else 0
 
     def _effective_candidate_limit(self, query: str, candidates: list[SearchResult]) -> int:
         """Widen the reranked window for queries where the base fusion ranking is "flat".

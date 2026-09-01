@@ -38,6 +38,8 @@ def make_embedding_provider(config: AppConfig, payload: dict[str, Any] | None = 
         document_prefix=embedding.document_prefix,
         query_prefix=embedding.query_prefix,
         max_input_chars=embedding.max_input_chars,
+        max_input_tokens=embedding.max_input_tokens,
+        token_safety_margin=embedding.token_safety_margin,
     )
 
 

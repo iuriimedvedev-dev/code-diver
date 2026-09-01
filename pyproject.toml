@@ -42,6 +42,13 @@ Issues = "https://github.com/iuriimedvedev-dev/code-diver/issues"
 benchmarks = [
   "datasets>=4.0.0",
 ]
+# Learning-to-rank (H-80): lambdarank training for the optional learned file ranker.
+# Inference degrades to the hand-tuned fusion when this extra is not installed.
+ltr = [
+  "lightgbm>=4.5.0",
+  "scikit-learn>=1.5.0",
+  "joblib>=1.4.0",
+]
 # Gemini Developer API and Vertex AI comparison baselines.
 # google-auth/requests back ADC token minting and GCS upload for Vertex Batch.
 gemini = [

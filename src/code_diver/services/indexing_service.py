@@ -100,9 +100,15 @@ class IndexingService:
                 "embedding_batch_size": self.options.embedding_batch_size,
                 "embedding_workers": self.options.embedding_workers,
                 "embedding_max_input_chars": self.options.embedding_max_input_chars,
+                "embedding_max_input_tokens": self.options.embedding_max_input_tokens,
+                "embedding_token_safety_margin": self.options.embedding_token_safety_margin,
             },
         )
-        preparer = EmbeddingTextPreparer(self.options.embedding_max_input_chars)
+        preparer = EmbeddingTextPreparer(
+            self.options.embedding_max_input_chars,
+            max_input_tokens=self.options.embedding_max_input_tokens,
+            token_safety_margin=self.options.embedding_token_safety_margin,
+        )
         self._progress_message(
             "embedding retrieval texts: "
             f"items={len(items)} provider={provider.name} model={provider.model} "

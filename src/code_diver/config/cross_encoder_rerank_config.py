@@ -16,6 +16,9 @@ class CrossEncoderRerankConfig:
     timeout_ms: int = Defaults.CROSS_ENCODER_RERANK_TIMEOUT_MS
     preserve_top_candidate: bool = Defaults.CROSS_ENCODER_RERANK_PRESERVE_TOP_CANDIDATE
     preserve_top_score_margin: float = Defaults.CROSS_ENCODER_RERANK_PRESERVE_TOP_SCORE_MARGIN
+    # H-79: how many leading base candidates preserve_top_candidate protects. 1 keeps the
+    # historical top-1-only behaviour, so the option is off by default.
+    preserve_top_depth: int = Defaults.CROSS_ENCODER_RERANK_PRESERVE_TOP_DEPTH
     skip_when_top_margin_at_least: float | None = Defaults.CROSS_ENCODER_RERANK_SKIP_WHEN_TOP_MARGIN_AT_LEAST
     widen_when_uncertain_enabled: bool = Defaults.CROSS_ENCODER_RERANK_WIDEN_WHEN_UNCERTAIN_ENABLED
     widen_candidate_limit: int = Defaults.CROSS_ENCODER_RERANK_WIDEN_CANDIDATE_LIMIT
