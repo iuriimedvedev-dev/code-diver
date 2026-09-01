@@ -218,7 +218,7 @@ class GraphFileRetrievalStrategy(RetrievalStrategy):
         base_scores: dict[str, float] = {}
         base_items: dict[str, CodeItem] = {}
         base_winning_index_kinds: dict[str, str] = {}
-        for result in self.base_strategy.search(query, max(limit, self.config.seed_limit)):
+        for result in self.base_strategy.search(query, self._seed_pool_limit(limit)):
             item = self._item_for_path(catalog, result.item.path)
             if item is not None:
                 path = item.path
@@ -303,6 +303,22 @@ class GraphFileRetrievalStrategy(RetrievalStrategy):
                     existing.item,
                 )
         return scores
+
+    def _seed_pool_limit(self, limit: int) -> int:
+        """Width of the fused pool requested from the base strategy.
+
+        H-81: `max(limit, seed_limit)` capped the request at 140 on the champion arm even
+        though the base hybrid stage fuses a `candidate_limit`-wide pool (360) internally,
+        so the tail of that pool was trimmed before it ever reached this stage. With
+        `fusion_pool_parity` on, the request also honours the base strategy's configured
+        candidate_limit. Off keeps the exact historical width.
+        """
+        pool_limit = max(limit, self.config.seed_limit)
+        if not self.config.fusion_pool_parity:
+            return pool_limit
+        base_config = getattr(self.base_strategy, "config", None)
+        base_candidate_limit = int(getattr(base_config, "candidate_limit", 0) or 0)
+        return max(pool_limit, base_candidate_limit)
 
     def _update_max_score(
         self,

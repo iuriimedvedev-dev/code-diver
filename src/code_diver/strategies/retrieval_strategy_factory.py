@@ -18,13 +18,14 @@ from .graph_retrieval_strategy import GraphRetrievalStrategy
 from .hybrid_retrieval_strategy import HybridRetrievalStrategy
 from .llm_rerank_retrieval_strategy import LlmRerankRetrievalStrategy
 from .multi_index_vector_retrieval_strategy import MultiIndexVectorRetrievalStrategy
+from .multi_query_rrf_strategy import LlmQueryRewriter, MultiQueryRrfStrategy
 from .recursive_retrieval_strategy import RecursiveRetrievalStrategy
 from .retrieval_strategy import RetrievalStrategy
 from .vector_retrieval_strategy import VectorRetrievalStrategy
 
 
 class RetrievalStrategyFactory:
-    def create(
+    def _create_base(
         self,
         strategy: str,
         config: AppConfig,
@@ -104,6 +105,19 @@ class RetrievalStrategyFactory:
                 repository_root=config.root,
             )
         raise ValueError(f"Unknown retrieval strategy: {strategy}")
+
+    def create(
+        self,
+        strategy: str,
+        config: AppConfig,
+        provider: EmbeddingProvider,
+        vector_store: VectorStore,
+    ) -> RetrievalStrategy:
+        base = self._create_base(strategy, config, provider, vector_store)
+        if not config.multi_query.enabled:
+            return base
+        rewriter = LlmQueryRewriter(create_generation_provider(config)) if config.multi_query.llm_rewrites_enabled else None
+        return MultiQueryRrfStrategy(base, config.multi_query, llm_rewriter=rewriter)
 
     def _rerank_generation_config(self, config: AppConfig) -> AppConfig:
         """Swap in `llm_rerank.generation` so the rerank stage can run its own model."""

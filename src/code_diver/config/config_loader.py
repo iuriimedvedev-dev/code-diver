@@ -24,6 +24,7 @@ from .hybrid_search_config import HybridSearchConfig
 from .indexing_config import IndexingConfig
 from .llm_rerank_config import LlmRerankConfig
 from .metrics_config import MetricsConfig
+from .multi_query_config import MultiQueryConfig
 from .pi_config import PiConfig
 from .pi_repo_context_config import PiRepoContextConfig
 from .qdrant_config import QdrantConfig
@@ -44,6 +45,7 @@ class ConfigLoader:
         hybrid_search = self._hybrid_search(data.get("hybrid_search"))
         llm_rerank = self._llm_rerank(data.get("llm_rerank"), generation=generation)
         cross_encoder_rerank = self._cross_encoder_rerank(data.get("cross_encoder_rerank"))
+        multi_query = self._multi_query(data.get("multi_query"))
         return AppConfig(
             root=Path(data.get("root", Defaults.ROOT)),
             artifact=Path(data.get("artifact", Defaults.ARTIFACT)),
@@ -60,6 +62,7 @@ class ConfigLoader:
             hybrid_search=hybrid_search,
             llm_rerank=llm_rerank,
             cross_encoder_rerank=cross_encoder_rerank,
+            multi_query=multi_query,
             graph=self._graph(data.get("graph")),
             trace=self._trace(data.get("trace")),
             ui=self._ui(data.get("ui")),
@@ -461,6 +464,12 @@ class ConfigLoader:
                     base.vector_top_score_margin if base is not None else Defaults.HYBRID_VECTOR_TOP_SCORE_MARGIN,
                 )
             ),
+            preserve_vector_kind_top=int(
+                mapping.get(
+                    "preserve_vector_kind_top",
+                    base.preserve_vector_kind_top if base is not None else 0,
+                )
+            ),
             item_kind_weights=self._float_mapping(
                 mapping.get(
                     "item_kind_weights",
@@ -632,6 +641,9 @@ class ConfigLoader:
             ),
             seed_score_parity=bool(
                 mapping.get("seed_score_parity", base.seed_score_parity if base is not None else False)
+            ),
+            fusion_pool_parity=bool(
+                mapping.get("fusion_pool_parity", base.fusion_pool_parity if base is not None else False)
             ),
             ltr_ranker_enabled=bool(
                 mapping.get(
@@ -1068,6 +1080,19 @@ class ConfigLoader:
             probe_search_limit=int(mapping.get("probe_search_limit", base.probe_search_limit)),
             parallel_probes=bool(mapping.get("parallel_probes", base.parallel_probes)),
             max_probe_workers=int(mapping.get("max_probe_workers", base.max_probe_workers)),
+        )
+
+    def _multi_query(self, data: Any) -> MultiQueryConfig:
+        mapping = self._mapping(data)
+        base = MultiQueryConfig()
+        return MultiQueryConfig(
+            enabled=bool(mapping.get("enabled", base.enabled)),
+            max_variants=int(mapping.get("max_variants", base.max_variants)),
+            rrf_k=int(mapping.get("rrf_k", base.rrf_k)),
+            original_query_weight=float(mapping.get("original_query_weight", base.original_query_weight)),
+            llm_rewrites_enabled=bool(mapping.get("llm_rewrites_enabled", base.llm_rewrites_enabled)),
+            parallel_variants=bool(mapping.get("parallel_variants", base.parallel_variants)),
+            max_variant_workers=int(mapping.get("max_variant_workers", base.max_variant_workers)),
         )
 
     def _metrics(self, data: Any) -> MetricsConfig:

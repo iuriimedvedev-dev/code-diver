@@ -35,6 +35,11 @@ class HybridSearchConfig:
     routing_enabled: bool = Defaults.HYBRID_ROUTING_ENABLED
     preserve_vector_top: bool = Defaults.HYBRID_PRESERVE_VECTOR_TOP
     vector_top_score_margin: float = Defaults.HYBRID_VECTOR_TOP_SCORE_MARGIN
+    # H-81: `preserve_vector_top` only rescues the single global vector rank-1, so a strong
+    # single-lane vector hit (e.g. file_manifest lane rank 22) still dies when fused ranking
+    # trims the pool at `limit`. This guarantees the top-K vector hits of every index kind a
+    # slot in the returned pool. 0 keeps the exact current behaviour.
+    preserve_vector_kind_top: int = 0
     item_kind_weights: dict[str, float] = field(default_factory=lambda: dict(Defaults.HYBRID_ITEM_KIND_WEIGHTS))
     min_token_length: int = Defaults.HYBRID_MIN_TOKEN_LENGTH
     family_penalty_enabled: bool = Defaults.HYBRID_FAMILY_PENALTY_ENABLED

@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from code_diver.config import GraphFileSearchConfig
+from code_diver.config import GraphFileSearchConfig, HybridSearchConfig
 from code_diver.domain import CodeItem, SearchResult
 from code_diver.graph import CodeGraph, CodeGraphStore, GraphEdge
 from code_diver.strategies import GraphFileRetrievalStrategy, RetrievalStrategy
@@ -751,6 +751,98 @@ def test_seed_score_parity_on_scores_vector_only_candidate_lexically(tmp_path: P
     assert gold_score.lexical_score > 0.0
     assert gold_score.path_score > 0.0
     assert gold_score.symbol_score > 0.0
+
+
+class PoolRecordingRetrievalStrategy(RetrievalStrategy):
+    """Fake hybrid base: records the requested pool width and exposes a candidate_limit."""
+
+    def __init__(self, results: list[SearchResult], candidate_limit: int):
+        self.results = results
+        self.requested_limits: list[int] = []
+        self.config = HybridSearchConfig(candidate_limit=candidate_limit)
+
+    def search(self, query: str, limit: int) -> list[SearchResult]:
+        self.requested_limits.append(limit)
+        return self.results[:limit]
+
+
+def _fusion_pool_fixture(tmp_path: Path, *, fusion_pool_parity: bool) -> tuple[
+    GraphFileRetrievalStrategy, PoolRecordingRetrievalStrategy
+]:
+    """Nine vector hits behind a base whose candidate_limit (9) exceeds max(limit, seed_limit).
+
+    H-81: with the flag off the seed request stops at max(limit, seed_limit) = 5, so the tail
+    of the base strategy's fused pool never reaches the graph-file stage.
+    """
+    items = [
+        CodeItem(
+            id=f"item-{index}",
+            path=f"src/mod{index}/handler{index}.py",
+            title=f"src/mod{index}/handler{index}.py::file_manifest",
+            content=f"file: src/mod{index}/handler{index}.py",
+            metadata={"index_kind": "file_manifest"},
+        )
+        for index in range(9)
+    ]
+    store = _graph_store(tmp_path, items, [])
+    base = PoolRecordingRetrievalStrategy(
+        [SearchResult(item, 0.9 - index * 0.01) for index, item in enumerate(items)],
+        candidate_limit=9,
+    )
+    strategy = GraphFileRetrievalStrategy(
+        base,
+        store,
+        GraphFileSearchConfig(
+            seed_limit=5,
+            lexical_seed_limit=0,
+            vector_weight=1.0,
+            lexical_weight=0.0,
+            path_weight=0.0,
+            symbol_weight=0.0,
+            graph_weight=0.0,
+            fusion_pool_parity=fusion_pool_parity,
+        ),
+    )
+    return strategy, base
+
+
+def test_fusion_pool_parity_off_keeps_the_historical_pool_width(tmp_path: Path) -> None:
+    strategy, base = _fusion_pool_fixture(tmp_path, fusion_pool_parity=False)
+
+    scores = strategy._seed_scores("handler", strategy._load_catalog(), 3)
+
+    assert base.requested_limits == [5]
+    assert len(scores) == 5
+    assert "src/mod8/handler8.py" not in scores
+
+
+def test_fusion_pool_parity_on_honors_base_candidate_limit(tmp_path: Path) -> None:
+    strategy, base = _fusion_pool_fixture(tmp_path, fusion_pool_parity=True)
+
+    scores = strategy._seed_scores("handler", strategy._load_catalog(), 3)
+
+    assert base.requested_limits == [9]
+    assert len(scores) == 9
+    assert "src/mod8/handler8.py" in scores
+
+
+def test_fusion_pool_parity_falls_back_when_base_has_no_candidate_limit(tmp_path: Path) -> None:
+    item = CodeItem(
+        id="item",
+        path="src/known.py",
+        title="src/known.py::file_manifest",
+        content="file: src/known.py",
+        metadata={"index_kind": "file_manifest"},
+    )
+    store = _graph_store(tmp_path, [item], [])
+    strategy = GraphFileRetrievalStrategy(
+        FakeRetrievalStrategy([SearchResult(item, 0.9)]),
+        store,
+        GraphFileSearchConfig(seed_limit=5, lexical_seed_limit=0, fusion_pool_parity=True),
+    )
+
+    assert strategy._seed_pool_limit(3) == 5
+    assert strategy._seed_pool_limit(8) == 8
 
 
 def test_seed_score_parity_widens_vector_only_gold_margin(tmp_path: Path) -> None:

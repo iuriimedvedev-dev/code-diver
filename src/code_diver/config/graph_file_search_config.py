@@ -29,6 +29,11 @@ class GraphFileSearchConfig:
     prose_path_weight: float = Defaults.GRAPH_FILE_PROSE_PATH_WEIGHT
     prose_symbol_weight: float = Defaults.GRAPH_FILE_PROSE_SYMBOL_WEIGHT
     seed_score_parity: bool = False
+    # H-81: the seed pool used to be `max(limit, seed_limit)` wide (140 on the champion arm),
+    # so the base hybrid stage's configured candidate_limit-wide fused pool (360) was trimmed
+    # before it ever reached this stage. On, the seed request also honours the base strategy's
+    # candidate_limit. Off keeps the exact current pool width.
+    fusion_pool_parity: bool = False
     # H-80: replace the hand-tuned weighted sum above with a model trained on our own eval
     # data. Default off, and a missing or incompatible artifact falls back to the weighted
     # sum, so every existing config keeps its exact ordering.

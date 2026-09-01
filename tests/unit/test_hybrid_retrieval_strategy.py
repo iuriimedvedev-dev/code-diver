@@ -486,6 +486,84 @@ def test_hybrid_strategy_does_not_preserve_vector_top_without_margin(tmp_path: P
     assert results[0].item.id == "lexical-top"
 
 
+def _vector_kind_top_fixture(tmp_path: Path, *, preserve_vector_kind_top: int) -> HybridRetrievalStrategy:
+    """A strong single-lane vector hit that fused ranking trims out of the pool.
+
+    H-81: the file_manifest item never matches the query lexically, so its fused score lands
+    below both file_summary distractors and the pool trim at limit=2 evicts it, even though it
+    is the top vector hit of its own kind.
+    """
+    summary_top = CodeItem(
+        id="summary-top",
+        path="src/auth/token.py",
+        title="authorization token",
+        content="authorization token token token token token",
+        metadata={"index_kind": "file_summary"},
+    )
+    summary_second = CodeItem(
+        id="summary-second",
+        path="src/auth/session.py",
+        title="authorization token",
+        content="authorization token token token token",
+        metadata={"index_kind": "file_summary"},
+    )
+    manifest_gold = CodeItem(
+        id="manifest-gold",
+        path="src/find/manager.py",
+        title="find manager",
+        content="def locate(): pass",
+        metadata={"index_kind": "file_manifest"},
+    )
+    graph_store = _graph_store(tmp_path, [summary_top, summary_second, manifest_gold], [])
+    return HybridRetrievalStrategy(
+        FakeRetrievalStrategy(
+            [
+                SearchResult(summary_top, 0.95),
+                SearchResult(summary_second, 0.94),
+                SearchResult(manifest_gold, 0.90),
+            ]
+        ),
+        graph_store,
+        HybridSearchConfig(
+            candidate_limit=5,
+            lexical_candidate_limit=5,
+            vector_weight=0.1,
+            lexical_weight=0.9,
+            path_weight=0.0,
+            symbol_weight=0.0,
+            graph_weight=0.0,
+            preserve_vector_top=False,
+            preserve_vector_kind_top=preserve_vector_kind_top,
+        ),
+    )
+
+
+def test_hybrid_strategy_trims_single_lane_vector_hit_without_kind_top_guard(tmp_path: Path) -> None:
+    strategy = _vector_kind_top_fixture(tmp_path, preserve_vector_kind_top=0)
+
+    results = strategy.search("authorization token", limit=2)
+
+    assert [result.item.id for result in results] == ["summary-top", "summary-second"]
+
+
+def test_hybrid_strategy_preserves_vector_kind_tops_through_pool_trim(tmp_path: Path) -> None:
+    strategy = _vector_kind_top_fixture(tmp_path, preserve_vector_kind_top=1)
+
+    results = strategy.search("authorization token", limit=2)
+
+    assert [result.item.id for result in results] == ["summary-top", "manifest-gold"]
+
+
+def test_hybrid_strategy_kind_top_guard_keeps_pool_untouched_when_tops_already_survive(
+    tmp_path: Path,
+) -> None:
+    strategy = _vector_kind_top_fixture(tmp_path, preserve_vector_kind_top=1)
+
+    results = strategy.search("authorization token", limit=3)
+
+    assert [result.item.id for result in results] == ["summary-top", "summary-second", "manifest-gold"]
+
+
 def test_hybrid_strategy_skips_graph_expansion_when_weight_is_zero(tmp_path: Path) -> None:
     seed_item = CodeItem(id="seed", path="src/seed.py", title="seed", content="seed content")
     neighbor_item = CodeItem(id="neighbor", path="src/neighbor.py", title="neighbor", content="neighbor content")

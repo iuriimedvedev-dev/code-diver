@@ -1,0 +1,186 @@
+# H-81 arm: hybrid fusion width fix. Copy of intellij-h66b-champion.yml with two new flags on.
+#
+# WHERE-79 funnel instrumentation: 4 of 79 gold files die at the hybrid fusion stage.
+# - graph_file_search.fusion_pool_parity: the graph-file seed pool was max(limit, seed_limit)
+#   = max(34, 140) = 140 wide, so the hybrid stage's candidate_limit-wide (360) fused pool was
+#   trimmed to 140 before it reached graph-file fusion. On, the seed request honours 360.
+# - hybrid_search.preserve_vector_kind_top: preserve_vector_top only rescues the global vector
+#   rank-1, so a strong single-lane hit (FindInProjectManager, file_manifest lane rank 22) was
+#   still evicted by the fused-rank trim. 32 guarantees the top-32 vector hits per index kind a
+#   slot in the returned pool.
+#
+# Everything below the flags is verbatim from the champion; same collection, search-time only.
+root: ../intellij-community
+
+storage:
+  provider: qdrant
+  qdrant:
+    url: http://localhost:6333
+    collection: intellij_h66b_budget_qwen
+    batch_size: 1024
+
+# Verbatim from intellij-postrank-h3-manifest.yml -- must match how the collection was built.
+embedding:
+  provider: openai_compatible
+  model: mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ
+  dimensions:
+  url: http://127.0.0.1:8001/v1/embeddings
+  api_key: local
+  batch_size: 128
+  workers: 4
+  max_input_chars: 500
+
+search:
+  limit: 10
+  preview_lines: 8
+  strategy: graph_file_cross_encoder
+
+# Unused on the search axis (no generation), kept so the file loads standalone.
+generation:
+  provider: openai_compatible
+  model: mlx-community/Qwen3.5-4B-OptiQ-4bit
+  url: http://127.0.0.1:8012/v1/chat/completions
+  api_key: local
+  temperature: 0
+  max_tokens: 2048
+  timeout_ms: 240000
+
+indexing:
+  mode: scanner
+
+# Verbatim from intellij-postrank-h3-manifest.yml. This collection must be re-indexed for
+# the completed source reorder to change the summary content.
+scanner:
+  include:
+    - README.md
+    - CONTRIBUTING.md
+    - build.gradle
+    - build.gradle.kts
+    - settings.gradle
+    - settings.gradle.kts
+    - "**/*.java"
+    - "**/*.kt"
+    - "**/*.kts"
+    - "**/*.xml"
+    - "**/*.properties"
+    - "**/*.gradle"
+    - "**/*.gradle.kts"
+    - "**/*.md"
+    - "**/*.json"
+    - "**/*.yaml"
+    - "**/*.yml"
+  exclude:
+    - .idea/**
+    - .gradle/**
+    - .ijwb/**
+    - bazel-*/**
+    - build/**
+    - out/**
+    - "**/build/**"
+    - "**/out/**"
+    - "**/test/**"
+    - "**/tests/**"
+    - "**/testData/**"
+    - "**/testdata/**"
+    - "**/generated/**"
+    - "**/gen/**"
+    - "**/.cache/**"
+    - "**/node_modules/**"
+  line_chunks: false
+  structural_chunks: false
+  symbol_chunks: false
+  symbol_body: false
+  file_summary_chunks: true
+  file_manifest_chunks: true
+  file_summary_compact_budget: true
+  max_symbols_per_file: 96
+
+# Champion weights, minus the doc_* kinds this collection does not contain.
+hybrid_search:
+  candidate_limit: 360
+  lexical_candidate_limit: 1000
+  vector_weight: 0.42
+  lexical_weight: 0.26
+  path_weight: 0.12
+  symbol_weight: 0.10
+  symbol_match_weight: 0.10
+  graph_weight: 0.0
+  file_vote_weight: 0.06
+  graph_depth: 0
+  graph_neighbor_limit: 0
+  vector_kind_limits:
+    file_summary: 170
+    file_manifest: 170
+  vector_kind_multipliers:
+    file_summary: 1.0
+    file_manifest: 1.08
+  routing_enabled: true
+  lexical_scoring: bm25
+  fusion: weighted
+  preserve_vector_top: true
+  vector_top_score_margin: 0.03
+  # H-81: top-32 vector hits per index kind keep a slot in the fused pool (covers the observed
+  # file_manifest lane rank-22 eviction with headroom). 0 would reproduce the champion exactly.
+  preserve_vector_kind_top: 32
+  item_kind_weights:
+    file_summary: 1.0
+    file_manifest: 1.08
+  min_token_length: 3
+
+# Champion block, plus the H-81 pool-width flag.
+graph_file_search:
+  seed_limit: 140
+  lexical_seed_limit: 280
+  vector_weight: 0.25
+  lexical_weight: 0.25
+  path_weight: 0.20
+  symbol_weight: 0.10
+  graph_weight: 0.0
+  depth: 2
+  neighbor_limit: 40
+  decay: 0.65
+  min_token_length: 3
+  # H-77, promoted 2026-08-31. Candidates that reach _seed_scores through the vector lane
+  # used to keep structural lexical/path/symbol zeros (they were simply absent from the
+  # lexical seed top-280), capping them at vector_weight alone. Parity rescores them with the
+  # same HybridCandidateScorer. WHERE-79 recall@10 0.5757 -> 0.6120, mech150 guard slice
+  # 0.7977 -> 0.8381 with every mechanical bucket up, latency flat or better.
+  seed_score_parity: true
+  # H-81: request the hybrid stage's full candidate_limit-wide (360) fused pool instead of
+  # max(limit, seed_limit) = 140.
+  fusion_pool_parity: true
+
+# Champion block, verbatim. :8080 holds an unrelated jbcc-api listener on this machine, so
+# the reranker is on :8081.
+cross_encoder_rerank:
+  provider: llama_cpp
+  model: Qwen3-Reranker-0.6B
+  url: http://127.0.0.1:8081/v1/rerank
+  candidate_limit: 34
+  max_document_chars: 850
+  preserve_top_candidate: true
+  preserve_top_score_margin: 0.1
+  timeout_ms: 60000
+
+graph:
+  enabled: true
+  artifact: .code-diver/intellij-h37-jvm-graph.json
+  ast_enabled: false
+  reference_edges_enabled: false
+  call_edges_enabled: false
+  expansion_depth: 2
+  neighbor_limit: 40
+
+trace:
+  enabled: false
+
+evaluation:
+  dataset: datasets/intellij_eval_1000.answer_sets.jsonl
+  limit: 10
+  workers: 1
+
+experiments:
+  suite: h81-fusion-width
+
+metrics:
+  enabled: false

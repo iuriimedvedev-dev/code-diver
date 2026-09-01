@@ -161,7 +161,8 @@ class HybridRetrievalStrategy(RetrievalStrategy):
             results = self._rrf_results(context.scores, context.vector_results, limit, context.config)
         else:
             results = self._weighted_results(context.scores, limit, context.config)
-        return self._preserve_vector_top(results, context.vector_results, limit, context.config)
+        results = self._preserve_vector_top(results, context.vector_results, limit, context.config)
+        return self._preserve_vector_kind_tops(results, context.vector_results, limit, context.config)
 
     def _seed_vector_scores(self, vector_results: list[SearchResult]) -> dict[str, HybridCandidateScore]:
         normalized = self._normalize({result.item.id: result.score for result in vector_results})
@@ -525,6 +526,52 @@ class HybridRetrievalStrategy(RetrievalStrategy):
         guarded = [SearchResult(item=vector_top.item, score=max(vector_top.score, results[0].score))]
         guarded.extend(result for result in results if result.item.id != vector_top.item.id)
         return guarded[:limit]
+
+    def _preserve_vector_kind_tops(
+        self,
+        results: list[SearchResult],
+        vector_results: list[SearchResult],
+        limit: int,
+        config: HybridSearchConfig,
+    ) -> list[SearchResult]:
+        """Guarantee the top-K vector hits of every index kind a slot in the returned pool.
+
+        H-81: kind caps trim each vector lane before fusion, and `_preserve_vector_top` only
+        rescues the single global vector rank-1 afterwards, so a strong single-lane hit (e.g.
+        FindInProjectManager at file_manifest lane rank 22) still died when the fused ranking
+        trimmed the pool at `limit`. Preserved hits are appended at the pool floor score --
+        they only gain membership, never a better fused rank -- and displace the weakest
+        non-preserved tail entries when the pool is full. `preserve_vector_kind_top: 0` keeps
+        the exact historical behaviour.
+        """
+        if config.preserve_vector_kind_top <= 0 or not results or not vector_results:
+            return results
+        kind_tops = self._vector_kind_tops(vector_results, config.preserve_vector_kind_top)
+        kept_ids = {result.item.id for result in results}
+        missing = [result for result in kind_tops if result.item.id not in kept_ids]
+        if not missing:
+            return results
+        preserved_ids = {result.item.id for result in kind_tops}
+        floor = results[-1].score
+        guarded = list(results)
+        overflow = len(guarded) + len(missing) - limit
+        if overflow > 0:
+            removable = [index for index, result in enumerate(guarded) if result.item.id not in preserved_ids]
+            to_remove = set(removable[-overflow:])
+            guarded = [result for index, result in enumerate(guarded) if index not in to_remove]
+        guarded.extend(SearchResult(item=result.item, score=min(floor, result.score)) for result in missing)
+        return guarded[:limit]
+
+    def _vector_kind_tops(self, vector_results: list[SearchResult], per_kind: int) -> list[SearchResult]:
+        seen: dict[str, int] = defaultdict(int)
+        tops: list[SearchResult] = []
+        for result in vector_results:
+            kind = self.item_kind_resolver.resolve(result.item)
+            if seen[kind] >= per_kind:
+                continue
+            seen[kind] += 1
+            tops.append(result)
+        return tops
 
     def _rrf_results(
         self,

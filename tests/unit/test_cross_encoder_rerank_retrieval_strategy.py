@@ -372,6 +372,323 @@ def test_cross_encoder_rerank_widen_gate_disabled_by_default_reproduces_base_lim
     assert len(provider.calls[0][1]) == 2
 
 
+class QueuedRerankProvider(FakeRerankProvider):
+    """Returns a different response per call -- the H-83 second pass issues a second call."""
+
+    def __init__(self, responses: list[list[RerankScore]]):
+        super().__init__([])
+        self.responses = list(responses)
+
+    def rerank(self, query: str, documents: list[str], top_n: int) -> list[RerankScore]:
+        self.calls.append((query, documents, top_n))
+        return self.responses.pop(0)
+
+
+def test_cross_encoder_rerank_flags_off_keeps_provider_order_for_equal_scores() -> None:
+    """Default OFF is the historical behaviour: saturated ties keep provider order and the
+    request only asks for the final cut."""
+    results = [
+        _result("a", "src/a.py", 0.7),
+        _result("b", "src/b.py", 0.9),
+        _result("c", "src/c.py", 0.5),
+    ]
+    provider = FakeRerankProvider(
+        [
+            RerankScore(index=0, score=0.9979),
+            RerankScore(index=1, score=0.9979),
+            RerankScore(index=2, score=0.5),
+        ]
+    )
+    strategy = CrossEncoderRerankRetrievalStrategy(
+        FakeStrategy(results),
+        provider,
+        CrossEncoderRerankConfig(candidate_limit=3),
+    )
+
+    reranked = strategy.search("query", 2)
+
+    assert [result.item.path for result in reranked] == ["src/a.py", "src/b.py"]
+    assert provider.calls[0][2] == 2
+    assert len(provider.calls) == 1
+
+
+def test_cross_encoder_rerank_rank_by_raw_logits_is_monotone_and_requests_full_scores() -> None:
+    """The logit transform must never change the order of genuinely distinct probabilities."""
+    results = [
+        _result("a", "src/a.py", 0.9),
+        _result("b", "src/b.py", 0.8),
+        _result("c", "src/c.py", 0.7),
+    ]
+    # Deliberately unsorted: the flag re-sorts by the transformed score itself.
+    provider = FakeRerankProvider(
+        [
+            RerankScore(index=0, score=0.2),
+            RerankScore(index=1, score=0.9),
+            RerankScore(index=2, score=0.5),
+        ]
+    )
+    strategy = CrossEncoderRerankRetrievalStrategy(
+        FakeStrategy(results),
+        provider,
+        CrossEncoderRerankConfig(candidate_limit=3, rank_by_raw_logits=True),
+    )
+
+    reranked = strategy.search("query", 3)
+
+    assert [result.item.path for result in reranked] == [
+        "src/b.py",
+        "src/c.py",
+        "src/a.py",
+    ]
+    assert provider.calls[0][2] == 3
+
+
+def test_cross_encoder_rerank_rank_by_raw_logits_handles_saturated_probabilities() -> None:
+    """Scores of exactly 1.0 / 0.0 must clamp instead of producing inf/domain errors."""
+    results = [_result("a", "src/a.py", 0.9), _result("b", "src/b.py", 0.8)]
+    provider = FakeRerankProvider(
+        [RerankScore(index=0, score=1.0), RerankScore(index=1, score=0.0)]
+    )
+    strategy = CrossEncoderRerankRetrievalStrategy(
+        FakeStrategy(results),
+        provider,
+        CrossEncoderRerankConfig(candidate_limit=2, rank_by_raw_logits=True),
+    )
+
+    reranked = strategy.search("query", 2)
+
+    assert [result.item.path for result in reranked] == ["src/a.py", "src/b.py"]
+
+
+def test_cross_encoder_rerank_tie_break_by_fused_score_reorders_near_ties() -> None:
+    """CE scores within tie_break_epsilon fall back to the incoming fused base score."""
+    results = [
+        _result("a", "src/a.py", 0.7),
+        _result("b", "src/b.py", 0.9),
+        _result("c", "src/c.py", 0.5),
+    ]
+    provider = FakeRerankProvider(
+        [
+            RerankScore(index=0, score=0.9979),
+            RerankScore(index=1, score=0.99785),
+            RerankScore(index=2, score=0.5),
+        ]
+    )
+    strategy = CrossEncoderRerankRetrievalStrategy(
+        FakeStrategy(results),
+        provider,
+        CrossEncoderRerankConfig(
+            candidate_limit=3,
+            tie_break_by_fused_score=True,
+            tie_break_epsilon=1e-4,
+        ),
+    )
+
+    reranked = strategy.search("query", 3)
+
+    assert [result.item.path for result in reranked] == [
+        "src/b.py",
+        "src/a.py",
+        "src/c.py",
+    ]
+
+
+def test_cross_encoder_rerank_tie_break_leaves_distinct_scores_alone() -> None:
+    results = [
+        _result("a", "src/a.py", 0.7),
+        _result("b", "src/b.py", 0.9),
+    ]
+    provider = FakeRerankProvider(
+        [RerankScore(index=0, score=0.998), RerankScore(index=1, score=0.9)]
+    )
+    strategy = CrossEncoderRerankRetrievalStrategy(
+        FakeStrategy(results),
+        provider,
+        CrossEncoderRerankConfig(
+            candidate_limit=2,
+            tie_break_by_fused_score=True,
+            tie_break_epsilon=1e-4,
+        ),
+    )
+
+    reranked = strategy.search("query", 2)
+
+    assert [result.item.path for result in reranked] == ["src/a.py", "src/b.py"]
+
+
+def test_cross_encoder_second_pass_rescores_only_sub_floor_candidates_with_larger_documents() -> None:
+    results = [
+        _result("a", "src/a.py", 0.9),
+        _result("b", "src/b.py", 0.8),
+        _result("c", "src/c.py", 0.7),
+    ]
+    provider = QueuedRerankProvider(
+        [
+            # First pass: a is confident, b and c fall below the floor.
+            [
+                RerankScore(index=0, score=0.95),
+                RerankScore(index=2, score=0.25),
+                RerankScore(index=1, score=0.1),
+            ],
+            # Second pass over [c, b]: b is rescued, c scores even lower than its first pass.
+            [RerankScore(index=1, score=0.99), RerankScore(index=0, score=0.05)],
+        ]
+    )
+    strategy = CrossEncoderRerankRetrievalStrategy(
+        FakeStrategy(results),
+        provider,
+        CrossEncoderRerankConfig(
+            candidate_limit=3,
+            max_document_chars=10,
+            second_pass_enabled=True,
+            second_pass_score_floor=0.3,
+            second_pass_max_document_chars=200,
+        ),
+    )
+
+    reranked = strategy.search("query", 3)
+
+    # b takes its second-pass score (0.99), c keeps max(0.25, 0.05) = 0.25.
+    assert [result.item.path for result in reranked] == [
+        "src/b.py",
+        "src/a.py",
+        "src/c.py",
+    ]
+    # The first pass requests a score for every candidate, not just the final cut.
+    assert provider.calls[0][2] == 3
+    # The second pass batches only the sub-floor candidates, in first-pass score order.
+    first_documents = provider.calls[0][1]
+    second_documents = provider.calls[1][1]
+    assert len(second_documents) == 2
+    assert "path: src/c.py" in second_documents[0]
+    assert "path: src/b.py" in second_documents[1]
+    assert all("path: src/a.py" not in document for document in second_documents)
+    # The retried documents are rebuilt with the larger char budget.
+    assert "handles auth commands" not in first_documents[1]
+    assert "handles auth commands" in second_documents[1]
+    assert len(second_documents[1]) > len(first_documents[1])
+
+
+def test_cross_encoder_second_pass_takes_max_of_first_and_second_scores() -> None:
+    results = [
+        _result("a", "src/a.py", 0.9),
+        _result("b", "src/b.py", 0.8),
+        _result("d", "src/d.py", 0.7),
+    ]
+    provider = QueuedRerankProvider(
+        [
+            [
+                RerankScore(index=0, score=0.95),
+                RerankScore(index=1, score=0.2),
+                RerankScore(index=2, score=0.15),
+            ],
+            # Both retries score WORSE on the expanded document. If the second pass replaced
+            # scores instead of taking the max, d (0.12) would overtake b (0.05).
+            [RerankScore(index=0, score=0.05), RerankScore(index=1, score=0.12)],
+        ]
+    )
+    strategy = CrossEncoderRerankRetrievalStrategy(
+        FakeStrategy(results),
+        provider,
+        CrossEncoderRerankConfig(
+            candidate_limit=3,
+            second_pass_enabled=True,
+            second_pass_score_floor=0.3,
+            second_pass_max_document_chars=200,
+        ),
+    )
+
+    reranked = strategy.search("query", 3)
+
+    assert [result.item.path for result in reranked] == [
+        "src/a.py",
+        "src/b.py",
+        "src/d.py",
+    ]
+
+
+def test_cross_encoder_second_pass_candidate_cap_bounds_the_retry_batch() -> None:
+    results = [
+        _result("a", "src/a.py", 0.9),
+        _result("b", "src/b.py", 0.8),
+        _result("c", "src/c.py", 0.7),
+    ]
+    provider = QueuedRerankProvider(
+        [
+            [
+                RerankScore(index=0, score=0.95),
+                RerankScore(index=1, score=0.1),
+                RerankScore(index=2, score=0.05),
+            ],
+            [RerankScore(index=0, score=0.99)],
+        ]
+    )
+    strategy = CrossEncoderRerankRetrievalStrategy(
+        FakeStrategy(results),
+        provider,
+        CrossEncoderRerankConfig(
+            candidate_limit=3,
+            second_pass_enabled=True,
+            second_pass_score_floor=0.3,
+            second_pass_max_document_chars=200,
+            second_pass_candidate_cap=1,
+        ),
+    )
+
+    reranked = strategy.search("query", 3)
+
+    # The cap keeps the sub-floor candidate with the best base rank (b), so only b is retried.
+    assert len(provider.calls[1][1]) == 1
+    assert "path: src/b.py" in provider.calls[1][1][0]
+    assert [result.item.path for result in reranked] == [
+        "src/b.py",
+        "src/a.py",
+        "src/c.py",
+    ]
+
+
+def test_cross_encoder_second_pass_failure_keeps_first_pass_scores() -> None:
+    class SecondCallFailingProvider(FakeRerankProvider):
+        def rerank(self, query: str, documents: list[str], top_n: int) -> list[RerankScore]:
+            self.calls.append((query, documents, top_n))
+            if len(self.calls) > 1:
+                raise RuntimeError("second pass down")
+            return self.scores
+
+    results = [
+        _result("a", "src/a.py", 0.9),
+        _result("b", "src/b.py", 0.8),
+        _result("c", "src/c.py", 0.7),
+    ]
+    provider = SecondCallFailingProvider(
+        [
+            RerankScore(index=1, score=0.95),
+            RerankScore(index=0, score=0.2),
+            RerankScore(index=2, score=0.1),
+        ]
+    )
+    strategy = CrossEncoderRerankRetrievalStrategy(
+        FakeStrategy(results),
+        provider,
+        CrossEncoderRerankConfig(
+            candidate_limit=3,
+            second_pass_enabled=True,
+            second_pass_score_floor=0.3,
+            second_pass_max_document_chars=200,
+        ),
+    )
+
+    reranked = strategy.search("query", 3)
+
+    # First-pass order survives; the failure does not degrade to the base order.
+    assert [result.item.path for result in reranked] == [
+        "src/b.py",
+        "src/a.py",
+        "src/c.py",
+    ]
+    assert strategy.rerank_failure_count == 0
+
+
 def _result(item_id: str, path: str, score: float) -> SearchResult:
     return SearchResult(
         item=CodeItem(

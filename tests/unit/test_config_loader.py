@@ -706,6 +706,41 @@ graph_file_search:
     assert config.graph_file_search.seed_score_parity is True
 
 
+def test_h81_fusion_width_flags_are_off_by_default(tmp_path: Path) -> None:
+    config_path = tmp_path / "code-diver.yml"
+    config_path.write_text(
+        """
+graph_file_search:
+  neighbor_limit: 40
+""".strip(),
+        encoding="utf-8",
+    )
+
+    config = ConfigLoader().load(config_path)
+
+    assert config.graph_file_search.fusion_pool_parity is False
+    assert config.hybrid_search.preserve_vector_kind_top == 0
+
+
+def test_h81_fusion_width_flags_are_read_from_the_config(tmp_path: Path) -> None:
+    config_path = tmp_path / "code-diver.yml"
+    config_path.write_text(
+        """
+hybrid_search:
+  preserve_vector_kind_top: 32
+graph_file_search:
+  neighbor_limit: 40
+  fusion_pool_parity: true
+""".strip(),
+        encoding="utf-8",
+    )
+
+    config = ConfigLoader().load(config_path)
+
+    assert config.graph_file_search.fusion_pool_parity is True
+    assert config.hybrid_search.preserve_vector_kind_top == 32
+
+
 def test_llm_rerank_chunking_is_unset_by_default(tmp_path: Path) -> None:
     config_path = tmp_path / "code-diver.yml"
     config_path.write_text(

@@ -16,6 +16,7 @@ from .hybrid_search_config import HybridSearchConfig
 from .indexing_config import IndexingConfig
 from .llm_rerank_config import LlmRerankConfig
 from .metrics_config import MetricsConfig
+from .multi_query_config import MultiQueryConfig
 from .pi_config import PiConfig
 from .recursive_search_config import RecursiveSearchConfig
 from .scanner_config import ScannerConfig
@@ -42,6 +43,7 @@ class AppConfig:
     hybrid_search: HybridSearchConfig = field(default_factory=HybridSearchConfig)
     llm_rerank: LlmRerankConfig = field(default_factory=LlmRerankConfig)
     cross_encoder_rerank: CrossEncoderRerankConfig = field(default_factory=CrossEncoderRerankConfig)
+    multi_query: MultiQueryConfig = field(default_factory=MultiQueryConfig)
     graph: GraphConfig = field(default_factory=GraphConfig)
     trace: TraceConfig = field(default_factory=TraceConfig)
     ui: UiConfig = field(default_factory=UiConfig)

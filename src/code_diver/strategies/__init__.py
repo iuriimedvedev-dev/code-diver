@@ -6,6 +6,7 @@ from .hybrid_rank_context import HybridRankContext
 from .hybrid_retrieval_strategy import HybridRetrievalStrategy
 from .llm_rerank_retrieval_strategy import LlmRerankRetrievalStrategy
 from .multi_index_vector_retrieval_strategy import MultiIndexVectorRetrievalStrategy
+from .multi_query_rrf_strategy import LlmQueryRewriter, MultiQueryRrfStrategy, MultiQueryVariantGenerator
 from .recursive_retrieval_strategy import RecursiveRetrievalStrategy
 from .retrieval_strategy import RetrievalStrategy
 from .retrieval_strategy_factory import RetrievalStrategyFactory
@@ -18,8 +19,11 @@ __all__ = [
     "GraphRetrievalStrategy",
     "HybridRankContext",
     "HybridRetrievalStrategy",
+    "LlmQueryRewriter",
     "LlmRerankRetrievalStrategy",
     "MultiIndexVectorRetrievalStrategy",
+    "MultiQueryRrfStrategy",
+    "MultiQueryVariantGenerator",
     "RecursiveRetrievalStrategy",
     "RetrievalStrategy",
     "RetrievalStrategyFactory",

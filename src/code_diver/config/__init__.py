@@ -5,6 +5,7 @@ from .fan_out_fusion_config import FanOutFusionConfig
 from .graph_file_search_config import GraphFileSearchConfig
 from .hybrid_search_config import HybridSearchConfig
 from .llm_rerank_config import LlmRerankConfig
+from .multi_query_config import MultiQueryConfig
 
 __all__ = [
     "AppConfig",
@@ -14,4 +15,5 @@ __all__ = [
     "GraphFileSearchConfig",
     "HybridSearchConfig",
     "LlmRerankConfig",
+    "MultiQueryConfig",
 ]
