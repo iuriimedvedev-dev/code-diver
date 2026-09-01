@@ -289,6 +289,19 @@ class Defaults:
     CROSS_ENCODER_RERANK_USE_ENHANCED_FILE_DOCUMENT = False
     # H-57: CE document = LLM-generated purpose blurb (1-2 sentences) from the source file.
     CROSS_ENCODER_RERANK_USE_LLM_PURPOSE_DOCUMENT = False
+    # H-82: rank by the raw model logit (inverse sigmoid of the provider probability) instead
+    # of the sigmoid-squashed score, and optionally break near-ties at the top by the incoming
+    # fused base score. Both off by default -- reproduces the provider order exactly.
+    CROSS_ENCODER_RERANK_RANK_BY_RAW_LOGITS = False
+    CROSS_ENCODER_RERANK_TIE_BREAK_BY_FUSED_SCORE = False
+    CROSS_ENCODER_RERANK_TIE_BREAK_EPSILON = 1e-4
+    # H-83: second CE pass with a larger document budget, only for candidates the first pass
+    # scored below the floor (truncation victims). Off by default -- single-pass behaviour.
+    CROSS_ENCODER_RERANK_SECOND_PASS_ENABLED = False
+    CROSS_ENCODER_RERANK_SECOND_PASS_SCORE_FLOOR = 0.3
+    CROSS_ENCODER_RERANK_SECOND_PASS_MAX_DOCUMENT_CHARS = 2400
+    # 0 = no cap. When capped, the sub-floor candidates the base fusion ranked highest win.
+    CROSS_ENCODER_RERANK_SECOND_PASS_CANDIDATE_CAP = 0
     GRAPH_EXPANSION_DEPTH = 0
     GRAPH_NEIGHBOR_LIMIT = 0
     GRAPH_AST_ENABLED = False

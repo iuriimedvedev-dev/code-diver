@@ -1,17 +1,29 @@
 from __future__ import annotations
 
 import logging
+import math
+from dataclasses import replace
 from pathlib import Path
 from time import perf_counter
 
 from ..config.cross_encoder_rerank_config import CrossEncoderRerankConfig
 from ..domain import SearchResult
-from ..reranking import RerankProvider
+from ..reranking import RerankProvider, RerankScore
 from ..reranking.cross_encoder_document_builder import build_cross_encoder_document
 from ..tracing import TraceLogger
 from .retrieval_strategy import RetrievalStrategy
 
 logger = logging.getLogger(__name__)
+
+# H-82: the llama.cpp rerank endpoint only exposes the final sigmoid probability, not the raw
+# model logit, so ranking "by raw logits" inverts the sigmoid. The clamp keeps saturated
+# probabilities (0.0 / 1.0 after float rounding) finite.
+_LOGIT_CLAMP_EPSILON = 1e-7
+
+
+def _logit(probability: float) -> float:
+    clamped = min(max(probability, _LOGIT_CLAMP_EPSILON), 1.0 - _LOGIT_CLAMP_EPSILON)
+    return math.log(clamped / (1.0 - clamped))
 
 
 class CrossEncoderRerankRetrievalStrategy(RetrievalStrategy):
@@ -77,7 +89,7 @@ class CrossEncoderRerankRetrievalStrategy(RetrievalStrategy):
         )
         started = perf_counter()
         try:
-            scores = self.rerank_provider.rerank(query, documents, min(limit, len(rerank_candidates)))
+            scores = self.rerank_provider.rerank(query, documents, self._top_n(limit, rerank_candidates))
             duration_ms = (perf_counter() - started) * 1000
             self.trace_logger.write(
                 "cross_encoder_rerank_response",
@@ -89,6 +101,8 @@ class CrossEncoderRerankRetrievalStrategy(RetrievalStrategy):
                     "scores": [{"index": score.index, "score": score.score} for score in scores],
                 },
             )
+            scores = self._with_second_pass(query, rerank_candidates, scores)
+            scores = self._ranking_adjusted(rerank_candidates, scores)
             return self._reranked(rerank_candidates, tail_candidates, scores, limit)
         except Exception as exc:
             duration_ms = (perf_counter() - started) * 1000
@@ -120,6 +134,183 @@ class CrossEncoderRerankRetrievalStrategy(RetrievalStrategy):
 
     def _document(self, result: SearchResult) -> str:
         return build_cross_encoder_document(result, self.config, self.repository_root)
+
+    def _top_n(self, limit: int, rerank_candidates: list[SearchResult]) -> int:
+        """How many scored indices to request from the provider.
+
+        The historical request asks only for the final cut (min(limit, candidates)). H-82 and
+        H-83 both need a score for every candidate: the tie at the cut boundary sits just past
+        rank `limit`, and the second pass selects its retry set from the full score list. With
+        every flag off the historical top_n is reproduced exactly.
+        """
+        needs_full_scores = (
+            self.config.rank_by_raw_logits
+            or self.config.tie_break_by_fused_score
+            or self.config.second_pass_enabled
+        )
+        if needs_full_scores:
+            return len(rerank_candidates)
+        return min(limit, len(rerank_candidates))
+
+    def _with_second_pass(
+        self,
+        query: str,
+        candidates: list[SearchResult],
+        scores: list[RerankScore],
+    ) -> list[RerankScore]:
+        """H-83: rescore first-pass losers with a larger document budget, keep max(first, second).
+
+        The first pass truncates documents at `max_document_chars` (850 in the champion), which
+        cuts the evidence out of large files and leaves the correct candidate near zero
+        (WHERE-79: FoldingModelImpl 0.088, PluginManagerCore 0.194). Raising the window for ALL
+        candidates was measured to be worse (more convincing distractors at 1600 chars / 80
+        candidates), so only candidates scoring below `second_pass_score_floor` are rebuilt at
+        `second_pass_max_document_chars` and rescored; high scorers keep their first-pass score
+        untouched. Cost: one extra provider call whose batch is the sub-floor subset -- often
+        most of the window on hard queries -- so `second_pass_candidate_cap` can bound it.
+        A second-pass failure falls back to the first-pass scores instead of the base order.
+        """
+        if not self.config.second_pass_enabled:
+            return scores
+        floor = self.config.second_pass_score_floor
+        retry_scores = [
+            score for score in scores if 0 <= score.index < len(candidates) and score.score < floor
+        ]
+        cap = self.config.second_pass_candidate_cap
+        if cap > 0 and len(retry_scores) > cap:
+            # The base fusion already ranked the window; truncation victims worth rescuing are
+            # the ones it trusted most, so the cap keeps the best base ranks (lowest indices).
+            retry_scores = sorted(retry_scores, key=lambda score: score.index)[:cap]
+        if not retry_scores:
+            return scores
+        expanded_config = replace(self.config, max_document_chars=self.config.second_pass_max_document_chars)
+        retry_indices = [score.index for score in retry_scores]
+        documents = [
+            build_cross_encoder_document(candidates[index], expanded_config, self.repository_root)
+            for index in retry_indices
+        ]
+        started = perf_counter()
+        try:
+            second_scores = self.rerank_provider.rerank(query, documents, len(documents))
+        except Exception as exc:
+            duration_ms = (perf_counter() - started) * 1000
+            self.trace_logger.write(
+                "cross_encoder_rerank_second_pass_error",
+                {
+                    "provider": self.rerank_provider.name,
+                    "model": self.rerank_provider.model,
+                    "query": query,
+                    "duration_ms": duration_ms,
+                    "error_type": type(exc).__name__,
+                    "error": str(exc),
+                },
+            )
+            logger.warning(
+                "cross-encoder second pass failed (%s candidates), keeping first-pass scores: %s: %s",
+                len(documents),
+                type(exc).__name__,
+                exc,
+            )
+            return scores
+        duration_ms = (perf_counter() - started) * 1000
+        best_second: dict[int, float] = {}
+        for score in second_scores:
+            if score.index < 0 or score.index >= len(retry_indices):
+                continue
+            original_index = retry_indices[score.index]
+            known = best_second.get(original_index)
+            if known is None or score.score > known:
+                best_second[original_index] = score.score
+        merged = [
+            RerankScore(index=score.index, score=max(score.score, best_second[score.index]))
+            if score.index in best_second
+            else score
+            for score in scores
+        ]
+        merged.sort(key=lambda score: score.score, reverse=True)
+        self.trace_logger.write(
+            "cross_encoder_rerank_second_pass",
+            {
+                "provider": self.rerank_provider.name,
+                "model": self.rerank_provider.model,
+                "query": query,
+                "duration_ms": duration_ms,
+                "score_floor": floor,
+                "max_document_chars": self.config.second_pass_max_document_chars,
+                "candidate_count": len(retry_indices),
+                "improved_count": sum(
+                    1
+                    for score in scores
+                    if score.index in best_second and best_second[score.index] > score.score
+                ),
+                "scores": [
+                    {"index": index, "score": best_second[index]} for index in sorted(best_second)
+                ],
+            },
+        )
+        return merged
+
+    def _ranking_adjusted(
+        self,
+        candidates: list[SearchResult],
+        scores: list[RerankScore],
+    ) -> list[RerankScore]:
+        """H-82: undo sigmoid squashing and break near-ties deterministically.
+
+        The provider only returns sigmoid probabilities, so at the saturated top the ranking
+        degenerates into float-precision ties broken by arbitrary insertion order (WHERE-79:
+        SafeDeleteProcessor lost rank 12 vs cut@10 at 0.9979 vs 0.9979). `rank_by_raw_logits`
+        maps scores through the inverse sigmoid -- monotone, so genuinely distinct probabilities
+        keep their order, but the clamp separates values only saturation made equal-looking.
+        `tie_break_by_fused_score` then orders candidates whose CE scores are within
+        `tie_break_epsilon` of each other by the incoming fused base score, so ties fall back to
+        the graph-file stage's opinion instead of arbitrary order. Both flags off returns the
+        scores unchanged.
+        """
+        if not self.config.rank_by_raw_logits and not self.config.tie_break_by_fused_score:
+            return scores
+        adjusted = list(scores)
+        if self.config.rank_by_raw_logits:
+            adjusted = [RerankScore(index=score.index, score=_logit(score.score)) for score in adjusted]
+        adjusted.sort(key=lambda score: score.score, reverse=True)
+        if self.config.tie_break_by_fused_score:
+            adjusted = self._fused_tie_broken(candidates, adjusted)
+        return adjusted
+
+    def _fused_tie_broken(
+        self,
+        candidates: list[SearchResult],
+        scores: list[RerankScore],
+    ) -> list[RerankScore]:
+        """Reorder runs of near-equal CE scores by the fused base score, descending.
+
+        Expects `scores` sorted descending. Adjacent scores within `tie_break_epsilon` chain
+        into one tie group, so a saturated plateau is treated as a single tie.
+        """
+        if len(scores) < 2:
+            return list(scores)
+        epsilon = self.config.tie_break_epsilon
+        result: list[RerankScore] = []
+        group = [scores[0]]
+        for score in scores[1:]:
+            if abs(group[-1].score - score.score) <= epsilon:
+                group.append(score)
+                continue
+            result.extend(self._fused_order(candidates, group))
+            group = [score]
+        result.extend(self._fused_order(candidates, group))
+        return result
+
+    def _fused_order(self, candidates: list[SearchResult], group: list[RerankScore]) -> list[RerankScore]:
+        if len(group) < 2:
+            return group
+
+        def fused_score(score: RerankScore) -> float:
+            if 0 <= score.index < len(candidates):
+                return candidates[score.index].score
+            return float("-inf")
+
+        return sorted(group, key=fused_score, reverse=True)
 
     def _document_trace(self, documents: list[str]) -> dict[str, object]:
         if not self.trace_logger.config.include_prompts:

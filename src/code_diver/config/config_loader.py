@@ -860,6 +860,62 @@ class ConfigLoader:
                     else Defaults.CROSS_ENCODER_RERANK_USE_LLM_PURPOSE_DOCUMENT,
                 )
             ),
+            rank_by_raw_logits=bool(
+                mapping.get(
+                    "rank_by_raw_logits",
+                    base.rank_by_raw_logits
+                    if base is not None
+                    else Defaults.CROSS_ENCODER_RERANK_RANK_BY_RAW_LOGITS,
+                )
+            ),
+            tie_break_by_fused_score=bool(
+                mapping.get(
+                    "tie_break_by_fused_score",
+                    base.tie_break_by_fused_score
+                    if base is not None
+                    else Defaults.CROSS_ENCODER_RERANK_TIE_BREAK_BY_FUSED_SCORE,
+                )
+            ),
+            tie_break_epsilon=float(
+                mapping.get(
+                    "tie_break_epsilon",
+                    base.tie_break_epsilon
+                    if base is not None
+                    else Defaults.CROSS_ENCODER_RERANK_TIE_BREAK_EPSILON,
+                )
+            ),
+            second_pass_enabled=bool(
+                mapping.get(
+                    "second_pass_enabled",
+                    base.second_pass_enabled
+                    if base is not None
+                    else Defaults.CROSS_ENCODER_RERANK_SECOND_PASS_ENABLED,
+                )
+            ),
+            second_pass_score_floor=float(
+                mapping.get(
+                    "second_pass_score_floor",
+                    base.second_pass_score_floor
+                    if base is not None
+                    else Defaults.CROSS_ENCODER_RERANK_SECOND_PASS_SCORE_FLOOR,
+                )
+            ),
+            second_pass_max_document_chars=int(
+                mapping.get(
+                    "second_pass_max_document_chars",
+                    base.second_pass_max_document_chars
+                    if base is not None
+                    else Defaults.CROSS_ENCODER_RERANK_SECOND_PASS_MAX_DOCUMENT_CHARS,
+                )
+            ),
+            second_pass_candidate_cap=int(
+                mapping.get(
+                    "second_pass_candidate_cap",
+                    base.second_pass_candidate_cap
+                    if base is not None
+                    else Defaults.CROSS_ENCODER_RERANK_SECOND_PASS_CANDIDATE_CAP,
+                )
+            ),
         )
 
     def _graph(self, data: Any) -> GraphConfig:
