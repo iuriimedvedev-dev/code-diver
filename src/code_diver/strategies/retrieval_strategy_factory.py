@@ -100,6 +100,23 @@ class RetrievalStrategyFactory:
             )
         raise ValueError(f"Unknown retrieval strategy: {strategy}")
 
+    def _create_graph_file_base(
+        self,
+        config: AppConfig,
+        provider: EmbeddingProvider,
+        vector_store: VectorStore,
+    ) -> RetrievalStrategy:
+        return GraphFileRetrievalStrategy(
+            HybridRetrievalStrategy(
+                self._hybrid_vector_strategy(config, provider, vector_store),
+                CodeGraphStore(config.graph.artifact),
+                config.hybrid_search,
+                trace_logger=TraceLogger(config.trace),
+            ),
+            CodeGraphStore(config.graph.artifact),
+            config.graph_file_search,
+        )
+
     def create(
         self,
         strategy: str,
