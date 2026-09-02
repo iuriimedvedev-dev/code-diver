@@ -81,3 +81,28 @@ fails identically on a clean tree (pre-existing, unrelated). Ruff clean on all t
 - If recall gains hold but latency hurts, try the H-76-style variant: fan out the CE-less base,
   fuse the union, single CE pass (`union_rerank` analogue inside the wrapper).
 - Sweep `original_query_weight` (1.0/1.5/2.0/3.0) and `max_variants` (3/4/6).
+
+## 2026-09-02 update: H-84v2 pre-CE multi-query RRF (union then one CE)
+
+New flag `union_rerank: bool = False` added to `MultiQueryConfig` (src/code_diver/config/multi_query_config.py), `defaults.py`, and parsed in `config_loader.py` following the same pattern as `enabled`.
+
+Files changed: `multi_query_config.py`, `defaults.py`, `config_loader.py`, `multi_query_rrf_strategy.py`, `retrieval_strategy_factory.py`, new arm `configs/intellij/intellij-h84v2-union-rerank.yml`, new tests `tests/unit/test_multi_query_union_rerank.py`.
+
+Wiring in `RetrievalStrategyFactory.create()`:
+- `multi_query.enabled=False`: bit-exact passthrough, unchanged.
+- `enabled=True`, `union_rerank` false/absent: unchanged v1 behavior (CE runs per-variant inside `MultiQueryRrfStrategy`, then RRF fuses already-reranked lists).
+- `enabled=True`, `union_rerank=True`, strategy `graph_file_cross_encoder`: new behavior — inner `GraphFile(Hybrid(vector))` (via new `_create_graph_file_base` helper) is wrapped in `MultiQueryRrfStrategy` with `fusion_pool_size` set to the cross-encoder's `candidate_limit`, and that whole thing is wrapped in a single outer `CrossEncoderRerank`. CE now runs exactly once, over the fused candidate pool. If strategy type is not `graph_file_cross_encoder`, union_rerank is a no-op (falls back to the previous bullet's behavior).
+
+`MultiQueryRrfStrategy` gained an optional `fusion_pool_size: int | None = None` constructor parameter: when `None`, `search(query, limit)` behaves exactly as before (bit-exact); when set, `effective_limit = max(limit, fusion_pool_size)` drives per-variant search size and fused output size, so the outer CE wrapper receives a wide enough pool to rerank down to the caller's real `limit`.
+
+Why this should not repeat v1's MRR collapse: v1 reranked each variant's results independently with CE, THEN fused already-reranked lists via RRF — promoting borderline results from multiple variants and diluting precision at the top (plausible cause of v1's MRR 0.3726→0.3266 and hit@1 0.2308→0.1923 regressions despite recall gains). v2 fuses raw retrieval candidates from all variants FIRST via RRF into one pool, then runs CE exactly once over that unified pool — matching the champion's single coherent CE pass while keeping the wider multi-query recall benefit.
+
+Latency expectation: ~1.2–1.8x baseline, not 2.7x like v1, since the expensive CE step now runs once per query instead of once per variant (previously up to `max_variants`=4 times).
+
+Arm config `configs/intellij/intellij-h84v2-union-rerank.yml`: copy of champion plus `multi_query.enabled=true`, `union_rerank=true`, `max_variants=4`, `rrf_k=60`, `original_query_weight=2.0`, `llm_rewrites_enabled=false`, `parallel_variants=true`, `max_variant_workers=4`, and `experiments.suite=h84v2-union-rerank`. Search-time only, same collection as champion.
+
+Test coverage in `tests/unit/test_multi_query_union_rerank.py`: default-off/enabled-without-union_rerank wiring unchanged; union_rerank=True pulls CE outside MultiQueryRrfStrategy and sets `fusion_pool_size` to the CE `candidate_limit`; RRF fan-out/fusion pool-size behavior for both modes; multi_query disabled bit-exact passthrough; champion yaml still loads with multi_query disabled and `union_rerank` defaulting to `False`.
+
+Evaluation status: unit tests only. The live WHERE evaluation (GPU/index-backed) was intentionally NOT run, per task constraints.
+
+Do not remove or alter any of the existing content already in the file — only append this new section at the very end.
