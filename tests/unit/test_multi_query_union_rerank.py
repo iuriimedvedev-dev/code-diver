@@ -127,7 +127,7 @@ def test_rrf_honors_configured_fusion_pool_size() -> None:
         call("rewrite", 3),
     ]
     assert len(results) == 3
-    assert [result.item.path for result in results] == ["a", "b", "e"]
+    assert [result.item.path for result in results] == ["a", "b", "c"]
 
 
 def test_rrf_without_fusion_pool_requests_exact_limit() -> None:
@@ -148,3 +148,21 @@ def test_rrf_without_fusion_pool_requests_exact_limit() -> None:
         call("rewrite", 2),
     ]
     assert len(results) == 2
+
+
+def test_rrf_truncates_single_variant_to_configured_fusion_pool_size() -> None:
+    underlying = MagicMock(spec=RetrievalStrategy)
+    underlying.search.return_value = [_result("a"), _result("b"), _result("c"), _result("d")]
+    generator = Mock()
+    generator.variants.return_value = ["query"]
+    strategy = MultiQueryRrfStrategy(
+        underlying,
+        MultiQueryConfig(parallel_variants=False),
+        generator=generator,
+        fusion_pool_size=3,
+    )
+
+    results = strategy.search("query", 1)
+
+    assert underlying.search.call_args == call("query", 3)
+    assert [result.item.path for result in results] == ["a", "b", "c"]

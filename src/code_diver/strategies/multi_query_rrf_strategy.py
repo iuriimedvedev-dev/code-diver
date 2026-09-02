@@ -154,7 +154,8 @@ class MultiQueryRrfStrategy(RetrievalStrategy):
         )
         variants = self._variants(query)
         if len(variants) <= 1:
-            return self.underlying.search(query, effective_limit)
+            results = self.underlying.search(query, effective_limit)
+            return results[:effective_limit] if self.fusion_pool_size is not None else results
         return self._fuse(self._run(variants, effective_limit), limit)
 
     def _variants(self, query: str) -> list[str]:
