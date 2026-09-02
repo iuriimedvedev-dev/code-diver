@@ -1,1 +1,3 @@
-test content for h84v2 session note
+# H-84v2: pre-CE multi-query RRF (union then one CE)
+
+New flag union_rerank added to MultiQueryConfig, defaults.py, config_loader.py. Files changed: multi_query_config.py, defaults.py, config_loader.py, multi_query_rrf_strategy.py, retrieval_strategy_factory.py, configs/intellij/intellij-h84v2-union-rerank.yml, tests/unit/test_multi_query_union_rerank.py. Wiring: enabled=False unchanged passthrough; enabled=True+union_rerank=False unchanged v1; enabled=True+union_rerank=True with graph_file_cross_encoder builds inner GraphFile(Hybrid(vector)) via _create_graph_file_base, wraps in MultiQueryRrfStrategy with fusion_pool_size=CE candidate_limit, wraps in one outer CrossEncoderRerank. Latency expectation ~1.2-1.8x not 2.7x. Unit tests only, no live WHERE eval run.
