@@ -1,0 +1,31 @@
+=== H86 collection/strategy/parity/second_pass ===
+# on the current champion H-77 seed_score_parity + H-83 two-pass CE stack.
+    collection: intellij_h66b_budget_qwen
+  strategy: graph_file_cross_encoder
+  seed_score_parity: true
+  second_pass_enabled: true
+  second_pass_score_floor: 0.3
+  second_pass_max_document_chars: 2400
+  second_pass_candidate_cap: 24
+=== CHAMPION collection/strategy/parity/second_pass ===
+    collection: intellij_h66b_budget_qwen
+  strategy: graph_file_cross_encoder
+  seed_score_parity: true
+  second_pass_enabled: true
+  second_pass_score_floor: 0.3
+  second_pass_max_document_chars: 2400
+  second_pass_candidate_cap: 24
+=== H86 hypothesis names ===
+    - name: h74_agentic_h3_gpt4omini
+    - name: h74_parallel_oneshot_rerank_gpt4omini
+    - name: h75_fanout_champion_rrf_monotonic
+    - name: h75_fanout_champion_llmrerank_monotonic
+    - name: h76_union_ce_q4
+    - name: h76_union_ce_q6
+=== H74 hypothesis names ===
+    - name: h74_agentic_h3_gpt4omini
+    - name: h74_parallel_oneshot_rerank_gpt4omini
+    - name: h75_fanout_champion_rrf_monotonic
+    - name: h75_fanout_champion_llmrerank_monotonic
+    - name: h76_union_ce_q4
+    - name: h76_union_ce_q6
