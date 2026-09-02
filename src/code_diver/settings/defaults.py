@@ -302,6 +302,7 @@ class Defaults:
     CROSS_ENCODER_RERANK_SECOND_PASS_MAX_DOCUMENT_CHARS = 2400
     # 0 = no cap. When capped, the sub-floor candidates the base fusion ranked highest win.
     CROSS_ENCODER_RERANK_SECOND_PASS_CANDIDATE_CAP = 0
+    MULTI_QUERY_UNION_RERANK = False
     GRAPH_EXPANSION_DEPTH = 0
     GRAPH_NEIGHBOR_LIMIT = 0
     GRAPH_AST_ENABLED = False

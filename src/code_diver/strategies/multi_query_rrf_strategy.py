@@ -138,17 +138,20 @@ class MultiQueryRrfStrategy(RetrievalStrategy):
         config: MultiQueryConfig,
         generator: MultiQueryVariantGenerator | None = None,
         llm_rewriter: QueryRewriter | None = None,
+        fusion_pool_size: int | None = None,
     ):
         self.underlying = underlying
         self.config = config
         self.generator = generator or MultiQueryVariantGenerator()
         self.llm_rewriter = llm_rewriter
+        self.fusion_pool_size = fusion_pool_size
 
     def search(self, query: str, limit: int) -> list[SearchResult]:
+        effective_limit = max(limit, self.fusion_pool_size or limit)
         variants = self._variants(query)
         if len(variants) <= 1:
-            return self.underlying.search(query, limit)
-        return self._fuse(self._run(variants, limit), limit)
+            return self.underlying.search(query, effective_limit)
+        return self._fuse(self._run(variants, effective_limit), effective_limit)
 
     def _variants(self, query: str) -> list[str]:
         variants = self.generator.variants(query, self.config.max_variants)

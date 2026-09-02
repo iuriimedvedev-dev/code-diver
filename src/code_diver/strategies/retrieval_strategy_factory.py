@@ -73,13 +73,7 @@ class RetrievalStrategyFactory:
             # Same base as GRAPH_FILE_RERANK, different rerank primitive. The existing
             # CROSS_ENCODER_RERANK sits on plain hybrid, so swapping to it from the champion
             # would change the base *and* the reranker and leave neither attributable.
-            return CrossEncoderRerankRetrievalStrategy(
-                self._graph_file_strategy(config, provider, vector_store),
-                RerankProviderFactory().create(config.cross_encoder_rerank),
-                config.cross_encoder_rerank,
-                trace_logger=TraceLogger(config.trace),
-                repository_root=config.root,
-            )
+            return self._cross_encoder_strategy(self._graph_file_strategy(config, provider, vector_store), config)
         if strategy_id is RetrievalStrategyId.HYBRID:
             return self._hybrid_strategy(config, provider, vector_store)
         if strategy_id is RetrievalStrategyId.HYBRID_RERANK:
@@ -113,11 +107,28 @@ class RetrievalStrategyFactory:
         provider: EmbeddingProvider,
         vector_store: VectorStore,
     ) -> RetrievalStrategy:
-        base = self._create_base(strategy, config, provider, vector_store)
         if not config.multi_query.enabled:
-            return base
+            return self._create_base(strategy, config, provider, vector_store)
         rewriter = LlmQueryRewriter(create_generation_provider(config)) if config.multi_query.llm_rewrites_enabled else None
+        if config.multi_query.union_rerank and RetrievalStrategyId(strategy) is RetrievalStrategyId.GRAPH_FILE_CROSS_ENCODER:
+            pre_ce = MultiQueryRrfStrategy(
+                self._graph_file_strategy(config, provider, vector_store),
+                config.multi_query,
+                llm_rewriter=rewriter,
+                fusion_pool_size=config.cross_encoder_rerank.candidate_limit,
+            )
+            return self._cross_encoder_strategy(pre_ce, config)
+        base = self._create_base(strategy, config, provider, vector_store)
         return MultiQueryRrfStrategy(base, config.multi_query, llm_rewriter=rewriter)
+
+    def _cross_encoder_strategy(self, base: RetrievalStrategy, config: AppConfig) -> RetrievalStrategy:
+        return CrossEncoderRerankRetrievalStrategy(
+            base,
+            RerankProviderFactory().create(config.cross_encoder_rerank),
+            config.cross_encoder_rerank,
+            trace_logger=TraceLogger(config.trace),
+            repository_root=config.root,
+        )
 
     def _rerank_generation_config(self, config: AppConfig) -> AppConfig:
         """Swap in `llm_rerank.generation` so the rerank stage can run its own model."""
