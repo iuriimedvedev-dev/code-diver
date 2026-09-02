@@ -52,3 +52,4 @@ New file `tests/unit/test_multi_query_union_rerank.py` covers:
 
 ## Evaluation status
 Unit tests only. The live WHERE evaluation (GPU/index-backed) was intentionally NOT run, per task constraints. Recall/MRR/hit@1/latency numbers for this arm are pending a live WHERE-78 run.
+GITIGNORE_SESSION_LINE: NONE
