@@ -2,6 +2,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+
+from ..settings import Defaults
+
+
 @dataclass(slots=True)
 class MultiQueryConfig:
     """H-84: deterministic multi-query expansion with reciprocal-rank fusion.
