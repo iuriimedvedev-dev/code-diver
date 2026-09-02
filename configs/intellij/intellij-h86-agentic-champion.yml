@@ -1,4 +1,4 @@
-# H-86 Agentic Champion: runs the existing WHERE-78 H-74/H-75/H-76 agent/fan-out hypotheses
+# H-86 Agentic Champion: runs the existing six WHERE-78 H-74/H-75/H-76 agent/fan-out hypotheses
 # on the current champion H-77 seed_score_parity + H-83 two-pass CE stack.
 # This is not a new search-flag experiment. Champion retrieval configuration is reused verbatim.
 #
