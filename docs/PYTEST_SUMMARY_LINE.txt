@@ -1,0 +1,2 @@
+================= 1 failed, 1372 passed, 4 warnings in 12.30s ==================
+tests/unit/test_validate_eval_dataset.py::test_validate_eval_dataset_reports_errors_and_warnings
