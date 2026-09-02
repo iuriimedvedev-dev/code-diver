@@ -13,5 +13,3 @@ Latency: expect ~1.2-1.8x baseline, not 2.7x, since CE runs once not per variant
 Arm config: configs/intellij/intellij-h84v2-union-rerank.yml, copy of champion plus multi_query enabled/union_rerank true and experiments.suite h84v2-union-rerank.
 
 Evaluation: unit tests only, live WHERE eval not run.
-
-Note: this directory is likely listed in .gitignore, so `git status`/`git diff` will not show this as a change — that is expected and fine, just write the file to disk regardless using direct filesystem writes.
