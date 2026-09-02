@@ -60,3 +60,11 @@ tests/unit/test_retrieval_strategy_factory_rerank_model.py::test_rerank_generati
 
 ===================== 48 passed, 1325 deselected in 1.04s ======================
 ```
+
+## Full suite run
+
+- Passed: 1372
+- Failed: 1
+- Errors: 0
+- Failed/errored tests: `tests/unit/test_validate_eval_dataset.py::test_validate_eval_dataset_reports_errors_and_warnings`
+- This is a known/expected/acceptable failure related to `validate_eval_dataset`.
