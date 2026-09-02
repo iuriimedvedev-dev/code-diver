@@ -119,7 +119,11 @@ def test_union_rerank_executes_ce_less_variants_and_one_outer_rerank(
         }
     )
     reranker = _FakeCrossEncoder()
-    monkeypatch.setattr(RetrievalStrategyFactory, "_graph_file_strategy", lambda self, config, provider, store: graph_file)
+    monkeypatch.setattr(
+        RetrievalStrategyFactory,
+        "_create_graph_file_base",
+        lambda self, config, provider, store: graph_file,
+    )
     monkeypatch.setattr(
         "code_diver.strategies.retrieval_strategy_factory.RerankProviderFactory.create",
         lambda self, config: reranker,

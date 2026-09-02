@@ -115,7 +115,16 @@ def test_loader_reads_multi_query_config(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     config = ConfigLoader().load(path)
-    assert config.multi_query == MultiQueryConfig(True, 3, 12, 1.5, True, False, 2)
+    assert config.multi_query == MultiQueryConfig(
+        enabled=True,
+        max_variants=3,
+        rrf_k=12,
+        original_query_weight=1.5,
+        llm_rewrites_enabled=True,
+        parallel_variants=False,
+        max_variant_workers=2,
+        union_rerank=False,
+    )
 
 
 def test_deterministic_rewrite_behaviors() -> None:
