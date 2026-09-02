@@ -1,0 +1,1 @@
+YES - h74_parallel_oneshot_rerank_gpt4omini: YES; h75_fanout_champion_rrf_monotonic: YES; h76_union_ce_q6: YES.

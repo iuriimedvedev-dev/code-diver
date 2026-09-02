@@ -1,0 +1,1 @@
+YES - H86 and H66b both use collection intellij_h66b_budget_qwen.

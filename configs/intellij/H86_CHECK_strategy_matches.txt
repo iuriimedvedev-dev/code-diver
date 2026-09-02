@@ -1,0 +1,1 @@
+YES - H86 and H66b both use search strategy graph_file_cross_encoder.
