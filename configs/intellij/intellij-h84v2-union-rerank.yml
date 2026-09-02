@@ -1,5 +1,5 @@
-# H-66b Champion: best-measured WHERE arm.
-# Promoted to champion on 2026-08-31.
+# H-84v2: pre-cross-encoder multi-query RRF, then one cross-encoder pass.
+# Based on the H-66b champion search/index configuration.
 #
 # Metrics (IntelliJ Community):
 # - WHERE-79: 0.5757-0.5905 recall@10 / 0.3630-0.3708 MRR

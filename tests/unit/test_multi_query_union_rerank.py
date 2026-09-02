@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, Mock, call, patch
 
 import pytest
 
-from code_diver.config import AppConfig, MultiQueryConfig
+from code_diver.config import AppConfig, ConfigLoader, MultiQueryConfig
 from code_diver.domain import CodeItem, SearchResult
 from code_diver.strategies.cross_encoder_rerank_retrieval_strategy import (
     CrossEncoderRerankRetrievalStrategy,
@@ -34,6 +34,16 @@ def test_multi_query_config_union_rerank_defaults_to_false() -> None:
 
     assert config.enabled is False
     assert config.union_rerank is False
+
+
+def test_loader_reads_union_rerank_from_yaml(tmp_path: Path) -> None:
+    path = tmp_path / "config.yml"
+    path.write_text("multi_query:\n  union_rerank: true\n", encoding="utf-8")
+
+    config = ConfigLoader().load(path)
+
+    assert config.multi_query.enabled is False
+    assert config.multi_query.union_rerank is True
 
 
 def test_factory_keeps_cross_encoder_inside_multi_query_by_default(tmp_path: Path) -> None:
@@ -77,8 +87,8 @@ def test_factory_union_rerank_wraps_multi_query_before_one_cross_encoder(tmp_pat
 def test_rrf_overfetches_each_variant_and_respects_effective_limit() -> None:
     underlying = MagicMock(spec=RetrievalStrategy)
     underlying.search.side_effect = lambda query, limit: {
-        "query": [_result("a"), _result("b"), _result("c")][:limit],
-        "rewrite": [_result("d"), _result("e"), _result("f")][:limit],
+        "query": [_result("a"), _result("b"), _result("c"), _result("d")],
+        "rewrite": [_result("a"), _result("b"), _result("e"), _result("f")],
     }[query]
     generator = Mock()
     generator.variants.return_value = ["query", "rewrite"]
@@ -96,6 +106,7 @@ def test_rrf_overfetches_each_variant_and_respects_effective_limit() -> None:
         call("rewrite", 3),
     ]
     assert len(results) == 3
+    assert [result.item.path for result in results] == ["a", "b", "e"]
 
 
 def test_rrf_without_fusion_pool_requests_exact_limit() -> None:
@@ -129,3 +140,13 @@ def test_factory_disabled_multi_query_is_bit_exact_passthrough(tmp_path: Path) -
     assert result is base
     assert not isinstance(result, MultiQueryRrfStrategy)
     create_base.assert_called_once()
+
+
+def test_union_rerank_is_noop_for_non_cross_encoder_strategy(tmp_path: Path) -> None:
+    config = _factory_config(tmp_path, union_rerank=True)
+
+    strategy = RetrievalStrategyFactory().create("vector", config, Mock(), Mock())
+
+    assert isinstance(strategy, MultiQueryRrfStrategy)
+    assert strategy.fusion_pool_size is None
+    assert not isinstance(strategy.underlying, CrossEncoderRerankRetrievalStrategy)

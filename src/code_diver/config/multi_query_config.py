@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from ..settings import Defaults
+
 
 @dataclass(slots=True)
 class MultiQueryConfig:
@@ -19,4 +21,4 @@ class MultiQueryConfig:
     llm_rewrites_enabled: bool = False
     parallel_variants: bool = True
     max_variant_workers: int = 4
-    union_rerank: bool = False
+    union_rerank: bool = Defaults.MULTI_QUERY_UNION_RERANK

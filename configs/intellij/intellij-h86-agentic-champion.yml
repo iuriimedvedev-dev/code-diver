@@ -29,6 +29,11 @@ search:
   preview_lines: 8
   strategy: graph_file_cross_encoder
 
+# H-86 measures the existing agent/fan-out hypotheses, not H-84 multi-query search.
+multi_query:
+  enabled: false
+  union_rerank: false
+
 # Unused on the search axis (no generation), kept so the file loads standalone.
 generation:
   provider: openai_compatible
