@@ -1,23 +1,23 @@
 # H-84v2: multi_query.union_rerank
 
-`union_rerank` fuses raw candidates from multiple query variants via RRF before running CrossEncoder once, unlike v1 per-variant reranking.
+## What it does
+Instead of running CrossEncoder reranking inside each query variant (v1 behavior), union_rerank fuses raw candidates from multiple query variants via RRF first, then runs CrossEncoder once on the fused/unioned pool.
 
-## Factory nesting
+## Factory wiring (src/code_diver/strategies/retrieval_strategy_factory.py)
+- multi_query disabled -> base strategy unchanged: CrossEncoder wraps GraphFile
+- multi_query enabled, union_rerank false (v1) -> MultiQuery wraps (CrossEncoder wraps GraphFile)
+- multi_query enabled, union_rerank true -> CrossEncoder wraps (MultiQuery wraps CE-less GraphFile/Hybrid), with MultiQuery's fusion_pool_size set equal to CrossEncoder's candidate_limit (34 on champion)
 
-In `src/code_diver/strategies/retrieval_strategy_factory.py`, the factory handles three modes: disabled multi-query uses the existing strategy; enabled multi-query with `union_rerank: false` uses per-variant reranking; enabled multi-query with `union_rerank: true` uses union reranking. In the enabled-true branch, `fusion_pool_size` equals the CrossEncoder `candidate_limit`, which is 34 on champion.
+## Config
+New field `MultiQueryConfig.union_rerank: bool = False` in `src/code_diver/config/multi_query_config.py`, defaulting to False when absent from yaml.
 
-## Configuration
+## MultiQueryRrfStrategy
+New/updated `fusion_pool_size` parameter on `MultiQueryRrfStrategy` in `src/code_diver/strategies/multi_query_rrf_strategy.py`, which truncates the RRF-fused pool to that size when provided, falling back to prior default behavior otherwise.
 
-`src/code_diver/config/multi_query_config.py` defines `MultiQueryConfig.union_rerank: bool = False`; the default is false when the field is absent from yaml.
-
-## RRF strategy
-
-`src/code_diver/strategies/multi_query_rrf_strategy.py` adds `fusion_pool_size` to `MultiQueryRrfStrategy`, truncating the fused RRF pool when provided.
-
-## Arm config
-
-`configs/intellij/intellij-h84v2-union-rerank.yml` is based on champion with `enabled` and `union_rerank` true, the same collection, `seed_score_parity`, and `second_pass_*` flags.
+## New arm config
+`configs/intellij/intellij-h84v2-union-rerank.yml`, based on champion, with `multi_query.enabled: true` and `multi_query.union_rerank: true`, same collection (`intellij_h66b_budget_qwen`), same `seed_score_parity` and `second_pass_*` flags as champion.
 
 ## Tests
+`tests/unit/test_multi_query_union_rerank.py` covers config defaults, factory branching for all three modes (disabled / v1 / union_rerank), and fusion_pool_size truncation behavior.
 
-`tests/unit/test_multi_query_union_rerank.py` covers defaults, all three factory branches, and truncation.
+Do not read or modify source/tests/config files unless needed to verify scope; this request is documentation-only and only the target file may be changed.
