@@ -61,7 +61,7 @@ class RetrievalStrategyFactory:
                 neighbor_limit=graph.neighbor_limit,
             )
         if strategy_id is RetrievalStrategyId.GRAPH_FILE:
-            return self._graph_file_strategy(config, provider, vector_store)
+            return self._create_graph_file_base(config, provider, vector_store)
         if strategy_id is RetrievalStrategyId.GRAPH_FILE_RERANK:
             return LlmRerankRetrievalStrategy(
                 self._graph_file_strategy(config, provider, vector_store),
@@ -73,7 +73,7 @@ class RetrievalStrategyFactory:
             # Same base as GRAPH_FILE_RERANK, different rerank primitive. The existing
             # CROSS_ENCODER_RERANK sits on plain hybrid, so swapping to it from the champion
             # would change the base *and* the reranker and leave neither attributable.
-            return self._cross_encoder_strategy(self._graph_file_strategy(config, provider, vector_store), config)
+            return self._cross_encoder_strategy(self._create_graph_file_base(config, provider, vector_store), config)
         if strategy_id is RetrievalStrategyId.HYBRID:
             return self._hybrid_strategy(config, provider, vector_store)
         if strategy_id is RetrievalStrategyId.HYBRID_RERANK:
