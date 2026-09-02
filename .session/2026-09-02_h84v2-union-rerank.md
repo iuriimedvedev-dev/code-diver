@@ -19,3 +19,5 @@ configs/intellij/intellij-h84v2-union-rerank.yml based on champion, multi_query.
 
 ## Tests
 tests/unit/test_multi_query_union_rerank.py added/updated.
+
+Do not modify any other files. After writing, verify the file exists and its content matches exactly. Return only a concise summary of the completed action and verification.
