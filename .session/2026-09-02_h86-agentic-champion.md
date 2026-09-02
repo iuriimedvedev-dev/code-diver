@@ -98,3 +98,4 @@ True tool loop + read.
 This note only documents the commands to run later. No evaluation was executed as part of this
 change — YAML config + session note only, per task scope.
 ---
+VERIFY_MARKER_H86
