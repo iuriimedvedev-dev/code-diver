@@ -106,3 +106,4 @@ Test coverage in `tests/unit/test_multi_query_union_rerank.py`: default-off/enab
 Evaluation status: unit tests only. The live WHERE evaluation (GPU/index-backed) was intentionally NOT run, per task constraints.
 
 Do not remove or alter any of the existing content already in the file — only append this new section at the very end.
+H84v2 note appended.
