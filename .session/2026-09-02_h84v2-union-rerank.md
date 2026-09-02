@@ -1,4 +1,4 @@
-# H-84v2: pre-CE multi-query RRF
+# H-84v2: pre-CE multi-query RRF (union then one CE)
 
 New flag union_rerank added to MultiQueryConfig, defaults.py, config_loader.py.
 
