@@ -1,0 +1,2 @@
+30: FAILED tests/unit/test_multi_query_rrf_strategy.py::test_factory_union_rerank_only_changes_graph_file_cross_encoder
+31: FAILED tests/unit/test_multi_query_union_rerank.py::test_rrf_honors_configured_fusion_pool_size
