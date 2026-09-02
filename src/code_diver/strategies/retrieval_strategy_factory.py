@@ -129,7 +129,7 @@ class RetrievalStrategyFactory:
         rewriter = LlmQueryRewriter(create_generation_provider(config)) if config.multi_query.llm_rewrites_enabled else None
         if getattr(config.multi_query, "union_rerank", False) and RetrievalStrategyId(strategy) is RetrievalStrategyId.GRAPH_FILE_CROSS_ENCODER:
             pre_ce = MultiQueryRrfStrategy(
-                self._create_graph_file_base(config, provider, vector_store),
+                self._graph_file_strategy(config, provider, vector_store),
                 config.multi_query,
                 llm_rewriter=rewriter,
                 fusion_pool_size=config.cross_encoder_rerank.candidate_limit,
