@@ -1,2 +1,0 @@
-grep_exit_status_was_0_if_matches_found
-       1 h86_any_no_results.txt

@@ -1,8 +1,0 @@
-FOUND_
-tests/unit/test_validate_eval_dataset.py::test_validate_eval_dataset_reports_errors_and_warnings FAILED [ 99%]
-FAILED tests/unit/test_validate_eval_dataset.py::test_validate_eval_dataset_reports_errors_and_warnings
-
--- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-=========================== short test summary info ============================
-FAILED tests/unit/test_validate_eval_dataset.py::test_validate_eval_dataset_reports_errors_and_warnings
-================= 1 failed, 1374 passed, 4 warnings in 12.15s ==================

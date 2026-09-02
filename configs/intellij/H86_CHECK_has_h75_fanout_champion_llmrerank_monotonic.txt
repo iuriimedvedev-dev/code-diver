@@ -1,1 +1,0 @@
-YES - H86 includes hypothesis h75_fanout_champion_llmrerank_monotonic.

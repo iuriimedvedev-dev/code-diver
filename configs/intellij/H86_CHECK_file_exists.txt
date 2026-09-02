@@ -1,1 +1,0 @@
-YES - configs/intellij/intellij-h86-agentic-champion.yml exists.

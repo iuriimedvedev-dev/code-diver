@@ -1,3 +1,0 @@
-?? git_diff_pyproject.txt
-?? git_diff_stat.txt
-?? git_status.txt
