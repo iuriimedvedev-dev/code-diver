@@ -155,7 +155,7 @@ class MultiQueryRrfStrategy(RetrievalStrategy):
         variants = self._variants(query)
         if len(variants) <= 1:
             return self.underlying.search(query, effective_limit)
-        return self._fuse(self._run(variants, effective_limit), effective_limit)
+        return self._fuse(self._run(variants, effective_limit), limit)
 
     def _variants(self, query: str) -> list[str]:
         variants = self.generator.variants(query, self.config.max_variants)
@@ -199,4 +199,5 @@ class MultiQueryRrfStrategy(RetrievalStrategy):
                 representatives.setdefault(path, result)
                 scores[path] = scores.get(path, 0.0) + weight / (self.config.rrf_k + rank)
         ordered = sorted(scores, key=lambda path: (scores[path], representatives[path].score, path), reverse=True)
-        return [SearchResult(representatives[path].item, scores[path] + representatives[path].score * 1e-9) for path in ordered[:limit]]
+        pool_size = self.fusion_pool_size if self.fusion_pool_size is not None else limit
+        return [SearchResult(representatives[path].item, scores[path] + representatives[path].score * 1e-9) for path in ordered[:pool_size]]
