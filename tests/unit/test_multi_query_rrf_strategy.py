@@ -66,6 +66,24 @@ def test_one_variant_is_identity_passthrough() -> None:
     assert base.calls == [("q", 1)]
 
 
+def test_fusion_pool_overfetches_each_variant_and_fusion_pool() -> None:
+    base = FakeStrategy(
+        {"q": [_result("a"), _result("b")], "rewrite": [_result("b"), _result("c")]}
+    )
+    generator = type("Generator", (), {"variants": lambda self, query, maximum: ["q", "rewrite"]})()
+    strategy = MultiQueryRrfStrategy(
+        base,
+        MultiQueryConfig(parallel_variants=False),
+        generator=generator,
+        fusion_pool_size=3,
+    )
+
+    values = strategy.search("q", 1)
+
+    assert base.calls == [("q", 3), ("rewrite", 3)]
+    assert len(values) == 3
+
+
 def test_factory_disabled_and_enabled_wrapping(tmp_path: Path) -> None:
     disabled = AppConfig(root=tmp_path)
     plain = RetrievalStrategyFactory().create("vector", disabled, object(), object())
@@ -74,6 +92,18 @@ def test_factory_disabled_and_enabled_wrapping(tmp_path: Path) -> None:
     enabled = AppConfig(root=tmp_path, multi_query=MultiQueryConfig(enabled=True))
     wrapped = RetrievalStrategyFactory().create("vector", enabled, object(), object())
     assert isinstance(wrapped, MultiQueryRrfStrategy)
+
+
+def test_factory_union_rerank_only_changes_graph_file_cross_encoder(tmp_path: Path) -> None:
+    config = AppConfig(
+        root=tmp_path,
+        multi_query=MultiQueryConfig(enabled=True, union_rerank=True),
+    )
+
+    vector = RetrievalStrategyFactory().create("vector", config, object(), object())
+
+    assert isinstance(vector, MultiQueryRrfStrategy)
+    assert not isinstance(vector.underlying, MultiQueryRrfStrategy)
 
 
 def test_loader_reads_multi_query_config(tmp_path: Path) -> None:
