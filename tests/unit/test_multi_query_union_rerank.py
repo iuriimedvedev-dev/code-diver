@@ -11,6 +11,7 @@ from code_diver.strategies.cross_encoder_rerank_retrieval_strategy import (
     CrossEncoderRerankRetrievalStrategy,
 )
 from code_diver.strategies.graph_file_retrieval_strategy import GraphFileRetrievalStrategy
+from code_diver.strategies.hybrid_retrieval_strategy import HybridRetrievalStrategy
 from code_diver.strategies.multi_query_rrf_strategy import MultiQueryRrfStrategy
 from code_diver.strategies.retrieval_strategy import RetrievalStrategy
 from code_diver.strategies.retrieval_strategy_factory import RetrievalStrategyFactory
@@ -29,11 +30,14 @@ def _factory_config(tmp_path: Path, *, union_rerank: bool) -> AppConfig:
     )
 
 
-def test_multi_query_config_union_rerank_defaults_to_false() -> None:
-    config = MultiQueryConfig()
+def test_multi_query_config_union_rerank_defaults_to_false_for_yaml_and_dict_config(
+    tmp_path: Path,
+) -> None:
+    yaml_config = ConfigLoader().load(tmp_path / "missing.yml")
+    dict_config = MultiQueryConfig(**{})
 
-    assert config.enabled is False
-    assert config.union_rerank is False
+    assert yaml_config.multi_query.union_rerank is False
+    assert dict_config.union_rerank is False
 
 
 def test_loader_reads_union_rerank_from_yaml(tmp_path: Path) -> None:
@@ -46,17 +50,33 @@ def test_loader_reads_union_rerank_from_yaml(tmp_path: Path) -> None:
     assert config.multi_query.union_rerank is True
 
 
-def test_factory_keeps_cross_encoder_inside_multi_query_by_default(tmp_path: Path) -> None:
-    config = _factory_config(tmp_path, union_rerank=False)
-    provider = Mock()
-    vector_store = Mock()
+def test_factory_disabled_multi_query_returns_cross_encoder_over_graph_file(tmp_path: Path) -> None:
+    config = AppConfig(root=tmp_path, multi_query=MultiQueryConfig(enabled=False))
 
     with patch(
         "code_diver.strategies.retrieval_strategy_factory.RerankProviderFactory.create",
         return_value=Mock(name="rerank_provider"),
     ):
         strategy = RetrievalStrategyFactory().create(
-            "graph_file_cross_encoder", config, provider, vector_store
+            "graph_file_cross_encoder", config, Mock(), Mock()
+        )
+
+    assert isinstance(strategy, CrossEncoderRerankRetrievalStrategy)
+    assert isinstance(strategy.base_strategy, GraphFileRetrievalStrategy)
+    assert not isinstance(strategy, MultiQueryRrfStrategy)
+
+
+def test_factory_enabled_without_union_rerank_wraps_cross_encoder_in_multi_query(
+    tmp_path: Path,
+) -> None:
+    config = _factory_config(tmp_path, union_rerank=False)
+
+    with patch(
+        "code_diver.strategies.retrieval_strategy_factory.RerankProviderFactory.create",
+        return_value=Mock(name="rerank_provider"),
+    ):
+        strategy = RetrievalStrategyFactory().create(
+            "graph_file_cross_encoder", config, Mock(), Mock()
         )
 
     assert isinstance(strategy, MultiQueryRrfStrategy)
@@ -65,7 +85,7 @@ def test_factory_keeps_cross_encoder_inside_multi_query_by_default(tmp_path: Pat
     assert strategy.fusion_pool_size is None
 
 
-def test_factory_union_rerank_wraps_multi_query_before_one_cross_encoder(tmp_path: Path) -> None:
+def test_factory_union_rerank_wraps_ce_less_multi_query_in_cross_encoder(tmp_path: Path) -> None:
     config = _factory_config(tmp_path, union_rerank=True)
     config.cross_encoder_rerank.candidate_limit = 7
 
@@ -79,12 +99,13 @@ def test_factory_union_rerank_wraps_multi_query_before_one_cross_encoder(tmp_pat
 
     assert isinstance(strategy, CrossEncoderRerankRetrievalStrategy)
     assert isinstance(strategy.base_strategy, MultiQueryRrfStrategy)
-    assert not isinstance(strategy.base_strategy.underlying, CrossEncoderRerankRetrievalStrategy)
     assert isinstance(strategy.base_strategy.underlying, GraphFileRetrievalStrategy)
+    assert isinstance(strategy.base_strategy.underlying.base_strategy, HybridRetrievalStrategy)
+    assert not isinstance(strategy.base_strategy.underlying, CrossEncoderRerankRetrievalStrategy)
     assert strategy.base_strategy.fusion_pool_size == config.cross_encoder_rerank.candidate_limit
 
 
-def test_rrf_overfetches_each_variant_and_respects_effective_limit() -> None:
+def test_rrf_honors_configured_fusion_pool_size() -> None:
     underlying = MagicMock(spec=RetrievalStrategy)
     underlying.search.side_effect = lambda query, limit: {
         "query": [_result("a"), _result("b"), _result("c"), _result("d")],
@@ -110,7 +131,7 @@ def test_rrf_overfetches_each_variant_and_respects_effective_limit() -> None:
 
 
 def test_rrf_without_fusion_pool_requests_exact_limit() -> None:
-    underlying = MagicMock(spec=RetrievalStrategy)
+    underlying = MagicMock()
     underlying.search.side_effect = lambda query, limit: [_result(query)][:limit]
     generator = Mock()
     generator.variants.return_value = ["query", "rewrite"]
@@ -127,26 +148,3 @@ def test_rrf_without_fusion_pool_requests_exact_limit() -> None:
         call("rewrite", 2),
     ]
     assert len(results) == 2
-
-
-def test_factory_disabled_multi_query_is_bit_exact_passthrough(tmp_path: Path) -> None:
-    config = AppConfig(root=tmp_path, multi_query=MultiQueryConfig(enabled=False))
-    base = Mock(spec=RetrievalStrategy)
-    factory = RetrievalStrategyFactory()
-
-    with patch.object(factory, "_create_base", return_value=base) as create_base:
-        result = factory.create("vector", config, Mock(), Mock())
-
-    assert result is base
-    assert not isinstance(result, MultiQueryRrfStrategy)
-    create_base.assert_called_once()
-
-
-def test_union_rerank_is_noop_for_non_cross_encoder_strategy(tmp_path: Path) -> None:
-    config = _factory_config(tmp_path, union_rerank=True)
-
-    strategy = RetrievalStrategyFactory().create("vector", config, Mock(), Mock())
-
-    assert isinstance(strategy, MultiQueryRrfStrategy)
-    assert strategy.fusion_pool_size is None
-    assert not isinstance(strategy.underlying, CrossEncoderRerankRetrievalStrategy)
