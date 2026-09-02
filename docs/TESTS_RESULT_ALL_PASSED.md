@@ -1,3 +1,5 @@
+# Test Result
+
 ```
 ============================= test session starts ==============================
 platform darwin -- Python 3.12.12, pytest-9.1.1, pluggy-1.6.0 -- /Users/iurii.medvedev/Work/code-diver/.venv/bin/python3
@@ -56,5 +58,5 @@ tests/unit/test_retrieval_strategy_factory_graph_file_cross_encoder.py::test_uni
 tests/unit/test_retrieval_strategy_factory_rerank_model.py::test_rerank_generation_config_is_the_same_object_without_an_override PASSED [ 97%]
 tests/unit/test_retrieval_strategy_factory_rerank_model.py::test_rerank_generation_config_swaps_the_generation_block PASSED [100%]
 
-===================== 48 passed, 1325 deselected in 1.05s ======================
+===================== 48 passed, 1325 deselected in 1.04s ======================
 ```
