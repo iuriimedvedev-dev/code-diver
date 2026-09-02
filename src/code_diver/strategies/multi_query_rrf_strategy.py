@@ -149,9 +149,9 @@ class MultiQueryRrfStrategy(RetrievalStrategy):
     def search(self, query: str, limit: int) -> list[SearchResult]:
         effective_limit = max(limit, self.fusion_pool_size) if self.fusion_pool_size is not None else limit
         effective_limit = (
-            max(limit, self.fusion_pool_size)
+            max(effective_limit, self.fusion_pool_size)
             if self.fusion_pool_size is not None
-            else limit
+            else effective_limit
         )
         variants = self._variants(query)
         if len(variants) <= 1:
