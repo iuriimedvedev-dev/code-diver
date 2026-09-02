@@ -1,0 +1,54 @@
+collecting ... ERROR: file or directory not found: tests/unit/test_retrieval_strategy_factory.py
+tests/unit/test_ai_codebase_scanner.py::test_ai_codebase_scanner_falls_back_to_base_scan_on_generation_error PASSED [  0%]
+tests/unit/test_answer_metrics_judge_aggregation.py::test_judge_error_row_is_excluded_from_judge_overall_mean_not_counted_as_zero PASSED [  3%]
+tests/unit/test_answer_pairwise_judge.py::test_a_failed_comparison_is_dropped_and_reported_not_counted_as_a_tie PASSED [  5%]
+tests/unit/test_answer_pairwise_judge.py::test_critical_errors_are_attributed_to_the_system_that_made_them PASSED [  5%]
+tests/unit/test_answer_report_integrity.py::test_incomplete_answer_report_error_carries_both_counts PASSED [  6%]
+tests/unit/test_cross_encoder_rerank_retrieval_strategy.py::test_cross_encoder_rerank_falls_back_to_base_order_on_error PASSED [ 53%]
+tests/unit/test_direct_tool_executor.py::test_direct_tool_executor_rg_invalid_regex_returns_structured_error PASSED [ 58%]
+tests/unit/test_explanation_evaluator.py::test_code_explanation_evaluator_treats_empty_explanation_as_generation_error PASSED [ 63%]
+tests/unit/test_llm_rerank_retrieval_strategy.py::test_llm_rerank_retries_transient_generation_error PASSED [ 75%]
+tests/unit/test_multi_query_rrf_strategy.py::test_factory_union_rerank_only_changes_graph_file_cross_encoder FAILED [ 79%]
+tests/unit/test_multi_query_union_rerank.py::test_rrf_honors_configured_fusion_pool_size FAILED [ 80%]
+tests/unit/test_openai_providers.py::test_openai_embedding_provider_retries_context_error_and_returns_result PASSED [ 81%]
+tests/unit/test_provider_test_service.py::test_provider_test_service_marks_invalid_json_generation_as_failed PASSED [ 84%]
+tests/unit/test_rejudge_report_metrics.py::test_rejudge_script_and_answer_report_judge_agree_on_generation_error_rows PASSED [ 86%]
+tests/unit/test_unjudgeable_row_policy.py::test_row_with_nonempty_prediction_and_no_error_is_judgeable PASSED [ 98%]
+tests/unit/test_unjudgeable_row_policy.py::test_errored_row_is_unjudgeable_with_generation_error_reason_even_with_a_prediction PASSED [ 99%]
+tests/unit/test_unjudgeable_row_policy.py::test_error_takes_precedence_over_empty_prediction_reason PASSED [ 99%]
+tests/unit/test_unjudgeable_row_policy.py::test_falsy_error_value_does_not_make_a_row_unjudgeable PASSED [ 99%]
+tests/unit/test_validate_eval_dataset.py::test_validate_eval_dataset_reports_errors_and_warnings FAILED [ 99%]
+>           raise ValueError("union_rerank requires the graph_file_cross_encoder retrieval strategy")
+E           ValueError: union_rerank requires the graph_file_cross_encoder retrieval strategy
+src/code_diver/strategies/retrieval_strategy_factory.py:132 ValueError
+E       AssertionError: assert ['a', 'b', 'c'] == ['a', 'b', 'e']
+tests/unit/test_multi_query_union_rerank.py:130 AssertionError
+____________ test_validate_eval_dataset_reports_errors_and_warnings ____________
+    def test_validate_eval_dataset_reports_errors_and_warnings(tmp_path: Path) -> None:
+>           raise JSONDecodeError("Expecting value", s, err.value) from None
+E           json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+../../.local/share/uv/python/cpython-3.12.12-macos-aarch64-none/lib/python3.12/json/decoder.py:356: JSONDecodeError
+FAILED tests/unit/test_multi_query_rrf_strategy.py::test_factory_union_rerank_only_changes_graph_file_cross_encoder
+FAILED tests/unit/test_multi_query_union_rerank.py::test_rrf_honors_configured_fusion_pool_size
+FAILED tests/unit/test_validate_eval_dataset.py::test_validate_eval_dataset_reports_errors_and_warnings
+================= 3 failed, 1371 passed, 4 warnings in 23.19s ==================
+collecting ... ERROR: file or directory not found: tests/unit/test_retrieval_strategy_factory.py
+
+collected 0 items
+
+============================ no tests ran in 0.00s =============================
+=============================== warnings summary ===============================
+tests/unit/test_train_ltr_ranker.py::test_training_writes_a_loadable_artifact_and_holds_out_whole_queries
+tests/unit/test_train_ltr_ranker.py::test_training_writes_a_loadable_artifact_and_holds_out_whole_queries
+tests/unit/test_train_ltr_ranker.py::test_training_writes_a_loadable_artifact_and_holds_out_whole_queries
+tests/unit/test_train_ltr_ranker.py::test_training_writes_a_loadable_artifact_and_holds_out_whole_queries
+  /Users/iurii.medvedev/Work/code-diver/.venv/lib/python3.12/site-packages/joblib/numpy_pickle.py:207: DeprecationWarning: Setting the shape on a NumPy array has been deprecated in NumPy 2.5.
+  As an alternative, you can create a new view with np.reshape (with copy=False if needed).
+    array.shape = self.shape
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/test_multi_query_rrf_strategy.py::test_factory_union_rerank_only_changes_graph_file_cross_encoder
+FAILED tests/unit/test_multi_query_union_rerank.py::test_rrf_honors_configured_fusion_pool_size
+FAILED tests/unit/test_validate_eval_dataset.py::test_validate_eval_dataset_reports_errors_and_warnings
+================= 3 failed, 1371 passed, 4 warnings in 23.19s ==================
