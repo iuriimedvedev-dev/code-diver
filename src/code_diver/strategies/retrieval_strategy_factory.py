@@ -127,7 +127,10 @@ class RetrievalStrategyFactory:
         if not config.multi_query.enabled:
             return self._create_base(strategy, config, provider, vector_store)
         rewriter = LlmQueryRewriter(create_generation_provider(config)) if config.multi_query.llm_rewrites_enabled else None
-        if getattr(config.multi_query, "union_rerank", False) and RetrievalStrategyId(strategy) is RetrievalStrategyId.GRAPH_FILE_CROSS_ENCODER:
+        strategy_id = RetrievalStrategyId(strategy)
+        if getattr(config.multi_query, "union_rerank", False) and strategy_id is not RetrievalStrategyId.GRAPH_FILE_CROSS_ENCODER:
+            raise ValueError("union_rerank requires the graph_file_cross_encoder retrieval strategy")
+        if getattr(config.multi_query, "union_rerank", False) and strategy_id is RetrievalStrategyId.GRAPH_FILE_CROSS_ENCODER:
             pre_ce = MultiQueryRrfStrategy(
                 self._create_graph_file_base(config, provider, vector_store),
                 config.multi_query,
