@@ -8,6 +8,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- **Promoted H-83 to the new IntelliJ champion.** Added conditional two-pass cross-encoder reranking to `configs/intellij/intellij-h66b-champion.yml`. This change targets WHERE-79 "truncation victims" by rescoring candidates with a larger document window (2400 chars) if their first-pass score is below 0.3. In the mech150 same-sitting gate, H-83 improved WHERE recall@10 by 2.2% (0.6120 -> 0.6342) while maintaining bit-identical performance on config, path, and symbol buckets.
+
 - **Promoted H-66b to the new IntelliJ champion.** The default configuration for IntelliJ Community is now `configs/intellij/intellij-h66b-champion.yml`. This flip favors the best-measured WHERE arm (+0.073 recall / +0.078 MRR) over the strict 1065 recall gate. While a slight regression on 1065 recall is accepted (-0.0117), the configuration improves hit@1 (+0.0113) and achieves the best-on-record performance for the workflow bucket (0.8027). H-46 remains available as an archived reference.
 
 ### Fixed

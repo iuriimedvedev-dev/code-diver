@@ -44,3 +44,17 @@ Evaluation of retrieval arms H-81 through H-85 on the cleaned WHERE-78 dataset. 
 - Recommend promotion of **H-83** logic to champion.
 - Investigate why `h81` and `h82` failed to rescue their targets (check candidate logs to see if the files even reached the CE stage).
 - Multi-query (H-84) needs a "union-rerank" optimization (fuse before CE) to be viable.
+
+## 2026-09-01 — H-83 CE two-pass expansion promoted to champion
+
+**PROMOTED.** H-83 criteria check PASS.
+
+| bucket | champion recall@10 | H-83 recall@10 | delta |
+|---|---|---|---|
+| overall | 0.7591 | 0.7668 | +0.0076 |
+| config | 0.7526 | 0.7526 | +0.0000 |
+| path | 0.8920 | 0.8920 | +0.0000 |
+| symbol | 0.8653 | 0.8653 | +0.0000 |
+| where | 0.6120 | 0.6342 | +0.0222 |
+
+Decision: Criteria (a) overall drop <= 0.005, (b) bucket regress <= 0.01, (c) where-bucket improves are all satisfied. H-83 promoted to champion config.

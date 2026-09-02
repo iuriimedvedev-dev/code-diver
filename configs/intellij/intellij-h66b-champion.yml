@@ -160,6 +160,10 @@ cross_encoder_rerank:
   url: http://127.0.0.1:8081/v1/rerank
   candidate_limit: 34
   max_document_chars: 850
+  second_pass_enabled: true
+  second_pass_score_floor: 0.3
+  second_pass_max_document_chars: 2400
+  second_pass_candidate_cap: 24
   preserve_top_candidate: true
   preserve_top_score_margin: 0.1
   timeout_ms: 60000
