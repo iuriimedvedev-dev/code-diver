@@ -1087,7 +1087,7 @@ class ConfigLoader:
         base = MultiQueryConfig()
         return MultiQueryConfig(
             enabled=bool(mapping.get("enabled", base.enabled)),
-            union_rerank=bool(mapping.get("union_rerank", base.union_rerank)),
+            union_rerank=bool(mapping.get("union_rerank", Defaults.MULTI_QUERY_UNION_RERANK)),
             max_variants=int(mapping.get("max_variants", base.max_variants)),
             rrf_k=int(mapping.get("rrf_k", base.rrf_k)),
             original_query_weight=float(mapping.get("original_query_weight", base.original_query_weight)),
