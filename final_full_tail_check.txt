@@ -1,0 +1,25 @@
+        try:
+            obj, end = self.scan_once(s, idx)
+        except StopIteration as err:
+>           raise JSONDecodeError("Expecting value", s, err.value) from None
+E           json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+
+../../.local/share/uv/python/cpython-3.12.12-macos-aarch64-none/lib/python3.12/json/decoder.py:356: JSONDecodeError
+=============================== warnings summary ===============================
+tests/unit/test_train_ltr_ranker.py::test_training_writes_a_loadable_artifact_and_holds_out_whole_queries
+tests/unit/test_train_ltr_ranker.py::test_training_writes_a_loadable_artifact_and_holds_out_whole_queries
+tests/unit/test_train_ltr_ranker.py::test_training_writes_a_loadable_artifact_and_holds_out_whole_queries
+tests/unit/test_train_ltr_ranker.py::test_training_writes_a_loadable_artifact_and_holds_out_whole_queries
+  /Users/iurii.medvedev/Work/code-diver/.venv/lib/python3.12/site-packages/joblib/numpy_pickle.py:207: DeprecationWarning: Setting the shape on a NumPy array has been deprecated in NumPy 2.5.
+  As an alternative, you can create a new view using np.reshape (with copy=False if needed).
+    array.shape = self.shape
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/test_validate_eval_dataset.py::test_validate_eval_dataset_reports_errors_and_warnings
+================= 1 failed, 1374 passed, 4 warnings in 12.15s ==================
+---FAILURES COUNT---
+       2 pytest_full_failures.txt
+---FAILURE LINES---
+tests/unit/test_validate_eval_dataset.py::test_validate_eval_dataset_reports_errors_and_warnings FAILED [ 99%]
+FAILED tests/unit/test_validate_eval_dataset.py::test_validate_eval_dataset_reports_errors_and_warnings
