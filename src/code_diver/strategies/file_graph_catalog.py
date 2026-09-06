@@ -6,6 +6,7 @@ from typing import Any
 
 from ..domain import CodeItem, CodeItemIndexKind, CodeItemIndexKindResolver
 from ..graph import GraphEdge
+from .file_fan_in_index import FileFanInIndex
 from .file_graph_adjacency_index import FileGraphAdjacencyIndex
 
 
@@ -15,9 +16,13 @@ class FileGraphCatalog:
         *,
         items_by_id: dict[str, CodeItem],
         adjacency: FileGraphAdjacencyIndex,
+        fan_in: FileFanInIndex | None = None,
     ):
         self.items_by_id = items_by_id
         self.adjacency = adjacency
+        # H-87: directed in-degree per file. None for catalogs persisted before the index
+        # existed -- consumers must treat that as "fan-in unavailable", not as zero fan-in.
+        self.fan_in = fan_in
 
     @classmethod
     def build(
@@ -55,9 +60,12 @@ class FileGraphCatalog:
                 item = by_kind.get(kind)
                 if item is not None:
                     representatives[item.id] = item
+        fan_in_collector = FileFanInIndex.collector(item_paths)
+        adjacency = FileGraphAdjacencyIndex.from_item_paths_and_edges(item_paths, fan_in_collector.observing(edges))
         return cls(
             items_by_id=representatives,
-            adjacency=FileGraphAdjacencyIndex.from_item_paths_and_edges(item_paths, edges),
+            adjacency=adjacency,
+            fan_in=fan_in_collector.build(),
         )
 
     def to_json(self) -> dict[str, Any]:
@@ -67,6 +75,7 @@ class FileGraphCatalog:
                 for item_id, item in self.items_by_id.items()
             },
             "adjacency": self.adjacency.to_json(),
+            **({"fan_in": self.fan_in.to_json()} if self.fan_in is not None else {}),
         }
 
     @classmethod
@@ -77,4 +86,5 @@ class FileGraphCatalog:
                 for item_id, item in dict(data.get("items") or {}).items()
             },
             adjacency=FileGraphAdjacencyIndex.from_json(dict(data.get("adjacency") or {})),
+            fan_in=FileFanInIndex.from_json(dict(data["fan_in"])) if data.get("fan_in") is not None else None,
         )

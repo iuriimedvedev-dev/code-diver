@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import logging
 import math
+import pickle
 from collections import Counter, defaultdict
 from collections.abc import Iterable
+from typing import Any
 
 from ..domain import CodeItem
 from ..services.tokenizer import tokenize
@@ -14,12 +16,20 @@ logger = logging.getLogger(__name__)
 
 
 class HybridLexicalIndex:
-    def __init__(self, items: Iterable[CodeItem], profiler: HybridItemProfiler):
+    SCHEMA_VERSION = 1
+
+    def __init__(self, items: Iterable[CodeItem] | None = None, profiler: HybridItemProfiler | None = None):
         self.items_by_id: dict[str, CodeItem] = {}
         self.profiles: dict[str, HybridItemProfile] = {}
         self.item_ids_by_term: dict[str, set[str]] = defaultdict(set)
         self.term_frequencies_by_id: dict[str, Counter[str]] = {}
         self.document_lengths_by_id: dict[str, int] = {}
+        self.average_document_length = 0.0
+        self._native_snapshot: tuple[dict[str, dict[str, int]], dict[str, int], dict[str, set[str]]] | None = None
+        if items is not None and profiler is not None:
+            self._build(items, profiler)
+
+    def _build(self, items: Iterable[CodeItem], profiler: HybridItemProfiler) -> None:
         for item in items:
             profile = profiler.profile(item)
             self.items_by_id[item.id] = item
@@ -31,7 +41,6 @@ class HybridLexicalIndex:
                 self.item_ids_by_term[term].add(item.id)
         total_length = sum(self.document_lengths_by_id.values())
         self.average_document_length = total_length / max(len(self.document_lengths_by_id), 1)
-        self._native_snapshot: tuple[dict[str, dict[str, int]], dict[str, int], dict[str, set[str]]] | None = None
 
     def candidates(self, terms: tuple[str, ...]) -> list[CodeItem]:
         item_ids: set[str] = set()
@@ -102,6 +111,30 @@ class HybridLexicalIndex:
             if score > 0:
                 scores[item_id] = score
         return scores
+
+    def to_bytes(self) -> bytes:
+        return pickle.dumps(
+            {
+                "schema_version": self.SCHEMA_VERSION,
+                "item_ids_by_term": dict(self.item_ids_by_term),
+                "term_frequencies_by_id": self.term_frequencies_by_id,
+                "document_lengths_by_id": self.document_lengths_by_id,
+                "average_document_length": self.average_document_length,
+                "profiles": self.profiles,
+            },
+            protocol=pickle.HIGHEST_PROTOCOL,
+        )
+
+    @classmethod
+    def from_bytes(cls, data: bytes) -> HybridLexicalIndex:
+        raw = pickle.loads(data)
+        index = cls()
+        index.item_ids_by_term = defaultdict(set, raw.get("item_ids_by_term", {}))
+        index.term_frequencies_by_id = raw.get("term_frequencies_by_id", {})
+        index.document_lengths_by_id = dict(raw.get("document_lengths_by_id", {}))
+        index.average_document_length = float(raw.get("average_document_length", 0.0))
+        index.profiles = dict(raw.get("profiles", {}))
+        return index
 
     def _terms(self, profile: HybridItemProfile) -> frozenset[str]:
         return profile.title_terms | profile.path_terms | profile.content_terms | profile.metadata_terms

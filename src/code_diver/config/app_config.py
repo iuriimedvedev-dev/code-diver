@@ -12,6 +12,7 @@ from .experiments_config import ExperimentsConfig
 from .generation_config import GenerationConfig
 from .graph_config import GraphConfig
 from .graph_file_search_config import GraphFileSearchConfig
+from .hub_prior_config import HubPriorConfig
 from .hybrid_search_config import HybridSearchConfig
 from .indexing_config import IndexingConfig
 from .llm_rerank_config import LlmRerankConfig
@@ -44,6 +45,7 @@ class AppConfig:
     llm_rerank: LlmRerankConfig = field(default_factory=LlmRerankConfig)
     cross_encoder_rerank: CrossEncoderRerankConfig = field(default_factory=CrossEncoderRerankConfig)
     multi_query: MultiQueryConfig = field(default_factory=MultiQueryConfig)
+    hub_prior: HubPriorConfig = field(default_factory=HubPriorConfig)
     graph: GraphConfig = field(default_factory=GraphConfig)
     trace: TraceConfig = field(default_factory=TraceConfig)
     ui: UiConfig = field(default_factory=UiConfig)

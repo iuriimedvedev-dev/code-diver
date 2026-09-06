@@ -8,8 +8,11 @@ from dataclasses import dataclass, replace
 from threading import RLock
 
 from ..config import GraphFileSearchConfig
+from ..config.hub_prior_config import HubPriorConfig
 from ..domain import CodeItem, SearchResult
 from ..graph import CodeGraphStore
+from ..reranking import HubPriorScorer
+from ..tracing import TraceLogger
 from ..ranking.ltr_feature_extractor import LtrCandidate, LtrFeatureExtractor
 from ..ranking.ltr_feature_row import LtrFeatureRow
 from ..ranking.ltr_ranker_model import LtrRankerModel
@@ -25,6 +28,8 @@ from .query_fusion_router import QueryFusionRouter
 from .retrieval_strategy import RetrievalStrategy
 
 logger = logging.getLogger(__name__)
+
+TRACE_CANDIDATE_LIMIT = 400
 
 
 def _normalize_path(path: str) -> str:
@@ -47,6 +52,8 @@ class FileScore:
     path_score: float = 0.0
     symbol_score: float = 0.0
     graph_score: float = 0.0
+    # H-87: combined hub prior (role + fan-in). Stays 0.0 unless hub_prior_seed_weight > 0.
+    hub_prior: float = 0.0
     winning_index_kind: str = ""
 
     def total(self, config: GraphFileSearchConfig) -> float:
@@ -56,6 +63,7 @@ class FileScore:
             + self.path_score * config.path_weight
             + self.symbol_score * config.symbol_weight
             + self.graph_score * config.graph_weight
+            + self.hub_prior * config.hub_prior_seed_weight
         )
 
 
@@ -66,12 +74,18 @@ class GraphFileRetrievalStrategy(RetrievalStrategy):
         graph_store: CodeGraphStore,
         config: GraphFileSearchConfig,
         feature_sink: Callable[[str, list[LtrFeatureRow]], None] | None = None,
+        trace_logger: TraceLogger | None = None,
+        hub_prior_vocabulary: HubPriorConfig | None = None,
     ):
         self.base_strategy = base_strategy
         self.graph_store = graph_store
         self.config = config
+        self.trace_logger = trace_logger or TraceLogger.disabled()
         self.fusion_router = QueryFusionRouter()
         self.profiler = HybridItemProfiler()
+        # H-87: file-side hub prior. Fan-in comes from this strategy's own catalog, so the
+        # same scorer can be handed to the cross-encoder stage sitting on top of it.
+        self.hub_prior_scorer = HubPriorScorer(hub_prior_vocabulary, fan_in=self.fan_in_degree)
         # H-80: set by the feature export only. When it is None and the learned ranker is
         # off, no feature is ever computed and this class behaves exactly as before.
         self.feature_sink = feature_sink
@@ -106,6 +120,20 @@ class GraphFileRetrievalStrategy(RetrievalStrategy):
 
             config = self.fusion_router.apply_graph_file(query, self.config)
             file_scores = self._seed_scores(query, catalog, limit)
+            if self.trace_logger.config.enabled and file_scores:
+                self.trace_logger.write(
+                    "graph_file_seed_scores",
+                    {
+                        "query": query,
+                        "candidate_count": len(file_scores),
+                        "candidates": [
+                            {"path": score.path, "score": score.total(config)}
+                            for score in sorted(
+                                file_scores.values(), key=lambda score: score.total(config), reverse=True
+                            )[:TRACE_CANDIDATE_LIMIT]
+                        ],
+                    },
+                )
             if not file_scores:
                 return self.base_strategy.search(query, limit)
 
@@ -135,6 +163,28 @@ class GraphFileRetrievalStrategy(RetrievalStrategy):
                 reverse=True,
             )
             ordered = self._ordered_with_ltr(query, ranked, config)
+            if self.trace_logger.config.enabled:
+                self.trace_logger.write(
+                    "graph_file_ranked",
+                    {
+                        "query": query,
+                        "limit": limit,
+                        "candidate_count": len(ordered),
+                        "candidates": [
+                            {
+                                "path": score.path,
+                                "score": result_score,
+                                "vector": score.vector_score,
+                                "lexical": score.lexical_score,
+                                "path_score": score.path_score,
+                                "symbol": score.symbol_score,
+                                "graph": score.graph_score,
+                                "hub_prior": score.hub_prior,
+                            }
+                            for score, result_score in ordered[:TRACE_CANDIDATE_LIMIT]
+                        ],
+                    },
+                )
             results = [
                 SearchResult(
                     item=replace(
@@ -302,7 +352,36 @@ class GraphFileRetrievalStrategy(RetrievalStrategy):
                     max(candidate.symbol_score, candidate.symbol_match_score),
                     existing.item,
                 )
+        self._apply_hub_prior(scores)
         return scores
+
+    def _apply_hub_prior(self, scores: dict[str, FileScore]) -> None:
+        """H-87: stamp the combined hub prior on every seed candidate.
+
+        Hubs lose the seed cut (140 -> 34) on lexical/path ties to their sibling peripherals
+        (WHERE-78: vector #2 -> seed #48). With `hub_prior_seed_weight` > 0 the fused total
+        gains `seed_weight * (role_weight * role + fanin_weight * fanin)`; fan-in is normalised
+        against the busiest file of this seed set. At 0.0 nothing is computed or changed.
+        """
+        if self.config.hub_prior_seed_weight <= 0 or not scores:
+            return
+        priors = self.hub_prior_scorer.priors(
+            scores.keys(),
+            role_weight=self.config.hub_prior_role_weight,
+            fanin_weight=self.config.hub_prior_fanin_weight,
+        )
+        for path, file_score in scores.items():
+            file_score.hub_prior = priors.get(path, 0.0)
+
+    def fan_in_degree(self, path: str) -> int | None:
+        """Directed file in-degree from the catalog, or None when no graph/fan-in index exists."""
+        try:
+            catalog = self._load_catalog()
+        except Exception:
+            return None
+        if catalog.fan_in is None:
+            return None
+        return catalog.fan_in.degree(path)
 
     def _seed_pool_limit(self, limit: int) -> int:
         """Width of the fused pool requested from the base strategy.
@@ -514,11 +593,14 @@ class GraphFileRetrievalStrategy(RetrievalStrategy):
             return self._catalog
         store = FileGraphCatalogStore.for_graph_artifact(self.graph_store.artifact)
         if store.is_fresh_for(self.graph_store.artifact):
-            self._catalog = store.load()
-            self._items_by_path = None
-            self._items_by_norm_path = None
-            self._path_resolution_cache.clear()
-            return self._catalog
+            try:
+                self._catalog = store.load()
+                self._items_by_path = None
+                self._items_by_norm_path = None
+                self._path_resolution_cache.clear()
+                return self._catalog
+            except (ValueError, KeyError, json.JSONDecodeError):
+                logger.debug("stale or invalid file graph catalog cache, rebuilding")
         if not self.graph_store.exists():
             self._catalog = FileGraphCatalog(items_by_id={}, adjacency=FileGraphCatalog.build([], []).adjacency)
             self._items_by_path = None

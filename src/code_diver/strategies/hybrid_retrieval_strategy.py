@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from collections import defaultdict
+from pathlib import Path
 from threading import RLock
 
 from ..config import HybridSearchConfig
@@ -30,7 +31,7 @@ from .retrieval_strategy import RetrievalStrategy
 
 LEXICAL_SCORING_BM25 = "bm25"
 FUSION_RRF = "rrf"
-TRACE_CANDIDATE_LIMIT = 60
+TRACE_CANDIDATE_LIMIT = 400
 
 logger = logging.getLogger(__name__)
 
@@ -274,16 +275,48 @@ class HybridRetrievalStrategy(RetrievalStrategy):
                     if key:
                         with _SHARED_CACHE_LOCK:
                             cached = _SHARED_LEXICAL_INDEXES.get(key)
-                            if cached is None:
-                                index = HybridLexicalIndex(graph.items.values(), self.item_profiler)
-                                cached = (index, dict(index.profiles))
-                                _SHARED_LEXICAL_INDEXES[key] = cached
-                        self._lexical_index, profiles = cached
-                        self._item_profiles.update(profiles)
-                    else:
-                        self._lexical_index = HybridLexicalIndex(graph.items.values(), self.item_profiler)
-                        self._item_profiles.update(self._lexical_index.profiles)
+                            if cached is not None:
+                                self._lexical_index, profiles = cached
+                                self._item_profiles.update(profiles)
+                                return self._lexical_index
+                    # Try disk cache: a .lexical-index.pickle next to the graph artifact.
+                    disk_cache = self._lexical_index_cache_path()
+                    if disk_cache is not None and disk_cache.exists():
+                        if disk_cache.stat().st_mtime >= self.graph_store.artifact.stat().st_mtime:
+                            try:
+                                index = HybridLexicalIndex.from_bytes(disk_cache.read_bytes())
+                                # Populate items_by_id from the graph so candidates() works.
+                                index.items_by_id = dict(graph.items)
+                                profiles = index.profiles
+                                self._lexical_index = index
+                                self._item_profiles.update(profiles)
+                                if key:
+                                    with _SHARED_CACHE_LOCK:
+                                        _SHARED_LEXICAL_INDEXES[key] = (index, profiles)
+                                return index
+                            except Exception as exc:
+                                logger.debug("failed to load lexical index disk cache: %s", exc)
+                    index = HybridLexicalIndex(graph.items.values(), self.item_profiler)
+                    profiles = dict(index.profiles)
+                    # Save to disk cache so subsequent runs skip the 130s build.
+                    if disk_cache is not None:
+                        try:
+                            disk_cache.parent.mkdir(parents=True, exist_ok=True)
+                            disk_cache.write_bytes(index.to_bytes())
+                        except Exception as exc:
+                            logger.debug("failed to save lexical index disk cache: %s", exc)
+                    if key:
+                        with _SHARED_CACHE_LOCK:
+                            _SHARED_LEXICAL_INDEXES[key] = (index, profiles)
+                    self._lexical_index = index
+                    self._item_profiles.update(profiles)
         return self._lexical_index
+
+    def _lexical_index_cache_path(self) -> Path | None:
+        try:
+            return self.graph_store.artifact.with_suffix(".lexical-index.pickle")
+        except Exception:
+            return None
 
     def _neighbors(self) -> GraphNeighborIndex:
         if self._neighbor_index is None:
@@ -322,9 +355,13 @@ class HybridRetrievalStrategy(RetrievalStrategy):
                 if cached is not None:
                     return cached
         store = FileGraphCatalogStore.for_graph_artifact(self.graph_store.artifact)
+        catalog = None
         if store.is_fresh_for(self.graph_store.artifact):
-            catalog = store.load()
-        else:
+            try:
+                catalog = store.load()
+            except (ValueError, KeyError, json.JSONDecodeError):
+                logger.debug("stale or invalid file graph catalog cache, rebuilding")
+        if catalog is None:
             if not self.graph_store.exists():
                 catalog = FileGraphCatalog(items_by_id={}, adjacency=FileGraphAdjacencyIndex({}))
             else:

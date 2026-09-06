@@ -20,6 +20,7 @@ from .fan_out_fusion_config import FanOutFusionConfig
 from .generation_config import GenerationConfig
 from .graph_config import GraphConfig
 from .graph_file_search_config import GraphFileSearchConfig
+from .hub_prior_config import HubPriorConfig
 from .hybrid_search_config import HybridSearchConfig
 from .indexing_config import IndexingConfig
 from .llm_rerank_config import LlmRerankConfig
@@ -63,6 +64,7 @@ class ConfigLoader:
             llm_rerank=llm_rerank,
             cross_encoder_rerank=cross_encoder_rerank,
             multi_query=multi_query,
+            hub_prior=self._hub_prior(data.get("hub_prior")),
             graph=self._graph(data.get("graph")),
             trace=self._trace(data.get("trace")),
             ui=self._ui(data.get("ui")),
@@ -654,6 +656,36 @@ class ConfigLoader:
             ltr_model_path=self._optional_string(
                 mapping.get("ltr_model_path", base.ltr_model_path if base is not None else None)
             ),
+            hub_prior_seed_weight=float(
+                mapping.get(
+                    "hub_prior_seed_weight",
+                    base.hub_prior_seed_weight if base is not None else Defaults.GRAPH_FILE_HUB_PRIOR_SEED_WEIGHT,
+                )
+            ),
+            hub_prior_role_weight=float(
+                mapping.get(
+                    "hub_prior_role_weight",
+                    base.hub_prior_role_weight if base is not None else Defaults.GRAPH_FILE_HUB_PRIOR_ROLE_WEIGHT,
+                )
+            ),
+            hub_prior_fanin_weight=float(
+                mapping.get(
+                    "hub_prior_fanin_weight",
+                    base.hub_prior_fanin_weight if base is not None else Defaults.GRAPH_FILE_HUB_PRIOR_FANIN_WEIGHT,
+                )
+            ),
+        )
+
+    def _hub_prior(self, data: Any) -> HubPriorConfig:
+        mapping = self._mapping(data)
+        return HubPriorConfig(
+            hub_tokens=self._string_list(mapping.get("hub_tokens")) or list(Defaults.HUB_PRIOR_HUB_TOKENS),
+            peripheral_tokens=self._string_list(mapping.get("peripheral_tokens"))
+            or list(Defaults.HUB_PRIOR_PERIPHERAL_TOKENS),
+            test_path_segments=self._string_list(mapping.get("test_path_segments"))
+            or list(Defaults.HUB_PRIOR_TEST_PATH_SEGMENTS),
+            non_source_extensions=self._string_list(mapping.get("non_source_extensions"))
+            or list(Defaults.HUB_PRIOR_NON_SOURCE_EXTENSIONS),
         )
 
     def _llm_rerank(
@@ -926,6 +958,76 @@ class ConfigLoader:
                     base.second_pass_candidate_cap
                     if base is not None
                     else Defaults.CROSS_ENCODER_RERANK_SECOND_PASS_CANDIDATE_CAP,
+                )
+            ),
+            hub_prior_enabled=bool(
+                mapping.get(
+                    "hub_prior_enabled",
+                    base.hub_prior_enabled
+                    if base is not None
+                    else Defaults.CROSS_ENCODER_RERANK_HUB_PRIOR_ENABLED,
+                )
+            ),
+            hub_prior_mode=str(
+                mapping.get(
+                    "hub_prior_mode",
+                    base.hub_prior_mode if base is not None else Defaults.CROSS_ENCODER_RERANK_HUB_PRIOR_MODE,
+                )
+            ),
+            hub_prior_role_weight=float(
+                mapping.get(
+                    "hub_prior_role_weight",
+                    base.hub_prior_role_weight
+                    if base is not None
+                    else Defaults.CROSS_ENCODER_RERANK_HUB_PRIOR_ROLE_WEIGHT,
+                )
+            ),
+            hub_prior_fanin_weight=float(
+                mapping.get(
+                    "hub_prior_fanin_weight",
+                    base.hub_prior_fanin_weight
+                    if base is not None
+                    else Defaults.CROSS_ENCODER_RERANK_HUB_PRIOR_FANIN_WEIGHT,
+                )
+            ),
+            hub_prior_band_width=float(
+                mapping.get(
+                    "hub_prior_band_width",
+                    base.hub_prior_band_width
+                    if base is not None
+                    else Defaults.CROSS_ENCODER_RERANK_HUB_PRIOR_BAND_WIDTH,
+                )
+            ),
+            hub_prior_protect_top=int(
+                mapping.get(
+                    "hub_prior_protect_top",
+                    base.hub_prior_protect_top
+                    if base is not None
+                    else Defaults.CROSS_ENCODER_RERANK_HUB_PRIOR_PROTECT_TOP,
+                )
+            ),
+            hub_prior_protect_margin=float(
+                mapping.get(
+                    "hub_prior_protect_margin",
+                    base.hub_prior_protect_margin
+                    if base is not None
+                    else Defaults.CROSS_ENCODER_RERANK_HUB_PRIOR_PROTECT_MARGIN,
+                )
+            ),
+            ce_meta_ranker_enabled=bool(
+                mapping.get(
+                    "ce_meta_ranker_enabled",
+                    base.ce_meta_ranker_enabled
+                    if base is not None
+                    else Defaults.CROSS_ENCODER_RERANK_CE_META_RANKER_ENABLED,
+                )
+            ),
+            ce_meta_model_path=str(
+                mapping.get(
+                    "ce_meta_model_path",
+                    base.ce_meta_model_path
+                    if base is not None
+                    else Defaults.CROSS_ENCODER_RERANK_CE_META_MODEL_PATH,
                 )
             ),
         )

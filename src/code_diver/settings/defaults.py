@@ -253,6 +253,11 @@ class Defaults:
     GRAPH_FILE_PROSE_FUSION_ROUTER_ENABLED = False
     GRAPH_FILE_PROSE_PATH_WEIGHT = 0.08
     GRAPH_FILE_PROSE_SYMBOL_WEIGHT = 0.05
+    # H-87: hub prior in the graph-file seed score. 0.0 = off (seed totals unchanged). The
+    # role/fan-in weights combine the two file-side priors before the seed weight scales them.
+    GRAPH_FILE_HUB_PRIOR_SEED_WEIGHT = 0.0
+    GRAPH_FILE_HUB_PRIOR_ROLE_WEIGHT = 0.5
+    GRAPH_FILE_HUB_PRIOR_FANIN_WEIGHT = 0.5
     LLM_RERANK_CANDIDATE_LIMIT = 30
     LLM_RERANK_RERANK_LIMIT = 10
     LLM_RERANK_MAX_PREVIEW_CHARS = 700
@@ -302,6 +307,66 @@ class Defaults:
     CROSS_ENCODER_RERANK_SECOND_PASS_MAX_DOCUMENT_CHARS = 2400
     # 0 = no cap. When capped, the sub-floor candidates the base fusion ranked highest win.
     CROSS_ENCODER_RERANK_SECOND_PASS_CANDIDATE_CAP = 0
+    # H-87: file-side hub prior (filename role + graph fan-in) folded into the CE ordering.
+    # Off by default -- the CE order is untouched. `additive` adds the prior to every CE score;
+    # `band` only reorders candidates whose CE scores sit within the band width of each other.
+    CROSS_ENCODER_RERANK_HUB_PRIOR_ENABLED = False
+    CROSS_ENCODER_RERANK_HUB_PRIOR_MODE = "additive"
+    CROSS_ENCODER_RERANK_HUB_PRIOR_ROLE_WEIGHT = 0.0
+    CROSS_ENCODER_RERANK_HUB_PRIOR_FANIN_WEIGHT = 0.0
+    CROSS_ENCODER_RERANK_HUB_PRIOR_BAND_WIDTH = 0.03
+    CROSS_ENCODER_RERANK_HUB_PRIOR_PROTECT_TOP = 0
+    # H-90: dynamic protect_top based on CE margin. When > 0 and the gap between top-1 and
+    # top-4 is >= this margin, protect only 1 instead of the configured protect_top.
+    # 0.0 = off, use fixed hub_prior_protect_top.
+    CROSS_ENCODER_RERANK_HUB_PRIOR_PROTECT_MARGIN: float = 0.0
+    # H-91: CE-stage meta-ranker (LightGBM). When enabled, the learned model score replaces
+    # the additive hub_prior formula. The model must be a LightGBM text file.
+    CROSS_ENCODER_RERANK_CE_META_RANKER_ENABLED: bool = False
+    CROSS_ENCODER_RERANK_CE_META_MODEL_PATH: str = ""
+    # H-87: filename-role vocabulary shared by every stage that applies the hub prior.
+    HUB_PRIOR_HUB_TOKENS = [
+        "Manager",
+        "Processor",
+        "Service",
+        "Impl",
+        "Engine",
+        "Queue",
+        "Area",
+        "Evaluator",
+        "Registry",
+        "Coordinator",
+    ]
+    HUB_PRIOR_PERIPHERAL_TOKENS = [
+        "Action",
+        "Dialog",
+        "Handler",
+        "Delegate",
+        "Provider",
+        "Strategy",
+        "Util",
+        "Utils",
+        "Test",
+        "Tests",
+        "TestUtil",
+        "Bundle",
+        "Inspection",
+        "Reporter",
+        "Logger",
+        "Mock",
+        "Command",
+    ]
+    HUB_PRIOR_TEST_PATH_SEGMENTS = ["test", "tests", "testSrc", "testData"]
+    HUB_PRIOR_NON_SOURCE_EXTENSIONS = [
+        ".xml",
+        ".md",
+        ".json",
+        ".properties",
+        ".txt",
+        ".yaml",
+        ".yml",
+        ".html",
+    ]
     MULTI_QUERY_UNION_RERANK = False
     GRAPH_EXPANSION_DEPTH = 0
     GRAPH_NEIGHBOR_LIMIT = 0

@@ -2,13 +2,15 @@ from __future__ import annotations
 
 import logging
 import math
+from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
 from time import perf_counter
 
 from ..config.cross_encoder_rerank_config import CrossEncoderRerankConfig
 from ..domain import SearchResult
-from ..reranking import RerankProvider, RerankScore
+from ..ranking import CeMetaCandidate, CeMetaFeatureExtractor, CeMetaFeatureRow
+from ..reranking import HubPriorMode, HubPriorScorer, RerankProvider, RerankScore
 from ..reranking.cross_encoder_document_builder import build_cross_encoder_document
 from ..tracing import TraceLogger
 from .retrieval_strategy import RetrievalStrategy
@@ -27,6 +29,12 @@ def _logit(probability: float) -> float:
 
 
 class CrossEncoderRerankRetrievalStrategy(RetrievalStrategy):
+    # H-91: The LightGBM Booster is eagerly loaded at construction time (before any httpx
+    # client is created) and stored on the class, so all instances share the same Booster.
+    # This avoids the segfault caused by LightGBM's C++ global initialiser conflicting
+    # with an active httpx event loop.
+    _ce_meta_ranker_booster: Any | None = None
+
     def __init__(
         self,
         base_strategy: RetrievalStrategy,
@@ -34,15 +42,103 @@ class CrossEncoderRerankRetrievalStrategy(RetrievalStrategy):
         config: CrossEncoderRerankConfig,
         trace_logger: TraceLogger | None = None,
         repository_root: Path | None = None,
+        hub_prior_scorer: HubPriorScorer | None = None,
+        ce_meta_feature_sink: Callable[[str, list[CeMetaFeatureRow]], None] | None = None,
     ):
         self.base_strategy = base_strategy
         self.rerank_provider = rerank_provider
         self.config = config
         self.trace_logger = trace_logger or TraceLogger.disabled()
         self.repository_root = repository_root
+        # H-87: only consulted when config.hub_prior_enabled. Without an injected scorer the
+        # default has no fan-in lookup, so only the filename-role prior can contribute.
+        self.hub_prior_scorer = hub_prior_scorer or HubPriorScorer()
+        # H-91: CE-stage meta-ranker feature exporter.
+        self.ce_meta_feature_sink = ce_meta_feature_sink
+        self.ce_meta_feature_extractor = CeMetaFeatureExtractor(self.hub_prior_scorer)
+        # H-91: CE-stage meta-ranker (LightGBM). Loaded eagerly at construction time
+        # because LightGBM's C++ initialisation can segfault when called from inside
+        # an httpx event loop (the evaluator's thread pool + async HTTP client create
+        # a thread state that conflicts with the C extension's global initialiser).
+        self._ce_meta_ranker: Any = None
+        self._ce_meta_ranker_loaded = False
+        self._ce_meta_ranker_eagerly_loaded(config)
+        self._ce_meta_ranker_loaded = False
         # A rerank failure degrades silently to base order. Counted so a run can report how
         # many of its results were never actually reranked.
         self.rerank_failure_count = 0
+
+    @staticmethod
+    def _ce_meta_ranker_eagerly_loaded(config: CrossEncoderRerankConfig) -> None:
+        """Pre-load the LightGBM Booster at construction time.
+
+        The Booster is constructed here, before any httpx client is created, to avoid
+        the segfault caused by LightGBM's C++ global initialiser conflicting with an
+        active httpx event loop.
+        """
+        if not config.ce_meta_ranker_enabled:
+            return
+        if not config.ce_meta_model_path:
+            logger.warning(
+                "CE meta-ranker enabled but ce_meta_model_path is empty; falling back to hub prior."
+            )
+            return
+        model_path = Path(config.ce_meta_model_path)
+        if not model_path.exists():
+            logger.warning(
+                "CE meta-ranker model not found at %s; falling back to hub prior.",
+                model_path,
+            )
+            return
+        # Resolve the actual model file: if the path is a JSON manifest, read
+        # the ``model_file`` field and resolve relative to the manifest directory.
+        resolved = model_path
+        if model_path.suffix == ".json":
+            import json
+            try:
+                manifest = json.loads(model_path.read_text(encoding="utf-8"))
+            except Exception as exc:
+                logger.warning(
+                    "CE meta-ranker manifest %s cannot be read: %s; falling back to hub prior.",
+                    model_path,
+                    exc,
+                )
+                return
+            model_file = manifest.get("model_file", "")
+            if model_file:
+                candidate = model_path.parent / model_file
+                if candidate.exists():
+                    resolved = candidate
+                else:
+                    logger.warning(
+                        "CE meta-ranker manifest %s references model_file=%r which does not "
+                        "exist at %s; falling back to hub prior.",
+                        model_path,
+                        model_file,
+                        candidate,
+                    )
+                    return
+            else:
+                logger.warning(
+                    "CE meta-ranker manifest %s has no model_file field; falling back to hub prior.",
+                    model_path,
+                )
+                return
+        try:
+            import lightgbm
+            booster = lightgbm.Booster(model_file=str(resolved))
+            CrossEncoderRerankRetrievalStrategy._ce_meta_ranker_booster = booster
+            logger.info(
+                "CE meta-ranker Booster loaded eagerly: %s (%d trees)",
+                resolved,
+                booster.num_trees(),
+            )
+        except Exception as exc:
+            logger.warning(
+                "CE meta-ranker model %s could not be loaded: %s; falling back to hub prior.",
+                resolved,
+                exc,
+            )
 
     def search(self, query: str, limit: int) -> list[SearchResult]:
         fetch_limit = max(limit, self.config.candidate_limit)
@@ -84,6 +180,11 @@ class CrossEncoderRerankRetrievalStrategy(RetrievalStrategy):
                 "base_candidate_count": len(candidates),
                 "limit": limit,
                 "document_chars": sum(len(document) for document in documents),
+                "document_lengths": [len(doc) for doc in documents],
+                "candidates": [
+                    {"index": index, "path": candidate.item.path, "base_score": candidate.score}
+                    for index, candidate in enumerate(rerank_candidates)
+                ],
                 **self._document_trace(documents),
             },
         )
@@ -103,6 +204,17 @@ class CrossEncoderRerankRetrievalStrategy(RetrievalStrategy):
             )
             scores = self._with_second_pass(query, rerank_candidates, scores)
             scores = self._ranking_adjusted(rerank_candidates, scores)
+            # H-91: when the CE-stage meta-ranker is enabled, the learned model score
+            # replaces the hub_prior additive formula. Hub prior is still available as a
+            # fallback when the model is missing or fails.
+            if self.config.ce_meta_ranker_enabled:
+                scores = self._ce_meta_ranker_adjusted(query, rerank_candidates, scores)
+            else:
+                scores = self._hub_prior_adjusted(query, rerank_candidates, scores)
+            # H-91: CE-stage meta-ranker feature export. Must happen after all adjustments so
+            # the exported feature rows reflect the final state the meta-ranker will see.
+            if self.ce_meta_feature_sink is not None:
+                self._export_ce_meta_features(query, rerank_candidates, scores)
             return self._reranked(rerank_candidates, tail_candidates, scores, limit)
         except Exception as exc:
             duration_ms = (perf_counter() - started) * 1000
@@ -147,6 +259,7 @@ class CrossEncoderRerankRetrievalStrategy(RetrievalStrategy):
             self.config.rank_by_raw_logits
             or self.config.tie_break_by_fused_score
             or self.config.second_pass_enabled
+            or self.config.hub_prior_enabled
         )
         if needs_full_scores:
             return len(rerank_candidates)
@@ -311,6 +424,226 @@ class CrossEncoderRerankRetrievalStrategy(RetrievalStrategy):
             return float("-inf")
 
         return sorted(group, key=fused_score, reverse=True)
+
+    def _hub_prior_adjusted(
+        self,
+        query: str,
+        candidates: list[SearchResult],
+        scores: list[RerankScore],
+    ) -> list[RerankScore]:
+        """H-87: fold the file-side hub prior into the final CE ordering.
+
+        WHERE-style queries target hub files (Processor/ManagerImpl/ServiceImpl), but at the
+        saturated CE top the hub and its sibling peripherals (Handler/Dialog/Action, .xml/.md)
+        sit within ~0.015 of each other and the arbitrary order pushes the hub past the cut.
+        `additive` ranks by ce_score + prior everywhere. `band` keeps clear CE wins intact:
+        adjacent scores within `hub_prior_band_width` chain into one band (same grouping as
+        the H-82 tie-break) and only inside a band does ce_score + prior decide. Off returns
+        the scores unchanged. `SearchResult.score` stays the base score either way.
+        """
+        if not self.config.hub_prior_enabled or not scores:
+            return scores
+
+        # Pin the head if requested. The incoming scores are already ordered by CE (including
+        # H-82 logit conversion and tie-breaking).
+        protect_top = self.config.hub_prior_protect_top
+        # H-90: dynamic protect_top based on CE margin. When the gap between top-1 and top-4
+        # is >= hub_prior_protect_margin, the CE is confident enough to protect only 1 instead
+        # of the configured protect_top. 0.0 = off, use fixed protect_top.
+        if self.config.hub_prior_protect_margin > 0 and len(scores) >= 4:
+            gap = scores[0].score - scores[3].score
+            if gap >= self.config.hub_prior_protect_margin:
+                protect_top = 1
+        if protect_top > 0:
+            head = scores[:protect_top]
+            tail = scores[protect_top:]
+        else:
+            head = []
+            tail = scores
+
+        if not tail:
+            return scores
+
+        mode = HubPriorMode(self.config.hub_prior_mode)
+        priors = self.hub_prior_scorer.priors(
+            (candidates[score.index].item.path for score in scores if 0 <= score.index < len(candidates)),
+            role_weight=self.config.hub_prior_role_weight,
+            fanin_weight=self.config.hub_prior_fanin_weight,
+        )
+
+        def prior_of(score: RerankScore) -> float:
+            if 0 <= score.index < len(candidates):
+                return priors.get(candidates[score.index].item.path, 0.0)
+            return 0.0
+
+        def prior_adjusted(group: list[RerankScore]) -> list[RerankScore]:
+            return sorted(group, key=lambda score: score.score + prior_of(score), reverse=True)
+
+        if mode is HubPriorMode.ADDITIVE:
+            # Stable sort: exact ties keep whatever order the earlier stages (H-82) settled on.
+            adjusted_tail = prior_adjusted(list(tail))
+        else:
+            ordered_tail = sorted(tail, key=lambda score: score.score, reverse=True)
+            adjusted_tail = self._banded(ordered_tail, self.config.hub_prior_band_width, prior_adjusted)
+
+        adjusted = head + adjusted_tail
+        if self.trace_logger.config.enabled:
+            self.trace_logger.write(
+                "cross_encoder_hub_prior",
+                {
+                    "provider": self.rerank_provider.name,
+                    "model": self.rerank_provider.model,
+                    "query": query,
+                    "mode": mode.value,
+                    "role_weight": self.config.hub_prior_role_weight,
+                    "fanin_weight": self.config.hub_prior_fanin_weight,
+                    "band_width": self.config.hub_prior_band_width,
+                    "protect_top": protect_top,
+                    "candidates": [
+                        {
+                            "index": score.index,
+                            "path": candidates[score.index].item.path,
+                            "ce_score": score.score,
+                            "prior": prior_of(score),
+                        }
+                        for score in adjusted
+                        if 0 <= score.index < len(candidates)
+                    ],
+                },
+            )
+        return adjusted
+
+    def _export_ce_meta_features(
+        self,
+        query: str,
+        candidates: list[SearchResult],
+        scores: list[RerankScore],
+    ) -> None:
+        """H-91: build CE-stage feature rows and push them into the feature sink."""
+        if self.ce_meta_feature_sink is None:
+            return
+        # Build a score-by-index map for O(1) lookup.
+        score_by_index = {score.index: score for score in scores}
+        meta_candidates = [
+            CeMetaCandidate(
+                item_id=candidates[score.index].item.id,
+                path=candidates[score.index].item.path,
+                ce_score=score.score,
+                ce_rank=rank,
+                base_fused_score=candidates[score.index].score,
+                base_fused_rank=rank,
+            )
+            for rank, score in enumerate(scores)
+            if 0 <= score.index < len(candidates)
+        ]
+        rows = self.ce_meta_feature_extractor.extract(query, meta_candidates)
+        self.ce_meta_feature_sink(query, rows)
+
+    def _ce_meta_ranker_load(self) -> None:
+        """Use the eagerly loaded LightGBM Booster."""
+        if self._ce_meta_ranker_loaded:
+            return
+        self._ce_meta_ranker_loaded = True
+        booster = type(self)._ce_meta_ranker_booster
+        if booster is None:
+            logger.warning(
+                "CE meta-ranker enabled but no Booster was loaded at construction time; "
+                "falling back to hub prior."
+            )
+            return
+        self._ce_meta_ranker = booster
+
+    def _ce_meta_ranker_adjusted(
+        self,
+        query: str,
+        candidates: list[SearchResult],
+        scores: list[RerankScore],
+    ) -> list[RerankScore]:
+        """H-91: rank CE candidates by the learned meta-ranker score.
+
+        Builds CE-stage feature rows, predicts a score for each candidate with the
+        LightGBM model, and replaces the priority order. When the model is unavailable
+        or fails, falls back to hub_prior_adjusted.
+        """
+        self._ce_meta_ranker_load()
+        if self._ce_meta_ranker is None:
+            return self._hub_prior_adjusted(query, candidates, scores)
+
+        # Build meta-candidates in the same order as the scores.
+        meta_candidates = [
+            CeMetaCandidate(
+                item_id=candidates[score.index].item.id,
+                path=candidates[score.index].item.path,
+                ce_score=score.score,
+                ce_rank=rank,
+                base_fused_score=candidates[score.index].score,
+                base_fused_rank=rank,
+            )
+            for rank, score in enumerate(scores)
+            if 0 <= score.index < len(candidates)
+        ]
+        rows = self.ce_meta_feature_extractor.extract(query, meta_candidates)
+        if not rows:
+            return scores
+
+        try:
+            feature_matrix = [list(row.features) for row in rows]
+            predicted = self._ce_meta_ranker.predict(feature_matrix)
+        except Exception as exc:
+            logger.warning("CE meta-ranker predict failed: %s; falling back to hub prior.", exc)
+            return self._hub_prior_adjusted(query, candidates, scores)
+
+        # Re-rank by predicted score, descending.
+        indexed = list(enumerate(predicted))
+        ranked = sorted(indexed, key=lambda entry: entry[1], reverse=True)
+        result = [scores[index] for index, _ in ranked]
+
+        if self.trace_logger.config.enabled:
+            self.trace_logger.write(
+                "cross_encoder_ce_meta_ranker",
+                {
+                    "provider": self.rerank_provider.name,
+                    "model": self.rerank_provider.model,
+                    "query": query,
+                    "ce_meta_model": self.config.ce_meta_model_path,
+                    "candidates": [
+                        {
+                            "index": scores[ranked_index].index,
+                            "path": candidates[scores[ranked_index].index].item.path,
+                            "ce_score": scores[ranked_index].score,
+                            "meta_score": float(predicted[ranked_index]),
+                        }
+                        for ranked_index, (orig_index, _) in enumerate(ranked)
+                        if 0 <= scores[ranked_index].index < len(candidates)
+                    ],
+                },
+            )
+        return result
+
+    @staticmethod
+    def _banded(
+        scores: list[RerankScore],
+        band_width: float,
+        reorder: Callable[[list[RerankScore]], list[RerankScore]],
+    ) -> list[RerankScore]:
+        """Apply `reorder` inside each run of adjacent scores no further than `band_width` apart.
+
+        Expects `scores` sorted descending. Mirrors `_fused_tie_broken`: adjacent near-equal
+        scores chain into one band, so a saturated plateau is one band while a clear gap is
+        never crossed.
+        """
+        if len(scores) < 2:
+            return list(scores)
+        result: list[RerankScore] = []
+        band = [scores[0]]
+        for score in scores[1:]:
+            if abs(band[-1].score - score.score) <= band_width:
+                band.append(score)
+                continue
+            result.extend(reorder(band))
+            band = [score]
+        result.extend(reorder(band))
+        return result
 
     def _document_trace(self, documents: list[str]) -> dict[str, object]:
         if not self.trace_logger.config.include_prompts:

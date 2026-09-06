@@ -7,6 +7,7 @@ from ..math_utils import normalize
 from ..providers import EmbeddingProvider
 from ..settings import Defaults
 from ..store import VectorStore
+from ..tracing import TraceLogger
 from .retrieval_strategy import RetrievalStrategy
 
 
@@ -18,6 +19,7 @@ class MultiIndexVectorRetrievalStrategy(RetrievalStrategy):
         kind_limits: dict[str, int],
         kind_multipliers: dict[str, float] | None = None,
         path_dedup_kinds: list[str] | None = None,
+        trace_logger: TraceLogger | None = None,
     ):
         self.provider = provider
         self.vector_store = vector_store
@@ -28,6 +30,7 @@ class MultiIndexVectorRetrievalStrategy(RetrievalStrategy):
             if multiplier > 0
         }
         self.path_dedup_kinds = frozenset(path_dedup_kinds or ())
+        self.trace_logger = trace_logger or TraceLogger.disabled()
 
     def search(self, query: str, limit: int) -> list[SearchResult]:
         effective_limits = self._effective_limits(limit)
@@ -35,9 +38,27 @@ class MultiIndexVectorRetrievalStrategy(RetrievalStrategy):
             return self.vector_store.search(normalize(self.provider.embed_query(query)), limit)
         query_vector = normalize(self.provider.embed_query(query))
         results: list[SearchResult] = []
+        trace_data = {}
         for kind, kind_limit in effective_limits.items():
-            results.extend(self._kind_results(query_vector, kind, kind_limit))
-        return self._ranked(results, limit)
+            kind_results = self._kind_results(query_vector, kind, kind_limit)
+            results.extend(kind_results)
+            if self.trace_logger.config.enabled:
+                trace_data[kind] = [
+                    {"path": r.item.path, "score": r.score} for r in kind_results
+                ]
+
+        final_results = self._ranked(results, limit)
+        if self.trace_logger.config.enabled:
+            self.trace_logger.write(
+                "multi_index_vector_search",
+                {
+                    "query": query,
+                    "limits": effective_limits,
+                    "lanes": trace_data,
+                    "final_count": len(final_results),
+                },
+            )
+        return final_results
 
     def _kind_results(self, query_vector: list[float], kind: str, kind_limit: int) -> list[SearchResult]:
         if kind not in self.path_dedup_kinds:

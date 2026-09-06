@@ -44,3 +44,21 @@ class CrossEncoderRerankConfig:
     # Latency guard for the second pass: 0 = no cap; otherwise only the capped number of
     # sub-floor candidates (best base-fusion ranks first) are rescored.
     second_pass_candidate_cap: int = Defaults.CROSS_ENCODER_RERANK_SECOND_PASS_CANDIDATE_CAP
+    # H-87: file-side hub prior (filename role + graph fan-in) folded into the CE ordering after
+    # the second pass. Off by default -- the CE order is untouched. `additive` ranks by
+    # ce_score + prior; `band` only reorders within runs of CE scores that lie within
+    # hub_prior_band_width of each other (mirrors the H-82 tie-break grouping).
+    hub_prior_enabled: bool = Defaults.CROSS_ENCODER_RERANK_HUB_PRIOR_ENABLED
+    hub_prior_mode: str = Defaults.CROSS_ENCODER_RERANK_HUB_PRIOR_MODE
+    hub_prior_role_weight: float = Defaults.CROSS_ENCODER_RERANK_HUB_PRIOR_ROLE_WEIGHT
+    hub_prior_fanin_weight: float = Defaults.CROSS_ENCODER_RERANK_HUB_PRIOR_FANIN_WEIGHT
+    hub_prior_band_width: float = Defaults.CROSS_ENCODER_RERANK_HUB_PRIOR_BAND_WIDTH
+    hub_prior_protect_top: int = Defaults.CROSS_ENCODER_RERANK_HUB_PRIOR_PROTECT_TOP
+    # H-90: dynamic protect_top based on CE margin. When > 0 and the gap between top-1 and
+    # top-4 is >= this margin, protect only 1 instead of the configured protect_top.
+    # 0.0 = off, use fixed hub_prior_protect_top.
+    hub_prior_protect_margin: float = Defaults.CROSS_ENCODER_RERANK_HUB_PRIOR_PROTECT_MARGIN
+    # H-91: CE-stage meta-ranker (LightGBM). When enabled, the learned model score replaces
+    # the hub_prior additive formula. The model must be a LightGBM text file.
+    ce_meta_ranker_enabled: bool = Defaults.CROSS_ENCODER_RERANK_CE_META_RANKER_ENABLED
+    ce_meta_model_path: str = Defaults.CROSS_ENCODER_RERANK_CE_META_MODEL_PATH

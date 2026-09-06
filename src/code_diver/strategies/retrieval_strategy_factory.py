@@ -6,7 +6,7 @@ from ..generation import create_generation_provider
 from ..graph import CodeGraphStore
 from ..orchestration import OrchestratedRetrievalStrategy
 from ..providers import EmbeddingProvider
-from ..reranking import RerankProviderFactory
+from ..reranking import HubPriorScorer, RerankProviderFactory
 from ..settings import RetrievalStrategyId
 from ..store import VectorStore
 from ..store.qdrant_vector_store import QdrantVectorStore
@@ -73,7 +73,8 @@ class RetrievalStrategyFactory:
             # Same base as GRAPH_FILE_RERANK, different rerank primitive. The existing
             # CROSS_ENCODER_RERANK sits on plain hybrid, so swapping to it from the champion
             # would change the base *and* the reranker and leave neither attributable.
-            return self._cross_encoder_strategy(self._create_graph_file_base(config, provider, vector_store), config)
+            graph_file = self._create_graph_file_base(config, provider, vector_store)
+            return self._cross_encoder_strategy(graph_file, config, fan_in_source=graph_file)
         if strategy_id is RetrievalStrategyId.HYBRID:
             return self._hybrid_strategy(config, provider, vector_store)
         if strategy_id is RetrievalStrategyId.HYBRID_RERANK:
@@ -91,13 +92,7 @@ class RetrievalStrategyFactory:
                 config.hybrid_search,
                 trace_logger=TraceLogger(config.trace),
             )
-            return CrossEncoderRerankRetrievalStrategy(
-                hybrid,
-                RerankProviderFactory().create(config.cross_encoder_rerank),
-                config.cross_encoder_rerank,
-                trace_logger=TraceLogger(config.trace),
-                repository_root=config.root,
-            )
+            return self._cross_encoder_strategy(hybrid, config)
         raise ValueError(f"Unknown retrieval strategy: {strategy}")
 
     def _create_graph_file_base(
@@ -105,7 +100,7 @@ class RetrievalStrategyFactory:
         config: AppConfig,
         provider: EmbeddingProvider,
         vector_store: VectorStore,
-    ) -> RetrievalStrategy:
+    ) -> GraphFileRetrievalStrategy:
         return GraphFileRetrievalStrategy(
             HybridRetrievalStrategy(
                 self._hybrid_vector_strategy(config, provider, vector_store),
@@ -115,6 +110,8 @@ class RetrievalStrategyFactory:
             ),
             CodeGraphStore(config.graph.artifact),
             config.graph_file_search,
+            trace_logger=TraceLogger(config.trace),
+            hub_prior_vocabulary=config.hub_prior,
         )
 
     def create(
@@ -129,23 +126,34 @@ class RetrievalStrategyFactory:
         rewriter = LlmQueryRewriter(create_generation_provider(config)) if config.multi_query.llm_rewrites_enabled else None
         strategy_id = RetrievalStrategyId(strategy)
         if getattr(config.multi_query, "union_rerank", False) and strategy_id is RetrievalStrategyId.GRAPH_FILE_CROSS_ENCODER:
+            graph_file = self._create_graph_file_base(config, provider, vector_store)
             pre_ce = MultiQueryRrfStrategy(
-                self._create_graph_file_base(config, provider, vector_store),
+                graph_file,
                 config.multi_query,
                 llm_rewriter=rewriter,
                 fusion_pool_size=config.cross_encoder_rerank.candidate_limit,
             )
-            return self._cross_encoder_strategy(pre_ce, config)
+            return self._cross_encoder_strategy(pre_ce, config, fan_in_source=graph_file)
         base = self._create_base(strategy, config, provider, vector_store)
         return MultiQueryRrfStrategy(base, config.multi_query, llm_rewriter=rewriter)
 
-    def _cross_encoder_strategy(self, base: RetrievalStrategy, config: AppConfig) -> RetrievalStrategy:
+    def _cross_encoder_strategy(
+        self,
+        base: RetrievalStrategy,
+        config: AppConfig,
+        fan_in_source: RetrievalStrategy | None = None,
+    ) -> RetrievalStrategy:
+        # H-87: the CE hub prior reads graph fan-in through the graph-file stage's catalog
+        # (`GraphFileRetrievalStrategy.fan_in_degree`). Without a graph-file base (plain
+        # hybrid, or a stand-in without the method) only the filename-role prior is available.
+        fan_in = getattr(fan_in_source, "fan_in_degree", None)
         return CrossEncoderRerankRetrievalStrategy(
             base,
             RerankProviderFactory().create(config.cross_encoder_rerank),
             config.cross_encoder_rerank,
             trace_logger=TraceLogger(config.trace),
             repository_root=config.root,
+            hub_prior_scorer=HubPriorScorer(config.hub_prior, fan_in=fan_in),
         )
 
     def _rerank_generation_config(self, config: AppConfig) -> AppConfig:
@@ -184,6 +192,7 @@ class RetrievalStrategyFactory:
                 config.hybrid_search.vector_kind_limits,
                 config.hybrid_search.vector_kind_multipliers,
                 config.hybrid_search.vector_kind_path_dedup,
+                trace_logger=TraceLogger(config.trace),
             )
         return VectorRetrievalStrategy(provider, vector_store)
 
@@ -208,6 +217,7 @@ class RetrievalStrategyFactory:
             self._hybrid_strategy(config, provider, vector_store),
             CodeGraphStore(config.graph.artifact),
             config.graph_file_search,
+            hub_prior_vocabulary=config.hub_prior,
         )
 
     def _hybrid_strategy(

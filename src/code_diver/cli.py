@@ -101,7 +101,7 @@ from .providers import (
 from .providers.embedding_provider_builder import (
     make_embedding_provider,
 )
-from .ranking import LtrFeatureCollector, LtrFeatureSinkAttacher
+from .ranking import CeMetaFeatureCollector, LtrFeatureCollector, LtrFeatureSinkAttacher
 from .reranking import RerankProviderFactory
 from .runtime import (
     QdrantRuntimeManager,
@@ -432,6 +432,12 @@ def build_parser(include_advanced: bool = False) -> argparse.ArgumentParser:
         type=Path,
         default=None,
         help="Write one learning-to-rank training row per (query, candidate) to PATH.",
+    )
+    evaluate.add_argument(
+        "--dump-ce-meta-features",
+        type=Path,
+        default=None,
+        help="Write one CE-stage meta-ranker training row per (query, candidate) to PATH.",
     )
     evaluate.add_argument(
         OptionName.YES.value,
@@ -2312,6 +2318,22 @@ def cmd_evaluate(args: argparse.Namespace, config: AppConfig) -> int:
                 f"--dump-features needs a strategy that fuses per-file scores; "
                 f"{config.search.strategy} does not."
             )
+    ce_meta_dump_path = getattr(args, "dump_ce_meta_features", None)
+    ce_meta_collector: CeMetaFeatureCollector | None = None
+    if ce_meta_dump_path is not None:
+        ce_meta_collector = CeMetaFeatureCollector()
+        # Walk the strategy chain looking for the CrossEncoderRerankRetrievalStrategy.
+        current = strategy
+        while current is not None:
+            if hasattr(current, "ce_meta_feature_sink"):
+                current.ce_meta_feature_sink = ce_meta_collector.collect
+                break
+            current = getattr(current, "base_strategy", None)
+        else:
+            raise SystemExit(
+                f"--dump-ce-meta-features needs a strategy that wraps cross-encoder rerank; "
+                f"{config.search.strategy} does not."
+            )
     settings = evaluation_settings(
         config,
         dataset,
@@ -2369,6 +2391,13 @@ def cmd_evaluate(args: argparse.Namespace, config: AppConfig) -> int:
         if not bool(args.json):
             render_status_line(
                 f"wrote {written} learning-to-rank feature rows: {feature_dump_path}",
+                "green",
+            )
+    if ce_meta_collector is not None:
+        written = ce_meta_collector.write_jsonl(Path(ce_meta_dump_path), cases)
+        if not bool(args.json):
+            render_status_line(
+                f"wrote {written} CE meta-ranker feature rows: {ce_meta_dump_path}",
                 "green",
             )
     if args.json:

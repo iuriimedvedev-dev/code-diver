@@ -39,3 +39,10 @@ class GraphFileSearchConfig:
     # sum, so every existing config keeps its exact ordering.
     ltr_ranker_enabled: bool = False
     ltr_model_path: str | None = None
+    # H-87: add hub_prior_seed_weight * prior(path) to every seed candidate's fused total so
+    # hub files (Manager/Processor/ServiceImpl, high graph fan-in) survive the seed cut into
+    # the cross-encoder window. 0.0 = off -- seed totals are exactly the weighted sum above.
+    # The role/fan-in weights combine the two priors before the seed weight scales the result.
+    hub_prior_seed_weight: float = Defaults.GRAPH_FILE_HUB_PRIOR_SEED_WEIGHT
+    hub_prior_role_weight: float = Defaults.GRAPH_FILE_HUB_PRIOR_ROLE_WEIGHT
+    hub_prior_fanin_weight: float = Defaults.GRAPH_FILE_HUB_PRIOR_FANIN_WEIGHT

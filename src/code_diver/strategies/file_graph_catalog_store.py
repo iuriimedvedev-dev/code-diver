@@ -6,7 +6,7 @@ from pathlib import Path
 
 from .file_graph_catalog import FileGraphCatalog
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 class FileGraphCatalogStore:
@@ -29,7 +29,10 @@ class FileGraphCatalogStore:
         payload = json.loads(self.artifact.read_text(encoding="utf-8"))
         if payload.get("schema_version") != SCHEMA_VERSION:
             raise ValueError(f"Unsupported file graph catalog schema: {payload.get('schema_version')}")
-        return FileGraphCatalog.from_json(dict(payload.get("catalog") or {}))
+        catalog = FileGraphCatalog.from_json(dict(payload.get("catalog") or {}))
+        if catalog.fan_in is None:
+            raise ValueError("File graph catalog is missing fan_in index")
+        return catalog
 
     def save(self, catalog: FileGraphCatalog) -> None:
         self.artifact.parent.mkdir(parents=True, exist_ok=True)
