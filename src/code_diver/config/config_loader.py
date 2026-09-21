@@ -143,6 +143,7 @@ class ConfigLoader:
                 mapping.get("document_prefix", Defaults.EMBEDDING_DOCUMENT_PREFIX)
             ),
             query_prefix=self._optional_raw_string(mapping.get("query_prefix", Defaults.EMBEDDING_QUERY_PREFIX)),
+            runtime_mode=mapping.get("runtime_mode", "managed"),
         )
 
     def _generation(self, data: Any, base: GenerationConfig | None = None) -> GenerationConfig:

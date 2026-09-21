@@ -77,6 +77,9 @@ def validate_embedding_metadata(config: AppConfig, payload: dict[str, Any]) -> N
 
 
 def ensure_configured_embedding_runtime(config: AppConfig) -> None:
+    config.embedding.validate_runtime_mode()
+    if config.embedding.runtime_mode == "external":
+        return
     profile_key = local_embedding_profile_key(config)
     if profile_key is None:
         return

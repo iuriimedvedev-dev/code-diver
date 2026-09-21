@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import concurrent.futures
 import logging
 import os
 from collections import defaultdict
@@ -145,23 +146,30 @@ class GraphFileRetrievalStrategy(RetrievalStrategy):
             if not seed_file_scores:
                 return self.base_strategy.search(query, limit)
 
-            try:
-                propagated = self._normalize(self._propagate(catalog, seed_file_scores))
-            except Exception:
-                propagated = {}
+            if config.graph_weight > 0:
+                try:
+                    propagated = self._normalize(self._propagate(catalog, seed_file_scores))
+                except Exception:
+                    propagated = {}
 
-            for path, graph_score in propagated.items():
-                item = self._item_for_path(catalog, path)
-                if item is None:
-                    continue
-                file_score = file_scores.setdefault(item.path, FileScore(path=item.path, item=item))
-                self._update_max_score(file_score, "graph_score", graph_score, item)
+                for path, graph_score in propagated.items():
+                    item = self._item_for_path(catalog, path)
+                    if item is None:
+                        continue
+                    file_score = file_scores.setdefault(item.path, FileScore(path=item.path, item=item))
+                    self._update_max_score(file_score, "graph_score", graph_score, item)
 
-            ranked = sorted(
-                file_scores.values(),
-                key=lambda score: (score.total(config), score.graph_score, score.path),
-                reverse=True,
-            )
+                ranked = sorted(
+                    file_scores.values(),
+                    key=lambda score: (score.total(config), score.graph_score, score.path),
+                    reverse=True,
+                )
+            else:
+                ranked = sorted(
+                    file_scores.values(),
+                    key=lambda score: (score.total(config), score.path),
+                    reverse=True,
+                )
             ordered = self._ordered_with_ltr(query, ranked, config)
             if self.trace_logger.config.enabled:
                 self.trace_logger.write(
@@ -264,6 +272,61 @@ class GraphFileRetrievalStrategy(RetrievalStrategy):
         catalog: FileGraphCatalog,
         limit: int,
     ) -> dict[str, FileScore]:
+        # Build query model and scorer once, shared by both parallel branches.
+        query_model = HybridQuery(text=query, terms=self._query_terms(query))
+        scorer = HybridCandidateScorer(
+            query_model,
+            self.profiler,
+            self._item_profiles,
+            profile_lock=self._profile_lock,
+        )
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+            future_vector = executor.submit(
+                self._seed_vector_branch, query, catalog, limit
+            )
+            future_lexical = executor.submit(
+                self._seed_lexical_branch, catalog, query_model, scorer
+            )
+
+            scores, vector_scores = future_vector.result()
+            lexical_candidates = future_lexical.result()
+
+        # Merge lexical candidates into scores (same logic as original)
+        lexical_seed_paths: set[str] = set()
+        for candidate in lexical_candidates[: self.config.lexical_seed_limit]:
+            lexical_seed_paths.add(candidate.path)
+            existing = scores.setdefault(candidate.path, FileScore(path=candidate.path, item=candidate.item))
+            self._update_max_score(existing, "lexical_score", candidate.lexical_score, candidate.item)
+            self._update_max_score(existing, "path_score", candidate.path_score, candidate.item)
+            self._update_max_score(existing, "symbol_score", candidate.symbol_score, candidate.item)
+
+        if self.config.seed_score_parity:
+            for path in vector_scores:
+                if path in lexical_seed_paths:
+                    continue
+                existing = scores.get(path)
+                if existing is None:
+                    continue
+                candidate = scorer.score(existing.item)
+                self._update_max_score(existing, "lexical_score", candidate.lexical_score, existing.item)
+                self._update_max_score(existing, "path_score", candidate.path_score, existing.item)
+                self._update_max_score(
+                    existing,
+                    "symbol_score",
+                    max(candidate.symbol_score, candidate.symbol_match_score),
+                    existing.item,
+                )
+        self._apply_hub_prior(scores)
+        return scores
+
+    def _seed_vector_branch(
+        self,
+        query: str,
+        catalog: FileGraphCatalog,
+        limit: int,
+    ) -> tuple[dict[str, FileScore], dict[str, float]]:
+        """Thread A: base strategy search + vector scores."""
         scores: dict[str, FileScore] = {}
         base_scores: dict[str, float] = {}
         base_items: dict[str, CodeItem] = {}
@@ -293,14 +356,15 @@ class GraphFileRetrievalStrategy(RetrievalStrategy):
             file_score = scores.setdefault(path, FileScore(path=path, item=rep_item))
             file_score.vector_score = vector_score
             file_score.winning_index_kind = base_winning_index_kinds.get(path, "")
+        return scores, vector_scores
 
-        query_model = HybridQuery(text=query, terms=self._query_terms(query))
-        scorer = HybridCandidateScorer(
-            query_model,
-            self.profiler,
-            self._item_profiles,
-            profile_lock=self._profile_lock,
-        )
+    def _seed_lexical_branch(
+        self,
+        catalog: FileGraphCatalog,
+        query_model: HybridQuery,
+        scorer: HybridCandidateScorer,
+    ) -> list[FileScore]:
+        """Thread B: iterate catalog items and score lexical/path/symbol."""
         lexical_candidates: list[FileScore] = []
         if self.config.lexical_seed_limit > 0:
             # Try native seed coverages (dual-path, off by default)
@@ -328,32 +392,7 @@ class GraphFileRetrievalStrategy(RetrievalStrategy):
             key=lambda score: (score.lexical_score, score.path_score, score.symbol_score, score.path),
             reverse=True,
         )
-        lexical_seed_paths: set[str] = set()
-        for candidate in lexical_candidates[: self.config.lexical_seed_limit]:
-            lexical_seed_paths.add(candidate.path)
-            existing = scores.setdefault(candidate.path, FileScore(path=candidate.path, item=candidate.item))
-            self._update_max_score(existing, "lexical_score", candidate.lexical_score, candidate.item)
-            self._update_max_score(existing, "path_score", candidate.path_score, candidate.item)
-            self._update_max_score(existing, "symbol_score", candidate.symbol_score, candidate.item)
-
-        if self.config.seed_score_parity:
-            for path in vector_scores:
-                if path in lexical_seed_paths:
-                    continue
-                existing = scores.get(path)
-                if existing is None:
-                    continue
-                candidate = scorer.score(existing.item)
-                self._update_max_score(existing, "lexical_score", candidate.lexical_score, existing.item)
-                self._update_max_score(existing, "path_score", candidate.path_score, existing.item)
-                self._update_max_score(
-                    existing,
-                    "symbol_score",
-                    max(candidate.symbol_score, candidate.symbol_match_score),
-                    existing.item,
-                )
-        self._apply_hub_prior(scores)
-        return scores
+        return lexical_candidates
 
     def _apply_hub_prior(self, scores: dict[str, FileScore]) -> None:
         """H-87: stamp the combined hub prior on every seed candidate.

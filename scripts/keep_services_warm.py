@@ -47,6 +47,12 @@ EMBEDDER_URL = "http://127.0.0.1:8001/v1/embeddings"
 EMBEDDER_MODEL = "mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ"
 RERANKER_URL = "http://127.0.0.1:8081/rerank"
 PING_TEXT = "warm"
+# 2-doc payload warms the same batch path the pipeline's selective second pass uses
+# (first pass + sub-floor retry), not just the single-doc fast path.
+RERANK_WARM_DOCS = [
+    "warm placeholder document one for reranker batch path",
+    "warm placeholder document two for reranker batch path",
+]
 
 
 def post(url: str, payload: dict, timeout: float) -> float:
@@ -75,25 +81,60 @@ def ping_loop(
         time.sleep(interval)
 
 
+def warmup_once(embedder_url: str, embedder_model: str, ce_url: str, timeout: float) -> int:
+    """One-shot pre-bench warmup: embedding + 2-doc CE rerank. Returns 0 on success."""
+    failed = False
+    try:
+        elapsed = post(embedder_url, {"model": embedder_model, "input": PING_TEXT}, timeout)
+        print(f"warmup embedder {elapsed:7.1f} ms", flush=True)
+    except (urllib.error.URLError, TimeoutError, OSError) as error:
+        print(f"warmup embedder FAILED: {error}", file=sys.stderr, flush=True)
+        failed = True
+    try:
+        elapsed = post(
+            ce_url,
+            {"query": PING_TEXT, "documents": RERANK_WARM_DOCS, "top_n": 2},
+            timeout,
+        )
+        print(f"warmup reranker {elapsed:7.1f} ms", flush=True)
+    except (urllib.error.URLError, TimeoutError, OSError) as error:
+        print(f"warmup reranker FAILED: {error}", file=sys.stderr, flush=True)
+        failed = True
+    return 1 if failed else 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--embedder-interval", type=float, default=1.0)
     parser.add_argument("--reranker-interval", type=float, default=5.0)
     parser.add_argument("--timeout", type=float, default=30.0)
     parser.add_argument("--quiet", action="store_true")
+    parser.add_argument("--embedder-url", default=EMBEDDER_URL)
+    parser.add_argument("--embedder-model", default=EMBEDDER_MODEL)
+    parser.add_argument("--ce-url", default=RERANKER_URL)
+    parser.add_argument(
+        "--warmup-once",
+        action="store_true",
+        help="Send one embedding + one 2-doc CE rerank, print latencies, then exit. "
+        "Run this right before a bench so the first measured query is not cold "
+        "(embedding first-after-idle ~= 2.4 s vs ~18 ms warm).",
+    )
     args = parser.parse_args()
+
+    if args.warmup_once:
+        return warmup_once(args.embedder_url, args.embedder_model, args.ce_url, args.timeout)
 
     targets = [
         (
             "embedder",
-            EMBEDDER_URL,
-            {"model": EMBEDDER_MODEL, "input": PING_TEXT},
+            args.embedder_url,
+            {"model": args.embedder_model, "input": PING_TEXT},
             args.embedder_interval,
         ),
         (
             "reranker",
-            RERANKER_URL,
-            {"query": PING_TEXT, "documents": [PING_TEXT], "top_n": 1},
+            args.ce_url,
+            {"query": PING_TEXT, "documents": RERANK_WARM_DOCS, "top_n": 2},
             args.reranker_interval,
         ),
     ]
@@ -105,7 +146,7 @@ def main() -> int:
         )
         thread.start()
 
-    print("keeping :8001 and :8081 warm -- Ctrl-C to stop", file=sys.stderr, flush=True)
+    print(f"keeping {args.embedder_url} and {args.ce_url} warm -- Ctrl-C to stop", file=sys.stderr, flush=True)
     try:
         while True:
             time.sleep(3600)

@@ -23,3 +23,11 @@ class EmbeddingConfig:
     retry_delay_seconds: float = Defaults.EMBEDDING_RETRY_DELAY_SECONDS
     document_prefix: str | None = Defaults.EMBEDDING_DOCUMENT_PREFIX
     query_prefix: str | None = Defaults.EMBEDDING_QUERY_PREFIX
+    runtime_mode: str = "managed"
+
+    def __post_init__(self) -> None:
+        self.validate_runtime_mode()
+
+    def validate_runtime_mode(self) -> None:
+        if self.runtime_mode not in ("managed", "external"):
+            raise ValueError("embedding.runtime_mode must be 'managed' or 'external'")

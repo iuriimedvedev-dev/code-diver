@@ -1,0 +1,12 @@
+# External runtime evaluator handoff
+
+- Completed bounded coding delegate. No further agents, commits, installs, builds, services or live queries. Existing strategy edits and all unrelated files preserved; runtime recovery report read only.
+- Added validated `EmbeddingConfig.runtime_mode` (`managed` default / `external` client-only), YAML loading, and provider early return before runtime config/manager access. Metadata and embedding factory parameters unchanged.
+- Evaluator now validates CLI endpoints/mode/run/bounds, propagates shared embedding/Qdrant and independent CE routes to Python/native/probes/frozen identity, and preserves no-start guards and journal accounting.
+- Plan saved before implementation: `.plans/2026-09-09_external-runtime-eval.md`.
+- Fail-before: actual unittest run, 9 methods; 5 passed, 4 errored (11 errors including invalid-option subtests). Missing runtime option and CLI API reproduced. Subsequent manifest test initially hit subprocess-mock interference with platform detection; isolated platform dependency, no production workaround.
+- Final: `.venv/bin/python -m pytest -q scripts/test_research_rust_full_eval.py tests/unit/test_cli_helpers.py tests/unit/test_config_loader.py tests/unit/test_embedding_token_window_config.py` => 76 passed, 11 subtests passed. Evaluator file now has 14 tests, retaining all 4 historical tests. CLI `--help` and `git diff --check` passed.
+- Changed source: `src/code_diver/config/embedding_config.py`, `src/code_diver/config/config_loader.py`, `src/code_diver/providers/embedding_provider_builder.py`, `scripts/research_rust_full_eval.py`, `scripts/test_research_rust_full_eval.py`.
+- New documentation: `docs/research/2026-09-09_external-runtime-eval.md`, this note and plan. Documentation contains exact new smoke2/run30 CLI commands using IPv4 embedding8001/Qdrant6333/PythonCE18081/RustCE18083, unchanged 360/34/10 budgets.
+- Resume rejects changed routes/mode/source before journal mutation. Failures retained; interrupted attempts remain failed; max-pairs is per invocation, not cumulative. Existing manifests intentionally cannot mix with new source identity.
+- Ready to join parent before QA. No claim of live smoke success, quality, latency or runtime readiness; parent handles those acceptance decisions.

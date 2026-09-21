@@ -1,0 +1,149 @@
+{
+  "kind": "mlx_followup_embedding_raw",
+  "created_local": "2026-09-08T13:31:38+0200",
+  "endpoint": "http://127.0.0.1:8001/v1/embeddings",
+  "host_verification": "explicit 127.0.0.1; no localhost",
+  "expected_model": "mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ",
+  "query_prefix": "Represent this code search query for retrieving relevant files: ",
+  "queries": [
+    "where is code insight annotation panel model behavior implemented",
+    "where is project opening orchestrated",
+    "where are local inspections executed",
+    "where is the plugin descriptor or extension configuration for resources intellij platform core",
+    "where does the IDE create a lifetime"
+  ],
+  "models_probe": {
+    "ok": true,
+    "status": 200,
+    "seconds": 0.04396441695280373
+  },
+  "requests": [
+    {
+      "index": 0,
+      "query": "where is code insight annotation panel model behavior implemented",
+      "input_sha256": "36cd394d70ca3d677527c76e51e4b7304787b88a2cee97b83a316b3499c08d4b",
+      "phase": "startup_probe",
+      "ok": true,
+      "seconds": 52.472273624967784,
+      "response_sha256": "e63fee0b38c45aef10fe111f94288a06b96f9e990164db41e28c8f9fa01d7809",
+      "response_model": "mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ",
+      "dimensions": 1024,
+      "finite": true,
+      "vector_sha256": "63f9a6212c0effa2edf71975233455d8885a9ce01342ad40bd0fc97e31a5bd24",
+      "usage": {
+        "prompt_tokens": 20,
+        "total_tokens": 20,
+        "completion_tokens": 0,
+        "prompt_tokens_details": null
+      }
+    },
+    {
+      "index": 1,
+      "query": "where is project opening orchestrated",
+      "input_sha256": "4c48316e7cfe141c8303b442ffecfc3c3e1e3e40356ac14e65fa632283e78faf",
+      "phase": "warm_request",
+      "ok": true,
+      "seconds": 0.04531358298845589,
+      "response_sha256": "e69ce32a04b48f1741c1d36c1b1cbbcfbbbc790ceb3369f9263f604cdca3d002",
+      "response_model": "mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ",
+      "dimensions": 1024,
+      "finite": true,
+      "vector_sha256": "79bf11dcd7eb686a8503f4afaefd1bf2e89b0ab2419206c48da5c972588757c3",
+      "usage": {
+        "prompt_tokens": 16,
+        "total_tokens": 16,
+        "completion_tokens": 0,
+        "prompt_tokens_details": null
+      }
+    },
+    {
+      "index": 2,
+      "query": "where are local inspections executed",
+      "input_sha256": "e677f2eac6c8663674fd2befc18047f7cbc4521ac7230215da177f23cd578086",
+      "phase": "warm_request",
+      "ok": true,
+      "seconds": 0.017405166057869792,
+      "response_sha256": "c769cbdf7dfb81934956a553ecb18620706250a96865867a3c864310f608c6e9",
+      "response_model": "mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ",
+      "dimensions": 1024,
+      "finite": true,
+      "vector_sha256": "45b944fa30ed53e6c47e77563d1c424d37d8fa6791f2bcf26a4e98df084761a6",
+      "usage": {
+        "prompt_tokens": 16,
+        "total_tokens": 16,
+        "completion_tokens": 0,
+        "prompt_tokens_details": null
+      }
+    },
+    {
+      "index": 3,
+      "query": "where is the plugin descriptor or extension configuration for resources intellij platform core",
+      "input_sha256": "47be2b375d20caf9703041945ddbcade7c9d9a5602c12d1025dc551e6ecd29ab",
+      "phase": "warm_request",
+      "ok": true,
+      "seconds": 0.019883541157469153,
+      "response_sha256": "5be0ffb50cfccc0f5f938124edfe44241b0205be7daf01b9a0b0bf18466c1ed7",
+      "response_model": "mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ",
+      "dimensions": 1024,
+      "finite": true,
+      "vector_sha256": "2bfea2f6083a467781e3a2a4fa21652bec6f6b2c4220f609ad274014cead17ef",
+      "usage": {
+        "prompt_tokens": 25,
+        "total_tokens": 25,
+        "completion_tokens": 0,
+        "prompt_tokens_details": null
+      }
+    },
+    {
+      "index": 4,
+      "query": "where does the IDE create a lifetime",
+      "input_sha256": "5f48e5c963ee240c058e8a12373100795490379ff4005554aee4a197fc809bff",
+      "phase": "warm_request",
+      "ok": true,
+      "seconds": 0.015407958999276161,
+      "response_sha256": "15e74f83bd8863cdb908fdfd47b03a7c4d01a6d2f303c84205bf46696d65af21",
+      "response_model": "mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ",
+      "dimensions": 1024,
+      "finite": true,
+      "vector_sha256": "4ecf31ba33da9eea041e52087a60df696cf86719a3506be6209053ce396c160d",
+      "usage": {
+        "prompt_tokens": 18,
+        "total_tokens": 18,
+        "completion_tokens": 0,
+        "prompt_tokens_details": null
+      }
+    }
+  ],
+  "models_response_sha256": "6aa10374a3ed42ed6256b193920b6b37a67d81557b7f6c7881fa2e1a294fa166",
+  "models": {
+    "object": "list",
+    "data": [
+      {
+        "id": "mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ",
+        "object": "model",
+        "created": 1788867098,
+        "owned_by": "vllm",
+        "root": "mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ",
+        "parent": null,
+        "max_model_len": 512,
+        "permission": [
+          {
+            "id": "modelperm-83e30db2c7913f4d",
+            "object": "model_permission",
+            "created": 1788867098,
+            "allow_create_engine": false,
+            "allow_sampling": true,
+            "allow_logprobs": true,
+            "allow_search_indices": false,
+            "allow_view": true,
+            "allow_fine_tuning": false,
+            "organization": "*",
+            "group": null,
+            "is_blocking": false
+          }
+        ]
+      }
+    ]
+  },
+  "model_match": true
+}

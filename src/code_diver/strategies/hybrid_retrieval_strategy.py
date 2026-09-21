@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import concurrent.futures
 import logging
 from collections import defaultdict
 from pathlib import Path
@@ -90,35 +91,34 @@ class HybridRetrievalStrategy(RetrievalStrategy):
 
     def collect_rank_context(self, query: str, limit: int) -> HybridRankContext | None:
         vector_limit = max(limit, self.config.candidate_limit)
-        vector_results = self.base_strategy.search(query, vector_limit)
-        graph = self._load_catalog_graph()
-        if graph is None:
-            return None
 
-        scores = self._seed_vector_scores(vector_results)
-        query_profile = self.analyzer.analyze(query)
-        active_config = self.fusion_router.apply_hybrid(
-            query, self.router.route(query, query_profile.terms, self.config)
-        )
-        scorer = HybridCandidateScorer(
-            query_profile,
-            self.item_profiler,
-            self._item_profiles,
-            profile_lock=self._cache_lock,
-        )
-        scored_candidates: dict[str, HybridCandidateScore] = {}
-        if not self._uses_bounded_catalog():
-            lexical_scores = self._lexical_scores(graph, query_profile, active_config)
-            normalized_lexical_scores = self._normalize(lexical_scores)
-            for lexical in self._lexical_candidates(
-                graph, query_profile, scorer, normalized_lexical_scores, active_config, scored_candidates
-            ):
-                existing = scores.setdefault(lexical.item.id, HybridCandidateScore(item=lexical.item))
-                lexical_score = normalized_lexical_scores.get(lexical.item.id, lexical.lexical_score)
-                existing.lexical_score = max(existing.lexical_score, lexical_score)
-                existing.path_score = max(existing.path_score, lexical.path_score)
-                existing.symbol_score = max(existing.symbol_score, lexical.symbol_score)
-                existing.symbol_match_score = max(existing.symbol_match_score, lexical.symbol_match_score)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+            future_vector = executor.submit(self._collect_vector_branch, query, vector_limit)
+            future_lexical = executor.submit(self._collect_lexical_branch, query)
+
+            vector_results, scores = future_vector.result()
+
+            lexical_result = future_lexical.result()
+            if lexical_result is None:
+                return None
+            (
+                graph,
+                query_profile,
+                active_config,
+                scorer,
+                scored_candidates,
+                lexical_candidates,
+                normalized_lexical_scores,
+            ) = lexical_result
+
+        # Merge lexical candidates into scores (originally inside the lexical loop)
+        for lexical in lexical_candidates:
+            existing = scores.setdefault(lexical.item.id, HybridCandidateScore(item=lexical.item))
+            lexical_score = normalized_lexical_scores.get(lexical.item.id, lexical.lexical_score)
+            existing.lexical_score = max(existing.lexical_score, lexical_score)
+            existing.path_score = max(existing.path_score, lexical.path_score)
+            existing.symbol_score = max(existing.symbol_score, lexical.symbol_score)
+            existing.symbol_match_score = max(existing.symbol_match_score, lexical.symbol_match_score)
 
         route_name = self.router.route_name(query, query_profile.terms)
         graph_profile = self.graph_profile_factory.create(
@@ -155,6 +155,69 @@ class HybridRetrievalStrategy(RetrievalStrategy):
             effective_graph_depth=graph_profile.depth,
             effective_graph_neighbor_limit=graph_profile.neighbor_limit,
             graph_candidate_count=len(graph_scores),
+        )
+
+    def _collect_vector_branch(
+        self, query: str, vector_limit: int
+    ) -> tuple[list[SearchResult], dict[str, HybridCandidateScore]]:
+        """Thread A: vector search + seed vector scores."""
+        vector_results = self.base_strategy.search(query, vector_limit)
+        scores = self._seed_vector_scores(vector_results)
+        return vector_results, scores
+
+    def _collect_lexical_branch(
+        self, query: str
+    ) -> (
+        tuple[
+            CodeGraph,
+            HybridQuery,
+            HybridSearchConfig,
+            HybridCandidateScorer,
+            dict[str, HybridCandidateScore],
+            list[HybridCandidateScore],
+            dict[str, float],
+        ]
+        | None
+    ):
+        """Thread B: graph loading + query analysis + lexical scoring."""
+        graph = self._load_catalog_graph()
+        if graph is None:
+            return None
+
+        query_profile = self.analyzer.analyze(query)
+        active_config = self.fusion_router.apply_hybrid(
+            query, self.router.route(query, query_profile.terms, self.config)
+        )
+        scorer = HybridCandidateScorer(
+            query_profile,
+            self.item_profiler,
+            self._item_profiles,
+            profile_lock=self._cache_lock,
+        )
+        scored_candidates: dict[str, HybridCandidateScore] = {}
+        lexical_candidates: list[HybridCandidateScore] = []
+        normalized_lexical_scores: dict[str, float] = {}
+
+        if not self._uses_bounded_catalog():
+            lexical_scores = self._lexical_scores(graph, query_profile, active_config)
+            normalized_lexical_scores = self._normalize(lexical_scores)
+            lexical_candidates = self._lexical_candidates(
+                graph,
+                query_profile,
+                scorer,
+                normalized_lexical_scores,
+                active_config,
+                scored_candidates,
+            )
+
+        return (
+            graph,
+            query_profile,
+            active_config,
+            scorer,
+            scored_candidates,
+            lexical_candidates,
+            normalized_lexical_scores,
         )
 
     def rank_context(self, context: HybridRankContext, limit: int) -> list[SearchResult]:

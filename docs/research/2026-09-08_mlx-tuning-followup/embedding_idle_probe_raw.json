@@ -1,0 +1,139 @@
+{
+  "kind": "mlx_followup_embedding_idle_probe_raw",
+  "created_local": "2026-09-08T13:37:01+0200",
+  "idle_before_workload_seconds": 60,
+  "idle_scope": "no requests from this workload; global service/process idle state not established",
+  "endpoint": "http://127.0.0.1:8001/v1/embeddings",
+  "host_verification": "explicit 127.0.0.1; no localhost",
+  "expected_model": "mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ",
+  "query_prefix": "Represent this code search query for retrieving relevant files: ",
+  "queries": [
+    "how are IntelliJ editor actions registered and invoked",
+    "where is the indexing scheduler coordinated for project files",
+    "how are PSI references resolved during code analysis",
+    "where are tool window factories registered in the plugin",
+    "how does the application dispose project services on shutdown"
+  ],
+  "timeout_seconds": 90,
+  "serial": true,
+  "readiness_probes": [
+    {
+      "name": "health",
+      "path": "/health",
+      "ok": true,
+      "seconds": 0.01650395803153515,
+      "status": 200,
+      "body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "models",
+      "path": "/v1/models",
+      "ok": true,
+      "seconds": 0.0012593748979270458,
+      "status": 200,
+      "body_sha256": "22313d89fa0fabf10e42d8464e69fb43a736d08e78f399bf61708d03e7ae6bb7",
+      "model_ids": [
+        "mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ"
+      ],
+      "model_match": true
+    }
+  ],
+  "requests": [
+    {
+      "index": 0,
+      "query": "how are IntelliJ editor actions registered and invoked",
+      "input_sha256": "52672b37cad4b7f1741e761aec8b3fd8f69c8bb2c1af4969ce1178e33107c95b",
+      "ok": true,
+      "seconds": 2.39728408283554,
+      "status": 200,
+      "response_sha256": "dfb01d950440fc2420e0165649efaeada220598c7593252ac60ed70abd60ed06",
+      "response_model": "mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ",
+      "dimensions": 1024,
+      "finite": true,
+      "vector_sha256": "77d595215e13d4325afad9f97271ad96a2d4f0f4e661fed7aab32eed32903f8b",
+      "usage": {
+        "prompt_tokens": 19,
+        "total_tokens": 19,
+        "completion_tokens": 0,
+        "prompt_tokens_details": null
+      }
+    },
+    {
+      "index": 1,
+      "query": "where is the indexing scheduler coordinated for project files",
+      "input_sha256": "ed18aae990203517c2e8363b3e2fa1cdd44ead836e6ce754d748ba3369f2ec01",
+      "ok": true,
+      "seconds": 0.016709292074665427,
+      "status": 200,
+      "response_sha256": "061c73fba56f1d8fd93eb78e8324e32893ce809d0b5741c1f245166a0ce1f8d2",
+      "response_model": "mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ",
+      "dimensions": 1024,
+      "finite": true,
+      "vector_sha256": "e0c2b7409172aa731a1915986a305371b90871ed21a8a0aa0bdc4e8803ba3572",
+      "usage": {
+        "prompt_tokens": 20,
+        "total_tokens": 20,
+        "completion_tokens": 0,
+        "prompt_tokens_details": null
+      }
+    },
+    {
+      "index": 2,
+      "query": "how are PSI references resolved during code analysis",
+      "input_sha256": "c77dc84f59c3acba8cbb93411bd3ba6ad064b3603d96d042d96c0e13ec198632",
+      "ok": true,
+      "seconds": 0.01800970803014934,
+      "status": 200,
+      "response_sha256": "222fae1c0d9a7fbb4628f1fa9c03e7a3f855a41a9dfed644b0c5f38843365c1d",
+      "response_model": "mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ",
+      "dimensions": 1024,
+      "finite": true,
+      "vector_sha256": "c5602dc394666b8bd127a88b531596648d5876d6370fcadea3da778bc956de45",
+      "usage": {
+        "prompt_tokens": 19,
+        "total_tokens": 19,
+        "completion_tokens": 0,
+        "prompt_tokens_details": null
+      }
+    },
+    {
+      "index": 3,
+      "query": "where are tool window factories registered in the plugin",
+      "input_sha256": "ff59c14528489fcf0d3db3bc1cc0fcbd1180ad29ff557ca79cd978d0f68bb48f",
+      "ok": true,
+      "seconds": 0.018093875143676996,
+      "status": 200,
+      "response_sha256": "c739736753572537f23b591db3714e771cf255f2a7d2883c028d7f8ff88cfa76",
+      "response_model": "mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ",
+      "dimensions": 1024,
+      "finite": true,
+      "vector_sha256": "a3b3f5a2536e53ac141a606c919c54b72ec1aac7581bb9fab2cb343747669206",
+      "usage": {
+        "prompt_tokens": 20,
+        "total_tokens": 20,
+        "completion_tokens": 0,
+        "prompt_tokens_details": null
+      }
+    },
+    {
+      "index": 4,
+      "query": "how does the application dispose project services on shutdown",
+      "input_sha256": "fdc6272552170e2f452cc5db4e7824aac27381d2b843d5cf6b198ce773d8c31c",
+      "ok": true,
+      "seconds": 0.019755125045776367,
+      "status": 200,
+      "response_sha256": "779cf8a62637a456c8905b59ba001f542f6b78fd6e44e668f20a7c33b709fe88",
+      "response_model": "mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ",
+      "dimensions": 1024,
+      "finite": true,
+      "vector_sha256": "fc14c3d25c4985ff3e3e571284db939dc279042f043308724222e79cf5d2da47",
+      "usage": {
+        "prompt_tokens": 20,
+        "total_tokens": 20,
+        "completion_tokens": 0,
+        "prompt_tokens_details": null
+      }
+    }
+  ],
+  "elapsed_since_script_start_seconds": 2.4897639751434326
+}
