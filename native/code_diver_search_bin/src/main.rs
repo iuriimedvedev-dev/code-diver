@@ -51,6 +51,11 @@ struct Args {
     #[arg(short = 'r', long, default_value = "http://localhost:18081/v1/rerank")]
     ce_url: String,
 
+    /// Optional second-pass CE URL (mixed routing, e.g. vLLM-metal for long
+    /// docs). Empty (default) = reuse --ce-url for both passes.
+    #[arg(long, default_value = "")]
+    second_ce_url: String,
+
     /// CE rerank route mode: auto (use --ce-url, fall back v1<->legacy on 404/405),
     /// v1 (force .../v1/rerank), legacy (force .../rerank)
     #[arg(long, default_value = "auto")]
@@ -211,6 +216,7 @@ async fn main() -> Result<(), String> {
         embedding_url: args.embedding_url,
         qdrant_url: args.qdrant_url,
         ce_url: args.ce_url,
+        second_ce_url: args.second_ce_url,
         ce_route: args.ce_route,
         ce_timeout_ms: args.ce_timeout_ms,
         ce_model: args.ce_model,

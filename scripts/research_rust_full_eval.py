@@ -177,11 +177,19 @@ def config(args=None):
         graph=dataclasses.replace(c.graph, artifact=Path(".code-diver/intellij-h37-jvm-graph.json")))
 
 
-def native_command(c, rust_ce_url):
+def native_command(c, rust_ce_url, rust_opts=None):
     command = list(COMMAND)
     for flag, value in (("--embedding-url", c.embedding.url), ("--qdrant-url", c.storage.qdrant.url),
                         ("--ce-url", rust_ce_url)):
         command[command.index(flag) + 1] = value
+    if rust_opts is not None:
+        command[command.index("--candidate-limit") + 1] = str(rust_opts["candidate_limit"])
+        if rust_opts["second_pass_cap"] != 24:
+            command += ["--second-pass-cap", str(rust_opts["second_pass_cap"])]
+        if rust_opts["second_pass_floor"] != 0.3:
+            command += ["--second-pass-floor", str(rust_opts["second_pass_floor"])]
+        if rust_opts["second_ce_url"]:
+            command += ["--second-ce-url", rust_opts["second_ce_url"]]
     return command
 
 
@@ -191,7 +199,7 @@ def freeze(c, cases, memberships, command=None):
              "scripts/research_rust_full_eval.py", "uv.lock", *DATASETS.values()]
     source = subprocess.check_output(["git", "ls-files", "src", "native/code_diver_search_bin/src"], text=True).splitlines()
     hashes = {path: digest(path) for path in files + source if Path(path).is_file()}
-    if hashes[BIN] != "f84870ab3362396880422460e611bbd877dab6599560994ecec2363fb9a304d1":
+    if hashes[BIN] != "569ebffd04f73b9f1d0ea798ea9a055d081713e67287a0fc2e00fb98481d8b35":
         raise ValueError("Unexpected native binary")
     if hashes[MODEL] != "8dcadfdc02b050fd35ebafca7f436c822859ff38cfeba4f9bd1203abc90e5010":
         raise ValueError("Unexpected model")
@@ -314,6 +322,13 @@ def positive_int(value):
     return number
 
 
+def fraction(value):
+    number = float(value)
+    if not 0.0 <= number <= 1.0:
+        raise argparse.ArgumentTypeError("Must be within [0.0, 1.0]")
+    return number
+
+
 def parse_args(argv=None):
     parser = argparse.ArgumentParser()
     parser.add_argument("--run", required=True)
@@ -325,6 +340,10 @@ def parse_args(argv=None):
     parser.add_argument("--python-ce-url", type=endpoint_url, default="http://localhost:18081/v1/rerank")
     parser.add_argument("--rust-ce-url", type=endpoint_url, default="http://localhost:18081/v1/rerank")
     parser.add_argument("--embedding-runtime-mode", choices=("managed", "external"), default="managed")
+    parser.add_argument("--rust-candidate-limit", type=positive_int, default=34)
+    parser.add_argument("--rust-second-pass-cap", type=positive_int, default=24)
+    parser.add_argument("--rust-second-pass-floor", type=fraction, default=0.3)
+    parser.add_argument("--rust-second-ce-url", type=endpoint_url, default=None)
     args = parser.parse_args(argv)
     if Path(args.run).name != args.run or args.run in (".", ".."):
         parser.error("Run must be a directory name other than '.' or '..'")
@@ -335,7 +354,11 @@ def main():
     args = parse_args()
     c = config(args)
     validate_runtime(c)
-    command = native_command(c, args.rust_ce_url)
+    rust_opts = {"candidate_limit": args.rust_candidate_limit,
+                 "second_pass_cap": args.rust_second_pass_cap,
+                 "second_pass_floor": args.rust_second_pass_floor,
+                 "second_ce_url": args.rust_second_ce_url or ""}
+    command = native_command(c, args.rust_ce_url, rust_opts)
     directory = OUT / args.run
     directory.mkdir(parents=True, exist_ok=True)
     manifest_path = directory / "manifest.json"

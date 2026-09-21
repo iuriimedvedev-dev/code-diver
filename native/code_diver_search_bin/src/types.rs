@@ -208,6 +208,10 @@ pub struct SearchConfig {
     pub embedding_url: String,
     pub qdrant_url: String,
     pub ce_url: String,
+    /// Empty (default) = reuse ce_url. Set for mixed CE routing
+    /// (e.g. llama first pass, vLLM-metal second pass).
+    #[serde(default)]
+    pub second_ce_url: String,
     #[serde(default = "default_ce_route")]
     pub ce_route: String,
     #[serde(default = "default_ce_timeout_ms")]
@@ -284,6 +288,7 @@ impl Default for SearchConfig {
             embedding_url: "http://localhost:8001/v1/embeddings".to_string(),
             qdrant_url: "http://localhost:6333".to_string(),
             ce_url: "http://localhost:18081/v1/rerank".to_string(),
+            second_ce_url: String::new(),
             ce_route: default_ce_route(),
             ce_timeout_ms: default_ce_timeout_ms(),
             ce_model: String::new(),

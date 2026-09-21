@@ -402,9 +402,14 @@ async fn prepare_candidates(
                 .collect();
 
             if !retry_docs.is_empty() {
+                let second_ce_url = if ctx.config.second_ce_url.is_empty() {
+                    ctx.config.ce_url.as_str()
+                } else {
+                    ctx.config.second_ce_url.as_str()
+                };
                 match ce_rerank_with_options(
                     &ctx.http_client,
-                    &ctx.config.ce_url,
+                    second_ce_url,
                     &ce_options,
                     query,
                     &retry_docs,

@@ -105,7 +105,7 @@ class FullEvaluationTests(unittest.TestCase):
                                       "--rust-ce-url", "http://127.0.0.1:18083/v1/rerank"])
         c = evaluation.config(args)
         command = evaluation.native_command(c, args.rust_ce_url)
-        hashes = {evaluation.BIN: "ab54768cac4cc91955ee0e0a7319f4dcbe6174bf1ad343f2c6a37a358721b58c",
+        hashes = {evaluation.BIN: "569ebffd04f73b9f1d0ea798ea9a055d081713e67287a0fc2e00fb98481d8b35",
                   evaluation.MODEL: "8dcadfdc02b050fd35ebafca7f436c822859ff38cfeba4f9bd1203abc90e5010"}
         with patch.object(evaluation, "digest", side_effect=lambda p: hashes.get(p, "test-hash")), \
                 patch.object(evaluation.subprocess, "check_output", return_value="test-head"), \
