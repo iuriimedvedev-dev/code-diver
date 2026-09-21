@@ -4,6 +4,7 @@ mod embedding;
 mod features;
 mod fusion;
 mod graph;
+mod index_update;
 mod lightgbm;
 mod pipeline;
 mod types;
@@ -27,15 +28,15 @@ struct Args {
     #[arg(short, long, default_value = "10")]
     limit: usize,
 
-    /// Path to catalog JSONL file
+    /// Path to catalog JSONL file (defaults to ./artifacts/rust_catalog.jsonl or /tmp/rust_catalog.jsonl)
     #[arg(short = 'c', long)]
-    catalog: String,
+    catalog: Option<String>,
 
-    /// Path to graph adjacency JSONL file
+    /// Path to graph adjacency JSONL file (defaults to ./artifacts/rust_graph.jsonl or /tmp/rust_graph.jsonl)
     #[arg(short = 'g', long)]
-    graph: String,
+    graph: Option<String>,
 
-    /// Path to LightGBM meta-ranker model (TXT format)
+    /// Path to LightGBM meta-ranker model (TXT format, defaults to ./artifacts/ce_meta_ranker/ce_meta_ranker.lgb.txt)
     #[arg(short = 'm', long)]
     model: Option<String>,
 
@@ -144,8 +145,8 @@ struct Args {
     preset: Option<String>,
 
     /// In-memory embedding cache size (number of query vectors, server mode).
-    /// 0 = disabled (default, preserves current behaviour).
-    #[arg(long, default_value_t = 0)]
+    /// Default is 1024 (0 = disabled).
+    #[arg(long, default_value_t = 1024)]
     embed_cache_size: usize,
 
     /// Vector retrieval width before file selection and CE rerank
@@ -187,14 +188,64 @@ struct Args {
     /// Base path for reading file content (default: use catalog content)
     #[arg(long)]
     base_path: Option<String>,
+
+    /// Incremental index update: diff --catalog against the Qdrant collection
+    /// and report added/changed/deleted counts (dry run by default).
+    #[arg(long)]
+    index_update: bool,
+
+    /// Apply the incremental index update (embed + upsert dirty items,
+    /// delete removed points). Without it, --index-update only reports.
+    #[arg(long)]
+    apply: bool,
+
+    /// Qdrant collection (or alias) for --index-update.
+    #[arg(long, default_value = "intellij_h66b_budget_qwen")]
+    qdrant_collection: String,
+
+    /// Character budget for index-update embed texts (H-66b/H-91a: 500).
+    #[arg(long, default_value_t = 500)]
+    embed_max_chars: usize,
+
+    /// Healthcheck / Doctor mode: checks connection to Qdrant, Embedding, and CE services,
+    /// verifies catalog, graph, and model paths, then exits.
+    #[arg(long)]
+    doctor: bool,
 }
 
 #[tokio::main]
 async fn main() -> Result<(), String> {
     let args = Args::parse();
 
-    let model_path = args.model.clone();
-    let meta_ranker_enabled = args.model.is_some();
+    if args.doctor {
+        return run_doctor(&args).await;
+    }
+
+    if args.index_update {
+        return run_index_update(&args).await;
+    }
+
+    let catalog_path = resolve_path(args.catalog.as_deref(), &[
+        "artifacts/rust_catalog.jsonl",
+        ".code-diver/rust_catalog.jsonl",
+        "/tmp/rust_catalog.jsonl",
+    ])
+    .ok_or_else(|| "Catalog file not found. Pass --catalog PATH or place at artifacts/rust_catalog.jsonl".to_string())?;
+
+    let graph_path = resolve_path(args.graph.as_deref(), &[
+        "artifacts/rust_graph.jsonl",
+        ".code-diver/rust_graph.jsonl",
+        "/tmp/rust_graph.jsonl",
+    ])
+    .ok_or_else(|| "Graph file not found. Pass --graph PATH or place at artifacts/rust_graph.jsonl".to_string())?;
+
+    let model_path = resolve_path(args.model.as_deref(), &[
+        "artifacts/ce_meta_ranker/ce_meta_ranker.lgb.txt",
+        ".code-diver/models/ce_meta_ranker.lgb.txt",
+        "models/ce_meta_ranker.lgb.txt",
+    ]);
+
+    let meta_ranker_enabled = model_path.is_some();
     let candidate_limit =
         resolve_candidate_limit(args.candidate_limit, args.first_pass_cap).map_err(|e| e.to_string())?;
     let (second_pass_enabled, second_pass_score_floor, second_pass_candidate_cap) = resolve_second_pass(
@@ -211,8 +262,8 @@ async fn main() -> Result<(), String> {
         ));
     }
     let config = SearchConfig {
-        catalog_path: args.catalog,
-        graph_path: args.graph,
+        catalog_path,
+        graph_path,
         embedding_url: args.embedding_url,
         qdrant_url: args.qdrant_url,
         ce_url: args.ce_url,
@@ -274,6 +325,182 @@ async fn main() -> Result<(), String> {
         run_interactive(&ctx, args.limit).await?;
     }
 
+    Ok(())
+}
+
+fn resolve_path(cli_arg: Option<&str>, candidates: &[&str]) -> Option<String> {
+    if let Some(arg) = cli_arg {
+        if !arg.is_empty() {
+            return Some(arg.to_string());
+        }
+    }
+    for candidate in candidates {
+        if std::path::Path::new(candidate).exists() {
+            return Some(candidate.to_string());
+        }
+    }
+    None
+}
+
+/// Doctor / Healthcheck command
+async fn run_doctor(args: &Args) -> Result<(), String> {
+    eprintln!("=== code-diver doctor ===");
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    // 1. Qdrant
+    eprint!("Checking Qdrant ({})... ", args.qdrant_url);
+    match client.get(format!("{}/collections", args.qdrant_url.trim_end_matches('/'))).send().await {
+        Ok(resp) if resp.status().is_success() => eprintln!("OK (status {})", resp.status()),
+        Ok(resp) => eprintln!("WARN: HTTP {}", resp.status()),
+        Err(e) => eprintln!("FAIL: {}", e),
+    }
+
+    // 2. Embedding service
+    let embed_health = args.embedding_url.replace("/v1/embeddings", "/v1/models");
+    eprint!("Checking Embedding Service ({})... ", embed_health);
+    match client.get(&embed_health).send().await {
+        Ok(resp) if resp.status().is_success() => eprintln!("OK (status {})", resp.status()),
+        Ok(resp) => eprintln!("WARN: HTTP {}", resp.status()),
+        Err(e) => eprintln!("FAIL: {}", e),
+    }
+
+    // 3. CE Rerank service
+    let ce_health = args.ce_url.replace("/v1/rerank", "/health").replace("/rerank", "/health");
+    eprint!("Checking CE Rerank Service ({})... ", ce_health);
+    match client.get(&ce_health).send().await {
+        Ok(resp) if resp.status().is_success() => eprintln!("OK (status {})", resp.status()),
+        Ok(resp) => eprintln!("WARN: HTTP {}", resp.status()),
+        Err(e) => eprintln!("FAIL: {}", e),
+    }
+
+    // 4. Artifacts check
+    eprintln!("\nChecking local artifacts:");
+    let catalog = resolve_path(args.catalog.as_deref(), &[
+        "artifacts/rust_catalog.jsonl",
+        ".code-diver/rust_catalog.jsonl",
+        "/tmp/rust_catalog.jsonl",
+    ]);
+    eprintln!("  Catalog: {:?}", catalog);
+
+    let graph = resolve_path(args.graph.as_deref(), &[
+        "artifacts/rust_graph.jsonl",
+        ".code-diver/rust_graph.jsonl",
+        "/tmp/rust_graph.jsonl",
+    ]);
+    eprintln!("  Graph:   {:?}", graph);
+
+    let model = resolve_path(args.model.as_deref(), &[
+        "artifacts/ce_meta_ranker/ce_meta_ranker.lgb.txt",
+        ".code-diver/models/ce_meta_ranker.lgb.txt",
+        "models/ce_meta_ranker.lgb.txt",
+    ]);
+    eprintln!("  Model:   {:?}", model);
+
+    eprintln!("=========================");
+    Ok(())
+}
+
+/// Incremental index update: diff --catalog against Qdrant, embed + upsert
+/// only dirty items, delete removed points. Dry run unless --apply.
+async fn run_index_update(args: &Args) -> Result<(), String> {
+    use crate::catalog::load_catalog;
+    use crate::embedding::embed_texts;
+    use crate::index_update::{
+        collection_dimensions, delete_points, diff_catalog, embed_text,
+        scroll_indexed, upsert_points,
+    };
+
+    let resolved_catalog = resolve_path(args.catalog.as_deref(), &[
+        "artifacts/rust_catalog.jsonl",
+        ".code-diver/rust_catalog.jsonl",
+        "/tmp/rust_catalog.jsonl",
+    ])
+    .ok_or_else(|| "--catalog is required or place at artifacts/rust_catalog.jsonl".to_string())?;
+
+    let catalog_path = std::path::Path::new(&resolved_catalog);
+    eprintln!("Loading catalog from: {}", catalog_path.display());
+    let catalog = load_catalog(catalog_path)?;
+    eprintln!("  Catalog items: {}", catalog.items.len());
+
+    let http_client = reqwest::Client::builder()
+        .pool_idle_timeout(std::time::Duration::from_secs(90))
+        .pool_max_idle_per_host(32)
+        .build()
+        .map_err(|e| format!("HTTP client failed: {}", e))?;
+
+    eprintln!("Scrolling collection: {}", args.qdrant_collection);
+    let indexed = scroll_indexed(&http_client, &args.qdrant_url, &args.qdrant_collection).await?;
+    eprintln!("  Indexed points: {}", indexed.len());
+
+    let diff = diff_catalog(&catalog.items, &indexed);
+    eprintln!(
+        "Diff: added={} changed={} deleted={} unchanged={}",
+        diff.added.len(),
+        diff.changed.len(),
+        diff.deleted.len(),
+        catalog.items.len() - diff.added.len() - diff.changed.len()
+    );
+    if !args.apply {
+        eprintln!("Dry run: pass --apply to write.");
+        return Ok(());
+    }
+    if diff.added.is_empty() && diff.changed.is_empty() && diff.deleted.is_empty() {
+        eprintln!("Index already in sync, nothing to do.");
+        return Ok(());
+    }
+
+    let dimensions =
+        collection_dimensions(&http_client, &args.qdrant_url, &args.qdrant_collection).await?;
+    eprintln!("  Collection dimensions: {}", dimensions);
+
+    let dirty: Vec<usize> = diff.added.iter().chain(diff.changed.iter()).copied().collect();
+    if !dirty.is_empty() {
+        let mut upserted = 0;
+        for chunk in dirty.chunks(32) {
+            let items: Vec<&crate::types::CatalogItem> =
+                chunk.iter().map(|&i| &catalog.items[i]).collect();
+            let texts: Vec<String> =
+                items.iter().map(|it| embed_text(it, args.embed_max_chars)).collect();
+            let vectors = embed_texts(&http_client, &args.embedding_url, &texts).await?;
+            if vectors.first().map(|v| v.len()).unwrap_or(0) != dimensions {
+                return Err(format!(
+                    "Embedding dimension mismatch: got {}, collection has {}",
+                    vectors.first().map(|v| v.len()).unwrap_or(0),
+                    dimensions
+                ));
+            }
+            upserted += upsert_points(
+                &http_client,
+                &args.qdrant_url,
+                &args.qdrant_collection,
+                &items,
+                &vectors,
+                "",
+                "openai_compatible",
+                crate::embedding::EMBED_MODEL,
+                dimensions,
+            )
+            .await?;
+            eprintln!("  Upserted {}/{}", upserted, dirty.len());
+        }
+    }
+
+    if !diff.deleted.is_empty() {
+        let n = delete_points(
+            &http_client,
+            &args.qdrant_url,
+            &args.qdrant_collection,
+            &diff.deleted,
+        )
+        .await?;
+        eprintln!("  Deleted {}", n);
+    }
+
+    let after = scroll_indexed(&http_client, &args.qdrant_url, &args.qdrant_collection).await?;
+    eprintln!("Indexed points after: {}", after.len());
     Ok(())
 }
 
@@ -353,6 +580,15 @@ async fn run_server(ctx: &pipeline::SearchContext) -> Result<(), String> {
             "results": results,
             "timings": {
                 "total_ms": timings.total_ms,
+                "embed_ms": timings.embed_ms,
+                "vector_search_ms": timings.vector_search_ms,
+                "bm25_ms": timings.bm25_ms,
+                "fusion_ms": timings.fusion_ms,
+                "graph_ms": timings.graph_ms,
+                "ce_first_pass_ms": timings.ce_first_pass_ms,
+                "ce_second_pass_ms": timings.ce_second_pass_ms,
+                "feature_extract_ms": timings.feature_extract_ms,
+                "meta_predict_ms": timings.meta_predict_ms,
             },
             "num_results": results.len(),
         });

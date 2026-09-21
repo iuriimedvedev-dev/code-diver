@@ -2,7 +2,23 @@
 
 `code-diver` is a local code exploration assistant and retrieval-evaluation sandbox. It indexes a repository into local artifacts, answers natural-language code-navigation queries with cited files/snippets, and runs reproducible retrieval evaluations.
 
-## Setup
+> **🚀 Standalone Pure Rust Engine**: A single high-performance binary with zero Python dependencies is available in `native/code_diver_search_bin/` and distributed via GitHub Releases. It delivers **+16.7 pp Hit@1** and **+17.6 pp MRR@10** over JetBrains Context (`jbcontext 0.9.14`). See [`docs/distribution/STANDALONE_RUST_GUIDE.md`](docs/distribution/STANDALONE_RUST_GUIDE.md) for quickstart and standalone documentation.
+
+## Standalone Rust Engine Quickstart
+
+```bash
+# Build the standalone binary
+cargo build --release --manifest-path native/code_diver_search_bin/Cargo.toml
+
+# Check health and dependencies (Qdrant, embedding, CE)
+./native/code_diver_search_bin/target/release/code_diver_search_bin --doctor
+
+# Search
+./native/code_diver_search_bin/target/release/code_diver_search_bin \
+  --query "where is project structure dialog"
+```
+
+## Python Setup (Legacy & Research Orchestration)
 
 Requires Python 3.11 or newer.
 

@@ -40,6 +40,60 @@ pub async fn embed_query(client: &reqwest::Client, url: &str, query: &str) -> Re
     Ok(l2_normalize(&embedding))
 }
 
+/// Batch-embed texts with one POST (OpenAI-compatible array input).
+/// Returns one L2-normalized vector per input, in order.
+pub async fn embed_texts(
+    client: &reqwest::Client,
+    url: &str,
+    texts: &[String],
+) -> Result<Vec<Vec<f64>>, String> {
+    let body = serde_json::json!({
+        "model": EMBED_MODEL,
+        "input": texts,
+    });
+
+    let resp = client
+        .post(url)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("Embedding batch request failed: {}", e))?;
+
+    let status = resp.status();
+    if !status.is_success() {
+        let text = resp.text().await.unwrap_or_default();
+        return Err(format!("Embedding batch HTTP {}: {}", status, text));
+    }
+
+    let data: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("Embedding batch parse failed: {}", e))?;
+
+    let rows = data["data"]
+        .as_array()
+        .ok_or_else(|| "No data in embedding batch response".to_string())?;
+    if rows.len() != texts.len() {
+        return Err(format!(
+            "Embedding batch mismatch: {} texts, {} vectors",
+            texts.len(),
+            rows.len()
+        ));
+    }
+    rows.iter()
+        .map(|row| {
+            row["embedding"]
+                .as_array()
+                .ok_or_else(|| "No embedding in batch row".to_string())
+                .map(|arr| {
+                    l2_normalize(
+                        &arr.iter().map(|v| v.as_f64().unwrap_or(0.0)).collect::<Vec<_>>(),
+                    )
+                })
+        })
+        .collect()
+}
+
 /// Search Qdrant for nearest neighbors.
 pub async fn vector_search(
     client: &reqwest::Client,
