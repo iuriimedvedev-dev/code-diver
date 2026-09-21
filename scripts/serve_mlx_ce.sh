@@ -65,6 +65,10 @@ fi
 export VLLM_ENABLE_V1_MULTIPROCESSING=0
 export VLLM_METAL_USE_PAGED_ATTENTION=1
 export VLLM_METAL_MEMORY_FRACTION="$MLX_CE_MEM_FRACTION"
+# Pin rendezvous to loopback: vllm otherwise picks the Cloudflare WARP interface
+# and hangs in gloo parallel_state (same trap as scripts/serve_embedder.sh).
+export VLLM_HOST_IP="${VLLM_HOST_IP:-127.0.0.1}"
+export GLOO_SOCKET_IFNAME="${GLOO_SOCKET_IFNAME:-lo0}"
 
 echo "serving $MLX_CE_MODEL@$MLX_CE_REVISION on $MLX_CE_HOST:$MLX_CE_PORT (log: $MLX_CE_LOG)" >&2
 exec "$MLX_CE_VENV/bin/vllm" serve "$MLX_CE_MODEL" \
@@ -77,6 +81,6 @@ exec "$MLX_CE_VENV/bin/vllm" serve "$MLX_CE_MODEL" \
   --block-size "$MLX_CE_BLOCK_SIZE" \
   --max-num-seqs "$MLX_CE_MAX_SEQS" \
   --max-num-batched-tokens "$MLX_CE_BATCHED_TOKENS" \
-  "${CHAT_TEMPLATE_ARGS[@]}" \
+  ${CHAT_TEMPLATE_ARGS[@]+"${CHAT_TEMPLATE_ARGS[@]}"} \
   --hf-overrides '{"architectures":["Qwen3ForSequenceClassification"],"classifier_from_token":["no","yes"],"is_original_qwen3_reranker":true}' \
   >>"$MLX_CE_LOG" 2>&1

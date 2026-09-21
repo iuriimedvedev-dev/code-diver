@@ -191,7 +191,7 @@ def freeze(c, cases, memberships, command=None):
              "scripts/research_rust_full_eval.py", "uv.lock", *DATASETS.values()]
     source = subprocess.check_output(["git", "ls-files", "src", "native/code_diver_search_bin/src"], text=True).splitlines()
     hashes = {path: digest(path) for path in files + source if Path(path).is_file()}
-    if hashes[BIN] != "ab54768cac4cc91955ee0e0a7319f4dcbe6174bf1ad343f2c6a37a358721b58c":
+    if hashes[BIN] != "f84870ab3362396880422460e611bbd877dab6599560994ecec2363fb9a304d1":
         raise ValueError("Unexpected native binary")
     if hashes[MODEL] != "8dcadfdc02b050fd35ebafca7f436c822859ff38cfeba4f9bd1203abc90e5010":
         raise ValueError("Unexpected model")
