@@ -153,6 +153,14 @@ struct Args {
     #[arg(long, default_value = "360")]
     retrieval_limit: usize,
 
+    /// Document truncation character limit for first-pass CE (default: 850)
+    #[arg(long, default_value = "850")]
+    max_document_chars: usize,
+
+    /// Document truncation character limit for second-pass CE (default: 2400)
+    #[arg(long, default_value = "2400")]
+    second_pass_max_document_chars: usize,
+
     /// Run in server mode (read queries from stdin)
     #[arg(short = 's', long)]
     server: bool,
@@ -261,6 +269,7 @@ async fn main() -> Result<(), String> {
             second_pass_candidate_cap, candidate_limit
         ));
     }
+    // Retrieval limit default (360) matches Python H-91a
     let config = SearchConfig {
         catalog_path,
         graph_path,
@@ -272,7 +281,7 @@ async fn main() -> Result<(), String> {
         ce_timeout_ms: args.ce_timeout_ms,
         ce_model: args.ce_model,
         retrieval_limit: args.retrieval_limit,
-        candidate_limit: args.candidate_limit,
+        candidate_limit,
         vector_weight: args.vector_weight,
         lexical_weight: args.lexical_weight,
         path_weight: args.path_weight,
@@ -287,6 +296,8 @@ async fn main() -> Result<(), String> {
         second_pass_enabled,
         second_pass_score_floor,
         second_pass_candidate_cap,
+        max_document_chars: args.max_document_chars,
+        second_pass_max_document_chars: args.second_pass_max_document_chars,
         ce_meta_model_path: model_path.unwrap_or_default(),
         ce_meta_ranker_enabled: meta_ranker_enabled,
         base_path: args.base_path.unwrap_or_default(),

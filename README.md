@@ -2,7 +2,60 @@
 
 `code-diver` is a local code exploration assistant and retrieval-evaluation sandbox. It indexes a repository into local artifacts, answers natural-language code-navigation queries with cited files/snippets, and runs reproducible retrieval evaluations.
 
-> **🚀 Standalone Pure Rust Engine**: A single high-performance binary with zero Python dependencies is available in `native/code_diver_search_bin/` and distributed via GitHub Releases. It delivers **+16.7 pp Hit@1** and **+17.6 pp MRR@10** over JetBrains Context (`jbcontext 0.9.14`). See [`docs/distribution/STANDALONE_RUST_GUIDE.md`](docs/distribution/STANDALONE_RUST_GUIDE.md) for quickstart and standalone documentation.
+> **🚀 Standalone Pure Rust Engine**: A single high-performance binary with zero Python dependencies is available in `native/code_diver_search_bin/` and distributed via GitHub Releases. It delivers **+28.7 pp Hit@1** (+75% relative gain) and **+24.4 pp MRR@10** over JetBrains Context (`jbcontext 0.9.14`) on the full 1,065-query IntelliJ benchmark. See [`docs/distribution/STANDALONE_RUST_GUIDE.md`](docs/distribution/STANDALONE_RUST_GUIDE.md) and [`docs/research/LATENCY_AND_1065_BENCHMARK_ANALYSIS.md`](docs/research/LATENCY_AND_1065_BENCHMARK_ANALYSIS.md).
+
+## Benchmark: code-diver v0.2.0 vs jbcontext 0.9.14
+
+Evaluated on the full IntelliJ Community codebase (135,404 files, commit `c6143439a2a4`) across 1,065 ground-truth query answer sets (`datasets/intellij_eval_1000.answer_sets.jsonl`). Both engines were benchmarked sequentially on Apple Silicon (M3 Max) using the exact same evaluation metrics:
+
+| Metric | `jbcontext 0.9.14` | `code-diver Optimized Fast` (Rust) | Delta |
+| :--- | :---: | :---: | :---: |
+| **Evaluated Queries** | 1,065 (1 failed) | 1,065 (**0 failed**) | **-1 fail** |
+| **File Hit@1** | 37.9% | **66.9%** | **+29.0 pp** (+76.5% rel) |
+| **File Hit@3** | 53.7% | **75.4%** | **+21.7 pp** |
+| **File Hit@10** | 63.7% | **76.8%** | **+13.1 pp** |
+| **File MRR@10** | 0.467 | **0.710** | **+24.3 pp** (+52.0% rel) |
+| **Latency (mean)** | 1,307 ms | **670 ms** | **2.0x faster** (-637 ms) |
+| **Latency (p95)** | 1,448 ms | **778 ms** | **1.9x faster** (-670 ms) |
+
+> **Local Privacy vs Cloud**: `jbcontext` acts as a thin client querying remote cloud servers. In contrast, `code-diver` operates **100% locally and privately**, outperforming cloud latency with on-device vector search, lexical BM25, graph diffusion, and cross-encoder neural reranking.
+
+---
+
+## Closed-Loop Answering & Grounded Citation Benchmark (100 Cases)
+
+Complete end-to-end evaluation: Search $\to$ AST Outline & Excerpt Slicing $\to$ LLM Answer $\to$ Source Line AST Verification.
+
+### 1. End-to-End Pipeline: `jbcontext` vs Local vs Cloud
+
+| Stage / Metric | `jbcontext 0.9.14` | `code-diver Local (Best)` (`gemma-4-e2b` / `Qwen3-Coder`) | `code-diver Cloud LiteLLM` (`gemini-3.5-flash-lite`) |
+| :--- | :---: | :---: | :---: |
+| **Search Hit@1 / Hit@10** | 37.9% / 63.7% | **66.9% / 76.8%** | **66.9% / 76.8%** |
+| **Search Latency (mean)** | 1,308 ms | **670 ms** (2.0x faster) | **670 ms** (2.0x faster) |
+| **AST Inspection & Excerpt** | Slicing only | **5.5 ms** (Tree-sitter) | **5.5 ms** (Tree-sitter) |
+| **Answer Generation Time** | *None (no answering)* | **3.24 s** (`e2b`) / **7.58 s** (`Coder-30B`) | **1.78 s** |
+| **Citation Line Verification** | *None* | **1.3 ms** | **1.3 ms** |
+| **Total Closed-Loop Latency** | *Incomplete (chunks only)* | **~3.9 s** (Ultra) / **~8.2 s** (Coder MoE) | **~2.45 s** |
+| **Citation Path & Line Precision**| *N/A* | **95.5% – 100.0%** | **100.0%** |
+| **JSON Schema Adherence** | *N/A* | **94.0% – 98.0%** | **100.0%** |
+
+### 2. Model Tournament (Apple Silicon Metal vs Cloud)
+
+| Model | Architecture / Size | Backend | Speed (tok/s) | Gen Mean (s) | Closed-Loop (s) | Citation Grounding |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: |
+| ⚡ **`gemini-3.5-flash-lite`** | Cloud API | LiteLLM | **128.2** | **1.78 s** | **~2.45 s** | **100.0%** |
+| ⚡ **`gemma-4-e2b-it-4bit`** | 2B Dense | MLX | **74.2** | **3.24 s** | **~3.92 s** | 96.6% |
+| ⚡ **`gemma-4-e2b-it-qat`** | 2B QAT | llama.cpp | 65.4 | 4.57 s | ~5.24 s | 98.9% |
+| 🎯 **`gemma-4-e4b-it-4bit`** | 4B Dense | MLX | **43.2** | **6.09 s** | **~6.76 s** | 99.3% |
+| 🧠 **`gpt-5.6-luna`** | Cloud API | LiteLLM | **80.1** | **6.36 s** | **~7.03 s** | **100.0%** |
+| 🎯 **`gemma-4-e4b-it-qat`** | 4B QAT | llama.cpp | 36.4 | 7.31 s | ~7.99 s | **100.0%** |
+| 🏆 **`Qwen3-Coder-30B-A3B`** | 30.5B MoE (3.3B act) | MLX | **34.3** | **7.58 s** | **~8.25 s** | 95.5% |
+| 🔷 **`Qwen3.5-4B-4bit`** | 4B Dense | MLX | 44.1 | 7.82 s | ~8.49 s | **100.0%** |
+| 💎 **`Qwen3.6-35B-A3B`** | 35B MoE (3.0B act) | MLX | **36.1** | 10.07 s | ~10.74 s | **100.0%** |
+| 🔷 **`Qwen3.5-9B-4bit`** | 9B Dense | MLX | 25.2 | 10.42 s | ~11.09 s | 99.4% |
+| 🐢 **`Qwen3.8-27B-4bit`** | 27B Dense | MLX | 8.8 | 39.32 s | ~40.00 s | **100.0%** |
+
+*See full research report in [`docs/research/2026-09-23_local_and_cloud_llm_tournament.md`](docs/research/2026-09-23_local_and_cloud_llm_tournament.md).*
 
 ## Standalone Rust Engine Quickstart
 

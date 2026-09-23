@@ -7,6 +7,7 @@ import argparse
 import json
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -27,10 +28,14 @@ def main():
     parser.add_argument("--model", default="artifacts/ce_meta_ranker/ce_meta_ranker.lgb.txt")
     parser.add_argument("--embedding-url", default="http://127.0.0.1:8001/v1/embeddings")
     parser.add_argument("--qdrant-url", default="http://127.0.0.1:6333")
-    parser.add_argument("--ce-url", default="http://127.0.0.1:18081/v1/rerank")
-    parser.add_argument("--second-ce-url", default="http://127.0.0.1:18083/rerank")
-    parser.add_argument("--preset", default="selective-strict")
-    parser.add_argument("--candidate-limit", type=int, default=20)
+    parser.add_argument("--ce-url", default="http://127.0.0.1:18083/rerank")
+    parser.add_argument("--ce-model", default="mlx-community/Qwen3-Reranker-0.6B-4bit")
+    parser.add_argument("--second-ce-url", default="")
+    parser.add_argument("--second-ce-model", default="")
+    parser.add_argument("--preset", default="")
+    parser.add_argument("--candidate-limit", type=int, default=34)
+    parser.add_argument("--max-document-chars", type=int, default=850)
+    parser.add_argument("--second-pass-max-document-chars", type=int, default=2400)
     parser.add_argument("--dataset", default="datasets/intellij_eval_where_only.jsonl")
     parser.add_argument("--file-limit", type=int, default=10)
     parser.add_argument("--out", default=".code-diver/reports/rust-where78-fresh.json")
@@ -44,11 +49,18 @@ def main():
         "--embedding-url", args.embedding_url,
         "--qdrant-url", args.qdrant_url,
         "--ce-url", args.ce_url,
-        "--second-ce-url", args.second_ce_url,
-        "--preset", args.preset,
+        "--ce-model", args.ce_model,
         "--candidate-limit", str(args.candidate_limit),
+        "--max-document-chars", str(args.max_document_chars),
+        "--second-pass-max-document-chars", str(args.second_pass_max_document_chars),
         "--server",
     ]
+    if args.preset:
+        cmd.extend(["--preset", args.preset])
+    if args.second_ce_url:
+        cmd.extend(["--second-ce-url", args.second_ce_url])
+    if args.second_ce_model:
+        cmd.extend(["--second-ce-model", args.second_ce_model])
 
     print(f"Starting server: {' '.join(cmd)}", file=sys.stderr)
     proc = subprocess.Popen(
@@ -69,6 +81,14 @@ def main():
         print(line.rstrip(), file=sys.stderr)
         if "Server mode: reading queries" in line:
             break
+
+    # Drain stderr asynchronously to avoid OS pipe deadlock on large sweeps
+    def _drain_stderr():
+        for _ in iter(proc.stderr.readline, ""):
+            pass
+
+    stderr_thread = threading.Thread(target=_drain_stderr, daemon=True)
+    stderr_thread.start()
 
     cases = [json.loads(line) for line in Path(args.dataset).read_text().splitlines() if line.strip()]
     results = []
@@ -119,6 +139,7 @@ def main():
                 "expected": expected,
                 "duration_ms": elapsed_ms,
                 "unique_file_count": len(files),
+                "retrieved_files": files,
                 **metrics,
             })
         except Exception as e:

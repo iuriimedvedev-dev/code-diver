@@ -51,11 +51,16 @@ pub struct Catalog {
 /// BM25 index data.
 #[derive(Debug, Clone)]
 pub struct Bm25Index {
-    /// doc_id -> term -> frequency
+    /// Mapping: doc_id -> doc_idx
+    pub doc_ids: Vec<String>,
+    pub doc_id_to_idx: rustc_hash::FxHashMap<String, usize>,
+    /// doc_idx -> document length in tokens
+    pub doc_lengths: Vec<u32>,
+    /// term -> list of (doc_idx, term_frequency)
+    pub inverted_index: rustc_hash::FxHashMap<String, Vec<(u32, u32)>>,
+    /// Legacy compatibility fields
     pub term_frequencies: HashMap<String, HashMap<String, u32>>,
-    /// doc_id -> total tokens
     pub document_lengths: HashMap<String, u32>,
-    /// term -> set of doc_ids
     pub postings: HashMap<String, Vec<String>>,
     /// average document length
     pub avgdl: f64,

@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 
 use crate::catalog::tokenize;
 use crate::types::{Bm25Index, CatalogItem};
@@ -11,6 +12,11 @@ pub fn build_bm25_index(items: &[CatalogItem]) -> Bm25Index {
     let mut total_tokens: u64 = 0;
     let mut num_docs: usize = 0;
 
+    let mut doc_ids: Vec<String> = Vec::with_capacity(items.len());
+    let mut doc_id_to_idx: FxHashMap<String, usize> = FxHashMap::default();
+    let mut doc_lengths: Vec<u32> = Vec::with_capacity(items.len());
+    let mut inverted_index: FxHashMap<String, Vec<(u32, u32)>> = FxHashMap::default();
+
     for item in items {
         let doc_id = if !item.id.is_empty() {
             item.id.clone()
@@ -20,6 +26,10 @@ pub fn build_bm25_index(items: &[CatalogItem]) -> Bm25Index {
         if doc_id.is_empty() {
             continue;
         }
+
+        let doc_idx = num_docs as u32;
+        doc_ids.push(doc_id.clone());
+        doc_id_to_idx.insert(doc_id.clone(), doc_idx as usize);
 
         // Collect all tokens from different fields
         let mut all_tokens: Vec<String> = Vec::new();
@@ -63,11 +73,13 @@ pub fn build_bm25_index(items: &[CatalogItem]) -> Bm25Index {
 
         let doc_len = all_tokens.len() as u32;
         document_lengths.insert(doc_id.clone(), doc_len);
+        doc_lengths.push(doc_len);
         total_tokens += doc_len as u64;
         num_docs += 1;
 
-        for (term, _freq) in &tf {
+        for (term, freq) in &tf {
             postings.entry(term.clone()).or_default().push(doc_id.clone());
+            inverted_index.entry(term.clone()).or_default().push((doc_idx, *freq));
         }
 
         term_frequencies.insert(doc_id, tf);
@@ -80,6 +92,10 @@ pub fn build_bm25_index(items: &[CatalogItem]) -> Bm25Index {
     };
 
     Bm25Index {
+        doc_ids,
+        doc_id_to_idx,
+        doc_lengths,
+        inverted_index,
         term_frequencies,
         document_lengths,
         postings,
@@ -96,40 +112,51 @@ pub fn bm25_scores(
     k1: f64,
     b: f64,
 ) -> HashMap<String, f64> {
-    let mut scores: HashMap<String, f64> = HashMap::new();
-
-    let num_docs = index.num_docs as f64;
-    if num_docs == 0.0 {
-        return scores;
+    let num_docs = index.num_docs;
+    if num_docs == 0 {
+        return HashMap::new();
     }
+
+    let num_docs_f = num_docs as f64;
+    let avgdl = index.avgdl;
+    let b_over_avgdl = b / avgdl;
+    let one_minus_b = 1.0 - b;
+    let k1_plus_one = k1 + 1.0;
+
+    // Use dense flat vector accumulator instead of hash map for zero hashing overhead
+    let mut dense_scores = vec![0.0f64; num_docs];
+    let mut touched_indices: Vec<u32> = Vec::new();
 
     for term in query_terms {
         let term_lower = term.to_lowercase();
-        let docs_with_term = match index.postings.get(&term_lower) {
-            Some(docs) => docs,
+        let postings_list = match index.inverted_index.get(&term_lower) {
+            Some(list) => list,
             None => continue,
         };
 
-        let idf = ((num_docs - docs_with_term.len() as f64 + 0.5)
-            / (docs_with_term.len() as f64 + 0.5)
-            + 1.0)
-            .ln();
+        let df = postings_list.len() as f64;
+        let idf = ((num_docs_f - df + 0.5) / (df + 0.5) + 1.0).ln();
 
-        for doc_id in docs_with_term {
-            let tf = index
-                .term_frequencies
-                .get(doc_id)
-                .and_then(|tf_map| tf_map.get(&term_lower))
-                .copied()
-                .unwrap_or(0) as f64;
+        for &(doc_idx, tf_count) in postings_list {
+            let idx = doc_idx as usize;
+            let tf = tf_count as f64;
+            let doc_len = index.doc_lengths[idx] as f64;
+            let denom = tf + k1 * (one_minus_b + b_over_avgdl * doc_len);
+            let score = idf * ((tf * k1_plus_one) / denom);
 
-            if tf == 0.0 {
-                continue;
+            if dense_scores[idx] == 0.0 {
+                touched_indices.push(doc_idx);
             }
+            dense_scores[idx] += score;
+        }
+    }
 
-            let doc_len = *index.document_lengths.get(doc_id).unwrap_or(&1) as f64;
-            let score = idf * ((tf * (k1 + 1.0)) / (tf + k1 * (1.0 - b + b * (doc_len / index.avgdl))));
-            *scores.entry(doc_id.clone()).or_insert(0.0) += score;
+    let mut scores: HashMap<String, f64> = HashMap::with_capacity(touched_indices.len());
+    for doc_idx in touched_indices {
+        let idx = doc_idx as usize;
+        let score = dense_scores[idx];
+        if score > 0.0 {
+            scores.insert(index.doc_ids[idx].clone(), score);
         }
     }
 
