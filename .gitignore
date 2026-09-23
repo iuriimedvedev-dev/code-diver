@@ -1,4 +1,5 @@
 .code-diver/
+.benchmarks/
 .env
 
 # Local experiment artifacts (feature dumps, trained rankers)
