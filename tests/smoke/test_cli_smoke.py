@@ -39,6 +39,35 @@ def test_cli_help_all_smoke(capsys) -> None:
     assert "tree" in output
     assert "grep" in output
     assert "rg" in output
+    assert "serve" in output
+    assert "acp" in output
+    assert "mcp" in output
+
+
+def test_serve_help_smoke(capsys) -> None:
+    with pytest.raises(SystemExit) as exc:
+        main(["serve", "--help"])
+    assert exc.value.code == 0
+    output = capsys.readouterr().out
+    assert "--http-port" in output
+    assert "--grpc-port" in output
+    assert "--host" in output
+
+
+def test_acp_help_smoke(capsys) -> None:
+    with pytest.raises(SystemExit) as exc:
+        main(["acp", "--help"])
+    assert exc.value.code == 0
+    output = capsys.readouterr().out
+    assert "usage: code-diver acp" in output
+
+
+def test_mcp_help_smoke(capsys) -> None:
+    with pytest.raises(SystemExit) as exc:
+        main(["mcp", "--help"])
+    assert exc.value.code == 0
+    output = capsys.readouterr().out
+    assert "usage: code-diver mcp" in output
 
 
 def test_index_help_mentions_clear(capsys) -> None:
