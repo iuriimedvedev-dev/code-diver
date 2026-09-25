@@ -20,11 +20,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
 
 # Copy project manifests and install dependencies
-COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-dev --extra mcp
+COPY pyproject.toml uv.lock README.md ./
+RUN uv sync --frozen --no-dev --no-install-project
 
 # Copy repository source code
 COPY . .
+RUN uv pip install --no-cache mcp && uv pip install -e .
 
 # Expose MCP stdio or SSE/HTTP gateway port
 EXPOSE 8080

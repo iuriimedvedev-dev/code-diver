@@ -1,12 +1,17 @@
 .code-diver/
+.code-diver*
 .env
 .git/
 .mypy_cache/
 .pytest_cache/
 .ruff_cache/
 .venv/
+.venv*
 __pycache__/
 *.pyc
 dist/
 htmlcov/
 node_modules/
+artifacts/
+native/
+.benchmarks/

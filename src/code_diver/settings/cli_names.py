@@ -28,6 +28,7 @@ class CommandName(StrEnum):
     READ = "read"
     RG = "rg"
     SEARCH = "search"
+    SERVE = "serve"
     SYMBOLS = "symbols"
     TREE = "tree"
 

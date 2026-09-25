@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "code-diver"
-version = "0.4.0"
+version = "0.4.2"
 description = "Local-first code exploration assistant and retrieval-evaluation sandbox."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -24,6 +24,8 @@ classifiers = [
   "Topic :: Text Processing :: Indexing",
 ]
 dependencies = [
+  "fastapi>=0.115.0",
+  "grpcio>=1.68.0",
   "ijson>=3.5.0",
   "mcp>=2.2.0",
   "openai>=2.50.0",
@@ -31,6 +33,8 @@ dependencies = [
   "qdrant-client>=1.18.0",
   "questionary>=2.1.0",
   "rich>=13.9.0",
+  "sse-starlette>=2.1.0",
+  "uvicorn>=0.30.0",
 ]
 
 [project.urls]

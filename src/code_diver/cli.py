@@ -168,6 +168,7 @@ ADVANCED_COMMANDS = {
     CommandName.OPEN.value,
     CommandName.READ.value,
     CommandName.RG.value,
+    CommandName.SERVE.value,
     CommandName.SYMBOLS.value,
     CommandName.TREE.value,
 }
@@ -939,6 +940,35 @@ def add_advanced_parsers(
         help="Path to repository code-diver.yml configuration file.",
     )
     acp_parser.set_defaults(func=cmd_acp)
+
+    serve_parser = subparsers.add_parser(
+        CommandName.SERVE.value, help="Start unified remote transport server (HTTP, SSE, gRPC)."
+    )
+    serve_parser.add_argument(
+        "--http-port",
+        type=int,
+        default=8080,
+        help="HTTP/SSE server port (default: 8080).",
+    )
+    serve_parser.add_argument(
+        "--grpc-port",
+        type=int,
+        default=50051,
+        help="gRPC server port (default: 50051, 0 to disable).",
+    )
+    serve_parser.add_argument(
+        "--host",
+        type=str,
+        default="0.0.0.0",
+        help="Server listen host (default: 0.0.0.0).",
+    )
+    serve_parser.add_argument(
+        "config_path",
+        nargs="?",
+        default="code-diver.yml",
+        help="Path to repository code-diver.yml configuration file.",
+    )
+    serve_parser.set_defaults(func=cmd_serve)
 
 
 def build_index_maintenance_help_parser(command: str) -> argparse.ArgumentParser:
@@ -3981,6 +4011,42 @@ def cmd_acp(args: argparse.Namespace, config: AppConfig) -> int:
     cfg_path = getattr(args, "config_path", None) or "code-diver.yml"
     server = AcpServer(cfg_path)
     server.run_stdio()
+    return 0
+
+
+def cmd_serve(args: argparse.Namespace, config: AppConfig) -> int:
+    import threading
+    from concurrent import futures
+    import uvicorn
+    import grpc
+
+    from .transport.grpc_server import CodeDiverGrpcServicer
+    from .transport.grpc_gen import code_diver_pb2_grpc
+    from .transport.http_server import create_remote_app
+
+    cfg_path = getattr(args, "config_path", None) or "code-diver.yml"
+    host = getattr(args, "host", "0.0.0.0")
+    http_port = getattr(args, "http_port", 8080)
+    grpc_port = getattr(args, "grpc_port", 50051)
+
+    grpc_server = None
+    if grpc_port and grpc_port > 0:
+        grpc_server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
+        code_diver_pb2_grpc.add_CodeDiverServiceServicer_to_server(
+            CodeDiverGrpcServicer(cfg_path), grpc_server
+        )
+        listen_addr = f"{host}:{grpc_port}"
+        grpc_server.add_insecure_port(listen_addr)
+        grpc_server.start()
+        print(f"[Code Diver] gRPC server running at {listen_addr}", flush=True)
+
+    try:
+        app = create_remote_app(cfg_path)
+        print(f"[Code Diver] HTTP/SSE server running at http://{host}:{http_port}", flush=True)
+        uvicorn.run(app, host=host, port=http_port, log_level="info")
+    finally:
+        if grpc_server:
+            grpc_server.stop(grace=1)
     return 0
 
 
