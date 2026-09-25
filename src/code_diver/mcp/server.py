@@ -88,7 +88,7 @@ def create_mcp_server(config_path: Path | str = "code-diver.yml") -> MCPServer:
         config, _ = get_runtime()
         matches = GrepService(config.root).search(pattern=pattern, path=path, limit=limit, regex=regex)
         return json.dumps(
-            [{"path": m.path, "line": m.line_number, "text": m.line} for m in matches],
+            [{"path": m.path, "line": m.line, "text": m.text} for m in matches],
             ensure_ascii=False,
             indent=2,
         )
@@ -123,7 +123,7 @@ def create_mcp_server(config_path: Path | str = "code-diver.yml") -> MCPServer:
     def tree(path: str | None = None, depth: int = 3, limit: int = 100) -> str:
         """Print tree."""
         config, _ = get_runtime()
-        return TreeService(config.root).tree(path=path, depth=depth, limit=limit)
+        return TreeService(config.root).render(path=path, max_depth=depth, limit=limit)
 
     # -------------------------------------------------------------------------
     # Asynchronous MCP Agent Search & Task Management

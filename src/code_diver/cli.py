@@ -151,6 +151,7 @@ from .ui import (
 )
 
 ADVANCED_COMMANDS = {
+    CommandName.ACP.value,
     CommandName.ANSWER_PAIRWISE.value,
     CommandName.ANSWER_REPORT.value,
     CommandName.ASK.value,
@@ -927,6 +928,17 @@ def add_advanced_parsers(
         help="Path to repository code-diver.yml configuration file.",
     )
     mcp_parser.set_defaults(func=cmd_mcp)
+
+    acp_parser = subparsers.add_parser(
+        CommandName.ACP.value, help="Start the Code Diver Agent Client Protocol (ACP) server over stdio."
+    )
+    acp_parser.add_argument(
+        "config_path",
+        nargs="?",
+        default="code-diver.yml",
+        help="Path to repository code-diver.yml configuration file.",
+    )
+    acp_parser.set_defaults(func=cmd_acp)
 
 
 def build_index_maintenance_help_parser(command: str) -> argparse.ArgumentParser:
@@ -3960,6 +3972,15 @@ def cmd_mcp(args: argparse.Namespace, config: AppConfig) -> int:
     cfg_path = getattr(args, "config_path", None) or "code-diver.yml"
     server = create_mcp_server(cfg_path)
     server.run("stdio")
+    return 0
+
+
+def cmd_acp(args: argparse.Namespace, config: AppConfig) -> int:
+    from .acp.server import AcpServer
+
+    cfg_path = getattr(args, "config_path", None) or "code-diver.yml"
+    server = AcpServer(cfg_path)
+    server.run_stdio()
     return 0
 
 
