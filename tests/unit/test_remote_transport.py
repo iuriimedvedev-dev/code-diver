@@ -175,3 +175,43 @@ def test_grpc_info_and_inspection(grpc_channel: grpc.Channel) -> None:
     )
     names = [s.name for s in symbols_resp.symbols]
     assert "CodeDiverGrpcServicer" in names
+
+
+def test_http_remote_indexing(http_client: TestClient) -> None:
+    # 1. Ingest files
+    ingest_res = http_client.post(
+        "/api/v1/index/ingest",
+        json={
+            "files": [
+                {"path": "dummy.py", "content": "def hello_world(): pass\n"}
+            ]
+        },
+    )
+    assert ingest_res.status_code == 200
+    assert ingest_res.json()["status"] == "ok"
+    assert ingest_res.json()["files_received"] == 1
+
+    # 2. Trigger index
+    trig_res = http_client.post(
+        "/api/v1/index/trigger",
+        json={"repo_path": ".", "clear_existing": False},
+    )
+    assert trig_res.status_code == 200
+    assert trig_res.json()["status"] == "triggered"
+    assert "task_id" in trig_res.json()
+
+
+def test_grpc_remote_ingest(grpc_channel: grpc.Channel) -> None:
+    stub = code_diver_pb2_grpc.CodeDiverServiceStub(grpc_channel)
+
+    def chunk_generator():
+        yield code_diver_pb2.IngestFileChunk(
+            path="remote_test_file.py",
+            content=b"class RemoteDemo: pass\n",
+            is_last_chunk=True,
+        )
+
+    summary = stub.IngestFiles(chunk_generator())
+    assert summary.status == "ok"
+    assert summary.files_received == 1
+    assert summary.total_bytes > 0

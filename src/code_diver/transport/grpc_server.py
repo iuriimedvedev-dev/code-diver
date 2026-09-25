@@ -134,3 +134,101 @@ class CodeDiverGrpcServicer(code_diver_pb2_grpc.CodeDiverServiceServicer):
             limit=limit,
         )
         return code_diver_pb2.TreeResponse(tree=rendered)
+
+    def TriggerIndex(
+        self,
+        request: code_diver_pb2.IndexRequest,
+        context: grpc.ServicerContext,
+    ) -> Any:
+        config, _ = self._get_runtime()
+        repo_root = Path(request.repo_path).expanduser() if request.repo_path else config.root
+        
+        yield code_diver_pb2.IndexProgressUpdate(
+            stage="init",
+            current=0,
+            total=100,
+            message=f"Starting remote indexing for {repo_root}",
+            done=False,
+        )
+
+        try:
+            from ..cli import (
+                make_codebase_scanner,
+                make_embedding_provider,
+                make_indexing_service,
+                make_plugin_manager,
+                make_vector_store,
+                close_vector_store,
+            )
+
+            vector_store = make_vector_store(config)
+            try:
+                if request.clear_existing and vector_store.exists():
+                    vector_store.clear()
+                    yield code_diver_pb2.IndexProgressUpdate(
+                        stage="cleanup",
+                        current=10,
+                        total=100,
+                        message="Cleared existing vector collections",
+                        done=False,
+                    )
+
+                yield code_diver_pb2.IndexProgressUpdate(
+                    stage="scanning",
+                    current=30,
+                    total=100,
+                    message="Scanning codebase files and building chunks...",
+                    done=False,
+                )
+
+                provider = make_embedding_provider(config, vector_store.metadata())
+                indexing_service = make_indexing_service(config, progress=False)
+                items = indexing_service.build(repo_root, provider, config.plugins)
+
+                yield code_diver_pb2.IndexProgressUpdate(
+                    stage="completed",
+                    current=100,
+                    total=100,
+                    message=f"Successfully indexed {len(items)} items",
+                    done=True,
+                )
+            finally:
+                close_vector_store(vector_store)
+        except Exception as exc:
+            yield code_diver_pb2.IndexProgressUpdate(
+                stage="error",
+                current=0,
+                total=100,
+                message=str(exc),
+                done=True,
+                error=str(exc),
+            )
+
+    def IngestFiles(
+        self,
+        request_iterator: Any,
+        context: grpc.ServicerContext,
+    ) -> code_diver_pb2.IngestSummary:
+        config, _ = self._get_runtime()
+        files_count = 0
+        total_bytes = 0
+
+        # Receive streamed files into workspace
+        ingest_dir = config.root / ".code_diver_remote_ingest"
+        ingest_dir.mkdir(parents=True, exist_ok=True)
+
+        for chunk in request_iterator:
+            target_path = ingest_dir / chunk.path
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(target_path, "ab" if target_path.exists() else "wb") as f:
+                f.write(chunk.content)
+            total_bytes += len(chunk.content)
+            if chunk.is_last_chunk:
+                files_count += 1
+
+        return code_diver_pb2.IngestSummary(
+            files_received=files_count,
+            total_bytes=total_bytes,
+            status="ok",
+            message=f"Received {files_count} files ({total_bytes} bytes) into {ingest_dir}",
+        )

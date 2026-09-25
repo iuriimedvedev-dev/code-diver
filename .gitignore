@@ -1,4 +1,5 @@
 .code-diver/
+.code_diver_remote_ingest/
 .benchmarks/
 .env
 

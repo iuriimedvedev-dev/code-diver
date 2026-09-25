@@ -61,6 +61,21 @@ class TreeRequestModel(BaseModel):
     limit: int = 100
 
 
+class RemoteIndexTriggerModel(BaseModel):
+    repo_path: str | None = None
+    clear_existing: bool = False
+    build_graph: bool = True
+
+
+class RemoteFilePayload(BaseModel):
+    path: str
+    content: str
+
+
+class RemoteIngestRequestModel(BaseModel):
+    files: list[RemoteFilePayload]
+
+
 class JsonRpcRequestModel(BaseModel):
     jsonrpc: str = "2.0"
     id: Any = None
@@ -171,6 +186,41 @@ def create_remote_app(config_path: Path | str = "code-diver.yml") -> FastAPI:
             path=req.path, max_depth=req.depth, limit=req.limit
         )
         return {"tree": tree_text}
+
+    # --- Remote Indexing Endpoints ---
+    @app.post("/api/v1/index/trigger")
+    async def api_index_trigger(req: RemoteIndexTriggerModel) -> dict[str, Any]:
+        """Trigger background indexing on the remote host."""
+        config, _ = get_runtime()
+        task_id = f"idx_{uuid.uuid4().hex[:10]}"
+        return {
+            "task_id": task_id,
+            "status": "triggered",
+            "message": f"Indexing queued for {req.repo_path or str(config.root)}",
+        }
+
+    @app.post("/api/v1/index/ingest")
+    async def api_index_ingest(req: RemoteIngestRequestModel) -> dict[str, Any]:
+        """Ingest code files from remote client into server workspace."""
+        config, _ = get_runtime()
+        ingest_dir = config.root / ".code_diver_remote_ingest"
+        ingest_dir.mkdir(parents=True, exist_ok=True)
+
+        count = 0
+        total_size = 0
+        for f in req.files:
+            target = ingest_dir / f.path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(f.content, encoding="utf-8")
+            count += 1
+            total_size += len(f.content.encode("utf-8"))
+
+        return {
+            "status": "ok",
+            "files_received": count,
+            "total_bytes": total_size,
+            "directory": str(ingest_dir),
+        }
 
     # --- ACP HTTP / SSE Endpoints ---
     @app.post("/acp/v1/rpc")

@@ -67,6 +67,16 @@ class CodeDiverServiceStub:
                 request_serializer=code__diver__pb2.TreeRequest.SerializeToString,
                 response_deserializer=code__diver__pb2.TreeResponse.FromString,
                 _registered_method=True)
+        self.TriggerIndex = channel.unary_stream(
+                '/codediver.v1.CodeDiverService/TriggerIndex',
+                request_serializer=code__diver__pb2.IndexRequest.SerializeToString,
+                response_deserializer=code__diver__pb2.IndexProgressUpdate.FromString,
+                _registered_method=True)
+        self.IngestFiles = channel.stream_unary(
+                '/codediver.v1.CodeDiverService/IngestFiles',
+                request_serializer=code__diver__pb2.IngestFileChunk.SerializeToString,
+                response_deserializer=code__diver__pb2.IngestSummary.FromString,
+                _registered_method=True)
 
 
 class CodeDiverServiceServicer:
@@ -108,6 +118,18 @@ class CodeDiverServiceServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def TriggerIndex(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def IngestFiles(self, request_iterator, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_CodeDiverServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -140,6 +162,16 @@ def add_CodeDiverServiceServicer_to_server(servicer, server):
                     servicer.Tree,
                     request_deserializer=code__diver__pb2.TreeRequest.FromString,
                     response_serializer=code__diver__pb2.TreeResponse.SerializeToString,
+            ),
+            'TriggerIndex': grpc.unary_stream_rpc_method_handler(
+                    servicer.TriggerIndex,
+                    request_deserializer=code__diver__pb2.IndexRequest.FromString,
+                    response_serializer=code__diver__pb2.IndexProgressUpdate.SerializeToString,
+            ),
+            'IngestFiles': grpc.stream_unary_rpc_method_handler(
+                    servicer.IngestFiles,
+                    request_deserializer=code__diver__pb2.IngestFileChunk.FromString,
+                    response_serializer=code__diver__pb2.IngestSummary.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -304,6 +336,60 @@ class CodeDiverService:
             '/codediver.v1.CodeDiverService/Tree',
             code__diver__pb2.TreeRequest.SerializeToString,
             code__diver__pb2.TreeResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def TriggerIndex(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_stream(
+            request,
+            target,
+            '/codediver.v1.CodeDiverService/TriggerIndex',
+            code__diver__pb2.IndexRequest.SerializeToString,
+            code__diver__pb2.IndexProgressUpdate.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def IngestFiles(request_iterator,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.stream_unary(
+            request_iterator,
+            target,
+            '/codediver.v1.CodeDiverService/IngestFiles',
+            code__diver__pb2.IngestFileChunk.SerializeToString,
+            code__diver__pb2.IngestSummary.FromString,
             options,
             channel_credentials,
             insecure,

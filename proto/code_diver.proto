@@ -9,6 +9,8 @@ service CodeDiverService {
   rpc Grep (GrepRequest) returns (GrepResponse);
   rpc Symbols (SymbolsRequest) returns (SymbolsResponse);
   rpc Tree (TreeRequest) returns (TreeResponse);
+  rpc TriggerIndex (IndexRequest) returns (stream IndexProgressUpdate);
+  rpc IngestFiles (stream IngestFileChunk) returns (IngestSummary);
 }
 
 message SearchRequest {
@@ -87,4 +89,32 @@ message TreeRequest {
 
 message TreeResponse {
   string tree = 1;
+}
+
+message IndexRequest {
+  string repo_path = 1;
+  bool clear_existing = 2;
+  bool build_graph = 3;
+}
+
+message IndexProgressUpdate {
+  string stage = 1;
+  int32 current = 2;
+  int32 total = 3;
+  string message = 4;
+  bool done = 5;
+  string error = 6;
+}
+
+message IngestFileChunk {
+  string path = 1;
+  bytes content = 2;
+  bool is_last_chunk = 3;
+}
+
+message IngestSummary {
+  int32 files_received = 1;
+  int64 total_bytes = 2;
+  string status = 3;
+  string message = 4;
 }
