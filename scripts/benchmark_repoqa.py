@@ -45,7 +45,10 @@ def normalize_path(path: str) -> str:
     p = path.strip().replace("\\", "/")
     while p.startswith("./"):
         p = p[2:]
-    return p.lstrip("/")
+    p = p.lstrip("/")
+    if p.startswith("corpus/"):
+        p = p[len("corpus/"):]
+    return p
 
 
 def intervals_overlap(s1: int, e1: int, s2: int, e2: int) -> bool:
@@ -87,19 +90,32 @@ def index_repo(
     symbol_chunks: bool = True,
     symbol_body: bool = True,
     reindex: bool = False,
+    max_symbols_per_file: int | None = None,
+    max_input_chars: int | None = 1200,
 ) -> tuple[AppConfig, float]:
     """Index repository using code-diver indexing service."""
+    scanner_kwargs: dict[str, Any] = {
+        "symbol_chunks": symbol_chunks,
+        "line_chunks": False,
+        "symbol_body": symbol_body,
+        "file_summary_chunks": True,
+        "file_manifest_chunks": True,
+    }
+    if max_symbols_per_file is not None:
+        scanner_kwargs["max_symbols_per_file"] = max_symbols_per_file
+
+    embedding_cfg = base_config.embedding
+    if max_input_chars is not None:
+        embedding_cfg = replace(embedding_cfg, max_input_chars=max_input_chars)
+
     config = replace(
         base_config,
         root=target_dir.resolve(),
         scanner=replace(
             base_config.scanner,
-            symbol_chunks=symbol_chunks,
-            line_chunks=False,
-            symbol_body=symbol_body,
-            file_summary_chunks=True,
-            file_manifest_chunks=True,
+            **scanner_kwargs,
         ),
+        embedding=embedding_cfg,
         cross_encoder_rerank=replace(
             base_config.cross_encoder_rerank,
             url="http://127.0.0.1:18081/v1/rerank",

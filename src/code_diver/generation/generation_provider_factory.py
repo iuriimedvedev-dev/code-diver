@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 
 from ..config import AppConfig
-from ..settings import Defaults
+from ..settings import Defaults, GenerationProviderId, ProviderResolver
 from .agy_cli_generation_provider import AgyCliGenerationProvider
 from .antigravity_sdk_generation_provider import AntigravitySdkGenerationProvider
 from .gemini_cli_generation_provider import GeminiCliGenerationProvider
@@ -115,20 +115,27 @@ def _create_backend(config: AppConfig) -> GenerationProvider:
             retry_max_delay_seconds=generation.retry_max_delay_seconds,
         )
     if generation.provider == "openai":
+        resolved = ProviderResolver.resolve_generation("openai", model=generation.model, url=generation.url, api_key=generation.api_key)
         return OpenAIGenerationProvider(
-            model=generation.model or Defaults.OPENAI_GENERATION_MODEL,
-            api_key=generation.api_key,
-            url=generation.url or Defaults.OPENAI_RESPONSES_URL,
+            model=resolved.model or Defaults.OPENAI_GENERATION_MODEL,
+            api_key=resolved.api_key,
+            url=resolved.url,
             timeout_seconds=generation.timeout_ms / 1000,
             retry_attempts=generation.retry_attempts,
             retry_base_delay_seconds=generation.retry_base_delay_seconds,
             retry_max_delay_seconds=generation.retry_max_delay_seconds,
         )
-    if generation.provider == "openai_compatible":
+    if generation.provider in ("openai_compatible", "local", "litellm", "jbcentral"):
+        resolved = ProviderResolver.resolve_generation(
+            generation.provider,
+            model=generation.model,
+            url=generation.url,
+            api_key=generation.api_key,
+        )
         if generation.urls:
             return OpenAICompatibleGenerationProviderPool(
-                model=generation.model,
-                api_key=generation.api_key,
+                model=resolved.model or generation.model,
+                api_key=resolved.api_key,
                 urls=generation.urls,
                 timeout_seconds=generation.timeout_ms / 1000,
                 max_tokens=generation.max_tokens,
@@ -139,9 +146,9 @@ def _create_backend(config: AppConfig) -> GenerationProvider:
                 retry_max_delay_seconds=generation.retry_max_delay_seconds,
             )
         return OpenAICompatibleGenerationProvider(
-            model=generation.model,
-            api_key=generation.api_key,
-            url=generation.url,
+            model=resolved.model or generation.model,
+            api_key=resolved.api_key,
+            url=resolved.url,
             timeout_seconds=generation.timeout_ms / 1000,
             max_tokens=generation.max_tokens,
             response_format=generation.response_format,

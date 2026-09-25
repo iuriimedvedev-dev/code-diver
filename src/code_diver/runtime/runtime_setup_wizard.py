@@ -8,6 +8,7 @@ from rich.prompt import IntPrompt
 
 from ..config.embedding_profile_registry import EmbeddingProfileRegistry
 from .embedding_runtime_manager import EmbeddingRuntimeManager
+from .hf_downloader import ensure_model_downloaded, is_huggingface_repo_id
 from .runtime_config import RuntimeConfig, default_runtime_install_dir
 from .runtime_config_store import RuntimeConfigStore
 
@@ -73,6 +74,14 @@ class RuntimeSetupWizard:
         if should_install:
             self.console.print("[cyan]installing local embedding runtime with uv[/cyan]")
             manager.install()
+
+        if is_huggingface_repo_id(str(profile.config.model)):
+            self.console.print(f"[cyan]checking and pre-downloading model [bold]{profile.config.model}[/bold] via Hugging Face[/cyan]")
+            ensure_model_downloaded(
+                str(profile.config.model),
+                progress_callback=lambda msg: self.console.print(f"[dim]{msg}[/dim]"),
+            )
+
         if start:
             self.console.print("[cyan]starting local embedding server[/cyan]")
             manager.ensure_running()

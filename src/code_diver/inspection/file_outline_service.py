@@ -30,6 +30,7 @@ class FileOutlineService:
         lines = text.splitlines()
         rel_path = target.relative_to(self.root).as_posix()
         extracted_symbols = self.extractor.extract(rel_path, text)
+        effective_symbol_limit = max(symbol_limit, len(lines) // 4) if symbol_limit > 0 else len(extracted_symbols)
         symbols = [
             {
                 "name": symbol.name,
@@ -38,7 +39,7 @@ class FileOutlineService:
                 "startLine": symbol.start_line,
                 "endLine": symbol.end_line,
             }
-            for symbol in extracted_symbols[: max(symbol_limit, 1)]
+            for symbol in extracted_symbols[: max(effective_symbol_limit, 1)]
         ]
         imports = self._imports(lines, import_limit)
         return {

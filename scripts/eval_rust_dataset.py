@@ -37,6 +37,7 @@ def main():
     parser.add_argument("--max-document-chars", type=int, default=850)
     parser.add_argument("--second-pass-max-document-chars", type=int, default=2400)
     parser.add_argument("--dataset", default="datasets/intellij_eval_where_only.jsonl")
+    parser.add_argument("--limit-cases", type=int, default=0, help="0 = all cases")
     parser.add_argument("--file-limit", type=int, default=10)
     parser.add_argument("--out", default=".code-diver/reports/rust-where78-fresh.json")
     args = parser.parse_args()
@@ -91,6 +92,8 @@ def main():
     stderr_thread.start()
 
     cases = [json.loads(line) for line in Path(args.dataset).read_text().splitlines() if line.strip()]
+    if args.limit_cases:
+        cases = cases[: args.limit_cases]
     results = []
     durations = []
     failed = 0

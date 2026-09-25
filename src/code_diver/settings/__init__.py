@@ -3,7 +3,8 @@ from .defaults import Defaults
 from .edge_kind import EdgeKind
 from .environment import EnvironmentVariable
 from .plugin_hooks import PluginHook
-from .providers import EmbeddingProviderId, VectorStoreProviderId
+from .providers import EmbeddingProviderId, GenerationProviderId, VectorStoreProviderId
+from .provider_resolver import JbCentralConfig, ProviderResolver, ResolvedEndpoint, read_jbcentral_config
 from .retrieval_strategy_id import RetrievalStrategyId
 from .schema_keys import SchemaKey
 
@@ -13,9 +14,14 @@ __all__ = [
     "EdgeKind",
     "EmbeddingProviderId",
     "EnvironmentVariable",
+    "GenerationProviderId",
+    "JbCentralConfig",
     "OptionName",
     "PluginHook",
+    "ProviderResolver",
+    "ResolvedEndpoint",
     "RetrievalStrategyId",
     "SchemaKey",
     "VectorStoreProviderId",
+    "read_jbcentral_config",
 ]

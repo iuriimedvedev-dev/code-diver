@@ -3,25 +3,22 @@ from __future__ import annotations
 import ast
 import hashlib
 import warnings
-from dataclasses import dataclass
-from pathlib import Path
 
 from ..domain import CodeItem, CodeItemIndexKind, CodeItemMetadata
+from ..indexing import LanguageIndexingRouter, StructuralSpan, get_language_router
 from .code_symbol_extractor import CodeSymbolExtractor
 
 
-@dataclass(frozen=True, slots=True)
-class StructuralSpan:
-    title: str
-    kind: str
-    start_line: int
-    end_line: int
-
-
 class StructuralCodeChunker:
-    def __init__(self, max_lines: int, symbol_extractor: CodeSymbolExtractor | None = None):
+    def __init__(
+        self,
+        max_lines: int,
+        symbol_extractor: CodeSymbolExtractor | None = None,
+        router: LanguageIndexingRouter | None = None,
+    ):
         self.max_lines = max_lines
         self.symbol_extractor = symbol_extractor or CodeSymbolExtractor()
+        self.router = router or get_language_router()
 
     def chunk(self, rel_path: str, text: str) -> list[CodeItem]:
         lines = text.splitlines()
@@ -36,10 +33,10 @@ class StructuralCodeChunker:
         return items
 
     def _spans(self, rel_path: str, text: str, line_count: int) -> list[StructuralSpan]:
-        if Path(rel_path).suffix.lower() == ".py":
-            spans = self._python_spans(text, line_count)
-            if spans:
-                return spans
+        router = getattr(self, "router", None) or get_language_router()
+        spans = router.resolve(rel_path).extract_spans(rel_path, text, line_count)
+        if spans:
+            return spans
         return self._generic_spans(rel_path, text, line_count)
 
     def _python_spans(self, text: str, line_count: int) -> list[StructuralSpan]:

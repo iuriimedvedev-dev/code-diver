@@ -21,7 +21,13 @@ def make_embedding_provider(config: AppConfig, payload: dict[str, Any] | None = 
     dimensions = embedding.dimensions
     if (
         dimensions is None
-        and provider_name != EmbeddingProviderId.OPENAI_COMPATIBLE.value
+        and provider_name
+        not in (
+            EmbeddingProviderId.OPENAI_COMPATIBLE.value,
+            EmbeddingProviderId.LOCAL.value,
+            EmbeddingProviderId.LITELLM.value,
+            EmbeddingProviderId.JBCENTRAL.value,
+        )
     ):
         dimensions = (payload or {}).get(SchemaKey.DIMENSIONS.value)
     return create_embedding_provider(
@@ -106,12 +112,18 @@ def ensure_configured_embedding_runtime(config: AppConfig) -> None:
 
 def local_embedding_profile_key(config: AppConfig) -> str | None:
     embedding = config.embedding
-    if embedding.provider != EmbeddingProviderId.OPENAI_COMPATIBLE.value:
+    if embedding.provider not in (
+        EmbeddingProviderId.OPENAI_COMPATIBLE.value,
+        EmbeddingProviderId.LOCAL.value,
+    ):
         return None
     registry = EmbeddingProfileRegistry()
     for profile in registry.profiles():
         candidate = profile.config
-        if candidate.provider != EmbeddingProviderId.OPENAI_COMPATIBLE.value:
+        if candidate.provider not in (
+            EmbeddingProviderId.OPENAI_COMPATIBLE.value,
+            EmbeddingProviderId.LOCAL.value,
+        ):
             continue
         if candidate.model == embedding.model and candidate.url == embedding.url:
             return profile.key

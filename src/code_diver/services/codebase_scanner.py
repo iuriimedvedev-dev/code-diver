@@ -296,7 +296,14 @@ class CodebaseScanner:
         symbols = self.symbol_extractor.extract(rel_path, text)
         if self.max_symbols_per_file is None or self.max_symbols_per_file < 0:
             return symbols
-        return symbols[: self.max_symbols_per_file]
+        # Adaptive limit: for large files (> 1000 lines), scale limit proportionally
+        # so large files (e.g. TypeAdapters.java) don't have their entire bottom half truncated,
+        # while keeping small/normal files strictly bounded.
+        line_count = text.count("\n") + 1
+        effective_limit = max(self.max_symbols_per_file, line_count // 4)
+        if len(symbols) <= effective_limit:
+            return symbols
+        return symbols[:effective_limit]
 
     def _should_skip_file(self, path: Path, rel_path: str) -> bool:
         if self._is_excluded(rel_path):

@@ -9,6 +9,7 @@ import urllib.request
 from pathlib import Path
 
 from ..config.embedding_profile_registry import EmbeddingProfileRegistry
+from .hf_downloader import ensure_model_downloaded, is_huggingface_repo_id
 from .runtime_config import RuntimeConfig
 
 
@@ -114,6 +115,9 @@ class EmbeddingRuntimeManager:
                 "Local embedding runtime is not installed. Run `uv run code-diver init` first, "
                 f"or start a compatible server at {self.config.url}."
             )
+        profile = self.registry.get(self.config.embedding_profile)
+        if is_huggingface_repo_id(str(profile.config.model)):
+            ensure_model_downloaded(str(profile.config.model))
         process = self.start()
         self.wait_until_ready(timeout_seconds, process)
 

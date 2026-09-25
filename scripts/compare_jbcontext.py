@@ -15,10 +15,13 @@ import argparse
 import fnmatch
 import json
 import math
+import os
 import subprocess
 import sys
 import time
 from pathlib import Path
+
+os.environ.setdefault("JBCONTEXT_NO_KEYCHAIN", "1")
 
 JBCONTEXT_BIN = str(Path.home() / ".jbcontext" / "bin" / "jbcontext")
 
@@ -158,12 +161,12 @@ def mean(values: list[float]) -> float:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset", default="datasets/intellij_eval_1000.answer_sets.jsonl")
-    parser.add_argument("--project-path", default=str(Path.home() / "Work" / "intellij-community"))
+    parser.add_argument("--project-path", "--project-dir", dest="project_path", default=str(Path.home() / "Work" / "intellij-community"))
     parser.add_argument("--limit-cases", type=int, default=0, help="0 = all cases")
     parser.add_argument("--raw-limit", type=int, default=40, help="raw chunk limit requested per query")
     parser.add_argument("--file-limit", type=int, default=10, help="unique-file cutoff to score against (matches @10)")
     parser.add_argument("--timeout-s", type=float, default=60.0)
-    parser.add_argument("--out", default=".code-diver/reports/jbcontext-intellij-1000.json")
+    parser.add_argument("--out", "--output", dest="out", default=".code-diver/reports/jbcontext-intellij-1000.json")
     parser.add_argument("--progress-every", type=int, default=25)
     parser.add_argument(
         "--revision",

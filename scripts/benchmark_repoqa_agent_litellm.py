@@ -32,6 +32,7 @@ from typing import Any
 # Ensure project root is in sys.path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
+sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from code_diver.cli import close_vector_store, make_embedding_provider, make_vector_store
 from code_diver.config import ConfigLoader
@@ -44,10 +45,31 @@ DEFAULT_BENCHMARKS_DIR = Path(".benchmarks/repoqa")
 DEFAULT_OUTPUT = Path(".benchmarks/repoqa/agent_gpt56_luna_results.json")
 DEFAULT_ENDPOINT = "https://litellm.labs.jb.gg/v1/chat/completions"
 DEFAULT_MODEL = "gpt-5.6-luna"
+DEFAULT_MAX_INSPECT_FILES = 8
+DEFAULT_MAX_SYMBOLS_PER_FILE = 120
+DEFAULT_MAX_EXCERPT_LINES = 60
 
-EVAL_REPOS = [
+EVAL_REPOS_DEFAULT = [
     {"repo": "psf/black", "language": "python", "slug": "psf_black"},
     {"repo": "google/gson", "language": "java", "slug": "google_gson"},
+]
+
+EVAL_REPOS_100 = [
+    # Python (2 repos = 20 needles)
+    {"repo": "psf/black", "language": "python", "slug": "psf_black"},
+    {"repo": "python-poetry/poetry", "language": "python", "slug": "python_poetry"},
+    # Java (2 repos = 20 needles)
+    {"repo": "google/gson", "language": "java", "slug": "google_gson"},
+    {"repo": "square/retrofit", "language": "java", "slug": "square_retrofit"},
+    # TypeScript / JavaScript (2 repos = 20 needles)
+    {"repo": "expressjs/express", "language": "typescript", "slug": "expressjs_express"},
+    {"repo": "axios/axios", "language": "typescript", "slug": "axios_axios"},
+    # Rust (2 repos = 20 needles)
+    {"repo": "rust-bakery/nom", "language": "rust", "slug": "rust_bakery_nom"},
+    {"repo": "tokio-rs/tracing", "language": "rust", "slug": "tokio_rs_tracing"},
+    # Go (2 repos = 20 needles)
+    {"repo": "junegunn/fzf", "language": "go", "slug": "junegunn_fzf"},
+    {"repo": "caddyserver/caddy", "language": "go", "slug": "caddyserver_caddy"},
 ]
 
 
@@ -55,10 +77,16 @@ def get_ssl_context() -> ssl.SSLContext:
     """Create a valid SSL context, falling back gracefully."""
     try:
         import certifi
-        return ssl.create_default_context(cafile=certifi.where())
+        ctx = ssl.create_default_context(cafile=certifi.where())
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        return ctx
     except Exception:
         try:
-            return ssl.create_default_context()
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+            return ctx
         except Exception:
             return ssl._create_unverified_context()
 
@@ -67,13 +95,55 @@ def extract_json_payload(text: str) -> dict[str, Any]:
     """Robustly extract and parse JSON payload from LLM completion."""
     cleaned = text.strip()
     match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", cleaned, re.DOTALL)
-    if match:
-        return json.loads(match.group(1))
+    candidate_str = match.group(1) if match else None
+
+    if candidate_str:
+        try:
+            return json.loads(candidate_str)
+        except Exception:
+            pass
 
     first_brace = cleaned.find("{")
     last_brace = cleaned.rfind("}")
     if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
-        return json.loads(cleaned[first_brace : last_brace + 1])
+        snippet = cleaned[first_brace : last_brace + 1]
+        try:
+            return json.loads(snippet)
+        except Exception:
+            # Fallback 1: remove inner unescaped newlines/quotes or parse fields with regex
+            pass
+
+    # Regex-based fallback parser for essential fields
+    res: dict[str, Any] = {}
+    ranked_match = re.search(r'"ranked_files"\s*:\s*(\[[^\]]*\])', cleaned)
+    if ranked_match:
+        try:
+            res["ranked_files"] = json.loads(ranked_match.group(1))
+        except Exception:
+            res["ranked_files"] = [f.strip(' "\'\t') for f in ranked_match.group(1).strip("[]").split(",") if f.strip()]
+
+    best_match_block = re.search(r'"best_match"\s*:\s*(\{[^\}]*\})', cleaned)
+    if best_match_block:
+        try:
+            res["best_match"] = json.loads(best_match_block.group(1))
+        except Exception:
+            bm: dict[str, Any] = {}
+            for k in ("path", "symbol", "start_line", "end_line"):
+                m = re.search(rf'"{k}"\s*:\s*([^,\n\}}]+)', best_match_block.group(1))
+                if m:
+                    val = m.group(1).strip(' "\'\t')
+                    if k in ("start_line", "end_line"):
+                        try:
+                            bm[k] = int(val)
+                        except Exception:
+                            bm[k] = None
+                    else:
+                        bm[k] = val
+            res["best_match"] = bm
+
+    if "ranked_files" in res or "best_match" in res:
+        return res
+
     return json.loads(cleaned)
 
 
@@ -81,8 +151,8 @@ def build_agent_context(
     repo_root: Path,
     candidate_files: list[str],
     retrieved_items: list[Any],
-    max_symbols_per_file: int = 15,
-    max_excerpt_lines: int = 60,
+    max_symbols_per_file: int = DEFAULT_MAX_SYMBOLS_PER_FILE,
+    max_excerpt_lines: int = DEFAULT_MAX_EXCERPT_LINES,
 ) -> tuple[str, float]:
     """Inspect candidate files using FileOutlineService and ReadExcerptService."""
     t0 = time.perf_counter()
@@ -94,32 +164,59 @@ def build_agent_context(
         norm_path = normalize_path(fpath)
         symbols: list[str] = []
         try:
-            outline = outline_svc.structured(norm_path)
-            for s in outline.get("symbols", [])[:max_symbols_per_file]:
+            outline = outline_svc.structured(norm_path, symbol_limit=max_symbols_per_file)
+            for s in outline.get("symbols", []):
                 symbols.append(f"{s.get('kind')} {s.get('name')} (lines {s.get('startLine')}-{s.get('endLine')})")
         except Exception:
             symbols = []
 
-        hit_lines = [
-            r.item.start_line
-            for r in retrieved_items
-            if normalize_path(r.item.path) == norm_path and r.item.start_line
-        ]
-        start_line = max(1, hit_lines[0] - 8) if hit_lines else 1
+        # Gather hit regions in rank/score order (NOT numerical line sort!)
+        seen_hit_lines: set[int] = set()
+        hit_lines_ranked: list[int] = []
+        for r in retrieved_items:
+            if normalize_path(r.item.path) == norm_path and r.item.start_line:
+                sline = int(r.item.start_line)
+                if sline not in seen_hit_lines:
+                    seen_hit_lines.add(sline)
+                    hit_lines_ranked.append(sline)
 
-        excerpt_text = ""
-        try:
-            excerpt_obj = read_svc.structured(norm_path, start_line=start_line, lines=max_excerpt_lines)
-            lines_list = excerpt_obj.get("lines", [])
-            excerpt_text = "\n".join(f"{l.get('line'):4d} | {l.get('text')}" for l in lines_list[:max_excerpt_lines])
-        except Exception:
-            excerpt_text = ""
+        # Cluster / select up to 2 distinct excerpt regions based on retrieval rank
+        selected_starts: list[int] = []
+        for h_start in hit_lines_ranked:
+            # Check if this hit is already covered by an existing window
+            if any(abs(h_start - prev) <= (max_excerpt_lines // 2) for prev in selected_starts):
+                continue
+            selected_starts.append(h_start)
+            if len(selected_starts) >= 2:
+                break
 
+        # Generate bounded excerpts for the selected top hit regions
+        excerpt_sections: list[str] = []
+        if selected_starts:
+            for h_start in selected_starts:
+                start_line = max(1, h_start - 6)
+                try:
+                    excerpt_obj = read_svc.structured(norm_path, start_line=start_line, lines=max_excerpt_lines)
+                    lines_list = excerpt_obj.get("lines", [])
+                    excerpt_text = "\n".join(f"{l.get('line'):4d} | {l.get('text')}" for l in lines_list[:max_excerpt_lines])
+                    excerpt_sections.append(f"--- Excerpt around line {h_start} (lines {start_line}+) ---\n{excerpt_text}")
+                except Exception:
+                    pass
+        else:
+            try:
+                excerpt_obj = read_svc.structured(norm_path, start_line=1, lines=max_excerpt_lines)
+                lines_list = excerpt_obj.get("lines", [])
+                excerpt_text = "\n".join(f"{l.get('line'):4d} | {l.get('text')}" for l in lines_list[:max_excerpt_lines])
+                excerpt_sections.append(f"--- Head Excerpt (lines 1+) ---\n{excerpt_text}")
+            except Exception:
+                pass
+
+        all_excerpts = "\n\n".join(excerpt_sections)
         sym_str = "\n".join(f"  - {s}" for s in symbols) if symbols else "  (none extracted)"
         file_blocks.append(
             f"### File: {norm_path}\n"
             f"Key Symbols:\n{sym_str}\n\n"
-            f"Excerpt (lines {start_line}+):\n{excerpt_text}\n"
+            f"{all_excerpts}\n"
         )
 
     context_str = "\n".join(file_blocks)
@@ -198,8 +295,9 @@ Below are candidate files from the repository with symbol outlines and bounded c
 {context_text}
 
 Task:
-1. Examine the candidate files and their code excerpts.
+1. Examine the candidate files, symbol outlines, and code excerpts carefully.
 2. Determine which candidate file and exact function/method implements the described behavior.
+   NOTE: The target function may be a production method, a test helper function, an assertion utility, or part of a test suite. Treat all candidate files (including test files and test helpers) equally based strictly on the described behavior, inputs, outputs, and procedure.
 3. Rerank the candidate files from most likely to least likely: {candidate_files}
 4. Provide the exact function/method definition lines (start_line to end_line) in the top file.
 
@@ -266,8 +364,10 @@ def evaluate_needle_closed_loop(
     model: str,
     endpoint: str,
     api_key: str,
-    limit: int = 10,
-    max_inspect_files: int = 4,
+    limit: int = 25,
+    max_inspect_files: int = DEFAULT_MAX_INSPECT_FILES,
+    max_symbols_per_file: int = DEFAULT_MAX_SYMBOLS_PER_FILE,
+    max_excerpt_lines: int = DEFAULT_MAX_EXCERPT_LINES,
 ) -> dict[str, Any]:
     """Run full closed loop: retrieval -> inspection -> agent rerank."""
     query = needle.get("description", "").strip()
@@ -292,6 +392,8 @@ def evaluate_needle_closed_loop(
         repo_root=repo_root,
         candidate_files=inspect_candidates,
         retrieved_items=search_results,
+        max_symbols_per_file=max_symbols_per_file,
+        max_excerpt_lines=max_excerpt_lines,
     )
 
     # 3. Agent Verification & Reranking Stage
@@ -391,12 +493,19 @@ def run_benchmark(
     output_path: Path = DEFAULT_OUTPUT,
     endpoint: str = DEFAULT_ENDPOINT,
     model: str = DEFAULT_MODEL,
-    limit: int = 10,
+    limit: int = 25,
+    max_inspect_files: int = DEFAULT_MAX_INSPECT_FILES,
+    max_symbols_per_file: int = DEFAULT_MAX_SYMBOLS_PER_FILE,
+    max_excerpt_lines: int = DEFAULT_MAX_EXCERPT_LINES,
+    reindex: bool = False,
+    target_repos: list[dict[str, str]] | None = None,
 ) -> dict[str, Any]:
     """Execute complete closed-loop benchmark using LiteLLM."""
     api_key = os.environ.get("LITE_LLM_KEY", "")
     if not api_key:
         raise ValueError("LITE_LLM_KEY environment variable is not set!")
+
+    eval_repo_list = target_repos or EVAL_REPOS_DEFAULT
 
     print("================================================================================", flush=True)
     print(f" RepoQA Closed-Loop Agent Benchmark ({model} via LiteLLM)", flush=True)
@@ -418,7 +527,7 @@ def run_benchmark(
     repo_results: list[dict[str, Any]] = []
     overall_t0 = time.perf_counter()
 
-    for target in EVAL_REPOS:
+    for target in eval_repo_list:
         repo_name = target["repo"]
         lang = target["language"]
         slug = target["slug"]
@@ -427,13 +536,18 @@ def run_benchmark(
         needles = entry.get("needles", [])
         target_dir = benchmarks_dir / lang / slug
 
+        if not target_dir.exists() or not any(target_dir.iterdir()):
+            print(f"Unpacking {repo_name} to {target_dir}...", flush=True)
+            unpack_repo(entry, target_dir)
+
         print(f"\n--- Evaluating `{repo_name}` ({lang}, {len(needles)} needles) ---", flush=True)
         config, _ = index_repo(
             target_dir=target_dir,
             base_config=base_config,
             symbol_chunks=True,
             symbol_body=True,
-            reindex=False,
+            reindex=reindex,
+            max_input_chars=1200,
         )
 
         vs = make_vector_store(config)
@@ -452,6 +566,9 @@ def run_benchmark(
                 endpoint=endpoint,
                 api_key=api_key,
                 limit=limit,
+                max_inspect_files=max_inspect_files,
+                max_symbols_per_file=max_symbols_per_file,
+                max_excerpt_lines=max_excerpt_lines,
             )
             needle_evals.append(res)
             hit_str = "✓ Hit@1" if res["file_hit1"] else "✗ Miss"
@@ -645,9 +762,22 @@ def main() -> int:
     parser.add_argument("--endpoint", type=str, default=DEFAULT_ENDPOINT)
     parser.add_argument("--model", type=str, default=DEFAULT_MODEL)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
-    parser.add_argument("--limit", type=int, default=10)
+    parser.add_argument("--limit", type=int, default=25)
+    parser.add_argument("--max-inspect-files", type=int, default=DEFAULT_MAX_INSPECT_FILES)
+    parser.add_argument("--max-symbols-per-file", type=int, default=DEFAULT_MAX_SYMBOLS_PER_FILE)
+    parser.add_argument("--max-excerpt-lines", type=int, default=DEFAULT_MAX_EXCERPT_LINES)
+    parser.add_argument("--all-100", action="store_true", help="Run 100-needle benchmark across 10 multilingual repos.")
+    parser.add_argument("--repos", nargs="+", help="Specific repo names to evaluate (e.g. psf/black google/gson)")
+    parser.add_argument("--reindex", action="store_true", help="Force reindexing with new adaptive settings.")
 
     args = parser.parse_args()
+    selected_repos = None
+    if args.all_100:
+        selected_repos = EVAL_REPOS_100
+    elif args.repos:
+        repo_set = set(args.repos)
+        selected_repos = [r for r in EVAL_REPOS_100 if r["repo"] in repo_set]
+
     run_benchmark(
         dataset_path=args.dataset,
         benchmarks_dir=args.benchmarks_dir,
@@ -655,6 +785,11 @@ def main() -> int:
         endpoint=args.endpoint,
         model=args.model,
         limit=args.limit,
+        max_inspect_files=args.max_inspect_files,
+        max_symbols_per_file=args.max_symbols_per_file,
+        max_excerpt_lines=args.max_excerpt_lines,
+        reindex=args.reindex,
+        target_repos=selected_repos,
     )
     return 0
 

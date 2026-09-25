@@ -5,11 +5,14 @@ mod features;
 mod fusion;
 mod graph;
 mod index_update;
+pub mod info;
 mod lightgbm;
+pub mod mcp;
 mod pipeline;
 mod types;
 
 use std::fs;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use clap::Parser;
@@ -18,221 +21,353 @@ use crate::pipeline::{dump_features, dump_features_batch, init_search_context, s
 use crate::types::{resolve_candidate_limit, resolve_second_pass, SearchConfig};
 
 #[derive(Parser, Debug)]
-#[command(name = "code-diver-search", about = "Pure Rust search pipeline for code-diver")]
-struct Args {
-    /// Query to search for
-    #[arg(short, long)]
-    query: Option<String>,
+#[command(
+    name = "code-diver-search",
+    about = "Pure Rust search pipeline for code-diver",
+    args_conflicts_with_subcommands = true
+)]
+pub struct Cli {
+    #[command(subcommand)]
+    pub command: Option<Commands>,
 
-    /// Number of results to return
-    #[arg(short, long, default_value = "10")]
-    limit: usize,
+    #[command(flatten)]
+    pub search: SearchArgs,
+}
 
+#[derive(clap::Subcommand, Debug, Clone)]
+pub enum Commands {
+    /// Pure Rust search pipeline
+    Search(SearchArgs),
+
+    /// Display index, graph, and vector store overview
+    Info(InfoArgs),
+
+    /// Run dependency health checks (Qdrant, embedding service, CE)
+    Doctor(DoctorArgs),
+
+    /// Start Model Context Protocol (MCP) stdio server
+    Mcp(McpArgs),
+}
+
+#[derive(clap::Args, Debug, Clone)]
+pub struct InfoArgs {
     /// Path to catalog JSONL file (defaults to ./artifacts/rust_catalog.jsonl or /tmp/rust_catalog.jsonl)
     #[arg(short = 'c', long)]
-    catalog: Option<String>,
+    pub catalog: Option<String>,
 
     /// Path to graph adjacency JSONL file (defaults to ./artifacts/rust_graph.jsonl or /tmp/rust_graph.jsonl)
     #[arg(short = 'g', long)]
-    graph: Option<String>,
-
-    /// Path to LightGBM meta-ranker model (TXT format, defaults to ./artifacts/ce_meta_ranker/ce_meta_ranker.lgb.txt)
-    #[arg(short = 'm', long)]
-    model: Option<String>,
-
-    /// Embedding service URL
-    #[arg(short = 'e', long, default_value = "http://localhost:8001/v1/embeddings")]
-    embedding_url: String,
+    pub graph: Option<String>,
 
     /// Qdrant service URL
     #[arg(short = 'd', long, default_value = "http://localhost:6333")]
-    qdrant_url: String,
+    pub qdrant_url: String,
+}
+
+#[derive(clap::Args, Debug, Clone)]
+pub struct DoctorArgs {
+    /// Qdrant service URL
+    #[arg(short = 'd', long, default_value = "http://localhost:6333")]
+    pub qdrant_url: String,
+
+    /// Embedding service URL
+    #[arg(short = 'e', long, default_value = "http://localhost:8001/v1/embeddings")]
+    pub embedding_url: String,
 
     /// CE rerank service URL
     #[arg(short = 'r', long, default_value = "http://localhost:18081/v1/rerank")]
-    ce_url: String,
+    pub ce_url: String,
+
+    /// Path to catalog JSONL file
+    #[arg(short = 'c', long)]
+    pub catalog: Option<String>,
+
+    /// Path to graph adjacency JSONL file
+    #[arg(short = 'g', long)]
+    pub graph: Option<String>,
+
+    /// Path to LightGBM meta-ranker model
+    #[arg(short = 'm', long)]
+    pub model: Option<String>,
+}
+
+#[derive(clap::Args, Debug, Clone)]
+pub struct McpArgs {
+    #[command(flatten)]
+    pub search: SearchArgs,
+}
+
+#[derive(clap::Args, Debug, Clone)]
+pub struct SearchArgs {
+    /// Query to search for
+    #[arg(short, long)]
+    pub query: Option<String>,
+
+    /// Positional query fallback (e.g. `code-diver-search "where is foo"`)
+    #[arg(value_name = "QUERY")]
+    pub query_pos: Option<String>,
+
+    /// Number of results to return
+    #[arg(short, long, default_value = "10")]
+    pub limit: usize,
+
+    /// Path to catalog JSONL file (defaults to ./artifacts/rust_catalog.jsonl or /tmp/rust_catalog.jsonl)
+    #[arg(short = 'c', long)]
+    pub catalog: Option<String>,
+
+    /// Path to graph adjacency JSONL file (defaults to ./artifacts/rust_graph.jsonl or /tmp/rust_graph.jsonl)
+    #[arg(short = 'g', long)]
+    pub graph: Option<String>,
+
+    /// Path to LightGBM meta-ranker model (TXT format, defaults to ./artifacts/ce_meta_ranker/ce_meta_ranker.lgb.txt)
+    #[arg(short = 'm', long)]
+    pub model: Option<String>,
+
+    /// Embedding service URL
+    #[arg(short = 'e', long, default_value = "http://localhost:8001/v1/embeddings")]
+    pub embedding_url: String,
+
+    /// Qdrant service URL
+    #[arg(short = 'd', long, default_value = "http://localhost:6333")]
+    pub qdrant_url: String,
+
+    /// CE rerank service URL
+    #[arg(short = 'r', long, default_value = "http://localhost:18081/v1/rerank")]
+    pub ce_url: String,
 
     /// Optional second-pass CE URL (mixed routing, e.g. vLLM-metal for long
     /// docs). Empty (default) = reuse --ce-url for both passes.
     #[arg(long, default_value = "")]
-    second_ce_url: String,
+    pub second_ce_url: String,
 
     /// CE rerank route mode: auto (use --ce-url, fall back v1<->legacy on 404/405),
     /// v1 (force .../v1/rerank), legacy (force .../rerank)
     #[arg(long, default_value = "auto")]
-    ce_route: String,
+    pub ce_route: String,
 
     /// Per-request CE timeout in ms (Python CrossEncoderRerankConfig.timeout_ms parity)
     #[arg(long, default_value_t = 60000)]
-    ce_timeout_ms: u64,
+    pub ce_timeout_ms: u64,
 
     /// Optional CE `model` body field (empty = omit; llama.cpp scores with the
     /// loaded model, vLLM-metal pooling with the served one)
     #[arg(long, default_value = "")]
-    ce_model: String,
+    pub ce_model: String,
 
     /// Vector weight in H-91a manual fusion
     #[arg(long, default_value_t = 0.42)]
-    vector_weight: f64,
+    pub vector_weight: f64,
 
     /// Lexical (BM25) weight in H-91a manual fusion
     #[arg(long, default_value_t = 0.26)]
-    lexical_weight: f64,
+    pub lexical_weight: f64,
 
     /// Path coverage weight in H-91a manual fusion
     #[arg(long, default_value_t = 0.12)]
-    path_weight: f64,
+    pub path_weight: f64,
 
     /// Symbol coverage weight in H-91a manual fusion
     #[arg(long, default_value_t = 0.10)]
-    symbol_weight: f64,
+    pub symbol_weight: f64,
 
     /// Graph propagation weight in H-91a manual fusion
     #[arg(long, default_value_t = 0.0)]
-    graph_weight: f64,
+    pub graph_weight: f64,
 
     /// Symbol match weight in fusion
     #[arg(long, default_value_t = 0.10)]
-    symbol_match_weight: f64,
+    pub symbol_match_weight: f64,
 
     /// File vote weight in fusion
     #[arg(long, default_value_t = 0.06)]
-    file_vote_weight: f64,
+    pub file_vote_weight: f64,
 
     /// Max NEW lexical (BM25-only) candidates admitted per query (H-91a: 1000)
     #[arg(long, default_value_t = 1000)]
-    lexical_candidate_limit: usize,
+    pub lexical_candidate_limit: usize,
 
     /// Rank CE candidates by raw logit instead of provider probability
     /// (Python default: false)
     #[arg(long, action = clap::ArgAction::SetTrue)]
-    rank_by_raw_logits: bool,
+    pub rank_by_raw_logits: bool,
 
     /// Break near-ties in CE scores by the fused base score (Python default: false)
     #[arg(long, action = clap::ArgAction::SetTrue)]
-    tie_break_by_fused_score: bool,
+    pub tie_break_by_fused_score: bool,
 
     /// Tie width for --tie-break-by-fused-score (Python default: 1e-4)
     #[arg(long, default_value_t = 1e-4)]
-    tie_break_epsilon: f64,
+    pub tie_break_epsilon: f64,
 
     /// Candidate limit for CE rerank (first pass window)
     #[arg(long, default_value = "34")]
-    candidate_limit: usize,
+    pub candidate_limit: usize,
 
     /// Alias for --candidate-limit: first-pass CE window size (1..=512).
     /// When present, wins over --candidate-limit.
     #[arg(long)]
-    first_pass_cap: Option<usize>,
+    pub first_pass_cap: Option<usize>,
 
     /// Second-pass candidate cap (default 24, 0 = uncapped).
     /// Explicit value overrides --preset.
     #[arg(long)]
-    second_pass_cap: Option<usize>,
+    pub second_pass_cap: Option<usize>,
 
     /// Second-pass score floor in [0.0, 1.0] (default 0.3).
     /// Explicit value overrides --preset.
     #[arg(long)]
-    second_pass_floor: Option<f64>,
+    pub second_pass_floor: Option<f64>,
 
     /// Disable the selective second CE pass entirely.
     #[arg(long, default_value_t = false)]
-    second_pass_disable: bool,
+    pub second_pass_disable: bool,
 
     /// Latency preset. Currently supported: "selective-strict"
     /// (second-pass cap 8, floor 0.15). No preset by default.
     #[arg(long)]
-    preset: Option<String>,
+    pub preset: Option<String>,
 
     /// In-memory embedding cache size (number of query vectors, server mode).
     /// Default is 1024 (0 = disabled).
     #[arg(long, default_value_t = 1024)]
-    embed_cache_size: usize,
+    pub embed_cache_size: usize,
 
     /// Vector retrieval width before file selection and CE rerank
     #[arg(long, default_value = "360")]
-    retrieval_limit: usize,
+    pub retrieval_limit: usize,
 
     /// Document truncation character limit for first-pass CE (default: 850)
     #[arg(long, default_value = "850")]
-    max_document_chars: usize,
+    pub max_document_chars: usize,
 
     /// Document truncation character limit for second-pass CE (default: 2400)
     #[arg(long, default_value = "2400")]
-    second_pass_max_document_chars: usize,
+    pub second_pass_max_document_chars: usize,
 
     /// Run in server mode (read queries from stdin)
     #[arg(short = 's', long)]
-    server: bool,
+    pub server: bool,
 
     /// Benchmark mode: run N queries from a file
     #[arg(short = 'b', long)]
-    bench: Option<String>,
+    pub bench: Option<String>,
 
     /// Number of benchmark queries to run
     #[arg(long, default_value = "20")]
-    bench_n: usize,
+    pub bench_n: usize,
 
     /// Dump features for training (outputs JSONL with 16 features per candidate)
     #[arg(long)]
-    dump_features: bool,
+    pub dump_features: bool,
 
     /// Expected paths (comma-separated) for label computation in dump_features mode
     #[arg(long)]
-    expected: Option<String>,
+    pub expected: Option<String>,
 
     /// Query ID for dump_features output
     #[arg(long)]
-    query_id: Option<String>,
+    pub query_id: Option<String>,
 
     /// Dump features from a JSONL file (batch mode, much faster than per-query)
     #[arg(long)]
-    dump_features_file: Option<String>,
+    pub dump_features_file: Option<String>,
 
     /// Quality mode: run queries from a JSONL file and output per-query results
     #[arg(long)]
-    quality: Option<String>,
+    pub quality: Option<String>,
 
     /// Base path for reading file content (default: use catalog content)
     #[arg(long)]
-    base_path: Option<String>,
+    pub base_path: Option<String>,
 
     /// Incremental index update: diff --catalog against the Qdrant collection
     /// and report added/changed/deleted counts (dry run by default).
     #[arg(long)]
-    index_update: bool,
+    pub index_update: bool,
 
     /// Apply the incremental index update (embed + upsert dirty items,
     /// delete removed points). Without it, --index-update only reports.
     #[arg(long)]
-    apply: bool,
+    pub apply: bool,
 
     /// Qdrant collection (or alias) for --index-update.
     #[arg(long, default_value = "intellij_h66b_budget_qwen")]
-    qdrant_collection: String,
+    pub qdrant_collection: String,
 
     /// Character budget for index-update embed texts (H-66b/H-91a: 500).
     #[arg(long, default_value_t = 500)]
-    embed_max_chars: usize,
+    pub embed_max_chars: usize,
 
     /// Healthcheck / Doctor mode: checks connection to Qdrant, Embedding, and CE services,
     /// verifies catalog, graph, and model paths, then exits.
     #[arg(long)]
-    doctor: bool,
+    pub doctor: bool,
 }
+
+impl SearchArgs {
+    pub fn resolved_query(&self) -> Option<String> {
+        self.query.clone().or_else(|| self.query_pos.clone())
+    }
+}
+
+pub type Args = SearchArgs;
 
 #[tokio::main]
 async fn main() -> Result<(), String> {
-    let args = Args::parse();
+    let cli = Cli::parse();
 
-    if args.doctor {
-        return run_doctor(&args).await;
+    match cli.command {
+        Some(Commands::Doctor(args)) => {
+            run_doctor(
+                &args.qdrant_url,
+                &args.embedding_url,
+                &args.ce_url,
+                args.catalog.as_deref(),
+                args.graph.as_deref(),
+                args.model.as_deref(),
+            )
+            .await
+        }
+        Some(Commands::Info(args)) => {
+            let catalog_path = resolve_path(args.catalog.as_deref(), &[
+                "artifacts/rust_catalog.jsonl",
+                ".code-diver/rust_catalog.jsonl",
+                "/tmp/rust_catalog.jsonl",
+            ]);
+            let graph_path = resolve_path(args.graph.as_deref(), &[
+                "artifacts/rust_graph.jsonl",
+                ".code-diver/rust_graph.jsonl",
+                "/tmp/rust_graph.jsonl",
+            ]);
+            crate::info::run_info(catalog_path.as_deref(), graph_path.as_deref(), &args.qdrant_url).await
+        }
+        Some(Commands::Mcp(args)) => {
+            run_mcp(args.search).await
+        }
+        Some(Commands::Search(args)) => {
+            run_search_cli(args).await
+        }
+        None => {
+            if cli.search.doctor {
+                run_doctor(
+                    &cli.search.qdrant_url,
+                    &cli.search.embedding_url,
+                    &cli.search.ce_url,
+                    cli.search.catalog.as_deref(),
+                    cli.search.graph.as_deref(),
+                    cli.search.model.as_deref(),
+                )
+                .await
+            } else if cli.search.index_update {
+                run_index_update(&cli.search).await
+            } else {
+                run_search_cli(cli.search).await
+            }
+        }
     }
+}
 
-    if args.index_update {
-        return run_index_update(&args).await;
-    }
-
+fn build_search_config(args: &SearchArgs) -> Result<(SearchConfig, PathBuf), String> {
     let catalog_path = resolve_path(args.catalog.as_deref(), &[
         "artifacts/rust_catalog.jsonl",
         ".code-diver/rust_catalog.jsonl",
@@ -269,17 +404,22 @@ async fn main() -> Result<(), String> {
             second_pass_candidate_cap, candidate_limit
         ));
     }
-    // Retrieval limit default (360) matches Python H-91a
+
+    let root_path = args.base_path
+        .as_deref()
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("."));
+
     let config = SearchConfig {
         catalog_path,
         graph_path,
-        embedding_url: args.embedding_url,
-        qdrant_url: args.qdrant_url,
-        ce_url: args.ce_url,
-        second_ce_url: args.second_ce_url,
-        ce_route: args.ce_route,
+        embedding_url: args.embedding_url.clone(),
+        qdrant_url: args.qdrant_url.clone(),
+        ce_url: args.ce_url.clone(),
+        second_ce_url: args.second_ce_url.clone(),
+        ce_route: args.ce_route.clone(),
         ce_timeout_ms: args.ce_timeout_ms,
-        ce_model: args.ce_model,
+        ce_model: args.ce_model.clone(),
         retrieval_limit: args.retrieval_limit,
         candidate_limit,
         vector_weight: args.vector_weight,
@@ -300,20 +440,53 @@ async fn main() -> Result<(), String> {
         second_pass_max_document_chars: args.second_pass_max_document_chars,
         ce_meta_model_path: model_path.unwrap_or_default(),
         ce_meta_ranker_enabled: meta_ranker_enabled,
-        base_path: args.base_path.unwrap_or_default(),
+        base_path: args.base_path.clone().unwrap_or_default(),
         embed_cache_size: args.embed_cache_size,
         ..SearchConfig::default()
     };
+
+    Ok((config, root_path))
+}
+
+async fn run_mcp(args: SearchArgs) -> Result<(), String> {
+    let (config, root_path) = build_search_config(&args)?;
+    let ctx = init_search_context(config).await?;
+    let mcp_config = crate::mcp::McpConfig {
+        ctx: &ctx,
+        root_dir: &root_path,
+    };
+    crate::mcp::run_mcp_server(mcp_config).await
+}
+
+async fn run_search_cli(args: SearchArgs) -> Result<(), String> {
+    if args.doctor {
+        return run_doctor(
+            &args.qdrant_url,
+            &args.embedding_url,
+            &args.ce_url,
+            args.catalog.as_deref(),
+            args.graph.as_deref(),
+            args.model.as_deref(),
+        )
+        .await;
+    }
+    if args.index_update {
+        return run_index_update(&args).await;
+    }
+
+    let (config, _root_path) = build_search_config(&args)?;
 
     eprintln!("Initializing search context...");
     let init_start = Instant::now();
     let ctx = init_search_context(config).await?;
     eprintln!("  Initialized in {:.2}s", init_start.elapsed().as_secs_f64());
 
+    let query = args.resolved_query();
+
     if let Some(features_file) = args.dump_features_file {
         dump_features_batch(&ctx, &features_file).await?;
     } else if args.dump_features {
-        if let Some(query) = args.query {
+        if let Some(q) = query {
             let expected: Vec<String> = args.expected
                 .unwrap_or_default()
                 .split(',')
@@ -321,7 +494,7 @@ async fn main() -> Result<(), String> {
                 .map(|s| s.trim().to_string())
                 .collect();
             let query_id = args.query_id.unwrap_or_else(|| "unknown".to_string());
-            dump_features(&ctx, &query, &query_id, &expected).await?;
+            dump_features(&ctx, &q, &query_id, &expected).await?;
         } else {
             return Err("--query is required with --dump-features".to_string());
         }
@@ -329,8 +502,8 @@ async fn main() -> Result<(), String> {
         run_server(&ctx).await?;
     } else if let Some(bench_file) = args.bench {
         run_benchmark(&ctx, &bench_file, args.bench_n).await?;
-    } else if let Some(query) = args.query {
-        run_single(&ctx, &query, args.limit).await?;
+    } else if let Some(q) = query {
+        run_single(&ctx, &q, args.limit).await?;
     } else {
         // Interactive mode: read queries from stdin
         run_interactive(&ctx, args.limit).await?;
@@ -346,7 +519,7 @@ fn resolve_path(cli_arg: Option<&str>, candidates: &[&str]) -> Option<String> {
         }
     }
     for candidate in candidates {
-        if std::path::Path::new(candidate).exists() {
+        if Path::new(candidate).exists() {
             return Some(candidate.to_string());
         }
     }
@@ -354,7 +527,14 @@ fn resolve_path(cli_arg: Option<&str>, candidates: &[&str]) -> Option<String> {
 }
 
 /// Doctor / Healthcheck command
-async fn run_doctor(args: &Args) -> Result<(), String> {
+async fn run_doctor(
+    qdrant_url: &str,
+    embedding_url: &str,
+    ce_url: &str,
+    catalog: Option<&str>,
+    graph: Option<&str>,
+    model: Option<&str>,
+) -> Result<(), String> {
     eprintln!("=== code-diver doctor ===");
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(5))
@@ -362,15 +542,15 @@ async fn run_doctor(args: &Args) -> Result<(), String> {
         .map_err(|e| e.to_string())?;
 
     // 1. Qdrant
-    eprint!("Checking Qdrant ({})... ", args.qdrant_url);
-    match client.get(format!("{}/collections", args.qdrant_url.trim_end_matches('/'))).send().await {
+    eprint!("Checking Qdrant ({})... ", qdrant_url);
+    match client.get(format!("{}/collections", qdrant_url.trim_end_matches('/'))).send().await {
         Ok(resp) if resp.status().is_success() => eprintln!("OK (status {})", resp.status()),
         Ok(resp) => eprintln!("WARN: HTTP {}", resp.status()),
         Err(e) => eprintln!("FAIL: {}", e),
     }
 
     // 2. Embedding service
-    let embed_health = args.embedding_url.replace("/v1/embeddings", "/v1/models");
+    let embed_health = embedding_url.replace("/v1/embeddings", "/v1/models");
     eprint!("Checking Embedding Service ({})... ", embed_health);
     match client.get(&embed_health).send().await {
         Ok(resp) if resp.status().is_success() => eprintln!("OK (status {})", resp.status()),
@@ -379,7 +559,7 @@ async fn run_doctor(args: &Args) -> Result<(), String> {
     }
 
     // 3. CE Rerank service
-    let ce_health = args.ce_url.replace("/v1/rerank", "/health").replace("/rerank", "/health");
+    let ce_health = ce_url.replace("/v1/rerank", "/health").replace("/rerank", "/health");
     eprint!("Checking CE Rerank Service ({})... ", ce_health);
     match client.get(&ce_health).send().await {
         Ok(resp) if resp.status().is_success() => eprintln!("OK (status {})", resp.status()),
@@ -389,26 +569,26 @@ async fn run_doctor(args: &Args) -> Result<(), String> {
 
     // 4. Artifacts check
     eprintln!("\nChecking local artifacts:");
-    let catalog = resolve_path(args.catalog.as_deref(), &[
+    let catalog_resolved = resolve_path(catalog, &[
         "artifacts/rust_catalog.jsonl",
         ".code-diver/rust_catalog.jsonl",
         "/tmp/rust_catalog.jsonl",
     ]);
-    eprintln!("  Catalog: {:?}", catalog);
+    eprintln!("  Catalog: {:?}", catalog_resolved);
 
-    let graph = resolve_path(args.graph.as_deref(), &[
+    let graph_resolved = resolve_path(graph, &[
         "artifacts/rust_graph.jsonl",
         ".code-diver/rust_graph.jsonl",
         "/tmp/rust_graph.jsonl",
     ]);
-    eprintln!("  Graph:   {:?}", graph);
+    eprintln!("  Graph:   {:?}", graph_resolved);
 
-    let model = resolve_path(args.model.as_deref(), &[
+    let model_resolved = resolve_path(model, &[
         "artifacts/ce_meta_ranker/ce_meta_ranker.lgb.txt",
         ".code-diver/models/ce_meta_ranker.lgb.txt",
         "models/ce_meta_ranker.lgb.txt",
     ]);
-    eprintln!("  Model:   {:?}", model);
+    eprintln!("  Model:   {:?}", model_resolved);
 
     eprintln!("=========================");
     Ok(())
@@ -416,7 +596,7 @@ async fn run_doctor(args: &Args) -> Result<(), String> {
 
 /// Incremental index update: diff --catalog against Qdrant, embed + upsert
 /// only dirty items, delete removed points. Dry run unless --apply.
-async fn run_index_update(args: &Args) -> Result<(), String> {
+async fn run_index_update(args: &SearchArgs) -> Result<(), String> {
     use crate::catalog::load_catalog;
     use crate::embedding::embed_texts;
     use crate::index_update::{
@@ -431,7 +611,7 @@ async fn run_index_update(args: &Args) -> Result<(), String> {
     ])
     .ok_or_else(|| "--catalog is required or place at artifacts/rust_catalog.jsonl".to_string())?;
 
-    let catalog_path = std::path::Path::new(&resolved_catalog);
+    let catalog_path = Path::new(&resolved_catalog);
     eprintln!("Loading catalog from: {}", catalog_path.display());
     let catalog = load_catalog(catalog_path)?;
     eprintln!("  Catalog items: {}", catalog.items.len());
@@ -696,4 +876,72 @@ async fn run_benchmark(ctx: &pipeline::SearchContext, path: &str, n: usize) -> R
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod cli_tests {
+    use super::*;
+
+    #[test]
+    fn test_subcommand_search() {
+        let cli = Cli::try_parse_from(["code-diver-search", "search", "--query", "test_query"]).unwrap();
+        match cli.command {
+            Some(Commands::Search(args)) => {
+                assert_eq!(args.resolved_query(), Some("test_query".to_string()));
+            }
+            _ => panic!("Expected Search subcommand"),
+        }
+    }
+
+    #[test]
+    fn test_subcommand_info() {
+        let cli = Cli::try_parse_from(["code-diver-search", "info", "--qdrant-url", "http://qdrant:6333"]).unwrap();
+        match cli.command {
+            Some(Commands::Info(args)) => {
+                assert_eq!(args.qdrant_url, "http://qdrant:6333");
+            }
+            _ => panic!("Expected Info subcommand"),
+        }
+    }
+
+    #[test]
+    fn test_subcommand_doctor() {
+        let cli = Cli::try_parse_from(["code-diver-search", "doctor", "--embedding-url", "http://embed:8001"]).unwrap();
+        match cli.command {
+            Some(Commands::Doctor(args)) => {
+                assert_eq!(args.embedding_url, "http://embed:8001");
+            }
+            _ => panic!("Expected Doctor subcommand"),
+        }
+    }
+
+    #[test]
+    fn test_subcommand_mcp() {
+        let cli = Cli::try_parse_from(["code-diver-search", "mcp"]).unwrap();
+        match cli.command {
+            Some(Commands::Mcp(_)) => {}
+            _ => panic!("Expected Mcp subcommand"),
+        }
+    }
+
+    #[test]
+    fn test_backward_compat_query_flag() {
+        let cli = Cli::try_parse_from(["code-diver-search", "--query", "hello_world"]).unwrap();
+        assert!(cli.command.is_none());
+        assert_eq!(cli.search.resolved_query(), Some("hello_world".to_string()));
+    }
+
+    #[test]
+    fn test_backward_compat_positional_query() {
+        let cli = Cli::try_parse_from(["code-diver-search", "hello_world"]).unwrap();
+        assert!(cli.command.is_none());
+        assert_eq!(cli.search.resolved_query(), Some("hello_world".to_string()));
+    }
+
+    #[test]
+    fn test_backward_compat_doctor_flag() {
+        let cli = Cli::try_parse_from(["code-diver-search", "--doctor"]).unwrap();
+        assert!(cli.command.is_none());
+        assert!(cli.search.doctor);
+    }
 }

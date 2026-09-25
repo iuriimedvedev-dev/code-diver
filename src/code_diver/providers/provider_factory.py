@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from ..settings import Defaults, EmbeddingProviderId
+from ..settings import Defaults, EmbeddingProviderId, ProviderResolver
 from .embedding_provider import EmbeddingProvider
 from .gemini_embedding_provider import GeminiEmbeddingProvider
 from .hash_embedding_provider import HashEmbeddingProvider
@@ -51,11 +51,17 @@ def create_embedding_provider(
             retry_delay_seconds=retry_delay_seconds,
         )
     if provider_id is EmbeddingProviderId.OPENAI:
-        return OpenAIEmbeddingProvider(
-            model=model or Defaults.OPENAI_EMBEDDING_MODEL,
-            dimensions=dimensions or Defaults.OPENAI_EMBEDDING_DIMENSIONS,
+        resolved = ProviderResolver.resolve_embedding(
+            EmbeddingProviderId.OPENAI.value,
+            model=model,
+            url=url,
             api_key=api_key,
-            url=url or Defaults.OPENAI_EMBEDDINGS_URL,
+        )
+        return OpenAIEmbeddingProvider(
+            model=resolved.model or Defaults.OPENAI_EMBEDDING_MODEL,
+            dimensions=dimensions or Defaults.OPENAI_EMBEDDING_DIMENSIONS,
+            api_key=resolved.api_key,
+            url=resolved.url,
             batch_size=batch_size,
             document_prefix=document_prefix,
             query_prefix=query_prefix,
@@ -65,12 +71,23 @@ def create_embedding_provider(
             retry_attempts=retry_attempts,
             retry_delay_seconds=retry_delay_seconds,
         )
-    if provider_id is EmbeddingProviderId.OPENAI_COMPATIBLE:
-        return OpenAICompatibleEmbeddingProvider(
-            model=model or "nomic-embed-text",
-            dimensions=dimensions,
-            api_key=api_key,
+    if provider_id in (
+        EmbeddingProviderId.OPENAI_COMPATIBLE,
+        EmbeddingProviderId.LOCAL,
+        EmbeddingProviderId.LITELLM,
+        EmbeddingProviderId.JBCENTRAL,
+    ):
+        resolved = ProviderResolver.resolve_embedding(
+            provider_id.value,
+            model=model,
             url=url,
+            api_key=api_key,
+        )
+        return OpenAICompatibleEmbeddingProvider(
+            model=resolved.model or "nomic-embed-text",
+            dimensions=dimensions,
+            api_key=resolved.api_key,
+            url=resolved.url,
             batch_size=batch_size,
             document_prefix=document_prefix,
             query_prefix=query_prefix,

@@ -7,11 +7,15 @@ from pathlib import Path
 from typing import ClassVar
 
 from ..domain import CodeSymbol
+from ..indexing import LanguageIndexingRouter, get_language_router
 
 
 class CodeSymbolExtractor:
     _GENERIC_SYMBOL_RE = re.compile(
-        r"^\s*(?:export\s+)?(?:async\s+)?(?:class|interface|type|function|def|fn|struct|enum)\s+([A-Za-z_][\w$]*)"
+        r"^\s*(?:export\s+)?(?:pub(?:\([^)]+\))?\s+)?(?:async\s+)?"
+        r"(?:class|interface|trait|type|function|def|fn|struct|enum)\s+([A-Za-z_][\w$]*)"
+        r"|^\s*func\s+(?:\([^)]+\)\s+)?([A-Za-z_]\w*)"
+        r"|^\s*impl(?:\s*<[^>]+>)?\s+(?:[A-Za-z_]\w+\s+for\s+)?([A-Za-z_]\w*)"
         r"|^\s*(?:export\s+)?const\s+([A-Za-z_][\w$]*)\s*=",
         re.MULTILINE,
     )
@@ -30,7 +34,15 @@ class CodeSymbolExtractor:
     )
     _CONTROL_WORDS: ClassVar[set[str]] = {"if", "for", "while", "switch", "catch", "when", "return", "throw", "new"}
 
+    def __init__(self, router: LanguageIndexingRouter | None = None) -> None:
+        self.router = router or get_language_router()
+
     def extract(self, rel_path: str, text: str) -> list[CodeSymbol]:
+        router = getattr(self, "router", None) or get_language_router()
+        strategy = router.resolve(rel_path)
+        symbols = strategy.extract_symbols(rel_path, text)
+        if symbols:
+            return symbols
         suffix = Path(rel_path).suffix.lower()
         if suffix == ".py":
             python_symbols = self._python_symbols(text)

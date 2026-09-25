@@ -87,6 +87,10 @@ class Defaults:
     OPENAI_CHAT_COMPLETIONS_URL = "https://api.openai.com/v1/chat/completions"
     OPENAI_EMBEDDINGS_URL = "https://api.openai.com/v1/embeddings"
     LOCAL_OPENAI_BASE_URL = "http://127.0.0.1:8012/v1"
+    LITELLM_BASE_URL = "https://litellm.labs.jb.gg/v1"
+    JBCENTRAL_CONFIG_PATH = Path("~/.jetbrains-central/config.json")
+    JBCENTRAL_DEFAULT_PORT = 19517
+    JBCENTRAL_DEFAULT_AGENT = "codex"
     OPENAI_TIMEOUT_SECONDS = 60.0
 
     INDEXING_MODE = "scanner"

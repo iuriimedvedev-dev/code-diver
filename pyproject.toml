@@ -25,6 +25,7 @@ classifiers = [
 ]
 dependencies = [
   "ijson>=3.5.0",
+  "mcp>=2.2.0",
   "openai>=2.50.0",
   "PyYAML>=6.0.2",
   "qdrant-client>=1.18.0",
@@ -79,6 +80,7 @@ antigravity-sdk = [
 
 [project.scripts]
 code-diver = "code_diver.cli:main"
+code-diver-mcp = "code_diver.mcp.server:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/code_diver"]

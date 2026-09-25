@@ -68,6 +68,7 @@ from .generation import create_generation_provider
 from .graph import CodeGraphBuilder, CodeGraphStore
 from .inspection import (
     GrepService,
+    InfoService,
     ReadExcerptService,
     RgService,
     SymbolsService,
@@ -161,6 +162,7 @@ ADVANCED_COMMANDS = {
     CommandName.EXPERIMENT.value,
     CommandName.GREP.value,
     CommandName.INDEX_SELECTED.value,
+    CommandName.MCP.value,
     CommandName.MONITOR.value,
     CommandName.OPEN.value,
     CommandName.READ.value,
@@ -289,7 +291,7 @@ def build_parser(include_advanced: bool = False) -> argparse.ArgumentParser:
         help="Show advanced inspection, agent, and research commands.",
     )
     command_metavar = (
-        None if include_advanced else "{init,index,search,answer,evaluate,provider}"
+        None if include_advanced else "{init,index,info,search,answer,evaluate,provider}"
     )
     subparsers = parser.add_subparsers(
         dest="command", required=True, metavar=command_metavar
@@ -371,6 +373,18 @@ def build_parser(include_advanced: bool = False) -> argparse.ArgumentParser:
         help="Only print the final indexing summary.",
     )
     index.set_defaults(func=cmd_index)
+
+    info = subparsers.add_parser(
+        CommandName.INFO.value,
+        help="Inspect index statistics, entity counts, and disk space usage.",
+    )
+    info.add_argument(
+        "-j",
+        OptionName.JSON.value,
+        action="store_true",
+        help="Print machine-readable JSON output.",
+    )
+    info.set_defaults(func=cmd_info)
 
     search = subparsers.add_parser(
         CommandName.SEARCH.value, help="Ask the code exploration agent."
@@ -902,6 +916,17 @@ def add_advanced_parsers(
     monitor.add_argument("--refresh", type=float, default=0.5)
     monitor.add_argument("--max-events", type=int, default=200)
     monitor.set_defaults(func=cmd_monitor)
+
+    mcp_parser = subparsers.add_parser(
+        CommandName.MCP.value, help="Start the Code Diver MCP server over stdio."
+    )
+    mcp_parser.add_argument(
+        "config_path",
+        nargs="?",
+        default="code-diver.yml",
+        help="Path to repository code-diver.yml configuration file.",
+    )
+    mcp_parser.set_defaults(func=cmd_mcp)
 
 
 def build_index_maintenance_help_parser(command: str) -> argparse.ArgumentParser:
@@ -2052,6 +2077,54 @@ def cmd_symbols(args: argparse.Namespace, config: AppConfig) -> int:
             config.scanner.max_file_bytes,
         ).render(path=args.path, limit=args.limit)
     )
+    return 0
+
+
+def cmd_info(args: argparse.Namespace, config: AppConfig) -> int:
+    service = InfoService(config)
+    info = service.get_info()
+    if bool(getattr(args, "json", False)):
+        print(json.dumps(info.to_dict(), indent=2))
+        return 0
+
+    console = Console()
+    table = Table(title="[bold cyan]Code Diver Index & Storage Overview[/bold cyan]", show_header=True)
+    table.add_column("Category", style="bold yellow")
+    table.add_column("Property", style="bold")
+    table.add_column("Value", style="green")
+
+    # Root
+    table.add_row("Codebase", "Root Directory", info.root)
+
+    # Vector Store
+    table.add_row("Vector Store", "Provider", info.store.provider)
+    table.add_row("Vector Store", "Indexed Items / Chunks", f"{info.store.items_count:,}")
+    if info.store.location:
+        table.add_row("Vector Store", "Location / Endpoint", str(info.store.location))
+    if info.store.disk_size_human:
+        table.add_row("Vector Store", "Disk Footprint", info.store.disk_size_human)
+    for k, v in info.store.metadata.items():
+        if v:
+            table.add_row("Vector Store", f"Metadata: {k}", str(v))
+
+    # Graph Store
+    table.add_row("Graph Index", "Enabled", str(info.graph.enabled))
+    table.add_row("Graph Index", "Artifact Exists", str(info.graph.exists))
+    table.add_row("Graph Index", "Artifact Path", info.graph.path)
+    if info.graph.exists:
+        table.add_row("Graph Index", "Disk Footprint", info.graph.disk_size_human)
+
+    # .code-diver directory
+    table.add_row("Artifacts", ".code-diver Dir", info.code_diver_dir.path)
+    if info.code_diver_dir.exists:
+        table.add_row("Artifacts", ".code-diver Total Size", info.code_diver_dir.disk_size_human)
+
+    # Models
+    table.add_row("Embedding", "Provider & Model", f"{info.embedding['provider']} ({info.embedding['model']})")
+    table.add_row("Embedding", "Dimensions & Batch", f"{info.embedding['dimensions']}d / batch {info.embedding['batch_size']}")
+    table.add_row("Generation", "Provider & Model", f"{info.generation['provider']} ({info.generation['model']})")
+
+    console.print(table)
     return 0
 
 
@@ -3878,6 +3951,15 @@ def cmd_monitor(args: argparse.Namespace, config: AppConfig) -> int:
         refresh_seconds=float(args.refresh),
         max_events=int(args.max_events),
     ).run()
+    return 0
+
+
+def cmd_mcp(args: argparse.Namespace, config: AppConfig) -> int:
+    from .mcp.server import create_mcp_server
+
+    cfg_path = getattr(args, "config_path", None) or "code-diver.yml"
+    server = create_mcp_server(cfg_path)
+    server.run("stdio")
     return 0
 
 

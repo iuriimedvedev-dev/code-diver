@@ -2,9 +2,9 @@
 """Benchmark JetBrains Context CLI (jbcontext) on RepoQA needles: psf/black & google/gson.
 
 Compares retrieval accuracy and latency side-by-side against code-diver:
-1. Unpacks repository files into .benchmarks/repoqa/<lang>/<repo_slug>/corpus
-2. Ensures isolated git repo inside corpus (required by jbcontext)
-3. Indexes with `jbcontext index --project-path <corpus>`
+1. Unpacks repository files into .benchmarks/repoqa/<lang>/<repo_slug>
+2. Ensures isolated git repo inside target directory (required by jbcontext)
+3. Indexes with `jbcontext index --project-path <repo_dir>`
 4. Executes the 10 needles for psf/black and 10 needles for google/gson
 5. Computes:
    - File Hit@1, Hit@3, Hit@5
@@ -32,9 +32,27 @@ DEFAULT_DATASET = Path("artifacts/repoqa/repoqa.json.gz")
 DEFAULT_BENCHMARKS_DIR = Path(".benchmarks/repoqa")
 DEFAULT_CODEDIVER_REPORT = Path(".benchmarks/repoqa/codediver_results.json")
 
-EVAL_TARGETS = [
+EVAL_TARGETS_DEFAULT = [
     {"repo": "psf/black", "language": "python", "slug": "psf_black"},
     {"repo": "google/gson", "language": "java", "slug": "google_gson"},
+]
+
+EVAL_TARGETS_100 = [
+    # Python (2 repos = 20 needles)
+    {"repo": "psf/black", "language": "python", "slug": "psf_black"},
+    {"repo": "python-poetry/poetry", "language": "python", "slug": "python_poetry"},
+    # Java (2 repos = 20 needles)
+    {"repo": "google/gson", "language": "java", "slug": "google_gson"},
+    {"repo": "square/retrofit", "language": "java", "slug": "square_retrofit"},
+    # TypeScript / JavaScript (2 repos = 20 needles)
+    {"repo": "expressjs/express", "language": "typescript", "slug": "expressjs_express"},
+    {"repo": "axios/axios", "language": "typescript", "slug": "axios_axios"},
+    # Rust (2 repos = 20 needles)
+    {"repo": "rust-bakery/nom", "language": "rust", "slug": "rust_bakery_nom"},
+    {"repo": "tokio-rs/tracing", "language": "rust", "slug": "tokio_rs_tracing"},
+    # Go (2 repos = 20 needles)
+    {"repo": "junegunn/fzf", "language": "go", "slug": "junegunn_fzf"},
+    {"repo": "caddyserver/caddy", "language": "go", "slug": "caddyserver_caddy"},
 ]
 
 
@@ -43,7 +61,10 @@ def normalize_path(path: str) -> str:
     p = path.strip().replace("\\", "/")
     while p.startswith("./"):
         p = p[2:]
-    return p.lstrip("/")
+    p = p.lstrip("/")
+    if p.startswith("corpus/"):
+        p = p[len("corpus/"):]
+    return p
 
 
 def intervals_overlap(s1: int, e1: int, s2: int, e2: int) -> bool:
@@ -95,6 +116,9 @@ def ensure_git_repo(corpus_dir: Path, repo_name: str) -> None:
 
     print(f"  [Git] Initializing isolated git repository in {corpus_dir}...")
     subprocess.run(["git", "init", "-b", "main"], cwd=corpus_dir, check=True, capture_output=True)
+    gitignore = corpus_dir / ".gitignore"
+    if not gitignore.exists():
+        gitignore.write_text(".code-diver/\n", encoding="utf-8")
     subprocess.run(["git", "config", "user.email", "benchmark@repoqa.local"], cwd=corpus_dir, check=True, capture_output=True)
     subprocess.run(["git", "config", "user.name", "RepoQA Benchmark"], cwd=corpus_dir, check=True, capture_output=True)
     subprocess.run(["git", "add", "."], cwd=corpus_dir, check=True, capture_output=True)
@@ -479,6 +503,8 @@ def main() -> int:
     parser.add_argument("--reindex", action="store_true", help="Force re-indexing via jbcontext index.")
     parser.add_argument("--force-unpack", action="store_true", help="Force re-unpacking files from archive.")
     parser.add_argument("--output", type=Path, default=Path(".benchmarks/repoqa/jbcontext_results.json"), help="Output path for jbcontext results JSON.")
+    parser.add_argument("--all-100", action="store_true", help="Run 100-needle benchmark across 10 multilingual repos.")
+    parser.add_argument("--repos", nargs="+", help="Specific repo names to evaluate (e.g. psf/black google/gson)")
     parser.add_argument("--no-codediver", action="store_true", help="Skip loading / comparing with code-diver.")
     args = parser.parse_args()
 
@@ -501,10 +527,17 @@ def main() -> int:
         for r in repos:
             repo_map[r["repo"]] = (lang, r)
 
+    selected_targets = EVAL_TARGETS_DEFAULT
+    if args.all_100:
+        selected_targets = EVAL_TARGETS_100
+    elif args.repos:
+        repo_set = set(args.repos)
+        selected_targets = [r for r in EVAL_TARGETS_100 if r["repo"] in repo_set]
+
     jb_results: list[dict[str, Any]] = []
     total_start = time.perf_counter()
 
-    for target in EVAL_TARGETS:
+    for target in selected_targets:
         repo_name = target["repo"]
         lang = target["language"]
         slug = target["slug"]
@@ -514,7 +547,7 @@ def main() -> int:
             continue
 
         _, entry = repo_map[repo_name]
-        corpus_dir = (args.benchmarks_dir / lang / slug / "corpus").resolve()
+        corpus_dir = (args.benchmarks_dir / lang / slug).resolve()
 
         print(f"\nProcessing `{repo_name}` ({lang}):")
         file_count = unpack_repo(entry, corpus_dir, force=args.force_unpack)

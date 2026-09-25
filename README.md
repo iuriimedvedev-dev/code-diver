@@ -57,6 +57,65 @@ Complete end-to-end evaluation: Search $\to$ AST Outline & Excerpt Slicing $\to$
 
 *See full research report in [`docs/research/2026-09-23_local_and_cloud_llm_tournament.md`](docs/research/2026-09-23_local_and_cloud_llm_tournament.md).*
 
+---
+
+## RepoQA Benchmark: 600 Needles Across 60 Repositories
+
+Comprehensive needle-in-a-haystack function localization across 6 programming languages (Python, C++, Java, TypeScript, Rust, Go) comparing Local Edge MLX Models against Cloud baselines:
+
+| Model / Strategy | Environment | Cases | File Hit@1 | File Hit@3 | File MRR | Line Overlap | Chunk Hit Ratio |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **`code-diver` Dual-Context (`gemini-3.5-flash-lite`)** | Cloud API | 600 | **93.7%** | **97.0%** | **0.953** | **89.3%** | 98.2% |
+| **`code-diver` Dual-Context (`gemma-4-e4b-it-4bit`)** | **100% Local MLX** | 600 | **91.2%** | **96.0%** | **0.936** | **86.3%** | **97.7%** |
+| `code-diver` Raw Vector (no LLM rerank) | Local Qdrant | 600 | 81.7% | 91.5% | 0.852 | 54.1% | 85.0% |
+| `jbcontext 0.9.14` (Cloud baseline, 5-lang subset) | JetBrains Cloud | 500 | 87.0% | 94.2% | 0.895 | 78.4% | N/A |
+
+### Gemma 4 E4B (Local MLX) Per-Language Breakdown:
+- **TypeScript**: **95.0%** Hit@1, **92.0%** Line Overlap (Agent Lat: 22.2s)
+- **Rust**: **93.0%** Hit@1, **87.0%** Line Overlap (Agent Lat: 27.5s)
+- **Go**: **92.0%** Hit@1, **88.0%** Line Overlap (Agent Lat: 20.6s)
+- **Python**: **91.0%** Hit@1, **88.0%** Line Overlap (Agent Lat: 25.9s)
+- **Java**: **91.0%** Hit@1, **86.0%** Line Overlap (Agent Lat: 26.5s)
+- **C++**: **85.0%** Hit@1, **77.0%** Line Overlap (Agent Lat: 26.0s)
+
+*Full benchmark artifacts and execution logs available in `.benchmarks/repoqa/agent_gemma4_e4b_cascade_600.json` and [`docs/benchmarks/large_scale_benchmarks.md`](docs/benchmarks/large_scale_benchmarks.md).*
+
+## Model Context Protocol (MCP) & Subagent Integration
+
+Code Diver can be integrated directly into **OpenCode**, **Claude Desktop**, **Cursor**, **Windsurf**, or custom multi-agent architectures via MCP.
+
+### 1. Start the MCP Server
+```bash
+# Via Python CLI (over stdio)
+uv run code-diver mcp
+
+# Or using the standalone Rust binary
+./native/code_diver_search_bin/target/release/code_diver_search_bin mcp
+```
+
+### 2. Capabilities & Tools
+- **Synchronous Subsecond Search**: `code_diver_search`, `code_diver_symbols`, `code_diver_read`, `code_diver_grep`, `code_diver_tree`, `code_diver_info`.
+- **Asynchronous Task API**: `code_diver_submit_agent_search`, `code_diver_task_status`, `code_diver_task_result`, `code_diver_task_cancel`.
+
+### 3. Subagent for OpenCode
+A pre-tuned subagent template is provided in `integrations/opencode/code-diver.md`:
+```bash
+cp integrations/opencode/code-diver.md ~/.config/opencode/agent/code-diver.md
+```
+See detailed guides in [`docs/integrations/mcp_server.md`](docs/integrations/mcp_server.md) and [`docs/integrations/agent_subagent.md`](docs/integrations/agent_subagent.md).
+
+---
+
+## Cloud & Kubernetes Deployment (Team Search Service)
+
+Deploy Code Diver as a shared team search platform backed by a central Qdrant cluster:
+- **Docker Compose**: `deploy/docker/docker-compose.yml`
+- **Kubernetes Manifests**: `deploy/k8s/code-diver-k8s.yaml` (Deployment, Service, PVC, ConfigMap)
+
+See [`docs/deployment/cloud_k8s.md`](docs/deployment/cloud_k8s.md) for step-by-step setup and team sharing instructions.
+
+---
+
 ## Standalone Rust Engine Quickstart
 
 ```bash
