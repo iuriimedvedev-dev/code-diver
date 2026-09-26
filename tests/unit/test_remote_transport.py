@@ -27,7 +27,7 @@ def http_client() -> TestClient:
 def test_http_health(http_client: TestClient) -> None:
     res = http_client.get("/health")
     assert res.status_code == 200
-    assert res.json() == {"status": "ok", "version": "0.4.2"}
+    assert res.json() == {"status": "ok", "version": "0.4.3"}
 
 
 def test_http_api_info(http_client: TestClient) -> None:

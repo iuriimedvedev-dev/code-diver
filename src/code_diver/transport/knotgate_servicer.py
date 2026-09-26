@@ -247,7 +247,7 @@ class KnotgateMcpServiceServicer(mcp_service_pb2_grpc.MCPServiceServicer):
             health=common_pb2.HealthInfo(
                 status="healthy",
                 server="code-diver",
-                version="0.4.2",
+                version="0.4.3",
             ),
             metrics=metrics,
         )
@@ -261,7 +261,7 @@ class KnotgateMcpServiceServicer(mcp_service_pb2_grpc.MCPServiceServicer):
             response=common_pb2.Response(success=True),
             capabilities=mcp_service_pb2.ServiceCapabilities(
                 service_name="code-diver",
-                service_version="0.4.2",
+                service_version="0.4.3",
                 supported_features=["search", "grep", "read", "symbols", "tree", "info", "indexing"],
                 supports_streaming=True,
                 supports_sessions=True,

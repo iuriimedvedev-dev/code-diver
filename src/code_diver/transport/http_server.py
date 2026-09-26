@@ -87,7 +87,7 @@ def create_remote_app(config_path: Path | str = "code-diver.yml") -> FastAPI:
     """Build FastAPI application with HTTP, SSE, and ACP/MCP endpoints."""
     app = FastAPI(
         title="Code Diver Remote Engine",
-        version="0.4.2",
+        version="0.4.3",
         description="Unified Remote API: HTTP, SSE, MCP, and ACP for code retrieval & exploration",
     )
 
@@ -116,7 +116,7 @@ def create_remote_app(config_path: Path | str = "code-diver.yml") -> FastAPI:
     # --- Health ---
     @app.get("/health")
     async def health() -> dict[str, str]:
-        return {"status": "ok", "version": "0.4.2"}
+        return {"status": "ok", "version": "0.4.3"}
 
     # --- REST Inspection & Search ---
     @app.post("/api/v1/search")
@@ -238,7 +238,7 @@ def create_remote_app(config_path: Path | str = "code-diver.yml") -> FastAPI:
                 "result": {
                     "protocolVersion": "2024-11-05",
                     "capabilities": {"tools": {}},
-                    "serverInfo": {"name": "code-diver", "version": "0.4.2"},
+                    "serverInfo": {"name": "code-diver", "version": "0.4.3"},
                 },
             }
         elif method == "notifications/initialized":
@@ -421,7 +421,7 @@ def create_remote_app(config_path: Path | str = "code-diver.yml") -> FastAPI:
                     "agentInfo": {
                         "name": "code-diver",
                         "title": "Code Diver Exploration Agent",
-                        "version": "0.4.2",
+                        "version": "0.4.3",
                     },
                 },
             }

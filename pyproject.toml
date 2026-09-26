@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "code-diver"
-version = "0.4.2"
+version = "0.4.3"
 description = "Local-first code exploration assistant and retrieval-evaluation sandbox."
 readme = "README.md"
 requires-python = ">=3.11"
