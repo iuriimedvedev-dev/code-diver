@@ -4031,14 +4031,20 @@ def cmd_serve(args: argparse.Namespace, config: AppConfig) -> int:
 
     grpc_server = None
     if grpc_port and grpc_port > 0:
+        from .transport.knotgate_servicer import KnotgateMcpServiceServicer
+        from .transport.grpc_gen import mcp_service_pb2_grpc
+
         grpc_server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
         code_diver_pb2_grpc.add_CodeDiverServiceServicer_to_server(
             CodeDiverGrpcServicer(cfg_path), grpc_server
         )
+        mcp_service_pb2_grpc.add_MCPServiceServicer_to_server(
+            KnotgateMcpServiceServicer(cfg_path), grpc_server
+        )
         listen_addr = f"{host}:{grpc_port}"
         grpc_server.add_insecure_port(listen_addr)
         grpc_server.start()
-        print(f"[Code Diver] gRPC server running at {listen_addr}", flush=True)
+        print(f"[Code Diver] gRPC server (CodeDiverService & knotgate MCPService) running at {listen_addr}", flush=True)
 
     try:
         app = create_remote_app(cfg_path)

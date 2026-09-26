@@ -1,0 +1,77 @@
+syntax = "proto3";
+
+package mcp.common.v1;
+
+// Common message types for MCP services
+
+// Standard response wrapper
+message Response {
+  bool success = 1;
+  string error = 2;
+  string message = 3;
+}
+
+// Tool definition
+message Tool {
+  string name = 1;
+  string description = 2;
+  string title = 3;
+  ToolInputSchema input_schema = 4;
+}
+
+// Tool input schema definition
+message ToolInputSchema {
+  string type = 1;
+  map<string, SchemaProperty> properties = 2;
+  repeated string required = 3;
+}
+
+// Schema property definition
+message SchemaProperty {
+  string type = 1;
+  string description = 2;
+  repeated string enum_values = 3;
+  SchemaProperty items = 4;  // For arrays
+  map<string, SchemaProperty> properties = 5;  // For objects
+  bool additional_properties = 6;
+  double minimum = 7;
+  double maximum = 8;
+  string default_value = 9;
+}
+
+// Tool execution result
+message ToolResult {
+  repeated ToolContent content = 1;
+  bool is_error = 2;
+}
+
+// Tool content (text, image, etc.)
+message ToolContent {
+  string type = 1;  // "text", "image", "resource"
+  string text = 2;
+  string data = 3;
+  string mime_type = 4;
+  map<string, string> annotations = 5;
+}
+
+// Server information
+message ServerInfo {
+  int32 id = 1;
+  string name = 2;
+  string url = 3;
+  string type = 4;  // "local", "remote"
+  bool enabled = 5;
+  string description = 6;
+  string status = 7;  // "connected", "disconnected", "error"
+  int64 last_ping = 8;
+  repeated Tool tools = 9;
+}
+
+// Health check information
+message HealthInfo {
+  string status = 1;
+  string timestamp = 2;
+  string server = 3;
+  string version = 4;
+  map<string, string> metadata = 5;
+}

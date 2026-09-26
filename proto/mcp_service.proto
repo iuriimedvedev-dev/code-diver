@@ -1,0 +1,95 @@
+syntax = "proto3";
+
+package mcp.service.v1;
+
+import "common.proto";
+
+// Generic MCP Service Interface
+// This can be implemented by any MCP service (memory, api, etc.)
+service MCPService {
+  // List available tools for this service
+  rpc ListTools(ListToolsRequest) returns (ListToolsResponse);
+  
+  // Call a tool directly
+  rpc CallTool(CallToolRequest) returns (CallToolResponse);
+  
+  // Get service health and status
+  rpc GetHealth(GetHealthRequest) returns (GetHealthResponse);
+  
+  // Get service metadata and capabilities
+  rpc GetCapabilities(GetCapabilitiesRequest) returns (GetCapabilitiesResponse);
+}
+
+// Request to list tools
+message ListToolsRequest {
+  string session_context = 1;  // Optional session context
+  repeated string filter_names = 2;  // Filter tools by name patterns
+}
+
+// Response with available tools
+message ListToolsResponse {
+  mcp.common.v1.Response response = 1;
+  repeated mcp.common.v1.Tool tools = 2;
+}
+
+// Request to call a tool
+message CallToolRequest {
+  string tool_name = 1;
+  map<string, string> arguments = 2;  // Tool arguments as string map
+  string session_context = 3;  // Session context
+  string user_context = 4;  // Non-secret user context, for example userId:<id>
+}
+
+// Response from tool call
+message CallToolResponse {
+  mcp.common.v1.Response response = 1;
+  mcp.common.v1.ToolResult result = 2;
+  int64 execution_time_ms = 3;
+}
+
+// Health check request
+message GetHealthRequest {
+  bool include_metrics = 1;  // Include performance metrics
+}
+
+// Health check response
+message GetHealthResponse {
+  mcp.common.v1.Response response = 1;
+  mcp.common.v1.HealthInfo health = 2;
+  ServiceMetrics metrics = 3;
+}
+
+// Service capabilities request
+message GetCapabilitiesRequest {
+  // Empty for now
+}
+
+// Service capabilities response
+message GetCapabilitiesResponse {
+  mcp.common.v1.Response response = 1;
+  ServiceCapabilities capabilities = 2;
+}
+
+// Service capabilities definition
+message ServiceCapabilities {
+  string service_name = 1;
+  string service_version = 2;
+  repeated string supported_features = 3;
+  bool supports_streaming = 4;
+  bool supports_sessions = 5;
+  bool requires_authentication = 6;
+  int32 max_concurrent_calls = 7;
+  int32 default_timeout_ms = 8;
+}
+
+// Service performance metrics
+message ServiceMetrics {
+  int64 total_calls = 1;
+  int64 successful_calls = 2;
+  int64 failed_calls = 3;
+  double avg_response_time_ms = 4;
+  int64 uptime_seconds = 5;
+  int32 active_sessions = 6;
+  double cpu_usage_percent = 7;
+  double memory_usage_mb = 8;
+}

@@ -222,6 +222,188 @@ def create_remote_app(config_path: Path | str = "code-diver.yml") -> FastAPI:
             "directory": str(ingest_dir),
         }
 
+    # --- Standard MCP JSON-RPC 2.0 (Streamable HTTP / MCP over HTTP) ---
+    @app.post("/")
+    @app.post("/mcp")
+    @app.post("/mcp/rpc")
+    async def standard_mcp_rpc(req: JsonRpcRequestModel) -> dict[str, Any]:
+        """Standard Model Context Protocol (MCP) JSON-RPC 2.0 handler."""
+        method = req.method
+        params = req.params
+
+        if method == "initialize":
+            return {
+                "jsonrpc": "2.0",
+                "id": req.id,
+                "result": {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {"tools": {}},
+                    "serverInfo": {"name": "code-diver", "version": "0.4.2"},
+                },
+            }
+        elif method == "notifications/initialized":
+            return {"jsonrpc": "2.0", "id": req.id, "result": {}}
+        elif method == "tools/list":
+            return {
+                "jsonrpc": "2.0",
+                "id": req.id,
+                "result": {
+                    "tools": [
+                        {
+                            "name": "code_diver_search",
+                            "description": "Search repository code using neural and hybrid retrieval.",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "query": {"type": "string", "description": "Search query"},
+                                    "limit": {"type": "integer", "default": 10},
+                                },
+                                "required": ["query"],
+                            },
+                        },
+                        {
+                            "name": "code_diver_grep",
+                            "description": "Search literal text or regex patterns across the codebase.",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "pattern": {"type": "string"},
+                                    "path": {"type": "string"},
+                                    "limit": {"type": "integer", "default": 50},
+                                    "regex": {"type": "boolean", "default": False},
+                                },
+                                "required": ["pattern"],
+                            },
+                        },
+                        {
+                            "name": "code_diver_read",
+                            "description": "Read a bounded excerpt of lines from a project file.",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "file": {"type": "string"},
+                                    "start_line": {"type": "integer", "default": 1},
+                                    "lines": {"type": "integer", "default": 100},
+                                },
+                                "required": ["file"],
+                            },
+                        },
+                        {
+                            "name": "code_diver_symbols",
+                            "description": "List AST parsed source symbols (classes, methods, functions) for a file or repo.",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "path": {"type": "string"},
+                                    "limit": {"type": "integer", "default": 100},
+                                },
+                            },
+                        },
+                        {
+                            "name": "code_diver_tree",
+                            "description": "Print a gitignore-aware directory tree of the repository.",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "path": {"type": "string"},
+                                    "depth": {"type": "integer", "default": 3},
+                                    "limit": {"type": "integer", "default": 100},
+                                },
+                            },
+                        },
+                        {
+                            "name": "code_diver_info",
+                            "description": "Get Code Diver index, vector store, graph, and model footprint statistics.",
+                            "inputSchema": {"type": "object", "properties": {}},
+                        },
+                    ]
+                },
+            }
+        elif method == "tools/call":
+            tool_name = params.get("name")
+            tool_args = params.get("arguments", {})
+            config, runtime = get_runtime()
+
+            try:
+                if tool_name == "code_diver_search":
+                    query = tool_args.get("query", "")
+                    limit = int(tool_args.get("limit", 10))
+                    results = runtime.base_strategy.search(query=query, limit=limit)
+                    out = [
+                        {
+                            "path": r.item.path,
+                            "score": round(float(r.score), 4),
+                            "start_line": r.item.start_line,
+                            "end_line": r.item.end_line,
+                            "title": r.item.title,
+                            "content_preview": (
+                                r.item.content[:300] + "..." if len(r.item.content) > 300 else r.item.content
+                            ),
+                        }
+                        for r in results
+                    ]
+                    content_str = json.dumps(out, indent=2)
+
+                elif tool_name == "code_diver_grep":
+                    pattern = tool_args.get("pattern", "")
+                    path = tool_args.get("path")
+                    limit = int(tool_args.get("limit", 50))
+                    regex = bool(tool_args.get("regex", False))
+                    matches = GrepService(config.root).search(pattern=pattern, path=path, limit=limit, regex=regex)
+                    content_str = json.dumps([{"path": m.path, "line": m.line, "text": m.text} for m in matches], indent=2)
+
+                elif tool_name == "code_diver_read":
+                    file_p = tool_args.get("file", "")
+                    start_l = int(tool_args.get("start_line", 1))
+                    lines = int(tool_args.get("lines", 100))
+                    content_str = ReadExcerptService(config.root).render(path=file_p, start_line=start_l, lines=lines)
+
+                elif tool_name == "code_diver_symbols":
+                    path = tool_args.get("path")
+                    limit = int(tool_args.get("limit", 100))
+                    syms = SymbolsService(config.root).structured(path=path, limit=limit)
+                    content_str = json.dumps(syms.get("symbols", []), indent=2)
+
+                elif tool_name == "code_diver_tree":
+                    path = tool_args.get("path")
+                    depth = int(tool_args.get("depth", 3))
+                    limit = int(tool_args.get("limit", 100))
+                    content_str = TreeService(config.root).render(path=path, max_depth=depth, limit=limit)
+
+                elif tool_name == "code_diver_info":
+                    content_str = json.dumps(InfoService(config).get_info().to_dict(), indent=2)
+
+                else:
+                    return {
+                        "jsonrpc": "2.0",
+                        "id": req.id,
+                        "error": {"code": -32601, "message": f"Tool '{tool_name}' not found"},
+                    }
+
+                return {
+                    "jsonrpc": "2.0",
+                    "id": req.id,
+                    "result": {
+                        "content": [{"type": "text", "text": content_str}],
+                        "isError": False,
+                    },
+                }
+            except Exception as e:
+                return {
+                    "jsonrpc": "2.0",
+                    "id": req.id,
+                    "result": {
+                        "content": [{"type": "text", "text": f"Error: {e}"}],
+                        "isError": True,
+                    },
+                }
+        else:
+            return {
+                "jsonrpc": "2.0",
+                "id": req.id,
+                "error": {"code": -32601, "message": f"Method '{method}' not found"},
+            }
+
     # --- ACP HTTP / SSE Endpoints ---
     @app.post("/acp/v1/rpc")
     async def acp_rpc(req: JsonRpcRequestModel) -> dict[str, Any]:
