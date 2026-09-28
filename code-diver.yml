@@ -17,7 +17,7 @@ embedding:
   api_key: local
   batch_size: 128
   workers: 1
-  max_input_chars: 400
+  max_input_chars: 2000
   query_prefix: "Represent this code search query for retrieving relevant files: "
   document_prefix: "Represent this code file metadata for retrieval: "
 
@@ -110,35 +110,36 @@ scanner:
   exclude: []
   max_file_bytes: 1000000
   line_chunks: false
-  chunk_lines: 220
   structural_chunks: false
   symbol_chunks: false
   symbol_body: false
   file_summary_chunks: true
   file_manifest_chunks: true
+  file_summary_compact_budget: true
   max_symbols_per_file: 96
 
 search:
   limit: 10
   preview_lines: 8
-  strategy: graph_file_rerank
+  strategy: graph_file_cross_encoder
 
 graph_file_search:
-  seed_limit: 120
-  lexical_seed_limit: 240
+  seed_limit: 140
+  lexical_seed_limit: 280
   vector_weight: 0.25
   lexical_weight: 0.25
   path_weight: 0.20
   symbol_weight: 0.10
-  graph_weight: 0.45
+  graph_weight: 0.0
   depth: 2
   neighbor_limit: 40
   decay: 0.65
   min_token_length: 3
+  seed_score_parity: true
 
 hybrid_search:
-  candidate_limit: 280
-  lexical_candidate_limit: 900
+  candidate_limit: 360
+  lexical_candidate_limit: 1000
   vector_weight: 0.42
   lexical_weight: 0.26
   path_weight: 0.12
@@ -182,9 +183,20 @@ cross_encoder_rerank:
   url: http://127.0.0.1:8081/v1/rerank
   candidate_limit: 34
   max_document_chars: 850
+  second_pass_enabled: true
+  second_pass_score_floor: 0.3
+  second_pass_max_document_chars: 2400
+  second_pass_candidate_cap: 24
   preserve_top_candidate: true
   preserve_top_score_margin: 0.1
   timeout_ms: 60000
+  hub_prior_enabled: true
+  hub_prior_mode: additive
+  hub_prior_role_weight: 0.0
+  hub_prior_fanin_weight: 0.04
+  hub_prior_protect_top: 3
+  ce_meta_ranker_enabled: true
+  ce_meta_model_path: artifacts/ce_meta_ranker/ranker.json
 
 recursive_search:
   rounds: 2
