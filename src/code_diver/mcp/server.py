@@ -77,7 +77,7 @@ def create_mcp_server(config_path: Path | str = "code-diver.yml") -> MCPServer:
     def read_file(file: str, start_line: int = 1, lines: int = 100) -> str:
         """Read file excerpt."""
         config, _ = get_runtime()
-        return ReadExcerptService(config.root).read(file=file, start_line=start_line, lines=lines)
+        return ReadExcerptService(config.root).render(path=file, start_line=start_line, lines=lines)
 
     @server.tool(
         name="code_diver_grep",
@@ -100,21 +100,8 @@ def create_mcp_server(config_path: Path | str = "code-diver.yml") -> MCPServer:
     def symbols(path: str | None = None, limit: int = 100) -> str:
         """List symbols."""
         config, _ = get_runtime()
-        syms = SymbolsService(config.root).list_symbols(path=path, limit=limit)
-        return json.dumps(
-            [
-                {
-                    "name": s.name,
-                    "kind": s.kind,
-                    "path": s.path,
-                    "start_line": s.start_line,
-                    "end_line": s.end_line,
-                }
-                for s in syms
-            ],
-            ensure_ascii=False,
-            indent=2,
-        )
+        payload = SymbolsService(config.root).structured(path=path, limit=limit)
+        return json.dumps(payload.get("symbols", []), ensure_ascii=False, indent=2)
 
     @server.tool(
         name="code_diver_tree",

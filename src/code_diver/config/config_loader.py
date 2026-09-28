@@ -47,8 +47,10 @@ class ConfigLoader:
         llm_rerank = self._llm_rerank(data.get("llm_rerank"), generation=generation)
         cross_encoder_rerank = self._cross_encoder_rerank(data.get("cross_encoder_rerank"))
         multi_query = self._multi_query(data.get("multi_query"))
+        root_override = os.environ.get("CODE_DIVER_ROOT")
+        root_path = Path(root_override).resolve() if root_override else Path(data.get("root", Defaults.ROOT))
         return AppConfig(
-            root=Path(data.get("root", Defaults.ROOT)),
+            root=root_path,
             artifact=Path(data.get("artifact", Defaults.ARTIFACT)),
             env_file=self._env_file(data.get("env_file")),
             storage=self._storage(data.get("storage")),

@@ -27,7 +27,7 @@ COPY .pi ./.pi
 COPY docker/entrypoint.sh /usr/local/bin/code-diver-entrypoint
 
 RUN chmod +x /usr/local/bin/code-diver-entrypoint \
-    && uv sync --frozen --no-dev
+    && uv pip install --system --no-cache-dir -e .
 
 VOLUME ["/workspace", "/artifacts"]
 
