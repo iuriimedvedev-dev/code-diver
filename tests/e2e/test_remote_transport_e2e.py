@@ -6,6 +6,7 @@ import json
 import subprocess
 import sys
 import time
+from pathlib import Path
 
 import grpc
 import httpx2
@@ -64,7 +65,7 @@ def test_e2e_http_health_and_info(remote_server):
     with httpx2.Client(timeout=30.0) as client:
         health = client.get(f"{url}/health").json()
         assert health["status"] == "ok"
-        assert health["version"] == "0.4.3"
+        assert health["version"] == "0.4.5"
 
         info = client.get(f"{url}/api/v1/info").json()
         assert isinstance(info, dict)
@@ -103,11 +104,18 @@ def test_e2e_remote_client_grpc_operations(remote_server):
         assert summary.status == "ok"
         assert summary.files_received == 1
 
-        # Trigger index streaming
-        updates = list(client.trigger_index_grpc(clear_existing=False))
-        assert len(updates) > 0
-        stages = [u.stage for u in updates]
-        assert "init" in stages
+        # Trigger index streaming on an isolated test dir to verify streaming gRPC without heavy embedding
+        empty_dir = Path(".code_diver_remote_empty_test")
+        empty_dir.mkdir(exist_ok=True)
+        try:
+            updates = list(client.trigger_index_grpc(repo_path=".code_diver_remote_empty_test", clear_existing=False))
+            assert len(updates) > 0
+            stages = [u.stage for u in updates]
+            assert "init" in stages
+            assert "completed" in stages
+        finally:
+            if empty_dir.exists():
+                empty_dir.rmdir()
     finally:
         client.close()
 

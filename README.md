@@ -80,21 +80,27 @@ Comprehensive needle-in-a-haystack function localization across 6 programming la
 
 *Full benchmark artifacts and execution logs available in `.benchmarks/repoqa/agent_gemma4_e4b_cascade_600.json` and [`docs/benchmarks/large_scale_benchmarks.md`](docs/benchmarks/large_scale_benchmarks.md).*
 
-## Model Context Protocol (MCP) & Subagent Integration
+## Model Context Protocol (MCP) & Remote Transports
 
-Code Diver can be integrated directly into **OpenCode**, **Claude Desktop**, **Cursor**, **Windsurf**, or custom multi-agent architectures via MCP.
+Code Diver can be integrated directly into **OpenCode**, **Claude Desktop**, **Cursor**, **Windsurf**, Kubernetes mesh clusters (`knotgate`), or custom multi-agent architectures.
 
-### 1. Start the MCP Server
+### 1. Unified Remote Server (`code-diver serve`)
+Starting with v0.4.3+, `code-diver serve` hosts both HTTP/SSE and high-performance gRPC transports simultaneously:
+- **HTTP/JSON-RPC 2.0 (MCP)**: Streamable endpoint at `POST /mcp` and `POST /` conforming to Model Context Protocol specification (`2024-11-05`).
+- **knotgate gRPC MCP Service**: Native Kubernetes service mesh integration implementing `mcp.service.v1.MCPService` (`ListTools`, `CallTool`, `GetHealth`, `GetCapabilities`) on `--grpc-port 50051`.
+- **REST & SSE Endpoints**: `/api/v1/search`, `/api/v1/info`, `/api/v1/index/trigger`, `/api/v1/index/ingest`, `/health`, `/sse`.
+
 ```bash
-# Via Python CLI (over stdio)
-uv run code-diver mcp
+# Run server with both HTTP (8000) and gRPC (50051)
+code-diver serve --host 0.0.0.0 --port 8000 --grpc-port 50051
 
-# Or using the standalone Rust binary
-./native/code_diver_search_bin/target/release/code_diver_search_bin mcp
+# Or run stdio MCP server for local CLI agents
+code-diver mcp
 ```
 
 ### 2. Capabilities & Tools
 - **Synchronous Subsecond Search**: `code_diver_search`, `code_diver_symbols`, `code_diver_read`, `code_diver_grep`, `code_diver_tree`, `code_diver_info`.
+- **Remote Ingest & Dynamic Indexing**: `TriggerIndex`, `IngestFiles` via REST and gRPC without container restarts.
 - **Asynchronous Task API**: `code_diver_submit_agent_search`, `code_diver_task_status`, `code_diver_task_result`, `code_diver_task_cancel`.
 
 ### 3. Subagent for OpenCode

@@ -141,7 +141,11 @@ class CodeDiverGrpcServicer(code_diver_pb2_grpc.CodeDiverServiceServicer):
         context: grpc.ServicerContext,
     ) -> Any:
         config, _ = self._get_runtime()
-        repo_root = Path(request.repo_path).expanduser() if request.repo_path else config.root
+        if request.repo_path:
+            raw_path = Path(request.repo_path).expanduser()
+            repo_root = raw_path if raw_path.is_absolute() else (config.root / raw_path).resolve()
+        else:
+            repo_root = config.root.resolve()
         
         yield code_diver_pb2.IndexProgressUpdate(
             stage="init",
@@ -151,15 +155,38 @@ class CodeDiverGrpcServicer(code_diver_pb2_grpc.CodeDiverServiceServicer):
             done=False,
         )
 
+        if not repo_root.exists():
+            yield code_diver_pb2.IndexProgressUpdate(
+                stage="error",
+                current=0,
+                total=100,
+                message=f"Repository path does not exist: {repo_root}",
+                done=True,
+                error=f"Repository path does not exist: {repo_root}",
+            )
+            return
+
         try:
             from ..cli import (
+                close_vector_store,
                 make_codebase_scanner,
                 make_embedding_provider,
                 make_indexing_service,
-                make_plugin_manager,
                 make_vector_store,
-                close_vector_store,
             )
+
+            scanner = make_codebase_scanner(config)
+            scanned_items = scanner.scan(repo_root)
+
+            if not scanned_items:
+                yield code_diver_pb2.IndexProgressUpdate(
+                    stage="completed",
+                    current=100,
+                    total=100,
+                    message="No indexable items found in repository",
+                    done=True,
+                )
+                return
 
             vector_store = make_vector_store(config)
             try:

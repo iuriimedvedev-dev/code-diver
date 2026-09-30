@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -8,6 +9,9 @@ from typing import Any
 from ..config import AppConfig
 from ..graph.code_graph_store import CodeGraphStore
 from ..store.vector_store_factory import create_vector_store
+
+_DIR_SIZE_CACHE: dict[str, tuple[float, int]] = {}
+_DIR_SIZE_CACHE_TTL_SEC: float = 60.0
 
 
 def _format_bytes(bytes_count: int) -> str:
@@ -21,24 +25,48 @@ def _format_bytes(bytes_count: int) -> str:
     return f"{val:.2f} TB"
 
 
-def _dir_size(path: Path) -> int:
-    """Recursively calculate directory size in bytes."""
+def _dir_size(path: Path, max_depth: int = 4, _current_depth: int = 0) -> int:
+    """Recursively calculate directory size in bytes with caching and bounded depth."""
     if not path.exists():
         return 0
     if path.is_file():
-        return path.stat().st_size
+        try:
+            return path.stat().st_size
+        except OSError:
+            return 0
+
+    if _current_depth == 0:
+        resolved = str(path.resolve())
+        now = time.monotonic()
+        if resolved in _DIR_SIZE_CACHE:
+            cached_time, cached_val = _DIR_SIZE_CACHE[resolved]
+            if now - cached_time < _DIR_SIZE_CACHE_TTL_SEC:
+                return cached_val
+
+    if _current_depth >= max_depth:
+        return 0
+
     total = 0
     try:
         for entry in os.scandir(path):
             try:
+                if entry.name in (".git", "benchmarks", ".venv", "venv", "node_modules"):
+                    continue
                 if entry.is_file(follow_symlinks=False):
                     total += entry.stat(follow_symlinks=False).st_size
                 elif entry.is_dir(follow_symlinks=False):
-                    total += _dir_size(Path(entry.path))
+                    total += _dir_size(
+                        Path(entry.path), max_depth=max_depth, _current_depth=_current_depth + 1
+                    )
             except OSError:
                 continue
     except OSError:
         pass
+
+    if _current_depth == 0:
+        resolved = str(path.resolve())
+        _DIR_SIZE_CACHE[resolved] = (time.monotonic(), total)
+
     return total
 
 

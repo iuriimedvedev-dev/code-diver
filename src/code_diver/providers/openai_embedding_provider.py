@@ -150,7 +150,12 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
         try:
             from transformers import AutoTokenizer
 
-            self.tokenizer = AutoTokenizer.from_pretrained(self.model, trust_remote_code=True)
+            try:
+                self.tokenizer = AutoTokenizer.from_pretrained(
+                    self.model, trust_remote_code=True, local_files_only=True
+                )
+            except Exception:
+                self.tokenizer = AutoTokenizer.from_pretrained(self.model, trust_remote_code=True)
         except Exception:
             # Leave tokenizer as None; tiktoken/char fallback still applies.
             self.tokenizer = None

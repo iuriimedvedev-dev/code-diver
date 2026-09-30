@@ -86,7 +86,7 @@ class AcpServer:
             "agentInfo": {
                 "name": "code-diver",
                 "title": "Code Diver Exploration Agent",
-                "version": "0.4.3",
+                "version": "0.4.5",
             },
             "authMethods": [],
         }
