@@ -36,7 +36,7 @@ set -euo pipefail
 
 MODEL="${RERANKER_MODEL:-.code-diver/models/rerankers/qwen3-reranker-0.6b/Qwen3-Reranker-0.6B-Q4_K_M.gguf}"
 PORT="${RERANKER_PORT:-8081}"
-BATCH="${RERANKER_BATCH:-768}"
+BATCH="${RERANKER_BATCH:-2048}"
 LOG="${RERANKER_LOG:-/private/tmp/llama-server-${PORT}.log}"
 
 if lsof -nP -iTCP:"${PORT}" -sTCP:LISTEN >/dev/null 2>&1; then
