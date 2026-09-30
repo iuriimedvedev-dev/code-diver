@@ -7,6 +7,7 @@ from pathlib import Path
 from .file_graph_catalog import FileGraphCatalog
 
 SCHEMA_VERSION = 2
+SUPPORTED_SCHEMA_VERSIONS = {1, 2}
 
 
 class FileGraphCatalogStore:
@@ -15,19 +16,23 @@ class FileGraphCatalogStore:
 
     @classmethod
     def for_graph_artifact(cls, graph_artifact: Path) -> FileGraphCatalogStore:
+        if graph_artifact.name.endswith(".file-graph-catalog.json"):
+            return cls(graph_artifact)
         return cls(graph_artifact.with_name(f"{graph_artifact.stem}.file-graph-catalog.json"))
 
     def exists(self) -> bool:
         return self.artifact.exists()
 
     def is_fresh_for(self, source: Path) -> bool:
-        if not self.exists() or not source.exists():
+        if not self.exists():
             return False
+        if not source.exists() or source.resolve() == self.artifact.resolve():
+            return True
         return self.artifact.stat().st_mtime >= source.stat().st_mtime
 
     def load(self) -> FileGraphCatalog:
         payload = json.loads(self.artifact.read_text(encoding="utf-8"))
-        if payload.get("schema_version") != SCHEMA_VERSION:
+        if payload.get("schema_version") not in SUPPORTED_SCHEMA_VERSIONS:
             raise ValueError(f"Unsupported file graph catalog schema: {payload.get('schema_version')}")
         catalog = FileGraphCatalog.from_json(dict(payload.get("catalog") or {}))
         if catalog.fan_in is None:

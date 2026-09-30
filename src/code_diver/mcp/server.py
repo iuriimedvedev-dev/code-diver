@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +22,7 @@ from .tasks import BackgroundTaskManager
 
 def create_mcp_server(config_path: Path | str = "code-diver.yml") -> MCPServer:
     """Create and configure the Code Diver MCP server."""
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
     server = MCPServer("code-diver")
     cfg_path = Path(config_path).expanduser()
     task_manager = BackgroundTaskManager(max_workers=4)

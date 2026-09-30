@@ -23,7 +23,7 @@
 # Inherited from H-66b: file_summary_compact_budget puts purpose+terms first, drops keyword/path
 # noise from terms, and shortens the embedded file: line to basename + last two segments. Every
 # weight, scanner flag and strategy block below is byte-identical to the champion.
-root: ../intellij-community
+root: /Users/iurii.medvedev/Work/intellij-community
 
 storage:
   provider: qdrant
@@ -38,11 +38,15 @@ embedding:
   model: mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ
   dimensions:
   url: http://127.0.0.1:8001/v1/embeddings
+  runtime_mode: external
   api_key: local
   batch_size: 128
   workers: 4
   # H-70: the only changed value vs the champion. 500 chars used ~109 of the 512-token window.
   max_input_chars: 1800
+
+pi:
+  binary: "disabled"
 
 search:
   limit: 10

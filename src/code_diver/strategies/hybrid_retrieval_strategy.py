@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import concurrent.futures
+import json
 import logging
 from collections import defaultdict
 from pathlib import Path
@@ -402,7 +403,8 @@ class HybridRetrievalStrategy(RetrievalStrategy):
     def _load_catalog_graph(self) -> CodeGraph | None:
         if not self._uses_bounded_catalog():
             return self._load_full_graph()
-        if not self.graph_store.exists():
+        catalog_store = FileGraphCatalogStore.for_graph_artifact(self.graph_store.artifact)
+        if not self.graph_store.exists() and not catalog_store.exists():
             return None
         catalog = self._load_file_graph_catalog()
         return CodeGraph(items=catalog.items_by_id, edges=[])
@@ -433,6 +435,7 @@ class HybridRetrievalStrategy(RetrievalStrategy):
                     self.graph_store.stream_edges(),
                 )
                 store.save(catalog)
+        logger.info("JVM file graph catalog loaded: %d items from %s", len(catalog.items_by_id), store.artifact.name)
         if key:
             with _SHARED_CACHE_LOCK:
                 _SHARED_FILE_GRAPH_CATALOGS[key] = catalog
@@ -456,6 +459,7 @@ class HybridRetrievalStrategy(RetrievalStrategy):
                         _SHARED_GRAPHS[key] = None
                 return None
             graph = self.graph_store.load()
+            logger.info("JVM graph loaded: %d items, %d edges from %s", len(graph.items), len(graph.edges), self.graph_store.artifact.name)
             if key:
                 with _SHARED_CACHE_LOCK:
                     _SHARED_GRAPHS[key] = graph

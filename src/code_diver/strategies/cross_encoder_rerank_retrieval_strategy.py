@@ -84,6 +84,11 @@ class CrossEncoderRerankRetrievalStrategy(RetrievalStrategy):
             )
             return
         model_path = Path(config.ce_meta_model_path)
+        if not model_path.is_absolute() and not model_path.is_file():
+            repo_root = Path(__file__).resolve().parents[3]
+            candidate = repo_root / model_path
+            if candidate.is_file():
+                model_path = candidate
         if not model_path.exists():
             logger.warning(
                 "CE meta-ranker model not found at %s; falling back to hub prior.",
@@ -189,9 +194,11 @@ class CrossEncoderRerankRetrievalStrategy(RetrievalStrategy):
             },
         )
         started = perf_counter()
+        logger.info("Cross-encoder rerank request: %d candidates, query=%r", len(rerank_candidates), query)
         try:
             scores = self.rerank_provider.rerank(query, documents, self._top_n(limit, rerank_candidates))
             duration_ms = (perf_counter() - started) * 1000
+            logger.info("Cross-encoder rerank response in %.1fms: %d scored candidates", duration_ms, len(scores))
             self.trace_logger.write(
                 "cross_encoder_rerank_response",
                 {

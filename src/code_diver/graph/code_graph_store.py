@@ -20,7 +20,18 @@ class CodeGraphStore:
         self.artifact = artifact
 
     def exists(self) -> bool:
-        return self.artifact.exists()
+        if self.artifact.exists():
+            return True
+        catalog_path = self.artifact.with_name(f"{self.artifact.stem}.file-graph-catalog.json")
+        return catalog_path.exists()
+
+    def _resolved_target(self) -> Path:
+        if self.artifact.exists():
+            return self.artifact
+        catalog_path = self.artifact.with_name(f"{self.artifact.stem}.file-graph-catalog.json")
+        if catalog_path.exists():
+            return catalog_path
+        return self.artifact
 
     def save(self, graph: CodeGraph) -> None:
         self.artifact.parent.mkdir(parents=True, exist_ok=True)
@@ -32,17 +43,32 @@ class CodeGraphStore:
         self.artifact.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
     def load(self) -> CodeGraph:
-        payload = json.loads(self.artifact.read_text(encoding="utf-8"))
-        if payload.get(SchemaKey.SCHEMA_VERSION.value) != SCHEMA_VERSION:
-            raise ValueError(f"Unsupported graph schema: {payload.get(SchemaKey.SCHEMA_VERSION.value)}")
-        return CodeGraph.from_json(payload[SchemaKey.GRAPH.value])
+        target = self._resolved_target()
+        payload = json.loads(target.read_text(encoding="utf-8"))
+        if payload.get(SchemaKey.SCHEMA_VERSION.value) == SCHEMA_VERSION and SchemaKey.GRAPH.value in payload:
+            return CodeGraph.from_json(payload[SchemaKey.GRAPH.value])
+        if "catalog" in payload:
+            from ..strategies.file_graph_catalog import FileGraphCatalog
+
+            catalog = FileGraphCatalog.from_json(dict(payload.get("catalog") or {}))
+            return CodeGraph(items=catalog.items_by_id, edges=[])
+        raise ValueError(f"Unsupported graph schema: {payload.get(SchemaKey.SCHEMA_VERSION.value)}")
 
     def stream_items(self) -> Iterator[CodeItem]:
-        with self.artifact.open("rb") as graph_file:
-            for _, item in ijson.kvitems(graph_file, f"{SchemaKey.GRAPH.value}.{SchemaKey.ITEMS.value}"):
+        target = self._resolved_target()
+        with target.open("rb") as graph_file:
+            prefix = f"{SchemaKey.GRAPH.value}.{SchemaKey.ITEMS.value}"
+            found = False
+            for _, item in ijson.kvitems(graph_file, prefix):
+                found = True
                 yield CodeItem.from_json(dict(item))
+            if not found:
+                graph_file.seek(0)
+                for _, item in ijson.kvitems(graph_file, "catalog.items"):
+                    yield CodeItem.from_json(dict(item))
 
     def stream_edges(self) -> Iterator[GraphEdge]:
-        with self.artifact.open("rb") as graph_file:
+        target = self._resolved_target()
+        with target.open("rb") as graph_file:
             for edge in ijson.items(graph_file, f"{SchemaKey.GRAPH.value}.{SchemaKey.EDGES.value}.item"):
                 yield GraphEdge.from_json(dict(edge))
