@@ -2,7 +2,7 @@
 
 `code-diver` is a local code exploration assistant and retrieval-evaluation sandbox. It indexes a repository into local artifacts, answers natural-language code-navigation queries with cited files/snippets, and runs reproducible retrieval evaluations.
 
-> **🚀 Standalone Pure Rust Engine**: A single high-performance binary with zero Python dependencies is available in `native/code_diver_search_bin/` and distributed via GitHub Releases. It delivers **+28.7 pp Hit@1** (+75% relative gain) and **+24.4 pp MRR@10** over JetBrains Context (`jbcontext 0.9.14`) on the full 1,065-query IntelliJ benchmark. See [`docs/distribution/STANDALONE_RUST_GUIDE.md`](docs/distribution/STANDALONE_RUST_GUIDE.md) and [`docs/research/LATENCY_AND_1065_BENCHMARK_ANALYSIS.md`](docs/research/LATENCY_AND_1065_BENCHMARK_ANALYSIS.md).
+> **🚀 Standalone Pure Rust Engine**: A single high-performance binary with zero Python dependencies is available in `native/code_diver_search_bin/` and distributed via GitHub Releases. It delivers **+28.7 pp Hit@1** (+75% relative gain) and **+24.4 pp MRR@10** over JetBrains Context (`jbcontext 0.9.14`) on the full 1,065-query IntelliJ benchmark. See [`docs/distribution/STANDALONE_RUST_GUIDE.md`](docs/distribution/STANDALONE_RUST_GUIDE.md), [`docs/architecture/retrieval_and_mcp_architecture.md`](docs/architecture/retrieval_and_mcp_architecture.md), and [`docs/research/LATENCY_AND_1065_BENCHMARK_ANALYSIS.md`](docs/research/LATENCY_AND_1065_BENCHMARK_ANALYSIS.md).
 
 ## Benchmark: code-diver v0.2.0 vs jbcontext 0.9.14
 
@@ -84,6 +84,8 @@ Comprehensive needle-in-a-haystack function localization across 6 programming la
 
 Code Diver can be integrated directly into **OpenCode**, **Claude Desktop**, **Cursor**, **Windsurf**, Kubernetes mesh clusters (`knotgate`), or custom multi-agent architectures.
 
+> 📖 **Architecture Deep Dive**: See [`docs/architecture/retrieval_and_mcp_architecture.md`](docs/architecture/retrieval_and_mcp_architecture.md) for full architectural specifications, ASCII data flow diagrams, the H-91a 4-stage cascade, and the complete model fleet breakdown.
+
 ### 1. Unified Remote Server (`code-diver serve`)
 Starting with v0.4.3+, `code-diver serve` hosts both HTTP/SSE and high-performance gRPC transports simultaneously:
 - **HTTP/JSON-RPC 2.0 (MCP)**: Streamable endpoint at `POST /mcp` and `POST /` conforming to Model Context Protocol specification (`2024-11-05`).
@@ -108,7 +110,7 @@ A pre-tuned subagent template is provided in `integrations/opencode/code-diver.m
 ```bash
 cp integrations/opencode/code-diver.md ~/.config/opencode/agent/code-diver.md
 ```
-See detailed guides in [`docs/integrations/mcp_server.md`](docs/integrations/mcp_server.md) and [`docs/integrations/agent_subagent.md`](docs/integrations/agent_subagent.md).
+See detailed guides in [`docs/architecture/retrieval_and_mcp_architecture.md`](docs/architecture/retrieval_and_mcp_architecture.md), [`docs/integrations/mcp_server.md`](docs/integrations/mcp_server.md), and [`docs/integrations/agent_subagent.md`](docs/integrations/agent_subagent.md).
 
 ---
 
