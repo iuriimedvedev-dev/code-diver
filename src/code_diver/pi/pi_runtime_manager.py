@@ -32,7 +32,15 @@ class PiRuntimeManager:
     def command_for_execution(self, command: list[str]) -> list[str]:
         prepared = list(command)
         if self._uses_local_npm_exec(prepared):
-            prepared = [str(self.local_binary()), *prepared[4:]]
+            local_bin = self.local_binary()
+            if local_bin.exists():
+                prepared = [str(local_bin), *prepared[4:]]
+            else:
+                which_pi = shutil.which("pi")
+                if which_pi:
+                    prepared = [which_pi, *prepared[4:]]
+                else:
+                    prepared = ["npm", "--prefix", str(self.package_root.resolve()), *prepared[1:]]
         return self._resolve_package_asset_flags(prepared)
 
     def cwd_for_command(self, command: list[str]) -> Path | None:

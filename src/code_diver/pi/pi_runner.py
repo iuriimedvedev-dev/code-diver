@@ -31,21 +31,26 @@ class PiRunner:
         toolset: str | None = None,
         hypothesis: str | None = None,
         session: PiSessionOptions | None = None,
+        provider: str | None = None,
+        model: str | None = None,
     ) -> int:
         return self._run_with_fallbacks(
             config,
             config_path,
-            lambda model: self.command_builder.build(
+            lambda m: self.command_builder.build(
                 config,
                 prompt=prompt,
                 print_mode=False,
                 toolset=toolset,
                 hypothesis=hypothesis,
-                model=model,
+                provider=provider,
+                model=m,
                 session=session,
             ),
             toolset,
             hypothesis,
+            model_override=model,
+            provider_override=provider,
         )
 
     def run_print(
@@ -56,21 +61,26 @@ class PiRunner:
         toolset: str | None = None,
         hypothesis: str | None = None,
         session: PiSessionOptions | None = None,
+        provider: str | None = None,
+        model: str | None = None,
     ) -> int:
         return self._run_with_fallbacks(
             config,
             config_path,
-            lambda model: self.command_builder.build(
+            lambda m: self.command_builder.build(
                 config,
                 prompt=prompt,
                 print_mode=True,
                 toolset=toolset,
                 hypothesis=hypothesis,
-                model=model,
+                provider=provider,
+                model=m,
                 session=session,
             ),
             toolset,
             hypothesis,
+            model_override=model,
+            provider_override=provider,
         )
 
     def run_print_capture(
@@ -81,21 +91,26 @@ class PiRunner:
         toolset: str | None = None,
         hypothesis: str | None = None,
         session: PiSessionOptions | None = None,
+        provider: str | None = None,
+        model: str | None = None,
     ) -> tuple[int, str]:
         return self._run_with_fallbacks_capture(
             config,
             config_path,
-            lambda model: self.command_builder.build(
+            lambda m: self.command_builder.build(
                 config,
                 prompt=prompt,
                 print_mode=True,
                 toolset=toolset,
                 hypothesis=hypothesis,
-                model=model,
+                provider=provider,
+                model=m,
                 session=session,
             ),
             toolset,
             hypothesis,
+            model_override=model,
+            provider_override=provider,
         )
 
     def run_print_logged(
@@ -107,21 +122,26 @@ class PiRunner:
         toolset: str | None = None,
         hypothesis: str | None = None,
         session: PiSessionOptions | None = None,
+        provider: str | None = None,
+        model: str | None = None,
     ) -> int:
         return self._run_with_fallbacks_logged(
             config,
             config_path,
-            lambda model: self._json_command(
+            lambda m: self._json_command(
                 config,
                 prompt,
                 toolset,
                 hypothesis,
-                model,
+                m,
                 session,
+                provider=provider,
             ),
             toolset,
             hypothesis,
             log_path,
+            model_override=model,
+            provider_override=provider,
         )
 
     def _env(
@@ -130,9 +150,20 @@ class PiRunner:
         config_path: Path | None,
         toolset: str | None = None,
         hypothesis: str | None = None,
+        provider: str | None = None,
+        model: str | None = None,
     ) -> dict[str, str]:
         env = os.environ.copy()
-        env.update(self.command_builder.env(config, config_path, toolset, hypothesis))
+        env.update(
+            self.command_builder.env(
+                config,
+                config_path,
+                toolset=toolset,
+                hypothesis=hypothesis,
+                provider=provider,
+                model=model,
+            )
+        )
         env["CODE_DIVER_PACKAGE_ROOT"] = str(self.runtime_manager.package_root.resolve())
         return env
 
@@ -143,10 +174,19 @@ class PiRunner:
         command_factory: Callable[[str | None], list[str]],
         toolset: str | None,
         hypothesis: str | None,
+        model_override: str | None = None,
+        provider_override: str | None = None,
     ) -> int:
-        env = self._env(config, config_path, toolset, hypothesis)
+        env = self._env(
+            config,
+            config_path,
+            toolset=toolset,
+            hypothesis=hypothesis,
+            provider=provider_override,
+            model=model_override,
+        )
         last_code = 1
-        for index, model in enumerate(self._models(config)):
+        for index, model in enumerate(self._models(config, model_override=model_override)):
             if index:
                 print(f"Search agent model fallback: {model}", file=sys.stderr, flush=True)
             command = self._prepare_command(command_factory(model))
@@ -163,11 +203,20 @@ class PiRunner:
         command_factory: Callable[[str | None], list[str]],
         toolset: str | None,
         hypothesis: str | None,
+        model_override: str | None = None,
+        provider_override: str | None = None,
     ) -> tuple[int, str]:
-        env = self._env(config, config_path, toolset, hypothesis)
+        env = self._env(
+            config,
+            config_path,
+            toolset=toolset,
+            hypothesis=hypothesis,
+            provider=provider_override,
+            model=model_override,
+        )
         last_code = 1
         last_output = ""
-        for index, model in enumerate(self._models(config)):
+        for index, model in enumerate(self._models(config, model_override=model_override)):
             if index:
                 print(f"Search agent model fallback: {model}", file=sys.stderr, flush=True)
             command = self._prepare_command(command_factory(model))
@@ -211,6 +260,9 @@ class PiRunner:
         table = Table.grid(padding=(0, 2))
         table.add_column(style="bold cyan", no_wrap=True)
         table.add_column()
+        provider = self._flag_value(command, "--provider") or config.pi.provider
+        if provider:
+            table.add_row("provider", provider)
         table.add_row("model", model or "default")
         table.add_row("repo", str(config.root.resolve()))
         if toolset:
@@ -257,12 +309,21 @@ class PiRunner:
         toolset: str | None,
         hypothesis: str | None,
         log_path: Path,
+        model_override: str | None = None,
+        provider_override: str | None = None,
     ) -> int:
-        env = self._env(config, config_path, toolset, hypothesis)
+        env = self._env(
+            config,
+            config_path,
+            toolset=toolset,
+            hypothesis=hypothesis,
+            provider=provider_override,
+            model=model_override,
+        )
         log_path.parent.mkdir(parents=True, exist_ok=True)
         log_path.write_text("", encoding="utf-8")
         last_code = 1
-        for index, model in enumerate(self._models(config)):
+        for index, model in enumerate(self._models(config, model_override=model_override)):
             if index:
                 self._write_log_event(log_path, {"type": "runner_fallback", "model": model})
             command = self._prepare_command(command_factory(model))
@@ -315,7 +376,9 @@ class PiRunner:
                 return 0
         return last_code
 
-    def _models(self, config: AppConfig) -> list[str | None]:
+    def _models(self, config: AppConfig, model_override: str | None = None) -> list[str | None]:
+        if model_override:
+            return [model_override]
         models: list[str | None] = []
         if config.pi.model:
             models.append(config.pi.model)
@@ -332,6 +395,7 @@ class PiRunner:
         hypothesis: str | None,
         model: str | None,
         session: PiSessionOptions | None = None,
+        provider: str | None = None,
     ) -> list[str]:
         command = self.command_builder.build(
             config,
@@ -339,6 +403,7 @@ class PiRunner:
             print_mode=True,
             toolset=toolset,
             hypothesis=hypothesis,
+            provider=provider,
             model=model,
             session=session,
         )

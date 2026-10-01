@@ -5,7 +5,6 @@ import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
 
 from .defaults import Defaults
 from .environment import EnvironmentVariable
@@ -38,6 +37,80 @@ def read_jbcentral_config(
     except Exception as exc:
         logger.warning("Failed to parse jbcentral config at %s: %s", path, exc)
         return None
+
+
+def resolve_litellm_base_url() -> str:
+    raw = (
+        os.environ.get(EnvironmentVariable.LITELLM_BASE_URL.value)
+        or os.environ.get(EnvironmentVariable.LITELLM_URL.value)
+        or os.environ.get("LITELLM_API_URL")
+        or Defaults.LITELLM_BASE_URL
+    )
+    url = raw.strip().rstrip("/")
+    if not url.endswith("/v1"):
+        url = f"{url}/v1"
+    return url
+
+
+def resolve_litellm_key(repo_root: Path | None = None) -> str | None:
+    # 1. Environment variables
+    for env_var in (
+        EnvironmentVariable.LITELLM_API_KEY.value,
+        EnvironmentVariable.LITE_LLM_KEY.value,
+    ):
+        val = os.environ.get(env_var)
+        if val and val.strip():
+            return val.strip()
+
+    # 2. Candidate .env files
+    candidates: list[Path] = []
+    if repo_root:
+        candidates.append(repo_root / ".env")
+    candidates.append(Path.cwd() / ".env")
+    candidates.append(Path.home() / ".config" / "opencode" / ".env")
+    candidates.append(Path.home() / ".env")
+
+    for path in candidates:
+        if not path.is_file():
+            continue
+        try:
+            for line in path.read_text(encoding="utf-8").splitlines():
+                stripped = line.strip()
+                if not stripped or stripped.startswith("#") or "=" not in stripped:
+                    continue
+                k, v = stripped.split("=", 1)
+                k = k.strip()
+                v = v.strip().strip("'\"")
+                if k in ("LITE_LLM_KEY", "LITELLM_API_KEY") and v:
+                    return v
+        except OSError:
+            continue
+
+    # 3. ~/.config/opencode/ config files
+    for config_name in ("opencode.json", "opencode.jsonc"):
+        cfg_path = Path.home() / ".config" / "opencode" / config_name
+        if not cfg_path.is_file():
+            continue
+        try:
+            content = cfg_path.read_text(encoding="utf-8")
+            cleaned_lines = [
+                line for line in content.splitlines() if not line.strip().startswith("//")
+            ]
+            data = json.loads("\n".join(cleaned_lines))
+            provider_cfg = data.get("provider", {}).get("litellm", {})
+            candidate = (
+                provider_cfg.get("apiKey")
+                or provider_cfg.get("api_key")
+                or provider_cfg.get("options", {}).get("apiKey")
+                or provider_cfg.get("options", {}).get("api_key")
+            )
+            if candidate and isinstance(candidate, str) and candidate.strip():
+                return candidate.strip()
+        except (OSError, json.JSONDecodeError, KeyError, TypeError) as exc:
+            logger.debug("Failed reading litellm config from %s: %s", cfg_path, exc)
+            continue
+
+    return None
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,10 +172,10 @@ class ProviderResolver:
             )
 
         if p == "litellm":
-            target_url = url or f"{Defaults.LITELLM_BASE_URL}/chat/completions"
+            target_url = url or f"{resolve_litellm_base_url()}/chat/completions"
             resolved_key = (
                 api_key
-                or os.environ.get(EnvironmentVariable.LITE_LLM_KEY.value)
+                or resolve_litellm_key()
                 or os.environ.get(EnvironmentVariable.OPENAI_API_KEY.value)
             )
             return ResolvedEndpoint(
@@ -188,10 +261,10 @@ class ProviderResolver:
             )
 
         if p == "litellm":
-            target_url = url or f"{Defaults.LITELLM_BASE_URL}/embeddings"
+            target_url = url or f"{resolve_litellm_base_url()}/embeddings"
             resolved_key = (
                 api_key
-                or os.environ.get(EnvironmentVariable.LITE_LLM_KEY.value)
+                or resolve_litellm_key()
                 or os.environ.get(EnvironmentVariable.OPENAI_API_KEY.value)
             )
             return ResolvedEndpoint(

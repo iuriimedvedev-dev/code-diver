@@ -18,6 +18,7 @@ class PiCommandBuilder:
         print_mode: bool = False,
         toolset: str | None = None,
         hypothesis: str | None = None,
+        provider: str | None = None,
         model: str | None = None,
         session: PiSessionOptions | None = None,
     ) -> list[str]:
@@ -39,8 +40,9 @@ class PiCommandBuilder:
                 ]
             )
 
-        if pi_config.provider:
-            command.extend([OptionName.PROVIDER.value, pi_config.provider])
+        selected_provider = provider or pi_config.provider
+        if selected_provider:
+            command.extend([OptionName.PROVIDER.value, selected_provider])
 
         selected_model = model or pi_config.model
         if selected_model:
@@ -62,6 +64,8 @@ class PiCommandBuilder:
         config_path: Path | None,
         toolset: str | None = None,
         hypothesis: str | None = None,
+        provider: str | None = None,
+        model: str | None = None,
     ) -> dict[str, str]:
         env = {
             EnvironmentVariable.CODE_DIVER_CONFIG.value: str((config_path or Defaults.CONFIG_PATH).resolve()),
@@ -74,12 +78,38 @@ class PiCommandBuilder:
             env["CODE_DIVER_TOOLSET"] = toolset
         if hypothesis:
             env["CODE_DIVER_HYPOTHESIS"] = hypothesis
+        selected_provider = provider or config.pi.provider
+        selected_model = model or config.pi.model
+        if selected_provider:
+            env["CODE_DIVER_PROVIDER"] = selected_provider
+        if selected_model:
+            env["CODE_DIVER_MODEL"] = selected_model
+            env["LITELLM_MODEL"] = selected_model
         env.update(config.pi.env)
-        self._add_vertex_env(config, env)
+        self._add_vertex_env(config, env, selected_provider)
+        self._add_litellm_env(config, env, selected_provider)
         return env
 
-    def _add_vertex_env(self, config: AppConfig, env: dict[str, str]) -> None:
-        if config.pi.provider != "google-vertex":
+    def _add_litellm_env(
+        self, config: AppConfig, env: dict[str, str], provider: str | None = None
+    ) -> None:
+        from ..settings import resolve_litellm_base_url, resolve_litellm_key
+
+        base_url = resolve_litellm_base_url()
+        key = resolve_litellm_key(config.root)
+        if base_url:
+            env.setdefault(EnvironmentVariable.LITELLM_BASE_URL.value, base_url)
+            env.setdefault(EnvironmentVariable.LITELLM_URL.value, base_url)
+        if key:
+            env.setdefault(EnvironmentVariable.LITE_LLM_KEY.value, key)
+            env.setdefault(EnvironmentVariable.LITELLM_API_KEY.value, key)
+            if provider == "litellm":
+                env.setdefault(EnvironmentVariable.OPENAI_API_KEY.value, key)
+
+    def _add_vertex_env(
+        self, config: AppConfig, env: dict[str, str], provider: str | None = None
+    ) -> None:
+        if (provider or config.pi.provider) != "google-vertex":
             return
         location = (
             os.environ.get(EnvironmentVariable.GOOGLE_CLOUD_LOCATION.value)

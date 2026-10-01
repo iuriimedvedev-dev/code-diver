@@ -72,6 +72,7 @@ type SuccessFeedback = {
 
 export default function (pi: ExtensionAPI) {
   registerLocalModelProvider(pi);
+  registerLiteLLMProvider(pi);
   registerCodeDiverWelcome(pi);
 
   pi.registerTool({
@@ -559,6 +560,61 @@ function registerLocalModelProvider(pi: ExtensionAPI) {
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
       },
     ],
+  });
+}
+
+function registerLiteLLMProvider(pi: ExtensionAPI) {
+  const provider = "litellm";
+  let baseUrl =
+    process.env.LITELLM_BASE_URL ||
+    process.env.LITELLM_URL ||
+    process.env.LITELLM_API_URL ||
+    "https://litellm.labs.jb.gg/v1";
+  baseUrl = baseUrl.replace(/\/+$/, "");
+  if (!baseUrl.endsWith("/v1")) {
+    baseUrl = `${baseUrl}/v1`;
+  }
+  const apiKey =
+    process.env.LITELLM_API_KEY ||
+    process.env.LITE_LLM_KEY ||
+    process.env.OPENAI_API_KEY ||
+    "litellm";
+
+  const configuredModel = process.env.CODE_DIVER_MODEL || process.env.LITELLM_MODEL;
+  const knownModelIds = [
+    "vertex_ai/gemini-2.5-flash",
+    "vertex_ai/gemini-3.8-flash",
+    "vertex_ai/gemini-2.5-pro",
+    "anthropic/claude-3-5-sonnet",
+    "anthropic/claude-3-7-sonnet",
+    "anthropic/claude-3-5-haiku",
+    "openai/gpt-4o",
+    "openai/gpt-4o-mini",
+  ];
+
+  const modelIds =
+    configuredModel && !knownModelIds.includes(configuredModel)
+      ? [configuredModel, ...knownModelIds]
+      : knownModelIds;
+
+  pi.registerProvider(provider, {
+    name: "LiteLLM Proxy",
+    baseUrl,
+    apiKey,
+    api: "openai-completions",
+    compat: {
+      supportsDeveloperRole: false,
+      supportsReasoningEffort: false,
+    },
+    models: modelIds.map((id) => ({
+      id,
+      name: `LiteLLM (${id})`,
+      reasoning: false,
+      input: ["text", "image"],
+      contextWindow: 128000,
+      maxTokens: 8192,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    })),
   });
 }
 

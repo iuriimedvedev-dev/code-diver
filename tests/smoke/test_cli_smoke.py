@@ -87,3 +87,14 @@ def test_index_clear_help_smoke(capsys) -> None:
     assert "usage: code-diver index clear" in output
     assert "--all" in output
     assert "Delete all Code Diver index collections" in output
+
+
+def test_chat_help_smoke(capsys) -> None:
+    with pytest.raises(SystemExit) as exc:
+        main(["chat", "--help"])
+
+    assert exc.value.code == 0
+    output = capsys.readouterr().out
+    assert "--provider" in output
+    assert "--model" in output
+    assert "litellm" in output

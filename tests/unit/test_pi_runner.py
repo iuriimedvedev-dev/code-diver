@@ -128,3 +128,83 @@ def test_pi_runner_uses_project_cwd_for_local_npm_runtime(monkeypatch, tmp_path:
     assert captured["cwd"] == str((tmp_path / "repo").resolve())
     assert captured["command"][0] == str(tmp_path / "node_modules" / ".bin" / "pi")
     assert captured["env"]["CODE_DIVER_PACKAGE_ROOT"] == str(tmp_path.resolve())
+
+
+def test_pi_runner_with_provider_and_model_override(monkeypatch) -> None:
+    config = AppConfig(
+        root=Path("/repo"),
+        pi=PiConfig(
+            binary="pi",
+            provider="code-diver-local",
+            model="default-model",
+            fallback_models=["fallback-1", "fallback-2"],
+        ),
+    )
+    captured: dict[str, object] = {}
+
+    def fake_call(command: list[str], env: dict[str, str], cwd: str) -> int:
+        captured["command"] = command
+        captured["env"] = env
+        return 0
+
+    monkeypatch.setattr("subprocess.call", fake_call)
+    runner = PiRunner()
+    ret = runner.run_interactive(
+        config,
+        None,
+        prompt="hello litellm",
+        provider="litellm",
+        model="vertex_ai/gemini-2.5-flash",
+    )
+    assert ret == 0
+    cmd = captured["command"]
+    assert "--provider" in cmd
+    assert cmd[cmd.index("--provider") + 1] == "litellm"
+    assert "--model" in cmd
+    assert cmd[cmd.index("--model") + 1] == "vertex_ai/gemini-2.5-flash"
+
+
+def test_pi_runtime_manager_command_resolution(monkeypatch, tmp_path: Path) -> None:
+    from code_diver.pi.pi_runtime_manager import PiRuntimeManager
+
+    # Case 1: local binary in node_modules/.bin/pi exists
+    pkg_root = tmp_path / "pkg"
+    bin_dir = pkg_root / "node_modules" / ".bin"
+    bin_dir.mkdir(parents=True)
+    pi_bin = bin_dir / "pi"
+    pi_bin.touch(mode=0o755)
+
+    mgr = PiRuntimeManager(package_root=pkg_root)
+    res = mgr.command_for_execution(["npm", "exec", "--", "pi", "-p", "hi"])
+    assert res == [str(pi_bin), "-p", "hi"]
+
+    # Case 2: local binary missing, but 'pi' on PATH
+    pi_bin.unlink()
+    monkeypatch.setattr("shutil.which", lambda cmd: "/usr/local/bin/pi" if cmd == "pi" else None)
+    res2 = mgr.command_for_execution(["npm", "exec", "--", "pi", "-p", "hi"])
+    assert res2 == ["/usr/local/bin/pi", "-p", "hi"]
+
+    # Case 3: neither exists, fallback to npm with --prefix
+    monkeypatch.setattr("shutil.which", lambda _cmd: None)
+    res3 = mgr.command_for_execution(["npm", "exec", "--", "pi", "-p", "hi"])
+    assert res3 == ["npm", "--prefix", str(pkg_root.resolve()), "exec", "--", "pi", "-p", "hi"]
+
+
+def test_pi_command_builder_litellm_env(monkeypatch, tmp_path: Path) -> None:
+    from code_diver.pi.pi_command_builder import PiCommandBuilder
+
+    monkeypatch.delenv("LITE_LLM_KEY", raising=False)
+    monkeypatch.setenv("LITELLM_API_KEY", "test-litellm-key-123")
+    monkeypatch.setenv("LITELLM_BASE_URL", "https://litellm.custom.corp/v1")
+
+    config = AppConfig(root=tmp_path / "repo")
+    builder = PiCommandBuilder()
+    env = builder.env(config, None, provider="litellm", model="vertex_ai/gemini-2.5-flash")
+
+    assert env.get("LITELLM_API_KEY") == "test-litellm-key-123"
+    assert env.get("LITE_LLM_KEY") == "test-litellm-key-123"
+    assert env.get("LITELLM_BASE_URL") == "https://litellm.custom.corp/v1"
+    assert env.get("OPENAI_API_KEY") == "test-litellm-key-123"
+    assert env.get("CODE_DIVER_PROVIDER") == "litellm"
+    assert env.get("CODE_DIVER_MODEL") == "vertex_ai/gemini-2.5-flash"
+

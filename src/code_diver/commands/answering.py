@@ -164,11 +164,12 @@ def make_vector_store(config: AppConfig, progress: bool = False):
     return create_vector_store(config)
 
 
-def make_search_agent_runner(config: AppConfig):
+def make_search_agent_runner(config: AppConfig, provider: str | None = None):
     """Instantiate the appropriate agent runner based on the configured provider."""
-    if config.pi.provider in AgyCliAgentRunner.PROVIDERS:
+    prov = provider or config.pi.provider
+    if prov in AgyCliAgentRunner.PROVIDERS:
         return AgyCliAgentRunner()
-    if config.pi.provider in GeminiCliAgentRunner.PROVIDERS:
+    if prov in GeminiCliAgentRunner.PROVIDERS:
         return GeminiCliAgentRunner()
     return PiRunner()
 
@@ -381,13 +382,17 @@ def cmd_chat(args: argparse.Namespace, config: AppConfig) -> int:
     """Start an interactive chat session with the code exploration agent."""
     build_repository_context(config)
     prompt, session = chat_prompt_and_session(args, config)
-    return make_search_agent_runner(config).run_interactive(
+    provider = getattr(args, "provider", None)
+    model = getattr(args, "model", None)
+    return make_search_agent_runner(config, provider=provider).run_interactive(
         config,
         getattr(args, "config", None),
         prompt,
         toolset=getattr(args, "toolset", None),
         hypothesis=getattr(args, "hypothesis", None),
         session=session,
+        provider=provider,
+        model=model,
     )
 
 

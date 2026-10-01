@@ -614,6 +614,16 @@ def add_advanced_parsers(
     )
     chat.add_argument(OptionName.TOOLSET.value, default=None)
     chat.add_argument(OptionName.HYPOTHESIS.value, default=None)
+    chat.add_argument(
+        OptionName.PROVIDER.value,
+        default=None,
+        help="LLM provider (e.g. litellm, google-vertex, code-diver-local).",
+    )
+    chat.add_argument(
+        OptionName.MODEL.value,
+        default=None,
+        help="LLM model identifier (e.g. vertex_ai/gemini-2.5-flash).",
+    )
     chat.set_defaults(func=cmd_chat)
 
     ask = subparsers.add_parser(
@@ -1913,10 +1923,11 @@ def search_agent_binary(config: AppConfig) -> str:
     return config.pi.binary
 
 
-def make_search_agent_runner(config: AppConfig):
-    if config.pi.provider in AgyCliAgentRunner.PROVIDERS:
+def make_search_agent_runner(config: AppConfig, provider: str | None = None):
+    prov = provider or config.pi.provider
+    if prov in AgyCliAgentRunner.PROVIDERS:
         return AgyCliAgentRunner()
-    if config.pi.provider in GeminiCliAgentRunner.PROVIDERS:
+    if prov in GeminiCliAgentRunner.PROVIDERS:
         return GeminiCliAgentRunner()
     return PiRunner()
 
@@ -2338,13 +2349,17 @@ def cmd_ask(args: argparse.Namespace, config: AppConfig) -> int:
 def cmd_chat(args: argparse.Namespace, config: AppConfig) -> int:
     build_repository_context(config)
     prompt, session = chat_prompt_and_session(args, config)
-    return make_search_agent_runner(config).run_interactive(
+    provider = getattr(args, "provider", None)
+    model = getattr(args, "model", None)
+    return make_search_agent_runner(config, provider=provider).run_interactive(
         config,
         args.config,
         prompt,
         toolset=args.toolset,
         hypothesis=args.hypothesis,
         session=session,
+        provider=provider,
+        model=model,
     )
 
 
