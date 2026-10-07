@@ -73,3 +73,72 @@ fn config_validation_and_explicit_catalog_only() {
             .success()
     );
 }
+
+#[test]
+fn comparator_reports_fields_and_rejects_invalid_schema() {
+    let dir = tempfile::tempdir().unwrap();
+    let reference = dir.path().join("reference.jsonl");
+    let built = dir.path().join("built.jsonl");
+    let valid = serde_json::json!({"id": "sample", "path": "kb/sample.md", "name": "sample", "kind": "file_summary", "content": "purpose: old", "symbols": [], "tokenized_name": [], "tokenized_path": [], "tokenized_dir": [], "tokenized_content": []});
+    std::fs::write(&reference, valid.to_string()).unwrap();
+    for field in [
+        "name",
+        "path",
+        "kind",
+        "content",
+        "tokenized_name",
+        "tokenized_path",
+        "tokenized_dir",
+        "tokenized_content",
+        "id",
+    ] {
+        let mut changed = valid.clone();
+        changed[field] = if field.starts_with("tokenized_") {
+            serde_json::json!(["changed"])
+        } else {
+            serde_json::json!("changed")
+        };
+        std::fs::write(&built, changed.to_string()).unwrap();
+        let result = binary()
+            .args(["catalog-compare", "--reference"])
+            .arg(&reference)
+            .arg("--built")
+            .arg(&built)
+            .output()
+            .unwrap();
+        assert!(!result.status.success(), "{field}");
+        let output = String::from_utf8_lossy(&result.stdout);
+        let category = if field == "id" {
+            "IDs/missing".to_string()
+        } else if field == "content" {
+            "file_summary/purpose".to_string()
+        } else if field.starts_with("tokenized_") {
+            format!("tokens/{field}")
+        } else {
+            format!("metadata/{field}")
+        };
+        assert!(output.contains(&category), "{field}: {output}");
+        assert!(output.contains("sample") && output.contains("changed"));
+    }
+    for field in [
+        "tokenized_name",
+        "tokenized_path",
+        "tokenized_dir",
+        "tokenized_content",
+        "symbols",
+    ] {
+        let mut invalid = valid.clone();
+        invalid.as_object_mut().unwrap().remove(field);
+        std::fs::write(&reference, invalid.to_string()).unwrap();
+        std::fs::write(&built, invalid.to_string()).unwrap();
+        let result = binary()
+            .args(["catalog-compare", "--reference"])
+            .arg(&reference)
+            .arg("--built")
+            .arg(&built)
+            .output()
+            .unwrap();
+        assert!(!result.status.success());
+        assert!(String::from_utf8_lossy(&result.stderr).contains(field));
+    }
+}

@@ -82,6 +82,23 @@ pub fn load_jsonl(path: &Path) -> Result<Vec<Value>, String> {
                 return Err(format!("Catalog record must have string {field}"));
             }
         }
+        for field in [
+            "tokenized_name",
+            "tokenized_path",
+            "tokenized_dir",
+            "tokenized_content",
+            "symbols",
+        ] {
+            if !item
+                .get(field)
+                .and_then(Value::as_array)
+                .is_some_and(|values| values.iter().all(Value::is_string))
+            {
+                return Err(format!(
+                    "Catalog record {id} must have string array {field}"
+                ));
+            }
+        }
     }
     Ok(items)
 }
@@ -176,6 +193,39 @@ pub fn compare(
         .iter()
         .all(|k| item.get(*k) == other.get(*k));
         r.tokenized_equal += usize::from(tok_eq);
+        for fields in [
+            &["name", "path", "kind"][..],
+            &[
+                "tokenized_name",
+                "tokenized_path",
+                "tokenized_dir",
+                "tokenized_content",
+            ][..],
+        ] {
+            if let Some(field) = fields
+                .iter()
+                .find(|field| item.get(**field) != other.get(**field))
+            {
+                let key = format!(
+                    "{}/{}",
+                    if field.starts_with("tokenized_") {
+                        "tokens"
+                    } else {
+                        "metadata"
+                    },
+                    field
+                );
+                *r.diff_sections.entry(key.clone()).or_default() += 1;
+                let bucket = r.samples.entry(key).or_default();
+                if bucket.len() < max_samples {
+                    bucket.push((
+                        format!("{id} path={}", s(item, "path")),
+                        item[*field].to_string(),
+                        other[*field].to_string(),
+                    ));
+                }
+            }
+        }
         r.embed500_equal += usize::from(embed_text(item, 500) == embed_text(other, 500));
         if s(item, "content") == s(other, "content") {
             r.content_equal += 1;
@@ -185,7 +235,7 @@ pub fn compare(
             *r.diff_sections.entry(key.clone()).or_default() += 1;
             let bucket = r.samples.entry(key).or_default();
             if bucket.len() < max_samples {
-                bucket.push((id.to_string(), ra, rb));
+                bucket.push((format!("{id} path={}", s(item, "path")), ra, rb));
             }
         }
     }
@@ -221,6 +271,17 @@ impl Report {
             "only in built        : {}\n",
             self.only_in_built.len()
         ));
+        for (category, ids) in [
+            ("IDs/missing", &self.only_in_ref),
+            ("IDs/extra", &self.only_in_built),
+        ] {
+            if !ids.is_empty() {
+                out.push_str(&format!("first differing category: {category}\n"));
+                for id in ids.iter().take(2) {
+                    out.push_str(&format!("  {id}\n"));
+                }
+            }
+        }
         out.push_str(&format!(
             "content equal        : {} ({:.2}% of common)\n",
             self.content_equal,
@@ -241,7 +302,7 @@ impl Report {
             pct(self.embed500_equal)
         ));
         if !self.diff_sections.is_empty() {
-            out.push_str("content differences by first differing section:\n");
+            out.push_str("differences by first differing section/category:\n");
             for (k, n) in &self.diff_sections {
                 out.push_str(&format!("  {k:<28} {n}\n"));
                 for (id, a, b) in self.samples.get(k).into_iter().flatten() {
@@ -286,5 +347,59 @@ mod tests {
     fn head_bullets_do_not_masquerade_as_sections() {
         let lines = ["head:", "- file: x", "- more"];
         assert_eq!(section_of(&lines, 2), "head");
+    }
+
+    #[test]
+    fn rejects_missing_and_malformed_arrays() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("catalog.jsonl");
+        let mut valid = item("a", "x");
+        valid["symbols"] = json!([]);
+        for field in [
+            "tokenized_name",
+            "tokenized_path",
+            "tokenized_dir",
+            "tokenized_content",
+            "symbols",
+        ] {
+            for bad in [None, Some(json!(null)), Some(json!("x")), Some(json!([1]))] {
+                let mut value = valid.clone();
+                if let Some(bad) = bad {
+                    value[field] = bad;
+                } else {
+                    value.as_object_mut().unwrap().remove(field);
+                }
+                fs::write(&path, value.to_string()).unwrap();
+                assert!(load_jsonl(&path).unwrap_err().contains(field));
+            }
+        }
+        fs::write(&path, valid.to_string()).unwrap();
+        assert!(load_jsonl(&path).is_ok());
+    }
+
+    #[test]
+    fn renders_first_differences_and_id_samples() {
+        let reference = vec![item("a", "purpose: old"), item("missing", "x")];
+        let mut changed = item("a", "purpose: new");
+        changed["name"] = json!("changed");
+        changed["tokenized_path"] = json!(["different"]);
+        let built = vec![changed, item("extra", "x")];
+        let output = compare(&reference, &built, &|_| true, 2).render();
+        for expected in [
+            "IDs/missing",
+            "missing",
+            "IDs/extra",
+            "extra",
+            "metadata/name",
+            "tokens/tokenized_path",
+            "file_summary/purpose",
+            "a path=kb/a.md",
+            "different",
+            "changed",
+            "purpose: old",
+            "purpose: new",
+        ] {
+            assert!(output.contains(expected), "missing {expected}: {output}");
+        }
     }
 }
