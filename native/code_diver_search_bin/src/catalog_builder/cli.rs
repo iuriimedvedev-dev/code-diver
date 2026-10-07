@@ -29,6 +29,8 @@ pub struct IndexArgs {
 pub enum Lane {
     All,
     Generic,
+    Go,
+    TsJs,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -164,7 +166,7 @@ pub fn run_index(args: IndexArgs) -> Result<(), String> {
     }
     writer.flush().map_err(|e| e.to_string())?;
     eprintln!(
-        "wrote {} items; dedicated-language files (generic fallback, M2 pending): {dedicated}",
+        "wrote {} items; dedicated-language files: {dedicated} (Go/TS-JS strategies enabled; other lanes use generic fallback)",
         items.len()
     );
     Ok(())
@@ -179,7 +181,12 @@ pub fn run_compare(args: CompareArgs) -> Result<(), String> {
                 .path_prefix
                 .iter()
                 .any(|prefix| path.starts_with(prefix)))
-            && (!matches!(args.lane, Lane::Generic) || !symbols::has_dedicated_strategy(path))
+            && match args.lane {
+                Lane::All => true,
+                Lane::Generic => !symbols::has_dedicated_strategy(path),
+                Lane::Go => symbols::suffix_lower(path) == ".go",
+                Lane::TsJs => symbols::is_ts_js(path),
+            }
     };
     let report = compare::compare(&reference, &built, &keep, 2);
     print!("{}", report.render());

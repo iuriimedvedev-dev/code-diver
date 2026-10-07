@@ -374,6 +374,40 @@ mod tests {
     use super::*;
 
     #[test]
+    fn package_terms_only_inspect_first_line() {
+        let cfg = SummaryConfig {
+            compact_budget: true,
+            ..Default::default()
+        };
+        assert_eq!(
+            terms_section("worker.go", "package workers\n", &[], &cfg),
+            "terms: worker workers"
+        );
+        assert_eq!(
+            terms_section("worker.go", "// header\npackage workers\n", &[], &cfg),
+            "terms: worker"
+        );
+        assert_eq!(
+            terms_section("worker.go", "\npackage workers\n", &[], &cfg),
+            "terms: worker"
+        );
+    }
+
+    #[test]
+    fn import_head_can_exceed_cap_before_final_truncation() {
+        let text = "code\n".repeat(23) + "import first\nimport second\nimport third\nlast\n";
+        let meaningful = skip_boilerplate(&text);
+        assert_eq!(meaningful.len(), 27);
+        let head = head_section(&text, &SummaryConfig::default());
+        assert_eq!(head.lines().count(), 25);
+        assert!(head.ends_with("- import first"));
+        assert_eq!(
+            imports_section(&text),
+            "imports:\n- import first\n- import second\n- import third"
+        );
+    }
+
+    #[test]
     fn explicit_compact_path_and_stopword_overrides() {
         let cfg = SummaryConfig {
             compact_budget: true,

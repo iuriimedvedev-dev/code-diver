@@ -325,6 +325,21 @@ mod tests {
     }
 
     #[test]
+    fn embedding_window_is_measured_independently_of_full_content_and_tokens() {
+        let content = "文".repeat(500);
+        let reference = vec![item("a", &format!("{content}old"))];
+        let mut changed = item("a", &format!("{content}new"));
+        changed["tokenized_content"] = json!(["new"]);
+        let report = compare(&reference, &[changed], &|_| true, 2);
+        assert_eq!(report.common_ids, 1);
+        assert_eq!(report.content_equal, 0);
+        assert_eq!(report.tokenized_equal, 0);
+        assert_eq!(report.embed500_equal, 1);
+        let output = report.render();
+        assert!(output.contains("embed text (500ch) eq: 1 (100.00% of common)"));
+    }
+
+    #[test]
     fn counts_and_classifies_differences() {
         let reference = vec![
             item("a", "purpose: x\nterms: a b\nhead:\n- one"),

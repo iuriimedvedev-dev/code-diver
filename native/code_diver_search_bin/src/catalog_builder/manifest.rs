@@ -226,6 +226,22 @@ mod tests {
     use super::*;
 
     #[test]
+    fn package_search_and_import_dedup_precede_caps() {
+        assert_eq!(
+            package_section("// header\npackage workers\n"),
+            "package: workers"
+        );
+        let text = "import first;\n".repeat(24)
+            + &(0..25)
+                .map(|n| format!("import module{n};\n"))
+                .collect::<String>();
+        let imports = imports_section(&text);
+        assert_eq!(imports.lines().count(), 21);
+        assert!(imports.starts_with("imports:\n- import first\n- import module0"));
+        assert!(imports.ends_with("- import module18"));
+    }
+
+    #[test]
     fn generic_surface_mode_and_caps() {
         let symbols = super::super::symbols::extract(
             "a.sh",
