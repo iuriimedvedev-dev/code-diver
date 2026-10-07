@@ -1,8 +1,140 @@
 # Rust rewrite status
 
+## M5b local runtime automation — 2026-10-07
+
+**Implemented locally; final offline QA passes; release publication remains pending.**
+Final QA ran from `native/code_diver_search_bin`: `cargo fmt --check`,
+`cargo clippy --offline --all-targets -- -D warnings`, and `cargo test --offline`
+with default parallelism all passed. Exact execution count: **894 passed**, zero
+failed/ignored/measured/filtered, across 17 test binaries. This supersedes the
+provisional 883/884/888 totals; repeated module tests in distinct binaries count
+as executions, not unique tests. Offline release build passed; `code-diver` is
+**14,161,424 bytes**. `shellcheck install.sh`, installer executable permission,
+and `git diff --check` passed. The macOS release was exercised with real cached models;
+the four-target release workflow is implementation, not evidence of four successful
+builds or a shipped release. Historical milestone results below remain dated.
+
+### Implemented commands and integration
+
+- `setup`: profile/config resolution, platform and minimum llama-server build
+  checks, explicit `--llama-server`, verified/resumable model cache, private shared
+  key references, user-service planning, shared artifacts, additive host registration
+  and final doctor. Controls: `--profile`, `--yes`, `--dry-run`, `--key-file`,
+  `--no-register`, `--uninstall`, and `--purge` (requires uninstall). Existing
+  models are retained on ordinary uninstall; purge removes only recorded ownership.
+- `daemon --foreground`: loopback OpenAI-compatible `/v1/embeddings`,
+  `/v1/rerank`, `/v1/models`, `/health`; lazy supervised children, idle stop,
+  crash restart, bounded concurrency/timeouts, JSON/Host checks and rotating logs
+  (default 20 MiB, three retained files). Failures are explicit 503/504, never
+  empty success or silently degraded reranking; oversized requests return 400.
+- Runtime controls shared by setup/daemon/update-index include `--config`,
+  `--port` (alias `--daemon-port`), `--threads`, `--idle-timeout-secs`,
+  `--request-timeout-secs`, `--reranker-ctx`, `--embedder-ctx`,
+  `--embedder-batch`, `--embedder-ubatch`, `--batch`, `--ubatch`,
+  `--model-manifest`, `--qdrant-url`, `--collection`, `--artifact-url`,
+  `--index-name`. Settings precedence is flags > env > file > defaults;
+  `config show` redacts secrets. Search/MCP/index resolve configured runtime
+  endpoints; MCP/index autostart follows configuration, with `--autostart=false`
+  available on the search settings surface.
+- `update-index` (with `--dry-run` preview): authenticated catalog/graph/metadata/meta-ranker
+  downloads, checksum/model compatibility validation, range resumption and
+  atomic snapshot publication. The current symlink switches only after a verified,
+  synced generation; `.<index-name>-previous` retains the prior rollback path.
+  Setup/update ownership records and locks protect scoped uninstall. Receipts
+  are persisted under locks; a crash before the receipt can leave limited unowned
+  residue, which is conservatively retained rather than guessed to be owned.
+- `doctor` / `doctor --json`: timed PASS/FAIL and repair hints for runtime,
+  models, embedding norm/dimensions, short/long rerank, Qdrant collection/model,
+  artifacts/freshness, detected hosts and resource warnings; nonzero on FAIL.
+  launchd user agents and systemd `--user` units are implemented, without sudo.
+  Claude Code, opencode, Codex and Gemini adapters use additive managed entries,
+  backups/diff previews and ownership-aware removal.
+- Installer selects macOS/Linux arm64/x86_64 archives, verifies SHA256, installs
+  to `~/.local/bin` and invokes setup. Release workflow defines all four targets,
+  checksummed archives and tag-gated publication. **Assets are not published;
+  non-current-macOS target compilation has not been demonstrated here.**
+
+### Owner-measured settings and model identity
+
+The owner's measured settings supersede older `np4` preferences, M5's preserved
+parallel recommendation below and the addendum's older ctx4096 text: reranker
+**ctx16384, batch4096, ubatch4096, no explicit `--parallel`**; embedder
+**ctx5120, batch2560, ubatch2560**, pooling last (reranker pooling rank).
+Minimum llama-server build is 9430; embedding dimension is 1024.
+
+| Cached model | Bytes | Embedded manifest SHA256 |
+|---|---:|---|
+| Qwen3-Embedding-0.6B-Q8_0.gguf | 639150592 | `06507c7b42688469c4e7298b0a1e16deff06caf291cf0a5b278c308249c3e439` |
+| Qwen3-Reranker-0.6B-Q4_K_M.gguf | 396476288 | `c04f5f5657c52e04538c455e8c62817db3d3b795b39e9f547f8581510445f075` |
+
+No new production dependencies: existing crates and native framework interfaces
+are reused; Cargo additions are test targets only. Secrets remain named env,
+0600-file or keychain references; setup uses the same reference for Qdrant and
+artifacts. macOS retrieval uses `/usr/bin/security` with no secret argv; writes
+use the Security framework behind the fakeable store trait, not password argv
+or an unverified stdin assumption. Model HTTPS CDN redirects strip authorization
+on cross-origin hops; public DNS addresses are checked and pinned, with verified
+TLS via the existing rustls/platform-verifier stack. Artifact/profile credential
+policies remain distinct from the model CDN policy.
+
+### Latest isolated real-model smoke
+
+Source: latest section of `.tmp/runtime-smoke/report.md`, not its superseded runs.
+Real llama-server 9430 and cached models were hash/size verified. All state used
+isolated `CODE_DIVER_HOME`; protected `HOME` was never changed. Managers and host
+adapters were fakes, Qdrant/artifacts loopback fixtures with dummy credentials.
+No real keychain, host secret, host registration, OS service or installation was
+exercised. Owned daemon/children/mocks were cleaned up. Raw evidence stays ignored
+and uncommitted under `.tmp`; only these summarized measurements belong in docs.
+
+| Measurement | Cold / warm or recovery seconds |
+|---|---:|
+| Embedding, 1024 dimensions and unit norm | 1.449 / 0.048 |
+| 64-document rerank, 64 results | 4.195 / 1.782 |
+| Embedder SIGKILL to first successful request | 0.705 |
+| Reranker SIGKILL to eventual successful second request | 0.920 |
+
+Post-64-document/doctor RSS snapshots: daemon **10640 KiB**, embedder
+**1260528 KiB**, reranker **4128592 KiB**, total **5399760 KiB**. These are
+individual samples, not latency percentiles, peak RSS or GPU-memory measurements.
+The immediate first rerank request after SIGKILL returned explicit safe **503
+`backend_unavailable`** (0.139s); this is valid fail-fast behavior, not immediate
+successful recovery and not degraded results. Health remained 200. Frontend and
+real backend oversized rerank now return sanitized 400. Exact 3300-token input
+rejection is observed, but the embedding character cap triggers first: no exact
+token-limit boundary claim. Rotation at 512 bytes produced at most three files
+per role, each within the cap; prior small Range-resume test remains evidence.
+
+### Remaining validation / release gates
+
+- Graph parser's first nested neighbor-pair bug is reported resolved, with four
+  regression tests. The earlier graph smoke anomaly is superseded by this fix.
+- `--no-register` opt-out is resolved: setup's internal doctor explicitly reports
+  registration SKIP; standalone doctor still reports FAIL for missing registration.
+  No-host setup/repeat/doctor pass; dry-run preserves every scratch-file hash and
+  uninstall retains preexisting models.
+- One-command interactive profile prompting was tested with PTY and hidden input.
+  Full mock acceptance now includes MCP `tools/list`, search and uninstall;
+  these fixtures do not establish real-host or real-vector-search acceptance.
+- Default meta-ranker resolution is reported fixed through main's ranker projection.
+  Live smoke doctor PASS still used a supported `CODE_DIVER_MODEL` override;
+  live default resolution without that override remains unverified.
+- The intermittent updater-lock issue is resolved by explicit unlock on drop,
+  including inherited open-file descriptions. Its regression passes in both
+  binary unit suites; final default-parallel QA passes. One full run is not a
+  repeated stress/stability guarantee.
+- No full-fleet target builds, real launchd/systemd/keychain/host tests, clean-user
+  registered MCP plus real scratch vector search, or external auth/TLS acceptance
+  is established by loopback fixtures. No fresh multi-GB CDN download was needed.
+- Final QA verified the count directly from all test-result summaries and owns
+  scoped logical commits. Release publication and push are not part of this task.
+  The one-page/no-internals constraint applies to colleague-facing guidance,
+  not these engineering status, decision, plan and session records.
+
 ## M5 configuration, metadata and health validation — 2026-10-07
 
-M5 is implemented; **M5b runtime automation is not**. Final joined validation
+Historical M5 checkpoint (superseded by M5b above): M5 is implemented;
+**M5b runtime automation was not yet implemented**. Final joined validation
 reported by implementation/QA: `cargo fmt --check`, all-target Clippy
 `-D warnings`, tests (**554 executions**) and build pass. This supersedes the
 earlier M4 test total below; historical measurements remain dated evidence.

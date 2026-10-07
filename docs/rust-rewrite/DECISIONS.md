@@ -1,5 +1,68 @@
 # Rust rewrite decisions
 
+## 2026-10-07 — M5b runtime implementation and acceptance boundaries
+
+- Owner measurements override the historical `np4` preference and preserved
+  parallel recommendation below: no explicit reranker `--parallel`, ctx16384,
+  batch/ubatch4096; embedder ctx5120, batch/ubatch2560. Preserve exact embedded
+  manifest identities: embedder 639150592 bytes,
+  `06507c7b42688469c4e7298b0a1e16deff06caf291cf0a5b278c308249c3e439`;
+  reranker 396476288 bytes,
+  `c04f5f5657c52e04538c455e8c62817db3d3b795b39e9f547f8581510445f075`.
+  Minimum llama build9430; embeddings1024 dimensions. Do not rewrite historical
+  measurements as if these settings were used then.
+- Keep the runtime lean: no new production dependencies; Cargo additions are
+  test targets only. Use tempfile and isolated `CODE_DIVER_HOME` for tests, never
+  override or edit protected HOME. Fake managers/hosts and dummy loopback keys
+  do not certify actual host installation or external authorization.
+- Store secrets as named env/0600-file/keychain references, not TOML values.
+  Setup's artifact and Qdrant credentials share one reference. macOS retrieval
+  uses the security CLI without password argv; writes use native Security
+  framework interfaces behind `MacSecurity`/`SecretStore`. Password argv is
+  forbidden and secure stdin support is unverified, so do not assume it exists.
+  Tests fake the trait; no real keychain or host secrets were accessed.
+- Permit bounded HTTPS model CDN redirects with authorization permanently
+  stripped after a cross-origin hop. Validate and pin public DNS resolutions;
+  retain verified TLS using the existing rustls/platform-verifier stack. This
+  supersedes the foundation's blanket same-origin model-redirect restriction,
+  not a license to forward artifact/profile credentials cross-origin.
+- Publish artifacts as verified, synced immutable snapshots with an atomic
+  current symlink switch and retained `.<index-name>-previous` rollback path.
+  Persist ownership under setup/update locks and model receipts under download
+  locks; uninstall/purge must not infer ownership of preexisting or modified
+  files. A crash between creation and durable receipt can leave limited unowned
+  residue; conservatively preserve it rather than broaden deletion authority.
+- Accept explicit 503 on an immediate request racing child death as safe
+  fail-fast behavior, not degraded success. Latest embedder recovery0.705s and
+  eventual reranker recovery0.920s do not prove immediate reranker success:
+  first request503, second200. Latest cold/warm embed1.449/0.048s,
+  rerank4.195/1.782s; RSS total5399760KiB is a snapshot, not peak/GPU allocation.
+- Graph-first-neighbor parser bug is reported resolved with four regressions.
+  Honor explicit `--no-register`: setup's internal doctor reports registration
+  SKIP, while standalone doctor still FAILs missing registration. This supersedes
+  the earlier detected-host setup exit1, without weakening standalone health checks.
+- One-command profile prompting has PTY/hidden-input test evidence; full mock
+  acceptance includes MCP tools/list, search and uninstall, not real-host acceptance.
+  Default meta-ranker resolution is reported fixed via main's ranker projection;
+  live doctor PASS still uses a supported override. No-override live resolution
+  remains unverified.
+- Final independent QA ran exact fmt, offline all-target Clippy `-D warnings`
+  and offline default-parallel tests from the native binary directory: all pass.
+  Sum of 17 result summaries is894 passed, zero failed/ignored/measured/filtered;
+  repeated shared tests across binaries are executions, not unique tests. Replace
+  provisional883/884/888, not dated historical counts. Explicit updater unlock
+  on drop resolves inherited-descriptor retention; its regression passes in both
+  unit binaries. One run does not establish repeated stress stability.
+  Offline release build passes, executable14161424 bytes; ShellCheck, installer
+  executable permission and diff-check pass. Four-target workflow implemented, but
+  other target compilation, full-fleet/real-host acceptance and published release
+  artifacts are not established. Do not call the release shipped.
+- Keep raw reports/output/tmp uncommitted. This engineering documentation may
+  explain internals; the one-page/no-internals rule is for colleagues only.
+  Final QA edits only STATUS, DECISIONS and the runtime session/plan, then makes
+  explicitly scoped logical commits of authorized implementation/distribution
+  files and these runtime records. Preserve unrelated untracked records; no push.
+
 ## 2026-10-07 — M5 accepted scope and evidence
 
 - Accept implemented prefix/configuration, schema-2 metadata compatibility,
