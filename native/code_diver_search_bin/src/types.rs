@@ -316,7 +316,10 @@ impl Default for SearchConfig {
 ///
 /// `--first-pass-cap` is an alias for `--candidate-limit`: when present it wins,
 /// otherwise `candidate_limit` is used. Values must be in `1..=CANDIDATE_LIMIT_MAX`.
-pub fn resolve_candidate_limit(candidate_limit: usize, first_pass_cap: Option<usize>) -> Result<usize, String> {
+pub fn resolve_candidate_limit(
+    candidate_limit: usize,
+    first_pass_cap: Option<usize>,
+) -> Result<usize, String> {
     let effective = first_pass_cap.unwrap_or(candidate_limit);
     if effective == 0 || effective > CANDIDATE_LIMIT_MAX {
         return Err(format!(
@@ -346,10 +349,12 @@ pub fn resolve_second_pass(
                 base_cap = SELECTIVE_STRICT_CAP;
                 base_floor = SELECTIVE_STRICT_FLOOR;
             }
-            other => return Err(format!(
-                "unknown --preset {:?}; expected \"selective-strict\"",
-                other
-            )),
+            other => {
+                return Err(format!(
+                    "unknown --preset {:?}; expected \"selective-strict\"",
+                    other
+                ));
+            }
         }
     }
     let cap = cap.unwrap_or(base_cap);
@@ -389,12 +394,16 @@ mod types_tests {
     fn second_pass_defaults_without_flags() {
         let (enabled, floor, cap) = resolve_second_pass(None, None, None, false).unwrap();
         assert!(enabled);
-        assert_eq!((floor, cap), (SECOND_PASS_FLOOR_DEFAULT, SECOND_PASS_CAP_DEFAULT));
+        assert_eq!(
+            (floor, cap),
+            (SECOND_PASS_FLOOR_DEFAULT, SECOND_PASS_CAP_DEFAULT)
+        );
     }
 
     #[test]
     fn selective_strict_preset_and_explicit_override() {
-        let (enabled, floor, cap) = resolve_second_pass(Some("selective-strict"), None, None, false).unwrap();
+        let (enabled, floor, cap) =
+            resolve_second_pass(Some("selective-strict"), None, None, false).unwrap();
         assert!(enabled);
         assert_eq!((floor, cap), (SELECTIVE_STRICT_FLOOR, SELECTIVE_STRICT_CAP));
         // Explicit flags win over the preset.

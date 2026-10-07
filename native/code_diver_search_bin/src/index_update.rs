@@ -294,7 +294,10 @@ mod tests {
             item("added", "fresh"),
         ];
         let mut indexed = IndexedMap::new();
-        indexed.insert("same".to_string(), ("p1".to_string(), "content".to_string()));
+        indexed.insert(
+            "same".to_string(),
+            ("p1".to_string(), "content".to_string()),
+        );
         indexed.insert(
             "changed".to_string(),
             ("p2".to_string(), "old content".to_string()),

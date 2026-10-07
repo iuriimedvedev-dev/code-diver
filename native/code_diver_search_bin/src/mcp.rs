@@ -1,9 +1,9 @@
+use serde::{Deserialize, Serialize};
+use serde_json::{Value, json};
 use std::io::{self, BufRead, Write};
 use std::path::Path;
-use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
 
-use crate::pipeline::{search, SearchContext};
+use crate::pipeline::{SearchContext, search};
 
 #[derive(Debug, Deserialize)]
 #[allow(dead_code)]
@@ -179,8 +179,10 @@ async fn handle_request(
                             let start_idx = if start_line > 0 { start_line - 1 } else { 0 };
                             let end_idx = (start_idx + lines_count).min(all_lines.len());
                             let mut excerpt = String::new();
-                            for i in start_idx..end_idx {
-                                excerpt.push_str(&format!("{:4}: {}\n", i + 1, all_lines[i]));
+                            for (i, line) in
+                                all_lines.iter().enumerate().take(end_idx).skip(start_idx)
+                            {
+                                excerpt.push_str(&format!("{:4}: {}\n", i + 1, line));
                             }
                             Ok(json!({
                                 "content": [{ "type": "text", "text": excerpt }]

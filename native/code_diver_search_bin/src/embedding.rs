@@ -1,4 +1,3 @@
-
 use crate::fusion::l2_normalize;
 
 /// Embedding model sent in every request body. Shared with the pipeline
@@ -6,7 +5,11 @@ use crate::fusion::l2_normalize;
 pub const EMBED_MODEL: &str = "mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ";
 
 /// Get the embedding for a query from the embedding provider.
-pub async fn embed_query(client: &reqwest::Client, url: &str, query: &str) -> Result<Vec<f64>, String> {
+pub async fn embed_query(
+    client: &reqwest::Client,
+    url: &str,
+    query: &str,
+) -> Result<Vec<f64>, String> {
     let body = serde_json::json!({
         "model": EMBED_MODEL,
         "input": query,
@@ -87,7 +90,9 @@ pub async fn embed_texts(
                 .ok_or_else(|| "No embedding in batch row".to_string())
                 .map(|arr| {
                     l2_normalize(
-                        &arr.iter().map(|v| v.as_f64().unwrap_or(0.0)).collect::<Vec<_>>(),
+                        &arr.iter()
+                            .map(|v| v.as_f64().unwrap_or(0.0))
+                            .collect::<Vec<_>>(),
                     )
                 })
         })
@@ -176,10 +181,9 @@ pub fn alternate_ce_url(url: &str) -> Option<String> {
     let base = url.trim_end_matches('/');
     if let Some(prefix) = base.strip_suffix("/v1/rerank") {
         Some(format!("{prefix}/rerank"))
-    } else if let Some(prefix) = base.strip_suffix("/rerank") {
-        Some(format!("{prefix}/v1/rerank"))
     } else {
-        None
+        base.strip_suffix("/rerank")
+            .map(|prefix| format!("{prefix}/v1/rerank"))
     }
 }
 
@@ -215,10 +219,10 @@ pub fn normalize_ce_url(url: &str, route_mode: &str) -> Result<String, String> {
 /// Resolve the ordered list of URLs to try for one rerank call.
 fn resolve_ce_urls(url: &str, route_mode: &str) -> Result<Vec<String>, String> {
     let normalized = normalize_ce_url(url, route_mode)?;
-    if route_mode.trim().to_ascii_lowercase().as_str() == "auto" {
-        if let Some(alt) = alternate_ce_url(&normalized) {
-            return Ok(vec![normalized, alt]);
-        }
+    if route_mode.trim().to_ascii_lowercase().as_str() == "auto"
+        && let Some(alt) = alternate_ce_url(&normalized)
+    {
+        return Ok(vec![normalized, alt]);
     }
     Ok(vec![normalized])
 }
@@ -271,7 +275,10 @@ fn parse_ce_scores(data: &serde_json::Value, num_documents: usize) -> Result<Vec
             .and_then(|v| v.as_f64());
         let (Some(score), Some(index)) = (
             score,
-            entry.get("index").and_then(|v| v.as_u64()).map(|i| i as usize),
+            entry
+                .get("index")
+                .and_then(|v| v.as_u64())
+                .map(|i| i as usize),
         ) else {
             all_indexed = false;
             break;
@@ -440,7 +447,8 @@ mod ce_tests {
     }
 
     #[test]
-    fn parse_rejects_count_mismatch_and_duplicates() {        let short = serde_json::json!({"results": [{"index": 0, "relevance_score": 1.0}]});
+    fn parse_rejects_count_mismatch_and_duplicates() {
+        let short = serde_json::json!({"results": [{"index": 0, "relevance_score": 1.0}]});
         assert!(parse_ce_scores(&short, 2).is_err());
         let dup = serde_json::json!({"results": [
             {"index": 0, "relevance_score": 0.5},

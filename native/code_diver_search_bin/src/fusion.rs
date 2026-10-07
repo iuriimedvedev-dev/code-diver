@@ -26,14 +26,8 @@ pub fn normalize_scores(scores: &mut HashMap<String, f64>) {
     if scores.is_empty() {
         return;
     }
-    let max_val = scores
-        .values()
-        .cloned()
-        .fold(f64::NEG_INFINITY, f64::max);
-    let min_val = scores
-        .values()
-        .cloned()
-        .fold(f64::INFINITY, f64::min);
+    let max_val = scores.values().cloned().fold(f64::NEG_INFINITY, f64::max);
+    let min_val = scores.values().cloned().fold(f64::INFINITY, f64::min);
     let range = max_val - min_val;
     if range <= 0.0 {
         for v in scores.values_mut() {
@@ -70,12 +64,16 @@ pub fn logit(probability: f64) -> f64 {
 }
 
 /// Sort candidates by their fused score, descending.
-pub fn sort_by_fused(candidates: &mut Vec<Candidate>) {
-    candidates.sort_by(|a, b| b.fused_score.partial_cmp(&a.fused_score).unwrap_or(std::cmp::Ordering::Equal));
+pub fn sort_by_fused(candidates: &mut [Candidate]) {
+    candidates.sort_by(|a, b| {
+        b.fused_score
+            .partial_cmp(&a.fused_score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 }
 
 /// Sort candidates by their CE score, descending.
-pub fn sort_by_ce(candidates: &mut Vec<Candidate>) {
+pub fn sort_by_ce(candidates: &mut [Candidate]) {
     candidates.sort_by(|a, b| {
         b.ce_score
             .partial_cmp(&a.ce_score)
@@ -84,7 +82,7 @@ pub fn sort_by_ce(candidates: &mut Vec<Candidate>) {
 }
 
 /// Sort candidates by their meta score, descending.
-pub fn sort_by_meta(candidates: &mut Vec<Candidate>) {
+pub fn sort_by_meta(candidates: &mut [Candidate]) {
     candidates.sort_by(|a, b| {
         b.meta_score
             .partial_cmp(&a.meta_score)
@@ -93,7 +91,7 @@ pub fn sort_by_meta(candidates: &mut Vec<Candidate>) {
 }
 
 /// Break ties in CE scores by the fused base score.
-pub fn tie_break_by_fused(candidates: &mut Vec<Candidate>, epsilon: f64) {
+pub fn tie_break_by_fused(candidates: &mut [Candidate], epsilon: f64) {
     if candidates.len() < 2 {
         return;
     }
@@ -155,10 +153,14 @@ mod tests {
     fn test_tie_break() {
         let mut candidates = vec![
             Candidate {
-                ce_score: 0.9, fused_score: 5.0, ..Default::default()
+                ce_score: 0.9,
+                fused_score: 5.0,
+                ..Default::default()
             },
             Candidate {
-                ce_score: 0.9, fused_score: 10.0, ..Default::default()
+                ce_score: 0.9,
+                fused_score: 10.0,
+                ..Default::default()
             },
         ];
         tie_break_by_fused(&mut candidates, 1e-6);

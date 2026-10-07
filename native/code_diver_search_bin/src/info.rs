@@ -1,6 +1,6 @@
-use std::path::Path;
 use serde::Serialize;
 use serde_json::Value;
+use std::path::Path;
 
 #[derive(Debug, Serialize)]
 pub struct NativeInfo {
@@ -68,16 +68,19 @@ pub async fn collect_info(
     };
 
     let mut points_count = None;
-    let col_url = format!("{}/collections/{}", qdrant_url.trim_end_matches('/'), qdrant_collection);
-    if let Ok(resp) = client.get(&col_url).send().await {
-        if resp.status().is_success() {
-            if let Ok(json) = resp.json::<Value>().await {
-                if let Some(pts) = json["result"]["points_count"].as_u64() {
-                    points_count = Some(pts);
-                } else if let Some(pts) = json["result"]["indexed_vectors_count"].as_u64() {
-                    points_count = Some(pts);
-                }
-            }
+    let col_url = format!(
+        "{}/collections/{}",
+        qdrant_url.trim_end_matches('/'),
+        qdrant_collection
+    );
+    if let Ok(resp) = client.get(&col_url).send().await
+        && resp.status().is_success()
+        && let Ok(json) = resp.json::<Value>().await
+    {
+        if let Some(pts) = json["result"]["points_count"].as_u64() {
+            points_count = Some(pts);
+        } else if let Some(pts) = json["result"]["indexed_vectors_count"].as_u64() {
+            points_count = Some(pts);
         }
     }
 

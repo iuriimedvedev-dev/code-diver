@@ -78,7 +78,11 @@ fn parse_tree_section(body: &str) -> Option<crate::types::LgbTree> {
 
     for line in body.lines() {
         let line = line.trim();
-        if line.is_empty() || line.starts_with("num_") || line.starts_with("is_linear") || line.starts_with("shrinkage") {
+        if line.is_empty()
+            || line.starts_with("num_")
+            || line.starts_with("is_linear")
+            || line.starts_with("shrinkage")
+        {
             continue;
         }
 
@@ -131,7 +135,14 @@ fn parse_tree_section(body: &str) -> Option<crate::types::LgbTree> {
     }
 
     // Build recursive tree starting from root (index 0)
-    let root = build_node_from_arrays(&split_features, &thresholds, &left_children, &right_children, &leaf_values, 0);
+    let root = build_node_from_arrays(
+        &split_features,
+        &thresholds,
+        &left_children,
+        &right_children,
+        &leaf_values,
+        0,
+    );
     Some(root)
 }
 
@@ -156,8 +167,22 @@ fn build_node_from_arrays(
         threshold: th,
         split_gain: 0.0,
         leaf_values: vec![],
-        left_child: Some(Box::new(build_child_from_arrays(split_features, thresholds, left_children, right_children, leaf_values, lc))),
-        right_child: Some(Box::new(build_child_from_arrays(split_features, thresholds, left_children, right_children, leaf_values, rc))),
+        left_child: Some(Box::new(build_child_from_arrays(
+            split_features,
+            thresholds,
+            left_children,
+            right_children,
+            leaf_values,
+            lc,
+        ))),
+        right_child: Some(Box::new(build_child_from_arrays(
+            split_features,
+            thresholds,
+            left_children,
+            right_children,
+            leaf_values,
+            rc,
+        ))),
         internal_value: 0.0,
     }
 }
@@ -173,7 +198,14 @@ fn build_child_from_arrays(
 ) -> crate::types::LgbTree {
     if child_idx >= 0 {
         // Internal node
-        build_node_from_arrays(split_features, thresholds, left_children, right_children, leaf_values, child_idx)
+        build_node_from_arrays(
+            split_features,
+            thresholds,
+            left_children,
+            right_children,
+            leaf_values,
+            child_idx,
+        )
     } else {
         // Leaf node: ~child_idx = leaf index (inverted)
         let leaf_idx = (!child_idx) as usize;
@@ -210,19 +242,25 @@ fn predict_single(model: &LgbModel, features: &[f64]) -> f64 {
 
 /// Traverse a single tree recursively and return the leaf value.
 fn predict_tree(tree: &crate::types::LgbTree, features: &[f64]) -> f64 {
-    if let Some(ref left) = tree.left_child {
-        if let Some(ref right) = tree.right_child {
-            // Internal node - compare feature against threshold
-            let feat_val = features.get(tree.split_feature as usize).copied().unwrap_or(0.0);
-            if feat_val <= tree.threshold {
-                return predict_tree(left, features);
-            } else {
-                return predict_tree(right, features);
-            }
+    if let Some(ref left) = tree.left_child
+        && let Some(ref right) = tree.right_child
+    {
+        // Internal node - compare feature against threshold
+        let feat_val = features
+            .get(tree.split_feature as usize)
+            .copied()
+            .unwrap_or(0.0);
+        if feat_val <= tree.threshold {
+            return predict_tree(left, features);
+        } else {
+            return predict_tree(right, features);
         }
     }
     // Leaf node
-    tree.leaf_values.first().copied().unwrap_or(tree.internal_value)
+    tree.leaf_values
+        .first()
+        .copied()
+        .unwrap_or(tree.internal_value)
 }
 
 #[cfg(test)]
@@ -301,12 +339,22 @@ mod tests {
             split_gain: 100.0,
             leaf_values: vec![],
             left_child: Some(Box::new(crate::types::LgbTree {
-                split_feature: 0, threshold: 0.0, split_gain: 0.0,
-                leaf_values: vec![0.1], left_child: None, right_child: None, internal_value: 0.1,
+                split_feature: 0,
+                threshold: 0.0,
+                split_gain: 0.0,
+                leaf_values: vec![0.1],
+                left_child: None,
+                right_child: None,
+                internal_value: 0.1,
             })),
             right_child: Some(Box::new(crate::types::LgbTree {
-                split_feature: 0, threshold: 0.0, split_gain: 0.0,
-                leaf_values: vec![0.9], left_child: None, right_child: None, internal_value: 0.9,
+                split_feature: 0,
+                threshold: 0.0,
+                split_gain: 0.0,
+                leaf_values: vec![0.9],
+                left_child: None,
+                right_child: None,
+                internal_value: 0.9,
             })),
             internal_value: 0.0,
         };
@@ -318,22 +366,43 @@ mod tests {
     fn test_deep_tree() {
         // Test a deeper tree: feature 0, then feature 1
         let tree = crate::types::LgbTree {
-            split_feature: 0, threshold: 0.5, split_gain: 100.0, leaf_values: vec![],
+            split_feature: 0,
+            threshold: 0.5,
+            split_gain: 100.0,
+            leaf_values: vec![],
             left_child: Some(Box::new(crate::types::LgbTree {
-                split_feature: 1, threshold: 0.3, split_gain: 50.0, leaf_values: vec![],
+                split_feature: 1,
+                threshold: 0.3,
+                split_gain: 50.0,
+                leaf_values: vec![],
                 left_child: Some(Box::new(crate::types::LgbTree {
-                    split_feature: 0, threshold: 0.0, split_gain: 0.0,
-                    leaf_values: vec![0.05], left_child: None, right_child: None, internal_value: 0.05,
+                    split_feature: 0,
+                    threshold: 0.0,
+                    split_gain: 0.0,
+                    leaf_values: vec![0.05],
+                    left_child: None,
+                    right_child: None,
+                    internal_value: 0.05,
                 })),
                 right_child: Some(Box::new(crate::types::LgbTree {
-                    split_feature: 0, threshold: 0.0, split_gain: 0.0,
-                    leaf_values: vec![0.15], left_child: None, right_child: None, internal_value: 0.15,
+                    split_feature: 0,
+                    threshold: 0.0,
+                    split_gain: 0.0,
+                    leaf_values: vec![0.15],
+                    left_child: None,
+                    right_child: None,
+                    internal_value: 0.15,
                 })),
                 internal_value: 0.0,
             })),
             right_child: Some(Box::new(crate::types::LgbTree {
-                split_feature: 0, threshold: 0.0, split_gain: 0.0,
-                leaf_values: vec![0.9], left_child: None, right_child: None, internal_value: 0.9,
+                split_feature: 0,
+                threshold: 0.0,
+                split_gain: 0.0,
+                leaf_values: vec![0.9],
+                left_child: None,
+                right_child: None,
+                internal_value: 0.9,
             })),
             internal_value: 0.0,
         };

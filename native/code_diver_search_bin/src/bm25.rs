@@ -1,5 +1,5 @@
-use std::collections::HashMap;
 use rustc_hash::FxHashMap;
+use std::collections::HashMap;
 
 use crate::catalog::tokenize;
 use crate::types::{Bm25Index, CatalogItem};
@@ -78,8 +78,14 @@ pub fn build_bm25_index(items: &[CatalogItem]) -> Bm25Index {
         num_docs += 1;
 
         for (term, freq) in &tf {
-            postings.entry(term.clone()).or_default().push(doc_id.clone());
-            inverted_index.entry(term.clone()).or_default().push((doc_idx, *freq));
+            postings
+                .entry(term.clone())
+                .or_default()
+                .push(doc_id.clone());
+            inverted_index
+                .entry(term.clone())
+                .or_default()
+                .push((doc_idx, *freq));
         }
 
         term_frequencies.insert(doc_id, tf);
@@ -210,7 +216,10 @@ pub fn path_coverage_score(doc: &CatalogItem, query_terms: &[String]) -> f64 {
     };
     let token_set: std::collections::HashSet<&str> =
         path_tokens.iter().map(|s| s.as_str()).collect();
-    let matched = query_terms.iter().filter(|t| token_set.contains(t.as_str())).count();
+    let matched = query_terms
+        .iter()
+        .filter(|t| token_set.contains(t.as_str()))
+        .count();
     matched as f64 / query_terms.len() as f64
 }
 
@@ -233,7 +242,10 @@ pub fn lexical_coverage_score(doc: &CatalogItem, query_terms: &[String]) -> f64 
     };
     let content_set: std::collections::HashSet<&str> =
         content_tokens.iter().map(|s| s.as_str()).collect();
-    let content_matched = query_terms.iter().filter(|t| content_set.contains(t.as_str())).count();
+    let content_matched = query_terms
+        .iter()
+        .filter(|t| content_set.contains(t.as_str()))
+        .count();
     let content_cov = content_matched as f64 / query_terms.len() as f64;
 
     // Title coverage: from tokenized_name
@@ -248,7 +260,10 @@ pub fn lexical_coverage_score(doc: &CatalogItem, query_terms: &[String]) -> f64 
     };
     let title_set: std::collections::HashSet<&str> =
         title_tokens.iter().map(|s| s.as_str()).collect();
-    let title_matched = query_terms.iter().filter(|t| title_set.contains(t.as_str())).count();
+    let title_matched = query_terms
+        .iter()
+        .filter(|t| title_set.contains(t.as_str()))
+        .count();
     let title_cov = title_matched as f64 / query_terms.len() as f64;
 
     // Python: min(1.0, content_coverage * 0.75 + title_coverage * 0.25)
@@ -291,7 +306,10 @@ pub fn symbol_coverage_score(doc: &CatalogItem, query_terms: &[String]) -> f64 {
         .chain(doc.symbols.iter())
         .map(|s| s.as_str())
         .collect();
-    let matched = query_terms.iter().filter(|t| token_set.contains(t.as_str())).count();
+    let matched = query_terms
+        .iter()
+        .filter(|t| token_set.contains(t.as_str()))
+        .count();
     matched as f64 / query_terms.len() as f64
 }
 
@@ -319,7 +337,10 @@ pub fn symbol_match_score(doc: &CatalogItem, query_terms: &[String]) -> f64 {
         return 0.0;
     }
     let symbol_set: std::collections::HashSet<&str> = symbol_terms.iter().cloned().collect();
-    let matches = query_terms.iter().filter(|t| symbol_set.contains(t.as_str())).count();
+    let matches = query_terms
+        .iter()
+        .filter(|t| symbol_set.contains(t.as_str()))
+        .count();
     if matches == 0 {
         return 0.0;
     }
@@ -381,7 +402,11 @@ mod tests {
         // tokenized_name is empty, should tokenize item.name -> ["projectmanager"] or tokens
         let query = vec!["projectmanager".to_string()];
         let score = symbol_match_score(&item, &query);
-        assert!(score > 0.0, "Expected positive score from name fallback, got {}", score);
+        assert!(
+            score > 0.0,
+            "Expected positive score from name fallback, got {}",
+            score
+        );
     }
 
     #[test]
@@ -390,7 +415,11 @@ mod tests {
         // tokenized_name and name empty, should tokenize item.path
         let query = vec!["projectmanager".to_string()];
         let score = symbol_match_score(&item, &query);
-        assert!(score > 0.0, "Expected positive score from path fallback, got {}", score);
+        assert!(
+            score > 0.0,
+            "Expected positive score from path fallback, got {}",
+            score
+        );
     }
 
     #[test]
@@ -399,6 +428,10 @@ mod tests {
         item.symbols = vec!["indexer".to_string(), "scanner".to_string()];
         let query = vec!["indexer".to_string(), "query".to_string()];
         let score = symbol_coverage_score(&item, &query);
-        assert!((score - 0.5).abs() < 1e-6, "Expected 0.5 coverage, got {}", score);
+        assert!(
+            (score - 0.5).abs() < 1e-6,
+            "Expected 0.5 coverage, got {}",
+            score
+        );
     }
 }

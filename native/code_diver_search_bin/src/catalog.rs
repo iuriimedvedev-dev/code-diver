@@ -30,7 +30,10 @@ pub fn load_catalog(path: &Path) -> Result<Catalog, String> {
             by_id.insert(item.id.clone(), idx);
         }
         if !item.path.is_empty() {
-            by_path.entry(item.path.clone()).or_insert_with(Vec::new).push(idx);
+            by_path
+                .entry(item.path.clone())
+                .or_insert_with(Vec::new)
+                .push(idx);
             let norm = normalize_path(&item.path);
             by_norm_path.entry(norm).or_insert_with(Vec::new).push(idx);
         }
