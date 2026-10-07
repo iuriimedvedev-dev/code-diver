@@ -30,3 +30,19 @@ sha2 = "0.10.9"
 
 [dev-dependencies]
 tempfile = "3"
+
+[[test]]
+name = "runtime_foundation"
+path = "src/runtime_config.rs"
+
+[[test]]
+name = "runtime_cli"
+path = "tests/runtime_cli.rs"
+
+[[test]]
+name = "runtime_acceptance"
+path = "tests/runtime_acceptance.rs"
+
+[[test]]
+name = "mcp_hosts"
+path = "src/mcp_registration.rs"

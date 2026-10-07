@@ -91,7 +91,7 @@ pub fn load(path: &Path) -> Result<Metadata, String> {
     decode(&bytes)
 }
 
-fn decode(bytes: &[u8]) -> Result<Metadata, String> {
+pub fn decode(bytes: &[u8]) -> Result<Metadata, String> {
     let parse = || -> Result<Metadata, String> {
         let mut value: serde_json::Value =
             serde_json::from_slice(bytes).map_err(|_| "Invalid JSON")?;

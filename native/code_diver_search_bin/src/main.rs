@@ -1,6 +1,7 @@
 mod bm25;
 mod catalog;
 mod catalog_builder;
+mod daemon;
 mod doctor;
 mod embedding;
 mod features;
@@ -13,9 +14,15 @@ pub mod info;
 mod inspection;
 mod lightgbm;
 pub mod mcp;
+pub mod mcp_registration;
 mod metadata;
+mod model_store;
 mod pipeline;
+pub mod runtime_config;
+mod service_manager;
+pub mod setup;
 mod types;
+pub mod update_index;
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -45,6 +52,12 @@ pub struct Cli {
 
 #[derive(clap::Subcommand, Debug, Clone)]
 pub enum Commands {
+    /// Configure local models, runtime, shared index and MCP hosts
+    Setup(SetupArgs),
+    /// Run the loopback-only local model runtime
+    Daemon(DaemonArgs),
+    /// Fetch and verify shared index artifacts atomically
+    UpdateIndex(UpdateIndexArgs),
     /// Print effective configuration with service secrets redacted
     Config {
         #[command(subcommand)]
@@ -102,6 +115,80 @@ pub struct InfoArgs {
 }
 
 #[derive(clap::Args, Debug, Clone)]
+pub struct RuntimeArgs {
+    #[arg(long)]
+    pub config: Option<PathBuf>,
+    #[arg(long)]
+    pub llama_server: Option<PathBuf>,
+    #[arg(long, alias = "daemon-port")]
+    pub port: Option<u16>,
+    #[arg(long)]
+    pub threads: Option<usize>,
+    #[arg(long)]
+    pub idle_timeout_secs: Option<u64>,
+    #[arg(long)]
+    pub request_timeout_secs: Option<u64>,
+    #[arg(long)]
+    pub reranker_ctx: Option<usize>,
+    #[arg(long)]
+    pub embedder_ctx: Option<usize>,
+    #[arg(long)]
+    pub embedder_batch: Option<usize>,
+    #[arg(long)]
+    pub embedder_ubatch: Option<usize>,
+    #[arg(long)]
+    pub batch: Option<usize>,
+    #[arg(long)]
+    pub ubatch: Option<usize>,
+    #[arg(long)]
+    pub model_manifest: Option<String>,
+    #[arg(long)]
+    pub qdrant_url: Option<String>,
+    #[arg(long)]
+    pub collection: Option<String>,
+    #[arg(long)]
+    pub artifact_url: Option<String>,
+    #[arg(long)]
+    pub index_name: Option<String>,
+}
+
+#[derive(clap::Args, Debug, Clone)]
+pub struct SetupArgs {
+    #[command(flatten)]
+    pub runtime: RuntimeArgs,
+    #[arg(long)]
+    pub profile: Option<String>,
+    #[arg(long)]
+    pub no_register: bool,
+    #[arg(long)]
+    pub uninstall: bool,
+    #[arg(long, requires = "uninstall")]
+    pub purge: bool,
+    #[arg(long)]
+    pub yes: bool,
+    #[arg(long)]
+    pub dry_run: bool,
+    #[arg(long)]
+    pub key_file: Option<PathBuf>,
+}
+
+#[derive(clap::Args, Debug, Clone)]
+pub struct DaemonArgs {
+    #[command(flatten)]
+    pub runtime: RuntimeArgs,
+    #[arg(long)]
+    pub foreground: bool,
+}
+
+#[derive(clap::Args, Debug, Clone)]
+pub struct UpdateIndexArgs {
+    #[command(flatten)]
+    pub runtime: RuntimeArgs,
+    #[arg(long)]
+    pub dry_run: bool,
+}
+
+#[derive(clap::Args, Debug, Clone)]
 pub struct DoctorArgs {
     #[command(flatten)]
     pub search: SearchArgs,
@@ -124,6 +211,15 @@ pub struct McpArgs {
 
 #[derive(clap::Args, Debug, Clone)]
 pub struct SearchArgs {
+    #[arg(long)]
+    pub daemon_port: Option<u16>,
+    #[arg(long)]
+    pub threads: Option<usize>,
+    #[arg(long, num_args = 0..=1, default_missing_value = "true", require_equals = true)]
+    pub autostart: Option<bool>,
+    /// Override the runtime model manifest (local file or HTTPS URL)
+    #[arg(long)]
+    pub model_manifest: Option<String>,
     /// Fail rather than return degraded results on any reranker failure
     #[arg(long, num_args = 0..=1, default_missing_value = "true", require_equals = true)]
     pub require_rerank: Option<bool>,
@@ -621,6 +717,42 @@ async fn main() -> Result<(), String> {
     let cli = Cli::parse();
 
     match cli.command {
+        Some(Commands::Setup(args)) => run_setup(args).await,
+        Some(Commands::Daemon(args)) => {
+            let (config, paths) = load_runtime(&args.runtime)?;
+            let _lock = RuntimeProcessLock::acquire(&paths, "daemon.pid", None).await?;
+            daemon::run(config, paths, args.foreground)
+                .await
+                .map_err(|e| e.to_string())
+        }
+        Some(Commands::UpdateIndex(args)) => {
+            let (config, paths) = load_runtime(&args.runtime)?;
+            let keychain = runtime_config::NativeMacSecurity;
+            let outcome = update_index::update_with_options(
+                &config,
+                &paths,
+                update_index::UpdateOptions {
+                    dry_run: args.dry_run,
+                    model_manifest: args.runtime.model_manifest.as_deref().map(Path::new),
+                    keychain: (!paths.isolated)
+                        .then_some(&keychain as &dyn runtime_config::MacSecurity),
+                },
+            )
+            .await
+            .map_err(|e| e.to_string())?;
+            println!(
+                "{}: {} files downloaded, {} bytes resumed{}",
+                if outcome.changed {
+                    "Index changed"
+                } else {
+                    "Index unchanged"
+                },
+                outcome.downloaded_files,
+                outcome.resumed_bytes,
+                if outcome.dry_run { " (dry run)" } else { "" }
+            );
+            Ok(())
+        }
         Some(Commands::Read(args)) => run_inspection_cli(
             "code_diver_read",
             &args.common,
@@ -645,6 +777,10 @@ async fn main() -> Result<(), String> {
         Some(Commands::Config {
             command: ConfigCommand::Show(args),
         }) => {
+            if let Some((config, _)) = runtime_for_args(&args)? {
+                println!("{}", config.redacted_toml().map_err(|e| e.to_string())?);
+                return Ok(());
+            }
             let (config, _) = build_search_config_for(&args, false)?;
             let mut effective =
                 serde_json::to_value(config).map_err(|_| "Cannot encode configuration")?;
@@ -718,6 +854,539 @@ pub(crate) fn configured_candidate_limit(args: &SearchArgs) -> Result<usize, Str
     resolve_candidate_limit(limit, args.first_pass_cap).map_err(|e| e.to_string())
 }
 
+pub(crate) fn runtime_for(
+    explicit: Option<&Path>,
+) -> Result<Option<(runtime_config::RuntimeConfig, runtime_config::RuntimePaths)>, String> {
+    let paths = runtime_config::RuntimePaths::discover().map_err(|e| e.to_string())?;
+    let path = explicit
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("CODE_DIVER_CONFIG").map(PathBuf::from))
+        .unwrap_or_else(|| paths.config_file());
+    if !path.is_file() {
+        return Ok(None);
+    }
+    if path.extension().is_none_or(|ext| ext != "toml") {
+        return Ok(None);
+    }
+    let text = fs::read_to_string(&path).map_err(|_| "Cannot read runtime configuration")?;
+    let value: toml::Value = toml::from_str(&text).map_err(|_| "Invalid TOML configuration")?;
+    if path != paths.config_file()
+        && value.get("daemon").is_none()
+        && value.get("schema").is_none()
+        && value.get("llama_server").is_none()
+    {
+        return Ok(None);
+    }
+    let config = runtime_config::load_config(&path).map_err(|e| e.to_string())?;
+    let environment = runtime_config::environment_overrides(|key| std::env::var(key).ok())
+        .map_err(|e| e.to_string())?;
+    let config = runtime_config::effective_config(config, &environment, &toml::Table::new())
+        .map_err(|e| e.to_string())?;
+    Ok(Some((config, paths)))
+}
+
+fn runtime_flags(args: &RuntimeArgs) -> Result<toml::Table, String> {
+    let mut flags = toml::Table::new();
+    let mut daemon = toml::Table::new();
+    for (key, value) in [
+        ("port", args.port.map(u64::from)),
+        ("threads", args.threads.map(|v| v as u64)),
+        ("idle_timeout_secs", args.idle_timeout_secs),
+        ("request_timeout_secs", args.request_timeout_secs),
+        ("reranker_ctx", args.reranker_ctx.map(|v| v as u64)),
+        ("embedder_ctx", args.embedder_ctx.map(|v| v as u64)),
+        ("embedder_batch", args.embedder_batch.map(|v| v as u64)),
+        ("embedder_ubatch", args.embedder_ubatch.map(|v| v as u64)),
+        ("batch", args.batch.map(|v| v as u64)),
+        ("ubatch", args.ubatch.map(|v| v as u64)),
+    ] {
+        if let Some(value) = value {
+            daemon.insert(
+                key.into(),
+                toml::Value::Integer(value.try_into().map_err(|_| "Runtime setting too large")?),
+            );
+        }
+    }
+    flags.insert("daemon".into(), toml::Value::Table(daemon));
+    let mut profile = toml::Table::new();
+    for (key, value) in [
+        ("qdrant_url", &args.qdrant_url),
+        ("collection", &args.collection),
+        ("artifact_url", &args.artifact_url),
+        ("index_name", &args.index_name),
+    ] {
+        if let Some(value) = value {
+            profile.insert(key.into(), toml::Value::String(value.clone()));
+        }
+    }
+    if let Some(source) = &args.model_manifest {
+        profile.insert(
+            if source.contains("://") {
+                "model_manifest_url"
+            } else {
+                "model_manifest_path"
+            }
+            .into(),
+            toml::Value::String(source.clone()),
+        );
+    }
+    flags.insert("profile".into(), toml::Value::Table(profile));
+    if let Some(binary) = &args.llama_server {
+        flags.insert(
+            "llama_server".into(),
+            toml::Value::String(binary.to_string_lossy().into_owned()),
+        );
+    }
+    Ok(flags)
+}
+
+fn load_runtime(
+    args: &RuntimeArgs,
+) -> Result<(runtime_config::RuntimeConfig, runtime_config::RuntimePaths), String> {
+    let paths = runtime_config::RuntimePaths::discover().map_err(|e| e.to_string())?;
+    let path = args
+        .config
+        .clone()
+        .or_else(|| std::env::var_os("CODE_DIVER_CONFIG").map(PathBuf::from))
+        .unwrap_or_else(|| paths.config_file());
+    let config = runtime_config::load_config(&path).map_err(|e| e.to_string())?;
+    let environment = runtime_config::environment_overrides(|key| std::env::var(key).ok())
+        .map_err(|e| e.to_string())?;
+    let config = runtime_config::effective_config(config, &environment, &runtime_flags(args)?)
+        .map_err(|e| e.to_string())?;
+    Ok((config, paths))
+}
+
+struct RuntimeSetupHooks<'a> {
+    options: &'a setup::SetupOptions,
+}
+pub(crate) fn runtime_registration(
+    paths: &runtime_config::RuntimePaths,
+    binary: &Path,
+    config: &Path,
+    dry_run: bool,
+) -> anyhow::Result<mcp_registration::Registration> {
+    let mut registration =
+        mcp_registration::Registration::new(&paths.hosts, binary, config, dry_run)?;
+    if paths.isolated {
+        registration.runtime_root = Some(
+            paths
+                .config
+                .parent()
+                .ok_or_else(|| anyhow::anyhow!("isolated config has no parent"))?
+                .to_path_buf(),
+        );
+    }
+    Ok(registration)
+}
+
+impl setup::SetupHooks for RuntimeSetupHooks<'_> {
+    fn doctor(&mut self, command: &service_manager::CommandPlan) -> anyhow::Result<bool> {
+        if !self.options.no_register {
+            return command.execute();
+        }
+        let cli = Cli::try_parse_from(
+            std::iter::once(command.program.as_os_str().to_owned())
+                .chain(command.args.iter().map(std::ffi::OsString::from)),
+        )?;
+        let Some(Commands::Doctor(args)) = cli.command else {
+            anyhow::bail!("setup doctor command expected");
+        };
+        std::thread::spawn(move || {
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()?;
+            Ok(runtime
+                .block_on(doctor::run_for_setup(&args.search))
+                .is_ok())
+        })
+        .join()
+        .map_err(|_| anyhow::anyhow!("setup doctor thread failed"))?
+    }
+
+    fn update_index<'a>(
+        &'a mut self,
+        config: &'a runtime_config::RuntimeConfig,
+        paths: &'a runtime_config::RuntimePaths,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<()>> + 'a>> {
+        Box::pin(async move {
+            let keychain = runtime_config::NativeMacSecurity;
+            let recorder = |created: &[update_index::CreatedArtifact]| {
+                record_created_artifacts(self.options, created)
+            };
+            update_index::update_with_recorder(
+                config,
+                paths,
+                update_index::UpdateOptions {
+                    keychain: (!paths.isolated)
+                        .then_some(&keychain as &dyn runtime_config::MacSecurity),
+                    ..Default::default()
+                },
+                Some(&recorder),
+            )
+            .await?;
+            Ok(())
+        })
+    }
+}
+
+fn record_created_artifacts(
+    options: &setup::SetupOptions,
+    created: &[update_index::CreatedArtifact],
+) -> anyhow::Result<()> {
+    let mut artifacts = Vec::new();
+    for artifact in created {
+        match &artifact.kind {
+            update_index::ArtifactKind::File | update_index::ArtifactKind::Directory => {
+                artifacts.push(setup::CreatedArtifact {
+                    path: artifact.path.clone(),
+                });
+            }
+            update_index::ArtifactKind::Symlink { target } => {
+                setup::track_created_pointer(options, &artifact.path, target)?;
+            }
+        }
+    }
+    setup::track_created_artifacts(options, &artifacts)
+}
+
+fn read_setup_profile(
+    reader: &mut impl std::io::BufRead,
+    writer: &mut impl std::io::Write,
+) -> Result<String, String> {
+    writer
+        .write_all(b"Team profile URL or file: ")
+        .map_err(|_| "Cannot write profile prompt")?;
+    writer.flush().map_err(|_| "Cannot write profile prompt")?;
+    let mut line = String::new();
+    std::io::BufRead::read_line(&mut std::io::Read::take(reader, 4097), &mut line)
+        .map_err(|_| "Cannot read team profile")?;
+    if line.len() > 4096 || line.trim().is_empty() {
+        return Err("Team profile is required; supply --profile URL-or-file".into());
+    }
+    Ok(line.trim().to_string())
+}
+
+fn prompt_setup_profile() -> Result<String, String> {
+    let mut tty = fs::OpenOptions::new().read(true).write(true).open("/dev/tty")
+        .map_err(|_| "No interactive terminal; supply --profile URL-or-file (including index_name, artifact_url, qdrant_url and collection)")?;
+    let input = tty.try_clone().map_err(|_| "Cannot open profile prompt")?;
+    read_setup_profile(&mut std::io::BufReader::new(input), &mut tty)
+}
+
+async fn run_setup(args: SetupArgs) -> Result<(), String> {
+    let paths = runtime_config::RuntimePaths::discover().map_err(|e| e.to_string())?;
+    let platform = if cfg!(target_os = "macos") {
+        runtime_config::Platform::MacOs
+    } else if cfg!(target_os = "linux") {
+        runtime_config::Platform::Linux
+    } else {
+        return Err("Unsupported runtime platform".into());
+    };
+    let executable = std::env::current_exe().map_err(|_| "Cannot locate code-diver binary")?;
+    #[cfg(unix)]
+    let uid = {
+        unsafe extern "C" {
+            fn getuid() -> u32;
+        }
+        unsafe { getuid() }
+    };
+    #[cfg(not(unix))]
+    let uid = 0;
+    let mut options = setup::SetupOptions::new(paths, executable, platform, uid);
+    options.config = args
+        .runtime
+        .config
+        .clone()
+        .or_else(|| std::env::var_os("CODE_DIVER_CONFIG").map(PathBuf::from))
+        .unwrap_or_else(|| options.paths.config_file());
+    if !options.config.is_absolute() {
+        options.config = std::env::current_dir()
+            .map_err(|_| "Cannot resolve config directory")?
+            .join(&options.config);
+    }
+    options.uninstall = args.uninstall;
+    options.purge = args.purge;
+    options.profile = args.profile;
+    options.no_register = args.no_register;
+    options.yes = args.yes;
+    options.dry_run = args.dry_run;
+    options.key_file = args.key_file;
+    options.llama_server = args.runtime.llama_server.clone();
+    options.flags = runtime_flags(&args.runtime)?;
+    options.environment = std::env::vars().collect();
+    if !options.uninstall {
+        let mut config = runtime_config::load_config(&options.config).map_err(|e| e.to_string())?;
+        if let Some(source) = &options.profile
+            && !options.dry_run
+        {
+            config.profile = runtime_config::load_profile(source)
+                .await
+                .map_err(|e| e.to_string())?;
+        }
+        let environment =
+            runtime_config::environment_overrides(|key| options.environment.get(key).cloned())
+                .map_err(|e| e.to_string())?;
+        let mut config = runtime_config::effective_config(config, &environment, &options.flags)
+            .map_err(|e| e.to_string())?;
+        let missing = |config: &runtime_config::RuntimeConfig| {
+            let mut fields = Vec::new();
+            for (name, value) in [
+                ("index_name", &config.profile.index_name),
+                ("artifact_url", &config.profile.artifact_url),
+                ("qdrant_url", &config.profile.qdrant_url),
+                ("collection", &config.profile.collection),
+            ] {
+                if value.as_deref().is_none_or(|value| value.trim().is_empty()) {
+                    fields.push(name);
+                }
+            }
+            fields
+        };
+        if !missing(&config).is_empty() {
+            if options.dry_run {
+                println!(
+                    "Configuration required: supply --profile URL-or-file containing {} (interactive setup asks for the profile, then a hidden key)",
+                    missing(&config).join(", ")
+                );
+            } else {
+                if options.profile.is_some() || options.yes {
+                    return Err(format!(
+                        "Setup requires {}; supply --profile URL-or-file or explicit configuration; --yes does not supply missing configuration",
+                        missing(&config).join(", ")
+                    ));
+                }
+                let source = prompt_setup_profile()?;
+                config.profile = runtime_config::load_profile(&source)
+                    .await
+                    .map_err(|e| e.to_string())?;
+                config = runtime_config::effective_config(config, &environment, &options.flags)
+                    .map_err(|e| e.to_string())?;
+                options.profile = Some(source);
+                if !missing(&config).is_empty() {
+                    return Err(format!(
+                        "Team profile is missing {}; correct --profile before setup",
+                        missing(&config).join(", ")
+                    ));
+                }
+            }
+        }
+        if let Some(name) = config.profile.index_name {
+            options
+                .flags
+                .get_mut("profile")
+                .unwrap()
+                .as_table_mut()
+                .unwrap()
+                .insert("index_name".into(), toml::Value::String(name));
+        }
+    }
+    options.search_path = std::env::var_os("PATH")
+        .map(|value| std::env::split_paths(&value).collect())
+        .unwrap_or_default();
+    options.claude_cli = runtime_registration(
+        &options.paths,
+        &options.executable,
+        &options.config,
+        options.dry_run,
+    )
+    .map_err(|e| e.to_string())?
+    .claude_cli;
+    if options.paths.isolated {
+        options.security = None;
+    }
+    setup::run(
+        &options,
+        &mut setup::TerminalInteraction,
+        &mut RuntimeSetupHooks { options: &options },
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+pub(crate) fn runtime_remote(
+    config: &runtime_config::RuntimeConfig,
+    paths: &runtime_config::RuntimePaths,
+) -> Result<serde_json::Value, String> {
+    let source = config
+        .profile
+        .model_manifest_source()
+        .map_err(|e| e.to_string())?;
+    let manifest = match source {
+        Some(source) if !source.contains("://") => {
+            let raw = fs::read(source).map_err(|_| "Cannot read runtime model manifest")?;
+            Some(model_store::ModelManifest::parse(&raw).map_err(|e| e.to_string())?)
+        }
+        Some(_) => None,
+        None => Some(model_store::ModelManifest::embedded().map_err(|e| e.to_string())?),
+    };
+    let base = config.daemon_url();
+    let mut result = serde_json::json!({
+        "storage":{"qdrant":{"url":config.profile.qdrant_url,"collection":config.profile.collection}},
+        "embedding":{"url":format!("{base}/v1/embeddings"),
+            "model":config.profile.embedding_model.as_deref().or_else(|| manifest.as_ref().map(|manifest| manifest.models.embedder.repo.strip_suffix("-GGUF").unwrap_or(&manifest.models.embedder.repo))),
+            "dimensions":config.profile.embedding_dimensions.or_else(|| manifest.as_ref().and_then(|manifest| manifest.models.embedder.dimensions)),
+            "query_prefix":config.profile.query_prefix,"document_prefix":config.profile.document_prefix},
+        "cross_encoder_rerank":{"url":format!("{base}/v1/rerank")}
+    });
+    {
+        let name = config
+            .profile
+            .index_name
+            .as_deref()
+            .ok_or("Runtime snapshot is not configured: set profile.index_name via code-diver setup --profile URL-or-file; collection is not a snapshot selection")?;
+        let directory = paths.index_dir(name).map_err(|e| e.to_string())?;
+        let directory = directory.canonicalize().unwrap_or(directory);
+        let metadata_path = directory.join("index-metadata.json");
+        let metadata = if metadata_path.is_file() {
+            Some(metadata::load(&metadata_path)?)
+        } else {
+            None
+        };
+        for (field, filename) in [
+            ("catalog", "rust_catalog.jsonl"),
+            ("graph_path", "rust_graph.jsonl"),
+            ("model", "ce_meta_ranker.lgb.txt"),
+        ] {
+            let files = metadata
+                .as_ref()
+                .and_then(|metadata| metadata.extra.get("files"))
+                .and_then(serde_json::Value::as_object);
+            let explicit = metadata
+                .as_ref()
+                .and_then(|metadata| {
+                    if field == "model" {
+                        metadata
+                            .extra
+                            .get("meta_ranker")
+                            .and_then(|value| value.get("file"))
+                    } else {
+                        metadata.extra.get(field)
+                    }
+                })
+                .and_then(serde_json::Value::as_str);
+            let selected = if let Some(explicit) = explicit {
+                if files.is_none_or(|files| !files.contains_key(explicit)) {
+                    return Err(format!(
+                        "Index metadata {field} is absent from its files manifest"
+                    ));
+                }
+                explicit.to_owned()
+            } else if let Some(files) = files {
+                let matches: Vec<_> = files
+                    .keys()
+                    .filter(|path| {
+                        Path::new(path)
+                            .file_name()
+                            .is_some_and(|name| name == filename)
+                    })
+                    .collect();
+                match matches.as_slice() {
+                    [path] => (*path).clone(),
+                    [] => filename.into(),
+                    _ => {
+                        return Err(format!(
+                            "Ambiguous index metadata {field}; specify its path"
+                        ));
+                    }
+                }
+            } else {
+                filename.into()
+            };
+            if Path::new(&selected)
+                .components()
+                .any(|part| !matches!(part, std::path::Component::Normal(_)))
+            {
+                return Err("Unsafe index metadata artifact path".into());
+            }
+            result[field] = serde_json::json!(directory.join(selected));
+        }
+        if metadata_path.is_file() {
+            result["index_metadata"] = serde_json::json!(metadata_path);
+        }
+    }
+    let store = runtime_config::FileSecretStore::new(paths);
+    let keychain = runtime_config::NativeMacSecurity;
+    for (name, section, field) in [
+        ("qdrant", "storage", "api_key"),
+        ("embedding", "embedding", "api_key"),
+        ("ce", "cross_encoder_rerank", "api_key"),
+    ] {
+        if let Some(reference) = config.secrets.get(name) {
+            let secret = runtime_config::resolve_secret(
+                reference,
+                |key| std::env::var(key).ok(),
+                &store,
+                (!paths.isolated).then_some(&keychain as &dyn runtime_config::MacSecurity),
+            )
+            .map_err(|e| e.to_string())?;
+            if section == "storage" {
+                result[section]["qdrant"][field] = serde_json::json!(secret.expose());
+            } else {
+                result[section][field] = serde_json::json!(secret.expose());
+            }
+        }
+    }
+    Ok(result)
+}
+
+pub(crate) fn runtime_for_args(
+    args: &SearchArgs,
+) -> Result<Option<(runtime_config::RuntimeConfig, runtime_config::RuntimePaths)>, String> {
+    let Some((mut config, paths)) = runtime_for(args.config.as_deref())? else {
+        return Ok(None);
+    };
+    if args.qdrant_api_key.is_some()
+        || args.qdrant_bearer.is_some()
+        || args.embedding_api_key.is_some()
+        || args.ce_api_key.is_some()
+    {
+        return Err("Runtime credentials must use environment references or the private secret store, not command-line flags".into());
+    }
+    if let Some(port) = args.daemon_port {
+        config.daemon.port = port;
+    }
+    if let Some(threads) = args.threads {
+        config.daemon.threads = Some(threads);
+    }
+    if let Some(autostart) = args.autostart {
+        config.daemon.autostart = autostart;
+    }
+    if let Some(binary) = &args.llama_server {
+        config.llama_server = Some(binary.clone());
+    }
+    if let Some(source) = &args.model_manifest {
+        if source.contains("://") {
+            config.profile.model_manifest_url = Some(source.clone());
+            config.profile.model_manifest_path = None;
+        } else {
+            config.profile.model_manifest_path = Some(PathBuf::from(source));
+            config.profile.model_manifest_url = None;
+        }
+    }
+    if let Some(url) = &args.qdrant_url {
+        config.profile.qdrant_url = Some(url.clone());
+    }
+    if !args.qdrant_collection.is_empty() {
+        config.profile.collection = Some(args.qdrant_collection.clone());
+    }
+    if let Some(model) = &args.embedding_model {
+        config.profile.embedding_model = Some(model.clone());
+    }
+    if let Some(dimensions) = args.embedding_dimensions {
+        config.profile.embedding_dimensions = Some(dimensions);
+    }
+    if let Some(prefix) = &args.embedding_query_prefix {
+        config.profile.query_prefix = Some(prefix.clone());
+    }
+    if let Some(prefix) = &args.embedding_document_prefix {
+        config.profile.document_prefix = Some(prefix.clone());
+    }
+    config.validate().map_err(|e| e.to_string())?;
+    Ok(Some((config, paths)))
+}
+
 fn build_search_config(args: &SearchArgs) -> Result<(SearchConfig, PathBuf), String> {
     build_search_config_for(args, true)
 }
@@ -738,7 +1407,11 @@ fn build_search_config_default(
         .config
         .clone()
         .or_else(|| std::env::var_os("CODE_DIVER_CONFIG").map(PathBuf::from));
-    let remote = indexing::remote_config(config_path.as_deref())?;
+    let remote = if let Some((config, paths)) = runtime_for_args(args)? {
+        runtime_remote(&config, &paths)?
+    } else {
+        indexing::remote_config(config_path.as_deref())?
+    };
     indexing::validate_config(&remote)?;
     let q = &remote["storage"]["qdrant"];
     let e = &remote["embedding"];
@@ -1207,6 +1880,11 @@ fn build_search_config_default(
 }
 
 async fn run_mcp(args: McpArgs) -> Result<(), String> {
+    if let Some((config, paths)) = runtime_for_args(&args.search)?
+        && config.daemon.autostart
+    {
+        ensure_daemon(&config, &paths, args.search.config.as_deref()).await?;
+    }
     let root_path = inspection_root(
         args.search
             .root
@@ -1220,6 +1898,184 @@ async fn run_mcp(args: McpArgs) -> Result<(), String> {
         max_concurrent_searches: args.max_concurrent_searches,
     };
     crate::mcp::run_mcp_server(mcp_config).await
+}
+
+struct RuntimeProcessLock {
+    _file: fs::File,
+}
+
+impl RuntimeProcessLock {
+    fn held(paths: &runtime_config::RuntimePaths) -> Result<bool, String> {
+        use std::os::fd::AsRawFd;
+        unsafe extern "C" {
+            fn flock(fd: i32, operation: i32) -> i32;
+        }
+        let path = paths.state.join("daemon.pid");
+        service_manager::safe_path(&path).map_err(|e| e.to_string())?;
+        let file = match fs::OpenOptions::new().read(true).write(true).open(path) {
+            Ok(file) => file,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+            Err(_) => return Err("Cannot inspect daemon process lock".into()),
+        };
+        const LOCK_EX: i32 = 2;
+        const LOCK_NB: i32 = 4;
+        if unsafe { flock(file.as_raw_fd(), LOCK_EX | LOCK_NB) } == 0 {
+            return Ok(false);
+        }
+        if std::io::Error::last_os_error().kind() == std::io::ErrorKind::WouldBlock {
+            Ok(true)
+        } else {
+            Err("Cannot inspect daemon process lock".into())
+        }
+    }
+
+    async fn acquire(
+        paths: &runtime_config::RuntimePaths,
+        name: &str,
+        wait: Option<std::time::Duration>,
+    ) -> Result<Self, String> {
+        use std::io::{Seek, Write};
+        use std::os::fd::AsRawFd;
+        use std::os::unix::fs::OpenOptionsExt;
+        const LOCK_EX: i32 = 2;
+        const LOCK_NB: i32 = 4;
+        unsafe extern "C" {
+            fn flock(fd: i32, operation: i32) -> i32;
+        }
+        paths.ensure_dirs().map_err(|e| e.to_string())?;
+        let path = paths.state.join(name);
+        service_manager::safe_path(&path).map_err(|e| e.to_string())?;
+        let mut file = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .mode(0o600)
+            .open(path)
+            .map_err(|_| "Cannot open daemon process lock")?;
+        let deadline = wait.map(|duration| tokio::time::Instant::now() + duration);
+        loop {
+            if unsafe { flock(file.as_raw_fd(), LOCK_EX | LOCK_NB) } == 0 {
+                file.set_len(0).map_err(|_| "Cannot update daemon PID")?;
+                file.rewind().map_err(|_| "Cannot update daemon PID")?;
+                writeln!(file, "{}", std::process::id()).map_err(|_| "Cannot update daemon PID")?;
+                return Ok(Self { _file: file });
+            }
+            if std::io::Error::last_os_error().kind() != std::io::ErrorKind::WouldBlock {
+                return Err("Cannot acquire daemon process lock".into());
+            }
+            if deadline.is_none_or(|deadline| tokio::time::Instant::now() >= deadline) {
+                return Err("Local daemon process lock is held; run doctor".into());
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+    }
+}
+
+async fn ensure_daemon(
+    config: &runtime_config::RuntimeConfig,
+    paths: &runtime_config::RuntimePaths,
+    explicit: Option<&Path>,
+) -> Result<(), String> {
+    let _launch_lock = RuntimeProcessLock::acquire(
+        paths,
+        "daemon-autostart.lock",
+        Some(std::time::Duration::from_secs(
+            config.daemon.startup_timeout_secs,
+        )),
+    )
+    .await?;
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .timeout(std::time::Duration::from_millis(500))
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .map_err(|_| "Cannot initialize daemon client")?;
+    let url = format!("{}/health", config.daemon_url());
+    if client
+        .get(&url)
+        .send()
+        .await
+        .is_ok_and(|response| response.status().is_success())
+    {
+        return Ok(());
+    }
+    let deadline = tokio::time::Instant::now()
+        + std::time::Duration::from_secs(config.daemon.startup_timeout_secs);
+    while RuntimeProcessLock::held(paths)? {
+        if client
+            .get(&url)
+            .send()
+            .await
+            .is_ok_and(|response| response.status().is_success())
+        {
+            return Ok(());
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return Err(
+                "Local daemon holds its PID lock but health is not ready; run doctor".into(),
+            );
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    let executable = std::env::current_exe().map_err(|_| "Cannot locate daemon executable")?;
+    let path = explicit
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("CODE_DIVER_CONFIG").map(PathBuf::from))
+        .unwrap_or_else(|| paths.config_file());
+    let mut command = tokio::process::Command::new(executable);
+    command
+        .args(["daemon", "--foreground", "--config"])
+        .arg(path)
+        .arg("--port")
+        .arg(config.daemon.port.to_string())
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    if let Some(binary) = &config.llama_server {
+        command.arg("--llama-server").arg(binary);
+    }
+    if let Some(threads) = config.daemon.threads {
+        command.arg("--threads").arg(threads.to_string());
+    }
+    if let Some(source) = config
+        .profile
+        .model_manifest_source()
+        .map_err(|e| e.to_string())?
+    {
+        command.arg("--model-manifest").arg(source);
+    }
+    let mut child = command
+        .spawn()
+        .map_err(|_| "Cannot launch local daemon; run setup")?;
+    let deadline = tokio::time::Instant::now()
+        + std::time::Duration::from_secs(config.daemon.startup_timeout_secs);
+    loop {
+        if client
+            .get(&url)
+            .send()
+            .await
+            .is_ok_and(|response| response.status().is_success())
+        {
+            tokio::spawn(async move {
+                let _ = child.wait().await;
+            });
+            return Ok(());
+        }
+        if child
+            .try_wait()
+            .map_err(|_| "Cannot inspect daemon process")?
+            .is_some()
+            && !RuntimeProcessLock::held(paths)?
+        {
+            return Err("Local daemon failed to start; run doctor or setup".into());
+        }
+        if tokio::time::Instant::now() >= deadline {
+            let _ = child.kill().await;
+            return Err("Local daemon startup timed out; run doctor or setup".into());
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
 }
 
 async fn run_search_cli(args: SearchArgs) -> Result<(), String> {
@@ -1657,6 +2513,320 @@ async fn run_benchmark(ctx: &pipeline::SearchContext, path: &str, n: usize) -> R
 #[cfg(test)]
 mod cli_tests {
     use super::*;
+
+    #[test]
+    fn registration_runtime_root_matches_discovered_paths() {
+        let home = tempfile::tempdir().unwrap();
+        let home = home.path().canonicalize().unwrap();
+        for isolated in [true, false] {
+            let paths =
+                runtime_config::RuntimePaths::from_env(runtime_config::Platform::MacOs, |key| {
+                    match key {
+                        "CODE_DIVER_HOME" if isolated => Some(home.display().to_string()),
+                        "HOME" => Some(home.display().to_string()),
+                        _ => None,
+                    }
+                })
+                .unwrap();
+            let mut registration = runtime_registration(
+                &paths,
+                &home.join("code-diver"),
+                &home.join("external/config.toml"),
+                false,
+            )
+            .unwrap();
+            assert_eq!(registration.runtime_root, isolated.then_some(home.clone()));
+            registration.claude_cli = None;
+            let host_config = paths.hosts.join(".codex/config.toml");
+            fs::create_dir_all(host_config.parent().unwrap()).unwrap();
+            fs::write(&host_config, "# preserve\n").unwrap();
+            registration.register().unwrap();
+            let mut doctor = runtime_registration(
+                &paths,
+                &home.join("code-diver"),
+                &home.join("external/config.toml"),
+                true,
+            )
+            .unwrap();
+            doctor.claude_cli = None;
+            assert!(doctor.doctor().unwrap().healthy());
+            let host: toml::Value =
+                toml::from_str(&fs::read_to_string(&host_config).unwrap()).unwrap();
+            let root = host["mcp_servers"]["code-diver"]["env"].get("CODE_DIVER_HOME");
+            assert_eq!(
+                root.and_then(toml::Value::as_str),
+                isolated.then(|| home.to_str().unwrap()),
+            );
+            registration.unregister().unwrap();
+            assert_eq!(fs::read_to_string(host_config).unwrap(), "# preserve\n");
+        }
+    }
+
+    #[tokio::test]
+    async fn setup_hook_records_real_updater_receipts_before_publication() {
+        use runtime_config::SecretStore;
+        use setup::SetupHooks;
+        use sha2::{Digest, Sha256};
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let home = tempfile::tempdir().unwrap();
+        let root = home.path().canonicalize().unwrap();
+        let paths =
+            runtime_config::RuntimePaths::from_env(runtime_config::Platform::MacOs, |key| {
+                (key == "CODE_DIVER_HOME").then(|| root.display().to_string())
+            })
+            .unwrap();
+        paths.ensure_dirs().unwrap();
+        let cache = paths.data.join(".test-downloads");
+        fs::create_dir(&cache).unwrap();
+        fs::write(cache.join("preexisting"), "preserve").unwrap();
+        runtime_config::FileSecretStore::new(&paths)
+            .put(
+                "artifacts",
+                &runtime_config::SecretValue::new("synthetic-secret".into()).unwrap(),
+            )
+            .unwrap();
+        let mut config = runtime_config::RuntimeConfig::default();
+        config.profile.index_name = Some("test".into());
+        config.secrets.insert(
+            "artifacts".into(),
+            runtime_config::SecretRef::File("artifacts".into()),
+        );
+        let mut metadata: serde_json::Value =
+            serde_json::from_str(include_str!("../tests/fixtures/shared-index-metadata.json"))
+                .unwrap();
+        metadata["files"] = serde_json::json!({"nested/rust_catalog.jsonl": {"bytes":0, "sha256":format!("{:x}", Sha256::digest([]))}});
+        let body = metadata.to_string();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        config.profile.artifact_url = Some(format!("http://{}", listener.local_addr().unwrap()));
+        let server = tokio::spawn(async move {
+            for _ in 0..2 {
+                let (mut stream, _) =
+                    tokio::time::timeout(std::time::Duration::from_secs(5), listener.accept())
+                        .await
+                        .unwrap()
+                        .unwrap();
+                let mut request = Vec::new();
+                while !request.ends_with(b"\r\n\r\n") {
+                    request.push(stream.read_u8().await.unwrap());
+                }
+                assert!(
+                    String::from_utf8(request)
+                        .unwrap()
+                        .contains("Bearer synthetic-secret")
+                );
+                stream.write_all(format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await.unwrap();
+            }
+        });
+        let options = setup::SetupOptions::new(
+            paths.clone(),
+            root.join("code-diver"),
+            runtime_config::Platform::MacOs,
+            501,
+        );
+        let mut hooks = RuntimeSetupHooks { options: &options };
+        hooks.update_index(&config, &paths).await.unwrap();
+        hooks.update_index(&config, &paths).await.unwrap();
+        server.await.unwrap();
+        let pointer = paths.data.join("test");
+        assert!(fs::symlink_metadata(&pointer).unwrap().is_symlink());
+        let ledger: serde_json::Value =
+            serde_json::from_slice(&fs::read(paths.state.join("setup-owned.json")).unwrap())
+                .unwrap();
+        let artifacts = ledger["artifacts"].as_object().unwrap();
+        assert!(artifacts.contains_key(pointer.to_str().unwrap()));
+        assert!(
+            artifacts.contains_key(
+                pointer
+                    .canonicalize()
+                    .unwrap()
+                    .join("nested/rust_catalog.jsonl")
+                    .to_str()
+                    .unwrap()
+            )
+        );
+        assert!(!artifacts.contains_key(cache.to_str().unwrap()));
+        assert!(!artifacts.contains_key(cache.join("preexisting").to_str().unwrap()));
+    }
+
+    #[test]
+    fn profile_prompt_reads_once_and_rejects_missing_or_oversized_input() {
+        let mut output = Vec::new();
+        let mut input = std::io::Cursor::new(b"/team/profile.toml\nnot-a-key\n");
+        assert_eq!(
+            read_setup_profile(&mut input, &mut output).unwrap(),
+            "/team/profile.toml"
+        );
+        assert_eq!(output, b"Team profile URL or file: ");
+        assert!(read_setup_profile(&mut std::io::Cursor::new(b"\n"), &mut Vec::new()).is_err());
+        assert!(
+            read_setup_profile(&mut std::io::Cursor::new("x".repeat(4097)), &mut Vec::new())
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn embedder_cli_limits_override_environment() {
+        let cli = Cli::try_parse_from([
+            "code-diver",
+            "daemon",
+            "--embedder-ctx",
+            "5120",
+            "--embedder-batch",
+            "1024",
+            "--embedder-ubatch",
+            "512",
+        ])
+        .unwrap();
+        let Some(Commands::Daemon(args)) = cli.command else {
+            panic!("expected daemon");
+        };
+        let environment = runtime_config::environment_overrides(|key| {
+            (key == "CODE_DIVER_EMBEDDER_CTX").then(|| "2048".into())
+        })
+        .unwrap();
+        let config = runtime_config::effective_config(
+            runtime_config::RuntimeConfig::default(),
+            &environment,
+            &runtime_flags(&args.runtime).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(config.daemon.embedder_ctx, 5120);
+        assert_eq!(config.daemon.embedder_batch, 1024);
+        assert_eq!(config.daemon.embedder_ubatch, 512);
+    }
+
+    #[test]
+    fn runtime_explicit_lookup_stays_in_data_and_uses_manifest_paths() {
+        let home = tempfile::tempdir().unwrap();
+        let paths =
+            runtime_config::RuntimePaths::from_env(runtime_config::Platform::MacOs, |key| {
+                (key == "CODE_DIVER_HOME").then(|| home.path().display().to_string())
+            })
+            .unwrap();
+        let mut config = runtime_config::RuntimeConfig::default();
+        assert!(
+            runtime_remote(&config, &paths)
+                .unwrap_err()
+                .contains("index_name")
+        );
+        config.profile.index_name = Some("default".into());
+        let directory = paths.index_dir("default").unwrap();
+        let projected = runtime_remote(&config, &paths).unwrap();
+        assert_eq!(
+            Path::new(projected["catalog"].as_str().unwrap()),
+            directory.join("rust_catalog.jsonl")
+        );
+        fs::create_dir_all(&directory).unwrap();
+        let mut metadata: serde_json::Value =
+            serde_json::from_str(include_str!("../tests/fixtures/shared-index-metadata.json"))
+                .unwrap();
+        metadata["catalog"] = serde_json::json!("nested/catalog.jsonl");
+        metadata["graph_path"] = serde_json::json!("nested/graph.jsonl");
+        metadata["meta_ranker"]["file"] = serde_json::json!("nested/ranker.txt");
+        metadata["files"]["nested/catalog.jsonl"] = serde_json::json!({});
+        metadata["files"]["nested/graph.jsonl"] = serde_json::json!({});
+        metadata["files"]["nested/ranker.txt"] = serde_json::json!({});
+        fs::write(directory.join("index-metadata.json"), metadata.to_string()).unwrap();
+        let projected = runtime_remote(&config, &paths).unwrap();
+        assert_eq!(
+            Path::new(projected["catalog"].as_str().unwrap()),
+            directory
+                .canonicalize()
+                .unwrap()
+                .join("nested/catalog.jsonl")
+        );
+        assert_eq!(
+            Path::new(projected["graph_path"].as_str().unwrap()),
+            directory.canonicalize().unwrap().join("nested/graph.jsonl")
+        );
+        assert_eq!(
+            Path::new(projected["model"].as_str().unwrap()),
+            directory.canonicalize().unwrap().join("nested/ranker.txt")
+        );
+    }
+
+    #[test]
+    fn remote_manifest_identity_does_not_fall_back_to_embedded() {
+        let home = tempfile::tempdir().unwrap();
+        let paths =
+            runtime_config::RuntimePaths::from_env(runtime_config::Platform::MacOs, |key| {
+                (key == "CODE_DIVER_HOME").then(|| home.path().display().to_string())
+            })
+            .unwrap();
+        let mut config = runtime_config::RuntimeConfig::default();
+        config.profile.model_manifest_url = Some("https://example.invalid/models.json".into());
+        config.profile.index_name = Some("test".into());
+        let projected = runtime_remote(&config, &paths).unwrap();
+        assert!(projected["embedding"]["model"].is_null());
+        assert!(projected["embedding"]["dimensions"].is_null());
+        config.profile.embedding_model = Some("synthetic-model".into());
+        config.profile.embedding_dimensions = Some(123);
+        let projected = runtime_remote(&config, &paths).unwrap();
+        assert_eq!(projected["embedding"]["model"], "synthetic-model");
+        assert_eq!(projected["embedding"]["dimensions"], 123);
+    }
+
+    #[test]
+    fn setup_snapshot_tracking_records_nested_artifacts() {
+        let home = tempfile::tempdir().unwrap();
+        let root = home.path().canonicalize().unwrap();
+        let paths =
+            runtime_config::RuntimePaths::from_env(runtime_config::Platform::MacOs, |key| {
+                (key == "CODE_DIVER_HOME").then(|| root.display().to_string())
+            })
+            .unwrap();
+        paths.ensure_dirs().unwrap();
+        let options = setup::SetupOptions::new(
+            paths.clone(),
+            root.join("code-diver"),
+            runtime_config::Platform::MacOs,
+            501,
+        );
+        let snapshot = paths.data.join(".test-snapshots/version");
+        fs::create_dir_all(snapshot.join("context")).unwrap();
+        fs::write(snapshot.join("context/catalog.jsonl"), "catalog").unwrap();
+        fs::write(snapshot.join("index-metadata.json"), "metadata").unwrap();
+        fs::write(snapshot.join("preexisting.json"), "preserve").unwrap();
+        let pointer = paths.data.join("test");
+        record_created_artifacts(
+            &options,
+            &[
+                update_index::CreatedArtifact {
+                    path: snapshot.clone(),
+                    kind: update_index::ArtifactKind::Directory,
+                },
+                update_index::CreatedArtifact {
+                    path: snapshot.join("context"),
+                    kind: update_index::ArtifactKind::Directory,
+                },
+                update_index::CreatedArtifact {
+                    path: snapshot.join("context/catalog.jsonl"),
+                    kind: update_index::ArtifactKind::File,
+                },
+                update_index::CreatedArtifact {
+                    path: snapshot.join("index-metadata.json"),
+                    kind: update_index::ArtifactKind::File,
+                },
+                update_index::CreatedArtifact {
+                    path: pointer.clone(),
+                    kind: update_index::ArtifactKind::Symlink {
+                        target: snapshot.clone(),
+                    },
+                },
+            ],
+        )
+        .unwrap();
+        std::os::unix::fs::symlink(&snapshot, &pointer).unwrap();
+        let ledger: serde_json::Value =
+            serde_json::from_slice(&fs::read(paths.state.join("setup-owned.json")).unwrap())
+                .unwrap();
+        let artifacts = ledger["artifacts"].as_object().unwrap();
+        assert_eq!(artifacts.len(), 5);
+        assert!(artifacts.contains_key(pointer.to_str().unwrap()));
+        assert!(!artifacts.contains_key(snapshot.join("preexisting.json").to_str().unwrap()));
+        assert!(artifacts.contains_key(snapshot.join("context/catalog.jsonl").to_str().unwrap()));
+        assert!(artifacts.contains_key(snapshot.join("index-metadata.json").to_str().unwrap()));
+    }
 
     #[test]
     fn search_config_budget_tls_and_explicit_default_url_precedence() {

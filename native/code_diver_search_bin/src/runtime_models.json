@@ -1,0 +1,26 @@
+{
+  "schema": 1,
+  "llama_cpp": {
+    "min_build": 9430,
+    "install_hint": "macOS: brew install llama.cpp (or brew upgrade llama.cpp). Linux and others: download a release binary from https://github.com/ggml-org/llama.cpp/releases and set LLAMA_SERVER_BIN."
+  },
+  "models": {
+    "embedder": {
+      "label": "Qwen3-Embedding-0.6B Q8_0 (GGUF)",
+      "repo": "Qwen/Qwen3-Embedding-0.6B-GGUF",
+      "file": "Qwen3-Embedding-0.6B-Q8_0.gguf",
+      "url": "https://huggingface.co/Qwen/Qwen3-Embedding-0.6B-GGUF/resolve/main/Qwen3-Embedding-0.6B-Q8_0.gguf",
+      "sha256": "06507c7b42688469c4e7298b0a1e16deff06caf291cf0a5b278c308249c3e439",
+      "size": 639150592,
+      "dimensions": 1024
+    },
+    "reranker": {
+      "label": "Qwen3-Reranker-0.6B Q4_K_M (GGUF)",
+      "repo": "Voodisss/Qwen3-Reranker-0.6B-GGUF-llama_cpp",
+      "file": "Qwen3-Reranker-0.6B-Q4_K_M.gguf",
+      "url": "https://huggingface.co/Voodisss/Qwen3-Reranker-0.6B-GGUF-llama_cpp/resolve/main/Qwen3-Reranker-0.6B-Q4_K_M.gguf",
+      "sha256": "c04f5f5657c52e04538c455e8c62817db3d3b795b39e9f547f8581510445f075",
+      "size": 396476288
+    }
+  }
+}

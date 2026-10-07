@@ -71,8 +71,33 @@ impl Report {
 }
 
 pub async fn run(args: &SearchArgs, json_output: bool) -> Result<(), String> {
+    run_checks(args, json_output, false).await
+}
+
+pub(crate) async fn run_for_setup(args: &SearchArgs) -> Result<(), String> {
+    run_checks(args, false, true).await
+}
+
+async fn run_checks(
+    args: &SearchArgs,
+    json_output: bool,
+    skip_registration: bool,
+) -> Result<(), String> {
     let mut report = Report::default();
     let start = Instant::now();
+    if args.config.is_none()
+        && std::env::var_os("CODE_DIVER_CONFIG").is_none()
+        && args.root.is_none()
+        && args.catalog.is_none()
+        && args.graph.is_none()
+        && args.index_metadata.is_none()
+        && args.qdrant_collection.is_empty()
+        && args.qdrant_url.is_none()
+        && crate::runtime_for_args(args)?.is_none()
+    {
+        report.record("configuration", start, Err("Runtime snapshot is not configured; run code-diver setup --profile URL-or-file with explicit index_name".into()), "Run code-diver setup, or supply explicit legacy artifact and collection configuration");
+        return report.output(json_output);
+    }
     let config = match crate::build_search_config_default(args, false, true) {
         Ok((config, _)) => config,
         Err(error) => {
@@ -91,6 +116,10 @@ pub async fn run(args: &SearchArgs, json_output: bool) -> Result<(), String> {
         Ok("Effective configuration loaded".into()),
         "No action required",
     );
+    let runtime = crate::runtime_for_args(args)?;
+    if let Some((runtime, paths)) = &runtime {
+        runtime_checks(&mut report, args, runtime, paths, skip_registration).await;
+    }
     let start = Instant::now();
     let metadata = config
         .index_metadata
@@ -175,6 +204,11 @@ pub async fn run(args: &SearchArgs, json_output: bool) -> Result<(), String> {
         .llama_server
         .clone()
         .or_else(|| std::env::var_os("CODE_DIVER_LLAMA_SERVER").map(Into::into))
+        .or_else(|| {
+            runtime
+                .as_ref()
+                .and_then(|(config, _)| config.llama_server.clone())
+        })
         .unwrap_or_else(|| "llama-server".into());
     let llama = command_text(&llama_path, &["--version"]).and_then(|version| {
         let build = regex::Regex::new(r"(?m)(?:version:\s*|build:\s*|\bb)(\d+)")
@@ -200,6 +234,7 @@ pub async fn run(args: &SearchArgs, json_output: bool) -> Result<(), String> {
             .models_dir
             .clone()
             .or_else(|| std::env::var_os("CODE_DIVER_MODELS_DIR").map(Into::into))
+            .or_else(|| runtime.as_ref().map(|(_, paths)| paths.models.clone()))
             .or_else(|| {
                 std::env::var_os("HOME")
                     .map(|home| std::path::PathBuf::from(home).join(".cache/code-diver/models"))
@@ -494,6 +529,170 @@ pub async fn run(args: &SearchArgs, json_output: bool) -> Result<(), String> {
         }
     }
     report.output(json_output)
+}
+
+async fn runtime_checks(
+    report: &mut Report,
+    args: &SearchArgs,
+    config: &crate::runtime_config::RuntimeConfig,
+    paths: &crate::runtime_config::RuntimePaths,
+    skip_registration: bool,
+) {
+    let start = Instant::now();
+    let source = config.profile.model_manifest_source();
+    let manifest = match source {
+        Err(error) => Err(error),
+        Ok(source) => match args.model_manifest.as_deref().or(source) {
+            Some(source) => crate::model_store::load_manifest(source).await,
+            None => crate::model_store::ModelManifest::embedded(),
+        },
+    };
+    report.record(
+        "model_manifest",
+        start,
+        manifest
+            .as_ref()
+            .map(|_| "Model manifest valid".into())
+            .map_err(|e| e.to_string()),
+        "Use setup or --model-manifest with a valid model manifest",
+    );
+    if let Ok(manifest) = manifest {
+        let directory = args
+            .models_dir
+            .clone()
+            .or_else(|| std::env::var_os("CODE_DIVER_MODELS_DIR").map(Into::into))
+            .unwrap_or_else(|| paths.models.clone());
+        for (name, spec) in [
+            ("runtime_embedding_model_file", &manifest.models.embedder),
+            ("runtime_reranker_model_file", &manifest.models.reranker),
+        ] {
+            let start = Instant::now();
+            let result = crate::model_store::verify_model(&directory.join(&spec.file), spec)
+                .map_err(|e| e.to_string())
+                .and_then(|verification| {
+                    if verification == crate::model_store::Verification::Valid {
+                        Ok("Model size and SHA-256 verified".into())
+                    } else {
+                        Err("Model missing or integrity verification failed".into())
+                    }
+                });
+            report.record(
+                name,
+                start,
+                result,
+                "Run code-diver setup to repair the model cache",
+            );
+        }
+    } else {
+        for name in [
+            "runtime_embedding_model_file",
+            "runtime_reranker_model_file",
+        ] {
+            report.record(
+                name,
+                Instant::now(),
+                Err("Cannot verify model without a valid manifest".into()),
+                "Repair the model manifest and run code-diver setup",
+            );
+        }
+    }
+    let start = Instant::now();
+    let health = async {
+        let client = reqwest::Client::builder()
+            .no_proxy()
+            .timeout(std::time::Duration::from_secs(5))
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .map_err(|_| "Cannot initialize daemon health client".to_string())?;
+        let response = client
+            .get(format!("{}/health", config.daemon_url()))
+            .send()
+            .await
+            .map_err(|_| "Local daemon unreachable".to_string())?;
+        if !response.status().is_success() {
+            return Err("Local daemon health check failed".into());
+        }
+        let health: serde_json::Value = response
+            .json()
+            .await
+            .map_err(|_| "Invalid daemon health response".to_string())?;
+        if health
+            .get("status")
+            .and_then(|v| v.as_str())
+            .is_some_and(|s| !matches!(s, "ok" | "healthy" | "ready"))
+            || health.get("healthy").and_then(|v| v.as_bool()) == Some(false)
+        {
+            return Err("Local daemon reports unhealthy".into());
+        }
+        Ok("Local daemon reachable".into())
+    }
+    .await;
+    report.record(
+        "daemon",
+        start,
+        health,
+        "Run code-diver daemon or re-run setup",
+    );
+    if skip_registration {
+        report.record(
+            "mcp_hosts",
+            Instant::now(),
+            Ok("Skipped by setup --no-register".into()),
+            "Run code-diver setup without --no-register to register detected MCP hosts",
+        );
+        report.checks.last_mut().unwrap().status = "SKIP";
+        return;
+    }
+    let start = Instant::now();
+    let registration = std::env::current_exe()
+        .map_err(|_| "Cannot locate code-diver binary".to_string())
+        .and_then(|binary| {
+            let config_path = args
+                .config
+                .clone()
+                .or_else(|| std::env::var_os("CODE_DIVER_CONFIG").map(Into::into))
+                .unwrap_or_else(|| paths.config_file());
+            let config_path = if config_path.is_absolute() {
+                config_path
+            } else {
+                std::env::current_dir()
+                    .map_err(|_| "Cannot resolve MCP config path".to_string())?
+                    .join(config_path)
+            };
+            crate::runtime_registration(paths, &binary, &config_path, true)
+                .and_then(|registration| registration.doctor())
+                .map_err(|_| "Cannot inspect MCP host registrations".to_string())
+        });
+    match registration {
+        Ok(registration) => {
+            for host in registration.hosts.iter().filter(|host| host.detected) {
+                report.record(
+                    &format!("mcp_{:?}", host.host),
+                    start,
+                    if host.registered && host.problem.is_none() {
+                        Ok("MCP registration present".into())
+                    } else {
+                        Err("MCP registration missing or invalid".into())
+                    },
+                    "Run code-diver setup to register detected MCP hosts",
+                );
+            }
+            if registration.detected_hosts().is_empty() {
+                report.warning(
+                    "mcp_hosts",
+                    start,
+                    "No MCP hosts detected".into(),
+                    "Install an MCP host then re-run setup",
+                );
+            }
+        }
+        Err(error) => report.record(
+            "mcp_hosts",
+            start,
+            Err(error),
+            "Check MCP host configuration permissions",
+        ),
+    }
 }
 
 fn command_text(path: &Path, args: &[&str]) -> Result<String, String> {

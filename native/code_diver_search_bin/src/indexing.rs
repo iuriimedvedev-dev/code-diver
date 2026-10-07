@@ -94,6 +94,9 @@ impl Drop for CatalogLock {
 }
 
 pub(crate) fn remote_config(path: Option<&Path>) -> Result<Value, String> {
+    if let Some((config, paths)) = crate::runtime_for(path)? {
+        return crate::runtime_remote(&config, &paths);
+    }
     let Some(path) = path else {
         return Ok(json!({}));
     };
