@@ -1,5 +1,80 @@
 # Rust rewrite status
 
+M3 core implementation and shared transport are complete and independently
+validated. Full SPEC acceptance is not claimed: token audit candidate counts are
+estimates, not exact tokenizer parity; the synthetic request fixture is manually
+derived, not an independently recorded Python request. Final QA authorizes logical
+commits only, with no push or committed scratch/data outputs.
+
+## Authoritative independent final QA — 2026-10-07
+
+- After implementation join, actual fmt check, offline all-target Clippy
+  `-D warnings`, offline tests and build passed: **364 executions / 191 distinct
+  tests**, zero failures/ignored. Log: `.tmp/m3-qa/join-test.log`.
+- Actual `.tmp/m3-qa/final-tls.mjs` repeat confirms `search --config` rejects
+  untrusted HTTPS by default; custom CA and insecure mode each return five
+  reranked results, with two real CE calls each. Insecure warnings present;
+  embedding/Qdrant credentials isolated and no credentials sent to CE.
+  **The earlier CE TLS blocker is closed.** Evidence: `final-tls/auth-tls.json`
+  and `.tmp/m3-qa/join-tls-transcript.log`. The JSON now records this latest run;
+  earlier failure history remains below and in `final-tls-transcript.log`.
+- Script also repeated initial60, unchanged0/0/0 with untouched local outputs,
+  changed model/prefix rejection, edit/delete retained60 and prune58. Owned
+  `zz_m3_4532ebf57edf` deleted and verified HTTP404. Existing collections untouched;
+  no restarts, Python execution, Rust edits or commits by QA.
+- Prior Pier dry-run evidence retained; transport correction cannot alter its
+  scanner/content diff. Remaining M3 evidence gaps: exact tokenizer parity and
+  an independently recorded Python request fixture only. 80-query evaluation
+  is not a user requirement. Historical unresolved states below are superseded.
+
+## Final M3 transport correction — 2026-10-07
+
+- Supersedes the open TLS/flakiness defects in the joined QA section below.
+  Credential-free CE now uses the shared CA/insecure/redirect client policy.
+  Loopback HTTPS search regression checks strict rejection, CA and insecure
+  success, actual CE calls, isolated service credentials and insecure warnings.
+  CA search failed at CE before the fix. Test requires Node and OpenSSL.
+- Confirmed mock root cause: macOS accepted sockets inherited nonblocking mode;
+  delayed headers caused empty/incomplete responses and connection resets.
+  Delayed-header reproducer failed before restoring blocking accepted sockets.
+  Handlers have bounded read/write timeouts and are joined at server teardown.
+  Timeout test retains its diagnostic/no-write/time-bound assertions, now using
+  100ms requests versus 500ms server delay rather than 5ms versus 50ms.
+- fmt, offline all-target Clippy `-D warnings`, full offline tests and diff-check
+  pass: **191 distinct / 364 executions**, zero failures/ignored. Contention
+  stress: 24 M3 suites, four concurrently, **264/264 executions passed**; the
+  same stress reproduced transport failures before the fix.
+  Full suite repeat passed another 364 executions; HTTPS targeted repeat 5/5.
+- No commits, Python execution, real-service writes or QA artifact modifications.
+  Parent must join implementation before independent live TLS smoke repeat via
+  `.tmp/m3-qa/final-tls.mjs` (QA owns artifacts and scratch cleanup).
+
+## Final joined M3 QA — 2026-10-07
+
+- Actual fmt and offline all-target Clippy `-D warnings` passed. Full offline
+  tests first failed three M3 cases (retry HTTP503, search connectivity, timeout
+  diagnostic); serial M3 rerun passed all 10. Default-parallel full rerun passed
+  **362 executions / 189 distinct tests**, zero failed/ignored. Flakiness remains
+  unresolved; logs: `.tmp/m3-qa/final-test{,-repeat}.log`.
+- Fresh live smoke without the send-dimensions workaround passed: 30 files/six
+  languages, initial 60/0/0, unchanged 0/0/0 (catalog/graph hashes and mtimes
+  unchanged), edit/delete 0/2/2 retaining 60, prune 0/0/2 leaving 58, five reranked
+  results. Changed prefix/model apply now rejects explicitly. Evidence:
+  `.tmp/m3-qa/final/summary.json`.
+- **Open defect:** `search --config` through a local HTTPS forwarding proxy
+  rejects untrusted TLS correctly; custom CA and insecure mode reach embedding
+  and Qdrant with isolated credentials, but CE reranking fails TLS in both modes
+  before reaching the proxy. End-to-end shared TLS acceptance is NOT passed.
+  Reproducer `.tmp/m3-qa/final-tls.mjs`; evidence `final-tls/auth-tls.json`.
+- Both owned collections `zz_m3_6419c0f66fb3` and `zz_m3_569bc3de3616` deleted
+  and verified HTTP404. Existing collections untouched; no service restarts,
+  Python execution, Rust edits or commits by QA.
+- Prior Pier dry-run evidence retained, not rerun: 16,532 items, 2,669 dedicated
+  files; added82/changed8225/deleted32556/unchanged8225 against49006 points.
+  Request-dimensions/profile/search changes do not change scanner/content diff.
+  Independent Python wire oracle and exact tokenizer remain open. The user did
+  not require an 80-query retrieval evaluation; scratch search is the QA scope.
+
 ## M1 — 2026-10-07
 
 Code commits: `d1d4a4d` (strict lint/format cleanup), `f1169c3` (M1 builder/tests).
@@ -277,3 +352,154 @@ Reports/catalogs/build outputs remain ignored and uncommitted under `.tmp/` and
 Cargo `target`. Obtain pinned source/config and nonempty C/C++ evidence, resolve
 historical attribution and meet the real-reference target before acceptance;
 earlier milestone blockers also remain open.
+
+## M3 — 2026-10-07
+
+Core end-to-end implementation and joined independent scratch-service QA are
+available; **full SPEC acceptance is not complete**. No commits were made.
+Implementation made no real-service writes; QA mutated only owned scratch collections.
+
+`index` now scans, writes catalog and an empty JSONL graph, compares Qdrant and
+defaults to dry-run. `--apply` requires a collection explicitly on the command
+line even when config/env supplies one. Missing collections are created with the
+first embedding's size and Cosine distance. Bounded embedding workers (default 2,
+range 1..32), bounded batches, three transient attempts with 100/200ms backoff,
+request timeouts, stderr progress, dimension/index validation and waited Qdrant
+upserts/deletes are implemented. Prune requires `--apply --prune`; deletion counts
+are printed first. Unchanged runs issue only collection/scroll reads and preserve
+catalog/graph contents and mtimes. Lock: `<catalog>.lock`, released on ordinary
+success/error; a crashed process can leave a stale lock requiring manual checking.
+
+Credentials use sensitive headers and redacted Debug values; Qdrant gets api-key
+and optional bearer, the embedder only its bearer. TLS is verified by default,
+additional PEM CA bundles are supported, insecure mode warns and redirects are
+limited to the same origin. Transport/status errors do not echo URLs, response
+bodies or credentials. Index options use CLI > CODE_DIVER env > config > defaults;
+QDRANT_API_KEY, EMBEDDING_API_KEY, SSL_CERT_FILE and configured api_key_env aliases
+are supported. YAML service block mappings and TOML embedding/storage/indexing
+sections are read; root/catalog/graph_path/CA paths resolve relative to config,
+with ~/ expansion. Scanner behavior is unchanged.
+
+The removed hard-coded IntelliJ collection is replaced by no default throughout
+the crate. Legacy `--index-update` remains read-only; its `--apply` now fails with
+a migration hint to the safe `index --apply --collection` surface, rather than
+retaining implicit deletion. Search ranking was not changed.
+
+Embedding request JSON follows the Python float-array body, document prefix and
+two truncation stages. Fixture provenance is honest: the synthetic request was
+manually transcribed from the Python functions, not captured by running Python.
+No cached Qwen tokenizer was integrated; Rust implements the character fallback
+`min(max_input_chars, max(1, max_input_tokens-margin)*3)` at both stages (margin
+default 32). At defaults the final cap is **1440 Unicode characters**, not 2000.
+`--audit-embed-text` reports item/total/max character counts and the token budget,
+explicitly marking estimates as non-exact. Exact tokenizer boundary parity is
+not claimed, and dense code may still exceed a server token window.
+
+Validation run from this worktree (offline Cargo; loopback mocks only):
+
+```sh
+cargo fmt --manifest-path native/code_diver_search_bin/Cargo.toml
+cargo clippy --offline --manifest-path native/code_diver_search_bin/Cargo.toml --all-targets -- -D warnings
+cargo test --offline --manifest-path native/code_diver_search_bin/Cargo.toml --quiet
+git diff --check
+```
+
+Post-QA integration counts: **173 unit tests per binary + 16 integrations = 189 distinct tests,
+362 executions**, zero failures or ignored tests on the final run. The original 4 CLI tests cover dry
+run/create/upsert/auth/503 retry, unchanged/edit/delete +/- prune, dimensions/401
+sanitization, bounded timeout and 300 items in 128/128/44 point batches. Nine new
+unit tests cover body parity, Unicode/prefix budgets, response validation, lock,
+config/path types, redaction/CA rejection and cross-origin credential isolation.
+The apply-without-collection test was observed failing before implementation.
+Concurrency initially exposed a mock idle-connection bug; the mock was fixed to
+handle connections concurrently and the complete suite rerun successfully.
+Two additional regressions first failed before the fix: changed embedding model
+silently succeeded, and default requests sent optional dimensions. Both now pass.
+One full correction run had an intermittent incremental mock transport failure;
+targeted backtrace rerun and the subsequent full suite passed without weakened tests.
+Its root cause remains unconfirmed.
+
+### Joined independent QA evidence
+
+Source: `.tmp/m3-qa/REPORT.md` and its referenced artifacts; these are QA results,
+not implementation-agent reexecution. QA's baseline passed 182 distinct tests /
+354 executions. Thirty synthetic files across six languages produced initial
+60/0/0, unchanged 0/0/0, edit/delete without prune 0/2/2, and prune 0/0/2.
+There were 58 final points and five cross-encoder-reranked scratch search results.
+All four owned scratch collections were confirmed HTTP 404 after cleanup.
+TLS verified: default untrusted leaf rejected, explicit insecure warned/succeeded,
+and a proper signed leaf with explicit CA bundle succeeded.
+Pier read-only scan produced 16,532 items against 49,006 existing points:
+82 added, 8,225 changed, 32,556 deleted, 8,225 unchanged. This is not permission
+to apply/prune Pier and not a retrieval/catalog parity proof.
+
+### Profile safety correction
+
+`<catalog>.embedding-profile.json` stores versioned non-secret preparation settings,
+root, endpoints, collection, provider/model, document prefix, dimensions policy and
+character/token budgets. Apply to nonempty collections requires an identical
+sidecar and matching live provider/model metadata; otherwise it fails before any
+remote writes with an explicit new-collection/new-catalog migration instruction.
+Dry-run warns that content counts do not establish embedding compatibility.
+The sidecar is persisted before initial writes to allow partial-run resumption;
+missing/corrupt sidecars are not silently adopted. Point payload shape is unchanged.
+Optional request dimensions now default off, matching Python's supported explicit
+`send_dimensions=false` mode; supplied dimensions still validate returned vectors.
+Collection vector size still comes from the first successful embedding.
+
+### Remaining M3 acceptance / QA handoff
+
+- QA joined before this correction. QA retains `.tmp` ownership. Correction
+  validation used loopback mocks only; existing collections remain untouched.
+- Scratch search suffices for the requested smoke; no 80-query run was requested
+  for this correction and no Hit@k measurement is claimed.
+- YAML is still a scoped reader, not a complete YAML parser: anchors, multiline
+  strings, inline service mappings and nested service values are unsupported.
+  Scanner unknown keys retain M1 fail-fast behavior; embedding/indexing unknown
+  scalar keys warn. Search and MCP now share service config/env/auth/TLS settings;
+  doctor and legacy dry-run retain their old configuration surface. Graph remains
+  empty; production graph weight is 0.0.
+- Content diff remains incremental; incompatible/unverified embedding profiles
+  now fail on apply instead of silently returning 0/0/0. Migration requires a new
+  collection and catalog; this is not an in-place forced-reembedding command.
+  Full catalog retention and non-atomic catalog file replacement remain existing
+  scalability/durability limitations. Exact Qwen counts remain open; recognized
+  context-overflow HTTP 400 splits batches into individual inputs and allows two
+  character-halving retries per item. Ordinary 4xx errors fail without retry.
+- Exact audit item-would-differ counts require an independent tokenizer/request
+  oracle; audit explicitly prints `would_differ_from_python=unknown`, not zero.
+  Repository filename search found only the existing manual request fixture;
+  independently recorded Python request parity remains unmet. No Python was run.
+- Catalog-adjacent locks do not serialize separate catalogs aimed at
+  the same collection; the specified catalog lock was intentionally used.
+
+### Shared search integration correction
+
+Search (including MCP's flattened search settings) accepts `--config` or
+`CODE_DIVER_CONFIG`, with CLI > CODE_DIVER env > config > defaults for Qdrant and
+embedding URLs/model/query prefix/credentials. Explicit default URLs still win
+over config. Catalog/graph/config CA paths resolve relative to configuration.
+Service URLs reject inline credentials/query/fragment. Separate verified-TLS
+clients prevent Qdrant/embedder credentials leaking to each other or the CE.
+Query embedding sends the configured model and float encoding, applies the query
+prefix before the same estimated character budget, and caches by prepared query,
+URL and configured model. Search ranking and CE query text are unchanged.
+
+Index and search share bounded overflow handling: retry only recognized context
+HTTP 400 bodies (never log bodies), split batches, then shrink each failed item
+at most twice. Python's split/retry structure is preserved, but halving Unicode
+characters is not exact tokenizer/budget parity. Tests first reproduced missing
+overflow retries; success, exhaustion/no-upsert/redaction now pass.
+
+Audit adds `estimated_threshold_candidates`: the number of stage-one prepared
+items whose prefix-inclusive characters exceed `(max_input_tokens-margin)*3`
+(effective token budget at least one). This is a measurable heuristic candidate
+count, not an exact Python would-differ count. Repository asset search found no
+tokenizer JSON; no new tokenizer dependencies/assets were fetched. Only the manual
+request fixture was located; the independent Python recording requirement remains
+unmet under the no-Python-execution constraint.
+
+Final QA repeat: rerun the Cargo commands above, then fresh owned scratch index
+initial/unchanged/edit/delete/prune/search and the existing TLS smoke using shared
+search `--config`. Confirm changed model/prefix fail migration before writes and
+all scratch collections are cleaned to 404. Never apply/prune existing Pier.
