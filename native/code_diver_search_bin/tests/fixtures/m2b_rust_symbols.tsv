@@ -1,0 +1,21 @@
+2	struct	Store	pub(crate) struct Store<T> {
+5	enum	Mode	pub enum Mode { On, Off }
+6	trait	Service	pub unsafe trait Service {
+7	function	perform	fn perform(&self);
+9	impl	pkg::Service<T> for pkg::Store<T>	impl<T> pkg::Service<T> for pkg::Store<T> {
+10	function	run	pub async fn run(&self) {}
+12	impl	Vec<Vec<T>	impl Vec<Vec<T>> {}
+13	macro	dispatch	macro_rules! dispatch { () => {} }
+14	macro	visible	pub(in crate::private) macro visible {}
+15	macro	private	macro private {}
+16	function	all_modifiers	pub default const async unsafe extern "C" fn all_modifiers() {}
+17	function	no_abi	extern fn no_abi() {}
+18	function	r	fn r#raw() {}
+19	function	Name²界	fn Name²界() {}
+20	function	Name	fn Namé() {}
+22	function	apparent_comment_member	fn apparent_comment_member() {}
+26	function	attached	fn attached() {}
+32	impl	Trait	impl Trait for &Type {}
+33	struct	First	struct First; enum NotSecond {}
+34	function	repeated	fn repeated() {}
+35	function	repeated	fn repeated() {}
