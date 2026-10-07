@@ -5,7 +5,9 @@ mod embedding;
 mod features;
 mod fusion;
 mod graph;
+mod index_net;
 mod index_update;
+mod indexing;
 pub mod info;
 mod lightgbm;
 pub mod mcp;
@@ -111,6 +113,22 @@ pub struct McpArgs {
 
 #[derive(clap::Args, Debug, Clone)]
 pub struct SearchArgs {
+    #[arg(long)]
+    pub config: Option<PathBuf>,
+    #[arg(long)]
+    pub embedding_model: Option<String>,
+    #[arg(long)]
+    pub embedding_query_prefix: Option<String>,
+    #[arg(long)]
+    pub qdrant_api_key: Option<index_net::Secret>,
+    #[arg(long)]
+    pub qdrant_bearer: Option<index_net::Secret>,
+    #[arg(long)]
+    pub embedding_api_key: Option<index_net::Secret>,
+    #[arg(long)]
+    pub ca_bundle: Option<String>,
+    #[arg(long)]
+    pub insecure_skip_verify: bool,
     /// Query to search for
     #[arg(short, long)]
     pub query: Option<String>,
@@ -136,16 +154,12 @@ pub struct SearchArgs {
     pub model: Option<String>,
 
     /// Embedding service URL
-    #[arg(
-        short = 'e',
-        long,
-        default_value = "http://localhost:8001/v1/embeddings"
-    )]
-    pub embedding_url: String,
+    #[arg(short = 'e', long)]
+    pub embedding_url: Option<String>,
 
     /// Qdrant service URL
-    #[arg(short = 'd', long, default_value = "http://localhost:6333")]
-    pub qdrant_url: String,
+    #[arg(short = 'd', long)]
+    pub qdrant_url: Option<String>,
 
     /// CE rerank service URL
     #[arg(short = 'r', long, default_value = "http://localhost:18081/v1/rerank")]
@@ -307,7 +321,7 @@ pub struct SearchArgs {
     pub apply: bool,
 
     /// Qdrant collection (or alias) for --index-update.
-    #[arg(long, default_value = "intellij_h66b_budget_qwen")]
+    #[arg(long, default_value = "")]
     pub qdrant_collection: String,
 
     /// Character budget for index-update embed texts (H-66b/H-91a: 500).
@@ -333,7 +347,7 @@ async fn main() -> Result<(), String> {
     let cli = Cli::parse();
 
     match cli.command {
-        Some(Commands::Index(args)) => catalog_builder::cli::run_index(args),
+        Some(Commands::Index(args)) => catalog_builder::cli::run_index(args).await,
         Some(Commands::CatalogCompare(args)) => catalog_builder::cli::run_compare(args),
         Some(Commands::Doctor(args)) => {
             run_doctor(
@@ -375,8 +389,14 @@ async fn main() -> Result<(), String> {
         None => {
             if cli.search.doctor {
                 run_doctor(
-                    &cli.search.qdrant_url,
-                    &cli.search.embedding_url,
+                    cli.search
+                        .qdrant_url
+                        .as_deref()
+                        .unwrap_or("http://localhost:6333"),
+                    cli.search
+                        .embedding_url
+                        .as_deref()
+                        .unwrap_or("http://localhost:8001/v1/embeddings"),
                     &cli.search.ce_url,
                     cli.search.catalog.as_deref(),
                     cli.search.graph.as_deref(),
@@ -393,8 +413,35 @@ async fn main() -> Result<(), String> {
 }
 
 fn build_search_config(args: &SearchArgs) -> Result<(SearchConfig, PathBuf), String> {
+    let config_path = args
+        .config
+        .clone()
+        .or_else(|| std::env::var_os("CODE_DIVER_CONFIG").map(PathBuf::from));
+    let remote = indexing::remote_config(config_path.as_deref())?;
+    indexing::validate_config(&remote)?;
+    let q = &remote["storage"]["qdrant"];
+    let e = &remote["embedding"];
+    let value = |cli: Option<&str>, env: &str, config: &serde_json::Value, default: &str| {
+        indexing::setting(cli, env, None, config, default)
+    };
+    let configured_catalog = indexing::configured_path(
+        args.catalog.as_deref().map(Path::new),
+        "CATALOG",
+        &remote["catalog"],
+        config_path.as_deref(),
+        Path::new(""),
+    );
+    let configured_graph = indexing::configured_path(
+        args.graph.as_deref().map(Path::new),
+        "GRAPH",
+        &remote["graph_path"],
+        config_path.as_deref(),
+        Path::new(""),
+    );
     let catalog_path = resolve_path(
-        args.catalog.as_deref(),
+        (!configured_catalog.as_os_str().is_empty())
+            .then(|| configured_catalog.to_str())
+            .flatten(),
         &[
             "artifacts/rust_catalog.jsonl",
             ".code-diver/rust_catalog.jsonl",
@@ -407,7 +454,9 @@ fn build_search_config(args: &SearchArgs) -> Result<(SearchConfig, PathBuf), Str
     })?;
 
     let graph_path = resolve_path(
-        args.graph.as_deref(),
+        (!configured_graph.as_os_str().is_empty())
+            .then(|| configured_graph.to_str())
+            .flatten(),
         &[
             "artifacts/rust_graph.jsonl",
             ".code-diver/rust_graph.jsonl",
@@ -451,11 +500,9 @@ fn build_search_config(args: &SearchArgs) -> Result<(SearchConfig, PathBuf), Str
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("."));
 
-    let config = SearchConfig {
+    let mut config = SearchConfig {
         catalog_path,
         graph_path,
-        embedding_url: args.embedding_url.clone(),
-        qdrant_url: args.qdrant_url.clone(),
         ce_url: args.ce_url.clone(),
         second_ce_url: args.second_ce_url.clone(),
         ce_route: args.ce_route.clone(),
@@ -487,6 +534,149 @@ fn build_search_config(args: &SearchArgs) -> Result<(SearchConfig, PathBuf), Str
         ..SearchConfig::default()
     };
 
+    config.embedding_url = value(
+        args.embedding_url.as_deref(),
+        "EMBEDDING_URL",
+        &e["url"],
+        "http://localhost:8001/v1/embeddings",
+    );
+    config.qdrant_url = value(
+        args.qdrant_url.as_deref(),
+        "QDRANT_URL",
+        &q["url"],
+        "http://localhost:6333",
+    );
+    config.embedding_model = value(
+        args.embedding_model.as_deref(),
+        "EMBEDDING_MODEL",
+        &e["model"],
+        embedding::EMBED_MODEL,
+    );
+    config.embedding_query_prefix = value(
+        args.embedding_query_prefix.as_deref(),
+        "EMBEDDING_QUERY_PREFIX",
+        &e["query_prefix"],
+        "",
+    );
+    let chars = value(None, "MAX_INPUT_CHARS", &e["max_input_chars"], "2000")
+        .parse::<usize>()
+        .map_err(|_| "Invalid max_input_chars")?;
+    let tokens = value(None, "MAX_INPUT_TOKENS", &e["max_input_tokens"], "512")
+        .parse::<usize>()
+        .map_err(|_| "Invalid max_input_tokens")?;
+    let margin = value(None, "TOKEN_SAFETY_MARGIN", &e["token_safety_margin"], "32")
+        .parse::<usize>()
+        .map_err(|_| "Invalid token_safety_margin")?;
+    if tokens == 0 {
+        return Err("Token window must be positive".into());
+    }
+    let budget = tokens.saturating_sub(margin).max(1).saturating_mul(3);
+    config.embedding_query_char_limit = if chars == 0 {
+        budget
+    } else {
+        chars.min(budget)
+    };
+    config.qdrant_collection = indexing::setting(
+        (!args.qdrant_collection.is_empty()).then_some(args.qdrant_collection.as_str()),
+        "COLLECTION",
+        Some("CODE_DIVER_QDRANT_COLLECTION"),
+        &q["collection"],
+        "",
+    );
+    config.qdrant_api_key = index_net::Secret(indexing::setting(
+        args.qdrant_api_key.as_ref().map(|s| s.0.as_str()),
+        "QDRANT_API_KEY",
+        Some(q["api_key_env"].as_str().unwrap_or("QDRANT_API_KEY")),
+        &q["api_key"],
+        "",
+    ));
+    config.qdrant_bearer = index_net::Secret(value(
+        args.qdrant_bearer.as_ref().map(|s| s.0.as_str()),
+        "QDRANT_BEARER",
+        &q["bearer"],
+        "",
+    ));
+    config.embedding_api_key = index_net::Secret(indexing::setting(
+        args.embedding_api_key.as_ref().map(|s| s.0.as_str()),
+        "EMBEDDING_API_KEY",
+        Some(e["api_key_env"].as_str().unwrap_or("EMBEDDING_API_KEY")),
+        &e["api_key"],
+        "",
+    ));
+    let ca = indexing::setting(
+        args.ca_bundle.as_deref(),
+        "CA_BUNDLE",
+        Some("SSL_CERT_FILE"),
+        &remote["ca_bundle"],
+        "",
+    );
+    config.ca_bundle = (!ca.is_empty()).then_some(ca);
+    if args.ca_bundle.is_none()
+        && std::env::var_os("CODE_DIVER_CA_BUNDLE").is_none()
+        && std::env::var_os("SSL_CERT_FILE").is_none()
+        && config.ca_bundle.is_some()
+    {
+        config.ca_bundle = Some(
+            indexing::configured_path(
+                None,
+                "CA_BUNDLE",
+                &remote["ca_bundle"],
+                config_path.as_deref(),
+                Path::new(""),
+            )
+            .to_string_lossy()
+            .into_owned(),
+        );
+    }
+    if let Some(ca) = config
+        .ca_bundle
+        .as_deref()
+        .filter(|ca| ca.starts_with("~/"))
+    {
+        config.ca_bundle = Some(
+            indexing::configured_path(
+                Some(Path::new(ca)),
+                "CA_BUNDLE",
+                &serde_json::Value::Null,
+                None,
+                Path::new(""),
+            )
+            .to_string_lossy()
+            .into_owned(),
+        );
+    }
+    for url in [&config.embedding_url, &config.qdrant_url] {
+        let url = reqwest::Url::parse(url).map_err(|_| "Invalid service URL")?;
+        if !matches!(url.scheme(), "http" | "https")
+            || !url.username().is_empty()
+            || url.password().is_some()
+            || url.query().is_some()
+            || url.fragment().is_some()
+        {
+            return Err(
+                "Service URL must be HTTP(S) without credentials, query or fragment".into(),
+            );
+        }
+    }
+    config.insecure_skip_verify = args.insecure_skip_verify
+        || value(
+            None,
+            "INSECURE_SKIP_VERIFY",
+            &remote["insecure_skip_verify"],
+            "false",
+        )
+        .parse::<bool>()
+        .map_err(|_| "Invalid TLS verification setting")?;
+    if value(
+        None,
+        "EMBEDDING_PROVIDER",
+        &e["provider"],
+        "openai_compatible",
+    ) != "openai_compatible"
+    {
+        return Err("Unsupported embedding provider".into());
+    }
+
     Ok((config, root_path))
 }
 
@@ -503,8 +693,12 @@ async fn run_mcp(args: SearchArgs) -> Result<(), String> {
 async fn run_search_cli(args: SearchArgs) -> Result<(), String> {
     if args.doctor {
         return run_doctor(
-            &args.qdrant_url,
-            &args.embedding_url,
+            args.qdrant_url
+                .as_deref()
+                .unwrap_or("http://localhost:6333"),
+            args.embedding_url
+                .as_deref()
+                .unwrap_or("http://localhost:8001/v1/embeddings"),
             &args.ce_url,
             args.catalog.as_deref(),
             args.graph.as_deref(),
@@ -658,6 +852,12 @@ async fn run_doctor(
 /// Incremental index update: diff --catalog against Qdrant, embed + upsert
 /// only dirty items, delete removed points. Dry run unless --apply.
 async fn run_index_update(args: &SearchArgs) -> Result<(), String> {
+    if args.qdrant_collection.trim().is_empty() {
+        return Err("An explicit --qdrant-collection is required; use index --collection NAME for new indexing".into());
+    }
+    if args.apply {
+        return Err("Legacy --index-update --apply is disabled; use index --apply --collection NAME (deletion requires --prune)".into());
+    }
     use crate::catalog::load_catalog;
     use crate::embedding::embed_texts;
     use crate::index_update::{
@@ -681,13 +881,21 @@ async fn run_index_update(args: &SearchArgs) -> Result<(), String> {
     eprintln!("  Catalog items: {}", catalog.items.len());
 
     let http_client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(60))
         .pool_idle_timeout(std::time::Duration::from_secs(90))
         .pool_max_idle_per_host(32)
         .build()
         .map_err(|e| format!("HTTP client failed: {}", e))?;
 
     eprintln!("Scrolling collection: {}", args.qdrant_collection);
-    let indexed = scroll_indexed(&http_client, &args.qdrant_url, &args.qdrant_collection).await?;
+    let indexed = scroll_indexed(
+        &http_client,
+        args.qdrant_url
+            .as_deref()
+            .unwrap_or("http://localhost:6333"),
+        &args.qdrant_collection,
+    )
+    .await?;
     eprintln!("  Indexed points: {}", indexed.len());
 
     let diff = diff_catalog(&catalog.items, &indexed);
@@ -707,8 +915,14 @@ async fn run_index_update(args: &SearchArgs) -> Result<(), String> {
         return Ok(());
     }
 
-    let dimensions =
-        collection_dimensions(&http_client, &args.qdrant_url, &args.qdrant_collection).await?;
+    let dimensions = collection_dimensions(
+        &http_client,
+        args.qdrant_url
+            .as_deref()
+            .unwrap_or("http://localhost:6333"),
+        &args.qdrant_collection,
+    )
+    .await?;
     eprintln!("  Collection dimensions: {}", dimensions);
 
     let dirty: Vec<usize> = diff
@@ -726,7 +940,14 @@ async fn run_index_update(args: &SearchArgs) -> Result<(), String> {
                 .iter()
                 .map(|it| embed_text(it, args.embed_max_chars))
                 .collect();
-            let vectors = embed_texts(&http_client, &args.embedding_url, &texts).await?;
+            let vectors = embed_texts(
+                &http_client,
+                args.embedding_url
+                    .as_deref()
+                    .unwrap_or("http://localhost:8001/v1/embeddings"),
+                &texts,
+            )
+            .await?;
             if vectors.first().map(|v| v.len()).unwrap_or(0) != dimensions {
                 return Err(format!(
                     "Embedding dimension mismatch: got {}, collection has {}",
@@ -736,7 +957,9 @@ async fn run_index_update(args: &SearchArgs) -> Result<(), String> {
             }
             upserted += upsert_points(
                 &http_client,
-                &args.qdrant_url,
+                args.qdrant_url
+                    .as_deref()
+                    .unwrap_or("http://localhost:6333"),
                 &args.qdrant_collection,
                 &items,
                 &vectors,
@@ -753,7 +976,9 @@ async fn run_index_update(args: &SearchArgs) -> Result<(), String> {
     if !diff.deleted.is_empty() {
         let n = delete_points(
             &http_client,
-            &args.qdrant_url,
+            args.qdrant_url
+                .as_deref()
+                .unwrap_or("http://localhost:6333"),
             &args.qdrant_collection,
             &diff.deleted,
         )
@@ -761,7 +986,14 @@ async fn run_index_update(args: &SearchArgs) -> Result<(), String> {
         eprintln!("  Deleted {}", n);
     }
 
-    let after = scroll_indexed(&http_client, &args.qdrant_url, &args.qdrant_collection).await?;
+    let after = scroll_indexed(
+        &http_client,
+        args.qdrant_url
+            .as_deref()
+            .unwrap_or("http://localhost:6333"),
+        &args.qdrant_collection,
+    )
+    .await?;
     eprintln!("Indexed points after: {}", after.len());
     Ok(())
 }
@@ -971,6 +1203,35 @@ async fn run_benchmark(ctx: &pipeline::SearchContext, path: &str, n: usize) -> R
 #[cfg(test)]
 mod cli_tests {
     use super::*;
+
+    #[test]
+    fn search_config_budget_tls_and_explicit_default_url_precedence() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("catalog.jsonl"), "").unwrap();
+        std::fs::write(dir.path().join("graph.jsonl"), "").unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(&path, "catalog='catalog.jsonl'\ngraph_path='graph.jsonl'\nca_bundle='ca.pem'\n[embedding]\nurl='https://config.invalid/embeddings'\nmax_input_tokens=64\ntoken_safety_margin=32\nmax_input_chars=2000\n").unwrap();
+        let cli = Cli::try_parse_from([
+            "code-diver",
+            "search",
+            "--config",
+            path.to_str().unwrap(),
+            "--embedding-url",
+            "http://localhost:8001/v1/embeddings",
+        ])
+        .unwrap();
+        let Some(Commands::Search(args)) = cli.command else {
+            panic!("expected search");
+        };
+        let (config, _) = build_search_config(&args).unwrap();
+        assert_eq!(config.embedding_url, "http://localhost:8001/v1/embeddings");
+        assert_eq!(config.embedding_query_char_limit, 96);
+        assert_eq!(
+            config.ca_bundle,
+            Some(dir.path().join("ca.pem").to_string_lossy().into_owned())
+        );
+        assert!(!config.insecure_skip_verify);
+    }
 
     #[test]
     fn test_subcommand_search() {

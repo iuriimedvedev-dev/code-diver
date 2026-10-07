@@ -79,6 +79,15 @@ pub async fn scroll_indexed(
     qdrant_url: &str,
     collection: &str,
 ) -> Result<IndexedMap, String> {
+    scroll_indexed_profile(client, qdrant_url, collection, None).await
+}
+
+pub async fn scroll_indexed_profile(
+    client: &reqwest::Client,
+    qdrant_url: &str,
+    collection: &str,
+    profile: Option<(&str, &str)>,
+) -> Result<IndexedMap, String> {
     let url = format!(
         "{}/collections/{}/points/scroll",
         qdrant_url.trim_end_matches('/'),
@@ -95,24 +104,19 @@ pub async fn scroll_indexed(
         if let Some(off) = &offset {
             body["offset"] = off.clone();
         }
-        let resp = client
-            .post(&url)
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| format!("Qdrant scroll failed: {}", e))?;
-        if !resp.status().is_success() {
-            let text = resp.text().await.unwrap_or_default();
-            return Err(format!("Qdrant scroll HTTP error: {}", text));
-        }
-        let data: serde_json::Value = resp
-            .json()
-            .await
-            .map_err(|e| format!("Qdrant scroll parse failed: {}", e))?;
+        let resp =
+            crate::index_net::request(client, reqwest::Method::POST, &url, Some(&body)).await?;
+        let data = crate::index_net::json(resp).await?;
         let points = data["result"]["points"]
             .as_array()
             .ok_or_else(|| "Qdrant scroll: no result.points".to_string())?;
         for point in points {
+            if let Some((provider, model)) = profile
+                && (point["payload"]["provider"].as_str() != Some(provider)
+                    || point["payload"]["model"].as_str() != Some(model))
+            {
+                return Err("Live embedding profile mismatch; use a new collection and catalog for migration".into());
+            }
             let item = &point["payload"]["item"];
             if let Some(item_id) = item["id"].as_str().filter(|s| !s.is_empty()) {
                 let point_id = point["id"].to_string().trim_matches('"').to_string();
@@ -120,10 +124,14 @@ pub async fn scroll_indexed(
                 out.insert(item_id.to_string(), (point_id, content));
             }
         }
-        offset = match &data["result"]["next_page_offset"] {
+        let next = match &data["result"]["next_page_offset"] {
             v if v.is_null() => break,
             v => Some(v.clone()),
         };
+        if next == offset {
+            return Err("Qdrant scroll repeated its offset".into());
+        }
+        offset = next;
     }
     Ok(out)
 }
@@ -178,8 +186,15 @@ pub async fn upsert_points(
             vectors.len()
         ));
     }
+    if dimensions == 0
+        || vectors
+            .iter()
+            .any(|v| v.len() != dimensions || v.iter().any(|n| !n.is_finite()))
+    {
+        return Err("Invalid vector dimensions or values".into());
+    }
     let url = format!(
-        "{}/collections/{}/points",
+        "{}/collections/{}/points?wait=true",
         qdrant_url.trim_end_matches('/'),
         collection
     );
@@ -210,16 +225,14 @@ pub async fn upsert_points(
                 })
             })
             .collect();
-        let resp = client
-            .put(&url)
-            .json(&serde_json::json!({"points": points}))
-            .send()
-            .await
-            .map_err(|e| format!("Qdrant upsert failed: {}", e))?;
-        if !resp.status().is_success() {
-            let text = resp.text().await.unwrap_or_default();
-            return Err(format!("Qdrant upsert HTTP error: {}", text));
-        }
+        let resp = crate::index_net::request(
+            client,
+            reqwest::Method::PUT,
+            &url,
+            Some(&serde_json::json!({"points": points})),
+        )
+        .await?;
+        crate::index_net::json(resp).await?;
         done += chunk_items.len();
     }
     Ok(done)
@@ -236,22 +249,20 @@ pub async fn delete_points(
         return Ok(0);
     }
     let url = format!(
-        "{}/collections/{}/points/delete",
+        "{}/collections/{}/points/delete?wait=true",
         qdrant_url.trim_end_matches('/'),
         collection
     );
     let mut done = 0;
     for chunk in point_ids.chunks(4096) {
-        let resp = client
-            .post(&url)
-            .json(&serde_json::json!({"points": chunk}))
-            .send()
-            .await
-            .map_err(|e| format!("Qdrant delete failed: {}", e))?;
-        if !resp.status().is_success() {
-            let text = resp.text().await.unwrap_or_default();
-            return Err(format!("Qdrant delete HTTP error: {}", text));
-        }
+        let resp = crate::index_net::request(
+            client,
+            reqwest::Method::POST,
+            &url,
+            Some(&serde_json::json!({"points": chunk})),
+        )
+        .await?;
+        crate::index_net::json(resp).await?;
         done += chunk.len();
     }
     Ok(done)

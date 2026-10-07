@@ -211,6 +211,22 @@ pub struct SearchConfig {
     pub ce_meta_ranker_enabled: bool,
     pub ce_meta_model_path: String,
     pub embedding_url: String,
+    #[serde(default = "default_embedding_model")]
+    pub embedding_model: String,
+    #[serde(default)]
+    pub embedding_query_prefix: String,
+    #[serde(default = "default_embedding_query_char_limit")]
+    pub embedding_query_char_limit: usize,
+    #[serde(skip)]
+    pub qdrant_api_key: crate::index_net::Secret,
+    #[serde(skip)]
+    pub qdrant_bearer: crate::index_net::Secret,
+    #[serde(skip)]
+    pub embedding_api_key: crate::index_net::Secret,
+    #[serde(default)]
+    pub ca_bundle: Option<String>,
+    #[serde(default)]
+    pub insecure_skip_verify: bool,
     pub qdrant_url: String,
     pub ce_url: String,
     /// Empty (default) = reuse ce_url. Set for mixed CE routing
@@ -233,7 +249,15 @@ pub struct SearchConfig {
 }
 
 fn default_qdrant_collection() -> String {
-    "intellij_h66b_budget_qwen".to_string()
+    String::new()
+}
+
+fn default_embedding_model() -> String {
+    crate::embedding::EMBED_MODEL.to_string()
+}
+
+fn default_embedding_query_char_limit() -> usize {
+    (512 - 32) * 3
 }
 
 fn default_retrieval_limit() -> usize {
@@ -297,6 +321,14 @@ impl Default for SearchConfig {
             ce_meta_ranker_enabled: true,
             ce_meta_model_path: String::new(),
             embedding_url: "http://localhost:8001/v1/embeddings".to_string(),
+            embedding_model: crate::embedding::EMBED_MODEL.to_string(),
+            embedding_query_prefix: String::new(),
+            embedding_query_char_limit: default_embedding_query_char_limit(),
+            qdrant_api_key: Default::default(),
+            qdrant_bearer: Default::default(),
+            embedding_api_key: Default::default(),
+            ca_bundle: None,
+            insecure_skip_verify: false,
             qdrant_url: "http://localhost:6333".to_string(),
             ce_url: "http://localhost:18081/v1/rerank".to_string(),
             second_ce_url: String::new(),

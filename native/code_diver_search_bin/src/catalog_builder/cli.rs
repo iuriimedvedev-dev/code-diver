@@ -1,5 +1,5 @@
 use std::fs::{self, File};
-use std::io::{BufWriter, Write};
+use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
 
 use clap::{Args, ValueEnum};
@@ -9,12 +9,12 @@ use super::{BuildConfig, build_catalog, compare, symbols};
 
 #[derive(Args, Debug, Clone)]
 pub struct IndexArgs {
-    #[arg(long, required = true)]
-    pub catalog_only: bool,
-    #[arg(long, default_value = ".")]
-    pub root: PathBuf,
     #[arg(long)]
-    pub out: PathBuf,
+    pub catalog_only: bool,
+    #[arg(long)]
+    pub root: Option<PathBuf>,
+    #[arg(long, alias = "catalog")]
+    pub out: Option<PathBuf>,
     #[arg(long)]
     pub include: Vec<String>,
     #[arg(long)]
@@ -23,6 +23,8 @@ pub struct IndexArgs {
     pub config: Option<PathBuf>,
     #[arg(long)]
     pub tokenize_content_chars: Option<usize>,
+    #[command(flatten)]
+    pub remote: crate::indexing::IndexOptions,
 }
 
 #[derive(ValueEnum, Debug, Clone)]
@@ -137,7 +139,43 @@ pub fn load_config(path: &Path) -> Result<BuildConfig, String> {
     Ok(config)
 }
 
-pub fn run_index(args: IndexArgs) -> Result<(), String> {
+pub async fn run_index(mut args: IndexArgs) -> Result<(), String> {
+    if args.remote.apply
+        && args
+            .remote
+            .collection
+            .as_deref()
+            .is_none_or(|s| s.trim().is_empty())
+    {
+        return Err("--collection must be supplied explicitly for --apply".into());
+    }
+    if args.catalog_only && args.remote.apply {
+        return Err("--catalog-only conflicts with --apply".into());
+    }
+    if args.config.is_none() {
+        args.config = std::env::var_os("CODE_DIVER_CONFIG").map(PathBuf::from);
+    }
+    let service_config = crate::indexing::remote_config(args.config.as_deref())?;
+    let root = crate::indexing::configured_path(
+        args.root.as_deref(),
+        "ROOT",
+        &service_config["root"],
+        args.config.as_deref(),
+        Path::new("."),
+    )
+    .canonicalize()
+    .map_err(|_| "Cannot open repository root")?;
+    let out = crate::indexing::configured_path(
+        args.out.as_deref(),
+        "CATALOG",
+        &service_config["catalog"],
+        args.config.as_deref(),
+        &root.join(".code-diver/rust_catalog.jsonl"),
+    );
+    if let Some(parent) = out.parent().filter(|p| !p.as_os_str().is_empty()) {
+        fs::create_dir_all(parent).map_err(|_| "Cannot create catalog directory")?;
+    }
+    let _lock = crate::indexing::CatalogLock::acquire(&out)?;
     let mut config = args
         .config
         .as_deref()
@@ -153,22 +191,48 @@ pub fn run_index(args: IndexArgs) -> Result<(), String> {
     if let Some(chars) = args.tokenize_content_chars {
         config.tokenize_content_chars = chars;
     }
-    let items = build_catalog(&args.root, &config)?;
+    let items = build_catalog(&root, &config)?;
     let dedicated = items
         .iter()
         .map(|item| item.path.as_str())
         .filter(|path| symbols::has_dedicated_strategy(path))
         .collect::<std::collections::HashSet<_>>()
         .len();
-    let mut writer = BufWriter::new(
-        File::create(&args.out)
-            .map_err(|e| format!("Cannot create {}: {e}", args.out.display()))?,
-    );
-    for item in &items {
-        serde_json::to_writer(&mut writer, item).map_err(|e| e.to_string())?;
-        writer.write_all(b"\n").map_err(|e| e.to_string())?;
+    let unchanged = File::open(&out).ok().is_some_and(|file| {
+        let mut lines = BufReader::new(file).lines();
+        items.iter().all(|item| {
+            matches!((lines.next(), serde_json::to_string(item)), (Some(Ok(line)), Ok(expected)) if line == expected)
+        }) && lines.next().is_none()
+    });
+    if !unchanged {
+        let mut writer = BufWriter::new(
+            File::create(&out).map_err(|e| format!("Cannot create {}: {e}", out.display()))?,
+        );
+        for item in &items {
+            serde_json::to_writer(&mut writer, item).map_err(|e| e.to_string())?;
+            writer.write_all(b"\n").map_err(|e| e.to_string())?;
+        }
+        writer.flush().map_err(|e| e.to_string())?;
     }
-    writer.flush().map_err(|e| e.to_string())?;
+    if !args.catalog_only {
+        let graph = crate::indexing::configured_path(
+            args.remote.graph.as_deref(),
+            "GRAPH",
+            &service_config["graph_path"],
+            args.config.as_deref(),
+            &out.with_file_name("rust_graph.jsonl"),
+        );
+        if graph == out {
+            return Err("Catalog and graph outputs must be different paths".into());
+        }
+        if let Some(parent) = graph.parent().filter(|p| !p.as_os_str().is_empty()) {
+            fs::create_dir_all(parent).map_err(|_| "Cannot create graph directory")?;
+        }
+        if !fs::metadata(&graph).is_ok_and(|metadata| metadata.len() == 0) {
+            fs::write(graph, "").map_err(|_| "Cannot write empty graph")?;
+        }
+        crate::indexing::run(&items, &root, &out, &args.remote, args.config.as_deref()).await?;
+    }
     eprintln!(
         "wrote {} items; dedicated-language files: {dedicated} (Go/TS-JS/Python/Rust/JVM/C++ strategies enabled; other lanes use generic fallback)",
         items.len()

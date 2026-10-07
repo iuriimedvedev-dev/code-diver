@@ -1,6 +1,6 @@
 pub mod cli;
 pub mod compare;
-mod config;
+pub(crate) mod config;
 pub mod ids;
 pub mod manifest;
 pub mod pytext;

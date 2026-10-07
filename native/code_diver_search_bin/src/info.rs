@@ -111,14 +111,7 @@ pub async fn run_info(
     .into_iter()
     .find(|p| Path::new(p).exists());
 
-    let info = collect_info(
-        catalog_path,
-        graph_path,
-        model_path,
-        qdrant_url,
-        "intellij_h66b_budget_qwen",
-    )
-    .await;
+    let info = collect_info(catalog_path, graph_path, model_path, qdrant_url, "").await;
 
     let json = serde_json::to_string_pretty(&info).map_err(|e| e.to_string())?;
     println!("{}", json);

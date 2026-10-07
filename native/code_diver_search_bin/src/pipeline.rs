@@ -4,16 +4,13 @@ use std::collections::VecDeque;
 use std::fs;
 use std::path::Path;
 use std::sync::Mutex;
-use std::time::Duration;
 use std::time::Instant;
 
 use crate::bm25::{
     bm25_scores, build_bm25_index, path_coverage_score, symbol_coverage_score, symbol_match_score,
 };
 use crate::catalog::{load_catalog, tokenize};
-use crate::embedding::{
-    CeOptions, EMBED_MODEL, ce_rerank_with_options, embed_query, vector_search,
-};
+use crate::embedding::{CeOptions, ce_rerank_with_options, embed_query, vector_search};
 use crate::features::{build_fan_in_degrees, extract_features};
 use crate::fusion::{
     logit, normalize_scores, sort_by_ce, sort_by_fused, sort_by_meta, tie_break_by_fused,
@@ -33,6 +30,8 @@ pub struct SearchContext {
     pub meta_ranker: Option<LgbModel>,
     pub config: SearchConfig,
     pub http_client: reqwest::Client,
+    pub embedding_client: reqwest::Client,
+    pub qdrant_client: reqwest::Client,
     /// In-memory LRU cache: query string -> embedding vector.
     /// Capacity 0 = disabled. Shared across server-mode queries via interior mutability.
     pub embed_cache: Mutex<EmbedCache>,
@@ -113,17 +112,31 @@ impl EmbedCache {
 /// Embed with the server-mode LRU cache in front. Cache disabled when
 /// `embed_cache_size == 0` (default): behaviour identical to a direct call.
 async fn cached_embed_query(ctx: &SearchContext, query: &str) -> Result<Vec<f64>, String> {
+    let query: String = format!("{}{}", ctx.config.embedding_query_prefix, query)
+        .chars()
+        .take(ctx.config.embedding_query_char_limit)
+        .collect();
     if ctx.config.embed_cache_size > 0
         && let Ok(mut cache) = ctx.embed_cache.lock()
-        && let Some(vector) = cache.get(&ctx.config.embedding_url, EMBED_MODEL, query)
+        && let Some(vector) = cache.get(
+            &ctx.config.embedding_url,
+            &ctx.config.embedding_model,
+            &query,
+        )
     {
         return Ok(vector);
     }
-    let vector = embed_query(&ctx.http_client, &ctx.config.embedding_url, query).await?;
+    let vector = embed_query(
+        &ctx.embedding_client,
+        &ctx.config.embedding_url,
+        &ctx.config.embedding_model,
+        &query,
+    )
+    .await?;
     if ctx.config.embed_cache_size > 0
         && let Ok(mut cache) = ctx.embed_cache.lock()
     {
-        cache.put(query, vector.clone());
+        cache.put(&query, vector.clone());
     }
     Ok(vector)
 }
@@ -145,14 +158,28 @@ pub struct SearchTimings {
 
 /// Initialize the search context from config.
 pub async fn init_search_context(config: SearchConfig) -> Result<SearchContext, String> {
-    // One reusable client for the whole process (server/bench loops share it):
-    // keep idle pooled connections alive so back-to-back queries skip TCP+TLS setup.
-    let http_client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(120))
-        .pool_idle_timeout(Duration::from_secs(90))
-        .pool_max_idle_per_host(32)
-        .build()
-        .map_err(|e| format!("HTTP client: {}", e))?;
+    let embedding_client = crate::index_net::client(
+        &Default::default(),
+        &config.embedding_api_key,
+        config.ca_bundle.as_deref(),
+        config.insecure_skip_verify,
+        120_000,
+    )?;
+    let qdrant_client = crate::index_net::client(
+        &config.qdrant_api_key,
+        &config.qdrant_bearer,
+        config.ca_bundle.as_deref(),
+        config.insecure_skip_verify,
+        120_000,
+    )?;
+    // Reranking shares TLS/redirect policy, never embedding or Qdrant credentials.
+    let http_client = crate::index_net::client(
+        &Default::default(),
+        &Default::default(),
+        config.ca_bundle.as_deref(),
+        config.insecure_skip_verify,
+        120_000,
+    )?;
 
     eprintln!("Loading catalog from: {}", config.catalog_path);
     let catalog = load_catalog(Path::new(&config.catalog_path))?;
@@ -213,10 +240,12 @@ pub async fn init_search_context(config: SearchConfig) -> Result<SearchContext, 
         embed_cache: Mutex::new(EmbedCache::new(
             config.embed_cache_size,
             config.embedding_url.clone(),
-            EMBED_MODEL.to_string(),
+            config.embedding_model.clone(),
         )),
         config,
         http_client,
+        embedding_client,
+        qdrant_client,
     })
 }
 
@@ -240,7 +269,7 @@ async fn prepare_candidates(
     let fetch_limit = ctx.config.retrieval_limit;
     let qdrant_collection = &ctx.config.qdrant_collection;
     let vector_results = vector_search(
-        &ctx.http_client,
+        &ctx.qdrant_client,
         &ctx.config.qdrant_url,
         qdrant_collection,
         &query_vector,

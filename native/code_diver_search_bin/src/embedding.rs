@@ -8,30 +8,16 @@ pub const EMBED_MODEL: &str = "mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ";
 pub async fn embed_query(
     client: &reqwest::Client,
     url: &str,
+    model: &str,
     query: &str,
 ) -> Result<Vec<f64>, String> {
     let body = serde_json::json!({
-        "model": EMBED_MODEL,
+        "model": model,
         "input": query,
+        "encoding_format": "float",
     });
 
-    let resp = client
-        .post(url)
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| format!("Embedding request failed: {}", e))?;
-
-    let status = resp.status();
-    if !status.is_success() {
-        let text = resp.text().await.unwrap_or_default();
-        return Err(format!("Embedding HTTP {}: {}", status, text));
-    }
-
-    let data: serde_json::Value = resp
-        .json()
-        .await
-        .map_err(|e| format!("Embedding parse failed: {}", e))?;
+    let data = crate::index_net::embedding_request(client, url, &body).await?;
 
     let embedding: Vec<f64> = data["data"][0]["embedding"]
         .as_array()
@@ -115,23 +101,9 @@ pub async fn vector_search(
         "with_payload": true,
     });
 
-    let resp = client
-        .post(&search_url)
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| format!("Qdrant search failed: {}", e))?;
-
-    let status = resp.status();
-    if !status.is_success() {
-        let text = resp.text().await.unwrap_or_default();
-        return Err(format!("Qdrant HTTP {}: {}", status, text));
-    }
-
-    let data: serde_json::Value = resp
-        .json()
-        .await
-        .map_err(|e| format!("Qdrant parse failed: {}", e))?;
+    let response =
+        crate::index_net::request(client, reqwest::Method::POST, &search_url, Some(&body)).await?;
+    let data = crate::index_net::json(response).await?;
 
     let results = data["result"]
         .as_array()
