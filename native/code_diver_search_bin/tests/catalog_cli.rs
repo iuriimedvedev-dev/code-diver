@@ -126,6 +126,126 @@ fn binary() -> Command {
 }
 
 #[test]
+fn m2b_python_rust_content_counts_and_isolated_mismatches() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("root");
+    std::fs::create_dir(&root).unwrap();
+    for suffix in ["py", "PYI"] {
+        std::fs::write(
+            root.join(format!("worker.{suffix}")),
+            "class Worker:\n    async def run(self):\n        pass\n",
+        )
+        .unwrap();
+    }
+    std::fs::write(
+        root.join("worker.RS"),
+        "pub(crate) struct Worker;\nimpl Display for Worker {}\n",
+    )
+    .unwrap();
+    std::fs::write(root.join("readme.md"), "# Synthetic\n").unwrap();
+    let out = dir.path().join("catalog.jsonl");
+    let build = binary()
+        .env("PATH", "")
+        .args(["index", "--catalog-only", "--root"])
+        .arg(&root)
+        .args(["--include", "*"])
+        .arg("--out")
+        .arg(&out)
+        .output()
+        .unwrap();
+    assert!(
+        build.status.success(),
+        "{}",
+        String::from_utf8_lossy(&build.stderr)
+    );
+    let items = records(&out);
+    assert_eq!(items.len(), 8);
+    for item in &items {
+        let path = item["path"].as_str().unwrap();
+        let content = item["content"].as_str().unwrap();
+        if path.ends_with("py") || path.ends_with("PYI") {
+            assert!(
+                content.contains("- class Worker: class Worker:"),
+                "{content}"
+            );
+            assert!(
+                content.contains("- method Worker.run: async def run(self):"),
+                "{content}"
+            );
+        } else if path.ends_with("RS") {
+            assert!(
+                content.contains("- struct Worker: pub(crate) struct Worker;"),
+                "{content}"
+            );
+            assert!(
+                content.contains("- impl Display for Worker: impl Display for Worker {}"),
+                "{content}"
+            );
+        }
+    }
+    for (lane, count) in [("python", 4), ("rust", 2), ("generic", 2), ("all", 8)] {
+        let result = binary()
+            .args(["catalog-compare", "--reference"])
+            .arg(&out)
+            .arg("--built")
+            .arg(&out)
+            .args(["--lane", lane])
+            .output()
+            .unwrap();
+        assert!(
+            result.status.success(),
+            "{lane}: {}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&result.stdout);
+        for label in [
+            "reference items      :",
+            "content equal        :",
+            "tokenized_* all equal:",
+            "embed text (500ch) eq:",
+        ] {
+            assert!(
+                stdout.contains(&format!("{label} {count}")),
+                "{lane}: {stdout}"
+            );
+        }
+    }
+    for (path, affected) in [("worker.py", "python"), ("worker.RS", "rust")] {
+        let mut changed = items.clone();
+        for item in &mut changed {
+            if item["path"] == path {
+                item["content"] = serde_json::json!("changed");
+                item["tokenized_content"] = serde_json::json!(["changed"]);
+            }
+        }
+        let altered = dir.path().join("altered.jsonl");
+        std::fs::write(
+            &altered,
+            changed
+                .iter()
+                .map(|item| format!("{item}\n"))
+                .collect::<String>(),
+        )
+        .unwrap();
+        for lane in ["python", "rust", "go", "ts-js", "generic", "all"] {
+            let result = binary()
+                .args(["catalog-compare", "--reference"])
+                .arg(&out)
+                .arg("--built")
+                .arg(&altered)
+                .args(["--lane", lane])
+                .output()
+                .unwrap();
+            assert_eq!(
+                result.status.success(),
+                lane != affected && lane != "all",
+                "mutated {path}, lane {lane}"
+            );
+        }
+    }
+}
+
+#[test]
 fn catalog_build_and_compare_without_runtime_dependencies() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("root");

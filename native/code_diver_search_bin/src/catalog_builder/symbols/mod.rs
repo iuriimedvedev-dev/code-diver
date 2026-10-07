@@ -1,5 +1,7 @@
 pub mod generic;
 pub mod go;
+pub mod python;
+pub mod rust_lang;
 pub mod ts_js;
 pub use generic::{Symbol, has_dedicated_strategy, limit_symbols, suffix_lower};
 
@@ -13,6 +15,10 @@ pub fn extract(path: &str, text: &str) -> Vec<Symbol> {
         go::extract(text)
     } else if is_ts_js(path) {
         ts_js::extract(text)
+    } else if [".py", ".pyi"].contains(&suffix_lower(path).as_str()) {
+        python::extract(text)
+    } else if suffix_lower(path) == ".rs" {
+        rust_lang::extract(text)
     } else {
         Vec::new()
     };
@@ -44,12 +50,16 @@ mod tests {
 
     #[test]
     fn empty_dedicated_results_use_generic_fallback() {
-        for suffix in ["go", "ts", "tsx", "js", "jsx", "mjs", "cjs", "mts", "cts"] {
+        for suffix in [
+            "go", "ts", "tsx", "js", "jsx", "mjs", "cjs", "mts", "cts", "PY", "PYI",
+        ] {
             let text = "impl Display for Thing {}";
             assert_eq!(
                 extract(&format!("a.{suffix}"), text),
                 generic::extract("a.txt", text)
             );
         }
+        let text = "class Fallback";
+        assert_eq!(extract("a.RS", text), generic::extract("a.txt", text));
     }
 }
