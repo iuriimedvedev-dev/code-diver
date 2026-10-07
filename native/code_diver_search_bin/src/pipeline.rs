@@ -218,7 +218,7 @@ async fn prepare_candidates(
     // Step 2: Vector search via Qdrant
     let t0 = Instant::now();
     let fetch_limit = ctx.config.retrieval_limit;
-    let qdrant_collection = "intellij_h66b_budget_qwen";
+    let qdrant_collection = &ctx.config.qdrant_collection;
     let vector_results = vector_search(
         &ctx.http_client,
         &ctx.config.qdrant_url,

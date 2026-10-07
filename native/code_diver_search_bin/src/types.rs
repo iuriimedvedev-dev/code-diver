@@ -223,11 +223,17 @@ pub struct SearchConfig {
     pub ce_timeout_ms: u64,
     #[serde(default)]
     pub ce_model: String,
+    #[serde(default = "default_qdrant_collection")]
+    pub qdrant_collection: String,
     pub catalog_path: String,
     pub graph_path: String,
     pub base_path: String,
     #[serde(default = "default_embed_cache_size")]
     pub embed_cache_size: usize,
+}
+
+fn default_qdrant_collection() -> String {
+    "intellij_h66b_budget_qwen".to_string()
 }
 
 fn default_retrieval_limit() -> usize {
@@ -297,6 +303,7 @@ impl Default for SearchConfig {
             ce_route: default_ce_route(),
             ce_timeout_ms: default_ce_timeout_ms(),
             ce_model: String::new(),
+            qdrant_collection: default_qdrant_collection(),
             catalog_path: String::new(),
             graph_path: String::new(),
             base_path: String::new(),

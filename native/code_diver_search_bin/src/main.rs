@@ -438,6 +438,7 @@ fn build_search_config(args: &SearchArgs) -> Result<(SearchConfig, PathBuf), Str
         second_pass_candidate_cap,
         max_document_chars: args.max_document_chars,
         second_pass_max_document_chars: args.second_pass_max_document_chars,
+        qdrant_collection: args.qdrant_collection.clone(),
         ce_meta_model_path: model_path.unwrap_or_default(),
         ce_meta_ranker_enabled: meta_ranker_enabled,
         base_path: args.base_path.clone().unwrap_or_default(),
