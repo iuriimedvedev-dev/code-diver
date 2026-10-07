@@ -51,6 +51,32 @@ fn options(home: &Path, platform: Platform) -> setup::SetupOptions {
     options
 }
 struct Interaction(usize);
+#[test]
+fn invalid_ownership_ledger_names_path_cause_and_safe_repair() {
+    let temp = tempfile::tempdir().unwrap();
+    let home = fs::canonicalize(temp.path()).unwrap();
+    let o = options(&home, Platform::Linux);
+    fs::create_dir_all(&o.paths.state).unwrap();
+    fs::create_dir_all(&o.paths.data).unwrap();
+    let ledger = o.paths.state.join("setup-owned.json");
+    fs::write(&ledger, "{not-json").unwrap();
+    let artifact = o.paths.data.join("created");
+    fs::write(&artifact, "retain").unwrap();
+    let error = setup::track_owned_artifact(&o, &artifact)
+        .unwrap_err()
+        .to_string();
+    for expected in [
+        "setup-owned.json",
+        "key must be a string",
+        "restore",
+        "receipts",
+    ] {
+        assert!(error.contains(expected), "{error}");
+    }
+    assert_eq!(fs::read_to_string(ledger).unwrap(), "{not-json");
+    assert_eq!(fs::read_to_string(artifact).unwrap(), "retain");
+}
+
 impl setup::Interaction for Interaction {
     fn confirm_brew(&mut self) -> anyhow::Result<bool> {
         panic!("must not install")
@@ -237,17 +263,30 @@ async fn setup_twice_prompt_once_doctor_last_owned_purge() {
     metadata["embedding"]["model_file"] = manifest.models.embedder.file.clone().into();
     metadata["embedding"]["sha256"] = manifest.models.embedder.sha256.clone().into();
     metadata["embedding"]["bytes"] = manifest.models.embedder.size.into();
-    metadata["files"] = serde_json::json!({"context/catalog.jsonl": {
-        "sha256": format!("{:x}", Sha256::digest(b"catalog")), "bytes": 7
-    }});
+    let ranker_file = metadata["meta_ranker"]["file"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    metadata["files"] = serde_json::json!({
+        "context/catalog.jsonl": {
+            "sha256": format!("{:x}", Sha256::digest(b"catalog")), "bytes": 7
+        },
+        ranker_file.clone(): {
+            "sha256": format!("{:x}", Sha256::digest(b"ranker")), "bytes": 6
+        }
+    });
     let server = std::thread::spawn(move || {
         use std::io::{Read, Write};
         for (path, body) in [
             (
-                "/test/index-metadata.json",
+                "/test/index-metadata.json".to_string(),
                 serde_json::to_vec(&metadata).unwrap(),
             ),
-            ("/test/context/catalog.jsonl", b"catalog".to_vec()),
+            (format!("/test/{ranker_file}"), b"ranker".to_vec()),
+            (
+                "/test/context/catalog.jsonl".to_string(),
+                b"catalog".to_vec(),
+            ),
         ] {
             let (mut stream, _) = listener.accept().unwrap();
             stream

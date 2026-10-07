@@ -29,6 +29,20 @@ pub struct Metadata {
 }
 
 impl Metadata {
+    pub fn ranker_file(&self) -> &str {
+        self.extra
+            .get("meta_ranker")
+            .and_then(|value| value.get("file"))
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("ce_meta_ranker.lgb.txt")
+    }
+
+    pub fn ranker_publication_error(&self) -> String {
+        format!(
+            "Required schema 2 meta_ranker artifact {} is missing or cannot be loaded. The shared Pier index owner must publish the trained LightGBM TXT file in the artifact directory, include its filename, bytes and SHA-256 in meta_ranker and files in index-metadata.json, and republish the matching snapshot; then run code-diver update-index. This shared index requires the meta-ranker; do not remove the requirement or substitute an unrelated model.",
+            self.ranker_file()
+        )
+    }
     pub fn validate(&self, config: &SearchConfig) -> Result<(), String> {
         if self.schema_version != SCHEMA_VERSION {
             return Err("Unsupported index metadata schema; regenerate schema 2 metadata with the index producer".into());

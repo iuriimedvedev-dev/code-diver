@@ -2595,6 +2595,12 @@ mod cli_tests {
             serde_json::from_str(include_str!("../tests/fixtures/shared-index-metadata.json"))
                 .unwrap();
         metadata["files"] = serde_json::json!({"nested/rust_catalog.jsonl": {"bytes":0, "sha256":format!("{:x}", Sha256::digest([]))}});
+        let ranker_file = metadata["meta_ranker"]["file"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        metadata["files"][&ranker_file] =
+            serde_json::json!({"bytes":0, "sha256":format!("{:x}", Sha256::digest([]))});
         let body = metadata.to_string();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         config.profile.artifact_url = Some(format!("http://{}", listener.local_addr().unwrap()));

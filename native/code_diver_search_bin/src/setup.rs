@@ -4,7 +4,7 @@ use crate::runtime_config::{
     SecretStore, SecretValue,
 };
 use crate::service_manager::{self, CommandPlan, ServiceOptions};
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::{Read, Write};
@@ -119,7 +119,7 @@ impl Interaction for TerminalInteraction {
             .read(true)
             .write(true)
             .open("/dev/tty")
-            .map_err(|_| anyhow::anyhow!("consent unavailable; use --yes or --llama-server"))?;
+            .map_err(|cause| anyhow::anyhow!("consent unavailable: cannot open /dev/tty: {cause}; use --yes or --llama-server"))?;
         tty.write_all(b"Install llama.cpp with brew? [y/N] ")?;
         let mut line = String::new();
         std::io::BufRead::read_line(&mut std::io::BufReader::new(tty), &mut line)?;
@@ -130,16 +130,21 @@ impl Interaction for TerminalInteraction {
             .read(true)
             .write(true)
             .open("/dev/tty")
-            .map_err(|_| anyhow::anyhow!("key unavailable; set QDRANT_API_KEY or --key-file"))?;
+            .map_err(|cause| anyhow::anyhow!("key unavailable: cannot open /dev/tty: {cause}; set QDRANT_API_KEY or --key-file"))?;
         let state = Command::new("stty")
             .arg("-g")
             .stdin(tty.try_clone()?)
             .output()?;
         if !state.status.success() {
-            bail!("cannot secure key prompt");
+            bail!(
+                "cannot secure key prompt: stty could not inspect terminal settings; set QDRANT_API_KEY or use --key-file instead"
+            );
         }
-        let state = String::from_utf8(state.stdout)
-            .map_err(|_| anyhow::anyhow!("cannot secure key prompt"))?;
+        let state = String::from_utf8(state.stdout).map_err(|_| {
+            anyhow::anyhow!(
+                "cannot secure key prompt: invalid stty terminal settings; use --key-file instead"
+            )
+        })?;
         struct Restore(fs::File, String);
         impl Drop for Restore {
             fn drop(&mut self) {
@@ -160,7 +165,9 @@ impl Interaction for TerminalInteraction {
             .status()?
             .success()
         {
-            bail!("cannot hide key prompt");
+            bail!(
+                "cannot hide key prompt: stty could not disable terminal echo; use --key-file instead"
+            );
         }
         tty.write_all(b"Read-only Qdrant key: ")?;
         let mut value = String::new();
@@ -192,15 +199,17 @@ impl SecretStore for SecurityStore {
             .stdin(Stdio::null())
             .stderr(Stdio::null())
             .output()
-            .map_err(|_| anyhow::anyhow!("keychain lookup failed"))?;
+            .map_err(|_| anyhow::anyhow!("keychain lookup failed: security executable could not run; unlock the login keychain and verify /usr/bin/security is available"))?;
         if out.status.code() == Some(44) {
             return Ok(None);
         }
         if !out.status.success() {
-            bail!("keychain lookup failed");
+            bail!(
+                "keychain lookup failed: security returned a non-success status; unlock the login keychain and allow code-diver access"
+            );
         }
         let value =
-            String::from_utf8(out.stdout).map_err(|_| anyhow::anyhow!("invalid keychain value"))?;
+            String::from_utf8(out.stdout).map_err(|_| anyhow::anyhow!("invalid keychain value: stored key is not UTF-8; replace it using code-diver setup --key-file PATH"))?;
         Ok(Some(SecretValue::new(
             value.trim_end_matches(['\r', '\n']).into(),
         )?))
@@ -212,7 +221,7 @@ impl SecretStore for SecurityStore {
         }
         runtime_config::NativeMacSecurity
             .put(name, value)
-            .map_err(|_| anyhow::anyhow!("keychain write failed"))
+            .map_err(|_| anyhow::anyhow!("keychain write failed: native Security framework refused the operation; unlock the login keychain or use an isolated CODE_DIVER_HOME with the private file store"))
     }
     fn delete(&self, name: &str) -> Result<()> {
         runtime_config::validate_name(name)?;
@@ -221,9 +230,11 @@ impl SecretStore for SecurityStore {
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .status()
-            .map_err(|_| anyhow::anyhow!("keychain deletion failed"))?;
+            .map_err(|_| anyhow::anyhow!("keychain deletion failed: security executable could not run; verify /usr/bin/security and retry code-diver setup --uninstall"))?;
         if !out.success() && out.code() != Some(44) {
-            bail!("keychain deletion failed");
+            bail!(
+                "keychain deletion failed: security returned a non-success status; unlock the login keychain and retry code-diver setup --uninstall"
+            );
         }
         Ok(())
     }
@@ -270,7 +281,14 @@ pub fn track_created_pointer(
     artifact_path(options, path)?;
     match fs::symlink_metadata(path) {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => (),
-        _ => bail!("new pointer destination must be absent"),
+        Ok(_) => bail!(
+            "new pointer destination {} must be absent; preserve the existing index and retry after resolving the conflicting pointer",
+            path.display()
+        ),
+        Err(cause) => bail!(
+            "cannot inspect new pointer {}: {cause}; check directory permissions before retrying",
+            path.display()
+        ),
     }
     let mut owned = load_owned(options)?;
     let receipt = ArtifactIdentity {
@@ -283,7 +301,10 @@ pub fn track_created_pointer(
         .get(path)
         .is_some_and(|previous| previous != &receipt)
     {
-        bail!("pointer already has a conflicting ownership receipt");
+        bail!(
+            "pointer {} already has a conflicting ownership receipt; preserve setup-owned.json and inspect the existing pointer before retrying",
+            path.display()
+        );
     }
     owned.artifacts.insert(path.into(), receipt);
     save_owned(options, &owned)
@@ -303,7 +324,10 @@ pub fn track_created_artifacts(options: &SetupOptions, created: &[CreatedArtifac
             && previous != &receipt
             && !(previous.device == 0 && previous.inode == 0 && previous.kind == receipt.kind)
         {
-            bail!("artifact creation receipt conflicts with existing ownership");
+            bail!(
+                "artifact {} creation receipt conflicts with existing ownership; preserve setup-owned.json and inspect the artifact before retrying",
+                path.display()
+            );
         }
         owned.artifacts.insert(path.clone(), receipt);
     }
@@ -316,12 +340,17 @@ fn artifact_path(options: &SetupOptions, path: &std::path::Path) -> Result<()> {
         .iter()
         .any(|root| path != *root && path.starts_with(root))
     {
-        bail!("artifact must be strictly inside runtime data or cache");
+        bail!(
+            "artifact {} must be strictly inside runtime data or cache; correct the artifact destination rather than widening ownership",
+            path.display()
+        );
     }
-    service_manager::safe_path(
-        path.parent()
-            .ok_or_else(|| anyhow::anyhow!("missing artifact parent"))?,
-    )
+    service_manager::safe_path(path.parent().ok_or_else(|| {
+        anyhow::anyhow!(
+            "missing artifact parent for {}; use an absolute path inside runtime data or cache",
+            path.display()
+        )
+    })?)
 }
 
 #[derive(serde::Serialize, serde::Deserialize, PartialEq, Eq)]
@@ -338,15 +367,28 @@ enum ArtifactKind {
 }
 fn artifact_identity(path: &std::path::Path) -> Result<ArtifactIdentity> {
     use std::os::unix::fs::MetadataExt;
-    let metadata = fs::symlink_metadata(path)?;
+    let metadata = fs::symlink_metadata(path).with_context(|| {
+        format!(
+            "cannot inspect owned artifact {}; check permissions and preserve ownership receipts",
+            path.display()
+        )
+    })?;
     let kind = if metadata.file_type().is_symlink() {
-        ArtifactKind::Symlink(fs::read_link(path)?)
+        ArtifactKind::Symlink(fs::read_link(path).with_context(|| {
+            format!(
+                "cannot read owned pointer {}; check directory permissions",
+                path.display()
+            )
+        })?)
     } else if metadata.is_dir() {
         ArtifactKind::Directory
     } else if metadata.is_file() {
         ArtifactKind::File(hash_file(path)?)
     } else {
-        bail!("unsupported owned artifact type");
+        bail!(
+            "unsupported owned artifact type at {}; only regular files, directories and symbolic links can be tracked; preserve this object",
+            path.display()
+        );
     };
     Ok(ArtifactIdentity {
         device: metadata.dev(),
@@ -368,14 +410,25 @@ fn setup_lock(options: &SetupOptions, name: &str) -> Result<SetupLock> {
     use std::os::unix::fs::OpenOptionsExt;
     let path = options.paths.state.join(name);
     service_manager::safe_path(&path)?;
-    fs::create_dir_all(&options.paths.state)?;
+    fs::create_dir_all(&options.paths.state).with_context(|| {
+        format!(
+            "cannot create setup state directory {}; check parent permissions and free space",
+            options.paths.state.display()
+        )
+    })?;
     let file = fs::OpenOptions::new()
         .read(true)
         .write(true)
         .create(true)
         .truncate(false)
         .mode(0o600)
-        .open(path)?;
+        .open(&path)
+        .with_context(|| {
+            format!(
+                "cannot open setup lock {}; check state directory permissions",
+                path.display()
+            )
+        })?;
     file.try_lock().map_err(|_| {
         anyhow::anyhow!("setup ownership is busy; retry after the current operation")
     })?;
@@ -386,14 +439,29 @@ fn updater_locks(options: &SetupOptions) -> Result<Vec<fs::File>> {
     let entries = match fs::read_dir(&options.paths.data) {
         Ok(entries) => entries,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(e) => return Err(e.into()),
+        Err(e) => {
+            return Err(e).with_context(|| {
+                format!(
+                    "cannot inspect runtime data directory {}; check permissions before purge",
+                    options.paths.data.display()
+                )
+            });
+        }
     };
     let mut locks = Vec::new();
     for entry in entries {
         let path = entry?.path();
         if is_update_lock(&path) {
             service_manager::safe_path(&path)?;
-            let file = fs::OpenOptions::new().write(true).open(path)?;
+            let file = fs::OpenOptions::new()
+                .write(true)
+                .open(&path)
+                .with_context(|| {
+                    format!(
+                        "cannot open updater lock {}; check write permissions before purge",
+                        path.display()
+                    )
+                })?;
             file.try_lock()
                 .map_err(|_| anyhow::anyhow!("index update is active; retry purge later"))?;
             locks.push(file);
@@ -448,13 +516,13 @@ fn hash(bytes: &[u8]) -> String {
 fn hash_file(path: &std::path::Path) -> Result<String> {
     use sha2::{Digest, Sha256};
     let mut file =
-        fs::File::open(path).map_err(|_| anyhow::anyhow!("cannot read owned artifact"))?;
+        fs::File::open(path).map_err(|cause| anyhow::anyhow!("cannot read owned artifact {}: {cause}; check permissions and preserve the ownership record", path.display()))?;
     let mut digest = Sha256::new();
     let mut buffer = [0u8; 65536];
     loop {
         let len = file
             .read(&mut buffer)
-            .map_err(|_| anyhow::anyhow!("cannot hash owned artifact"))?;
+            .map_err(|cause| anyhow::anyhow!("cannot hash owned artifact {}: {cause}; check storage health and retry without deleting the ownership record", path.display()))?;
         if len == 0 {
             break;
         }
@@ -475,11 +543,11 @@ fn save_owned(options: &SetupOptions, owned: &Ownership) -> Result<()> {
 fn load_owned(options: &SetupOptions) -> Result<Ownership> {
     let path = ledger(options);
     service_manager::safe_path(&path)?;
-    match fs::read(path) {
+    match fs::read(&path) {
         Ok(b) => serde_json::from_slice(&b)
-            .map_err(|_| anyhow::anyhow!("invalid setup ownership record")),
+            .map_err(|cause| anyhow::anyhow!("invalid setup ownership record {}: {cause}; restore a valid backup before uninstalling; do not discard ownership receipts", path.display())),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Ownership::default()),
-        Err(_) => bail!("cannot read setup ownership record"),
+        Err(cause) => bail!("cannot read setup ownership record {}: {cause}; check file permissions and retry", path.display()),
     }
 }
 pub async fn run(
@@ -549,14 +617,17 @@ pub async fn run(
                 || path.starts_with(&options.paths.data)
                 || path.starts_with(&options.paths.cache);
             if !allowed {
-                bail!("unsafe setup ownership record");
+                bail!(
+                    "unsafe setup ownership record: {} is outside managed config/model/data/cache paths; restore a valid ledger before uninstalling",
+                    path.display()
+                );
             }
             if path != &options.config && !options.purge {
                 continue;
             }
             service_manager::safe_path(path)?;
             if hash_file(path).is_ok_and(|actual| actual == *digest) {
-                fs::remove_file(path)?;
+                fs::remove_file(path).with_context(|| format!("cannot remove unchanged owned file {}; check parent permissions and retry uninstall", path.display()))?;
             }
         }
         if options.purge {
@@ -582,10 +653,10 @@ pub async fn run(
                             match fs::remove_dir(path) {
                                 Ok(()) => (),
                                 Err(e) if e.kind() == std::io::ErrorKind::DirectoryNotEmpty => (),
-                                Err(e) => return Err(e.into()),
+                                Err(e) => return Err(e).with_context(|| format!("cannot remove owned directory {}; check parent permissions and retry purge", path.display())),
                             }
                         }
-                        _ => fs::remove_file(path)?,
+                        _ => fs::remove_file(path).with_context(|| format!("cannot remove owned artifact {}; check parent permissions and retry purge", path.display()))?,
                     }
                 }
             }
@@ -610,7 +681,7 @@ pub async fn run(
                     SecretRef::File(name) => files.delete(name)?,
                     SecretRef::Keychain(name) => keychain
                         .as_ref()
-                        .ok_or_else(|| anyhow::anyhow!("keychain required for uninstall"))?
+                        .ok_or_else(|| anyhow::anyhow!("keychain required for uninstall: owned key uses a keychain reference; retry on macOS with /usr/bin/security available"))?
                         .delete(name)?,
                     SecretRef::Env(_) => (),
                 }
@@ -665,7 +736,11 @@ pub async fn run(
         });
     let binary = if let Some(p) = candidate {
         if !llama_valid(&p, manifest.llama_cpp.min_build) {
-            bail!("llama-server build too old or unavailable; supply a supported --llama-server");
+            bail!(
+                "llama-server {} build too old or unavailable; require build >= {}; supply a supported --llama-server",
+                p.display(),
+                manifest.llama_cpp.min_build
+            );
         }
         p
     } else {
@@ -682,7 +757,9 @@ pub async fn run(
         })
         .execute()?
         {
-            bail!("brew install llama.cpp failed");
+            bail!(
+                "brew install llama.cpp failed: Homebrew returned a non-success status; repair Homebrew and retry, or install llama-server manually and supply --llama-server PATH"
+            );
         }
         options
             .search_path
@@ -690,16 +767,24 @@ pub async fn run(
             .map(|p| p.join("llama-server"))
             .find(|p| llama_valid(p, manifest.llama_cpp.min_build))
             .ok_or_else(|| {
-                anyhow::anyhow!("installed llama-server unavailable; supply --llama-server")
+                anyhow::anyhow!("installed llama-server unavailable: no supported build found on the configured search path; supply --llama-server /absolute/path/to/llama-server")
             })?
     };
     config.llama_server = Some(binary);
     if !config.llama_server.as_ref().unwrap().is_absolute() {
-        bail!("llama-server path must be absolute");
+        bail!(
+            "llama-server path must be absolute; supply --llama-server /absolute/path/to/llama-server"
+        );
     }
     options.paths.ensure_dirs()?;
     let store = ModelStore::new(&options.paths.models)?;
     for spec in [&manifest.models.embedder, &manifest.models.reranker] {
+        use std::io::IsTerminal;
+        let mut progress = crate::model_store::ProgressWriter::new(
+            std::io::stderr(),
+            std::io::stderr().is_terminal(),
+            &spec.file,
+        );
         let path = store.model_path(spec)?;
         let previously_owned = owned.files.get(&path).is_some_and(|expected| {
             fs::symlink_metadata(&path).is_ok_and(|meta| meta.is_file())
@@ -712,7 +797,9 @@ pub async fn run(
             .download_with_receipt(
                 spec,
                 options.environment.get("HF_TOKEN").map(String::as_str),
-                |p| eprintln!("model bytes {}/{}", p.downloaded, p.total),
+                |p| {
+                    let _ = progress.update(p);
+                },
                 |receipt| {
                     owned
                         .files
@@ -730,17 +817,17 @@ pub async fn run(
             service_manager::safe_path(path)?;
             let mut bytes = String::new();
             fs::File::open(path)
-                .map_err(|_| anyhow::anyhow!("cannot open key file"))?
+                .map_err(|cause| anyhow::anyhow!("cannot open key file: {cause}; verify --key-file exists and is readable by this user"))?
                 .take(16386)
                 .read_to_string(&mut bytes)
-                .map_err(|_| anyhow::anyhow!("cannot read key file"))?;
+                .map_err(|_| anyhow::anyhow!("cannot read key file: unreadable or non-UTF-8 content; provide a readable UTF-8 file containing only the read-only key"))?;
             SecretValue::new(bytes.trim_end_matches(['\r', '\n']).into())?
         } else if let Some(value) = options.environment.get("QDRANT_API_KEY") {
             SecretValue::new(value.clone())?
         } else {
             interaction
                 .read_key()
-                .map_err(|_| anyhow::anyhow!("private key prompt failed"))?
+                .map_err(|_| anyhow::anyhow!("private key prompt failed: no usable secure terminal or key; set QDRANT_API_KEY or use --key-file"))?
         };
         let reference = if !options.paths.isolated
             && keychain.as_ref().is_some_and(|s| {
@@ -753,7 +840,9 @@ pub async fn run(
             service_manager::safe_path(&options.paths.secrets.join("qdrant"))?;
             let previous = files.get("qdrant")?;
             if previous.is_some() && owned.key != Some(SecretRef::File("qdrant".into())) {
-                bail!("existing secret is not setup-owned; configure its reference instead");
+                bail!(
+                    "existing secret is not setup-owned; preserve it and configure secrets.qdrant to its reference instead of replacing it"
+                );
             }
             if previous
                 .as_ref()
@@ -778,6 +867,7 @@ pub async fn run(
     config
         .secrets
         .insert("artifacts".into(), config.secrets["qdrant"].clone());
+    config.mcp_registration_opt_out = options.no_register;
     config.validate()?;
     if runtime_config::load_config(&options.config)? != config || !config_exists {
         runtime_config::save_config(&options.config, &config)?;
@@ -791,7 +881,7 @@ pub async fn run(
     hooks
         .update_index(&config, &options.paths)
         .await
-        .map_err(|_| anyhow::anyhow!("shared index update failed"))?;
+        .map_err(|error| anyhow::anyhow!("shared index update failed: {error:#}"))?;
     if !options.no_register {
         hooks.registration(options, false).map_err(|_| {
             anyhow::anyhow!("MCP registration failed; repair detected host configuration")
@@ -814,7 +904,7 @@ pub async fn run(
             ],
             env,
         })
-        .map_err(|_| anyhow::anyhow!("doctor invocation failed"))?;
+        .map_err(|_| anyhow::anyhow!("doctor invocation failed: cannot execute the installed code-diver binary; check executable permissions and run code-diver doctor --config PATH manually"))?;
     eprintln!("doctor: {}", if passed { "PASS" } else { "FAIL" });
     if !passed {
         bail!("doctor failed; run doctor for repair instructions");
@@ -866,7 +956,7 @@ pub fn registration_environment(options: &SetupOptions) -> Result<BTreeMap<Strin
             .paths
             .config
             .parent()
-            .ok_or_else(|| anyhow::anyhow!("isolated config has no parent"))?;
+            .ok_or_else(|| anyhow::anyhow!("isolated config has no parent; set CODE_DIVER_HOME to an absolute runtime directory"))?;
         service_manager::validate_path(root)?;
         environment.insert("CODE_DIVER_HOME".into(), root.display().to_string());
     }

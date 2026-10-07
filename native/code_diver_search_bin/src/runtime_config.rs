@@ -6,6 +6,18 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 pub const RUNTIME_SCHEMA: u32 = 1;
+#[derive(Deserialize)]
+pub struct RerankerServing {
+    pub ctx: usize,
+    pub batch: usize,
+    pub ubatch: usize,
+}
+pub fn reranker_serving_defaults() -> RerankerServing {
+    let manifest: serde_json::Value = serde_json::from_str(include_str!("runtime_models.json"))
+        .expect("embedded model manifest must be valid JSON");
+    serde_json::from_value(manifest["models"]["reranker"]["serving"].clone())
+        .expect("embedded reranker serving defaults must be present")
+}
 pub const PROFILE_MAX_BYTES: usize = 1024 * 1024;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -500,6 +512,7 @@ pub struct DaemonConfig {
 }
 impl Default for DaemonConfig {
     fn default() -> Self {
+        let serving = reranker_serving_defaults();
         Self {
             bind: "127.0.0.1".into(),
             port: 8090,
@@ -509,9 +522,9 @@ impl Default for DaemonConfig {
             startup_timeout_secs: 120,
             max_concurrency: 1,
             threads: None,
-            reranker_ctx: 16384,
-            batch: 4096,
-            ubatch: 4096,
+            reranker_ctx: serving.ctx,
+            batch: serving.batch,
+            ubatch: serving.ubatch,
             embedder_ctx: 5120,
             embedder_batch: 2560,
             embedder_ubatch: 2560,
@@ -530,6 +543,7 @@ pub struct RuntimeConfig {
     pub profile: RuntimeProfile,
     pub daemon: DaemonConfig,
     pub llama_server: Option<PathBuf>,
+    pub mcp_registration_opt_out: bool,
     pub secrets: BTreeMap<String, SecretRef>,
 }
 impl Default for RuntimeConfig {
@@ -539,6 +553,7 @@ impl Default for RuntimeConfig {
             profile: RuntimeProfile::default(),
             daemon: DaemonConfig::default(),
             llama_server: None,
+            mcp_registration_opt_out: false,
             secrets: BTreeMap::new(),
         }
     }
@@ -586,6 +601,21 @@ impl RuntimeConfig {
         }
         if let Some(name) = &self.profile.index_name {
             validate_name(name)?;
+            if let Some(raw) = &self.profile.artifact_url {
+                let mut url = validate_url(raw)?;
+                let mut path = url.path().trim_end_matches('/').to_string();
+                let suffix = format!("/{name}");
+                if path.ends_with(&suffix) {
+                    while path.ends_with(&suffix) {
+                        path.truncate(path.len() - suffix.len());
+                    }
+                    url.set_path(&path);
+                    bail!(
+                        "artifact_url already ends with index_name (possibly duplicated); use artifact_url={} and index_name={name}; artifact_url + index_name must identify the directory containing index-metadata.json",
+                        url.as_str().trim_end_matches('/')
+                    );
+                }
+            }
         }
         for reference in self.secrets.values() {
             match reference {
@@ -688,7 +718,14 @@ fn unknown_key_warnings(value: &toml::Value) -> Vec<String> {
     let known = [
         (
             "",
-            &["schema", "profile", "daemon", "llama_server", "secrets"][..],
+            &[
+                "schema",
+                "profile",
+                "daemon",
+                "llama_server",
+                "mcp_registration_opt_out",
+                "secrets",
+            ][..],
         ),
         (
             "profile",
@@ -1052,6 +1089,43 @@ pub async fn load_profile(source: &str) -> Result<RuntimeProfile> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn m5c_url_errors_never_echo_credentials_or_query_secrets() {
+        for raw in [
+            "https://user:private-password@example.invalid/shared/pier",
+            "https://example.invalid/shared/pier?token=private-token",
+        ] {
+            let mut config = RuntimeConfig::default();
+            config.profile.index_name = Some("pier".into());
+            config.profile.artifact_url = Some(raw.into());
+            let error = config.validate().unwrap_err().to_string();
+            assert!(!error.contains("private-"));
+            assert!(!error.contains("user:"));
+            assert!(error.contains("without credentials, query or fragment"));
+        }
+    }
+    #[test]
+    fn m5c_registration_opt_out_persists_and_defaults_to_requested() {
+        let config = RuntimeConfig {
+            mcp_registration_opt_out: true,
+            ..Default::default()
+        };
+        let serialized = toml::to_string(&config).unwrap();
+        let parsed: RuntimeConfig = toml::from_str(&serialized).unwrap();
+        assert!(parsed.mcp_registration_opt_out);
+        let legacy: RuntimeConfig = toml::from_str("schema = 1").unwrap();
+        assert!(!legacy.mcp_registration_opt_out);
+    }
+    #[test]
+    fn m5c_duplicate_index_url_is_actionable() {
+        let mut config = RuntimeConfig::default();
+        config.profile.index_name = Some("pier".into());
+        config.profile.artifact_url = Some("https://example.invalid/shared/pier/pier".into());
+        let error = config.validate().unwrap_err().to_string();
+        assert!(error.contains("artifact_url=https://example.invalid/shared"));
+        assert!(error.contains("index_name=pier"));
+        assert!(error.contains("index-metadata.json"));
+    }
     #[test]
     fn runtime_defaults_and_manifest_override_precedence() {
         let defaults = RuntimeConfig::default();

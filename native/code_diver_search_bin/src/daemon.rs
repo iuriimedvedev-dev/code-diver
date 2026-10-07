@@ -20,7 +20,52 @@ const LOG_CAP: u64 = 20 * 1024 * 1024;
 
 type Reply = (u16, Value);
 fn error(status: u16, kind: &str) -> Reply {
-    (status, json!({"error":{"type":kind,"message":kind}}))
+    let fix = match kind {
+        "model_missing_or_invalid" => {
+            "Run code-diver setup to verify and repair the model cache, then restart the user service"
+        }
+        "llama_server_unavailable" | "child_launch_failed" => {
+            "Configure an executable llama-server build >=9430 using setup --llama-server /absolute/path and check execute permissions"
+        }
+        "restart_limit" | "child_exited" | "child_start_timeout" => {
+            "Run code-diver doctor; check llama-server build, model integrity and available memory before restarting the user service"
+        }
+        "log_unavailable" => {
+            "Check runtime log directory permissions and free space, then restart the user service"
+        }
+        "child_port_unavailable" => {
+            "Check local socket and file descriptor limits, then retry or restart the user service"
+        }
+        "daemon_shutting_down" => "Wait for the user service to restart, then retry",
+        "request_queue_timeout" | "daemon_overloaded" => {
+            "Reduce concurrent requests and retry; check daemon.max_concurrency and request_timeout_secs"
+        }
+        "context length exceeded" | "invalid_or_oversized_input" => {
+            "Shorten query/document pairs or split embedding batches; retain the model manifest's tested serving settings"
+        }
+        "backend_timeout" => {
+            "Reduce request size and run code-diver doctor; check memory pressure and request_timeout_secs"
+        }
+        "backend_unavailable" | "backend_transfer_failed" | "backend_rejected_request" => {
+            "Run code-diver doctor and check the supervised llama-server model and serving settings; retry only after backend recovery"
+        }
+        code if code.starts_with("backend_") => {
+            "Run code-diver doctor; use a supported llama-server build with the manifest's model and serving settings; malformed backend results are never accepted"
+        }
+        "not_found" => "Use GET /health, GET /v1/models, POST /v1/embeddings or POST /v1/rerank",
+        "forbidden_host" | "browser_or_chunked_request_forbidden" => {
+            "Use a non-browser loopback HTTP client with a localhost Host header; omit Origin and Transfer-Encoding"
+        }
+        "json_required" | "invalid_json" => "Send valid JSON with Content-Type: application/json",
+        "headers_too_large" => "Reduce HTTP headers and retry with a loopback HTTP/1.1 client",
+        _ => {
+            "Send a complete HTTP/1.1 request with one loopback Host header and, for POST, one JSON Content-Type and accurate Content-Length; omit duplicate headers"
+        }
+    };
+    (
+        status,
+        json!({"error":{"type":kind,"message":kind,"fix":fix}}),
+    )
 }
 
 struct Worker {
@@ -679,14 +724,14 @@ pub async fn run(config: RuntimeConfig, paths: RuntimePaths, _foreground: bool) 
     };
     let listener = TcpListener::bind((config.daemon.bind.as_str(), config.daemon.port))
         .await
-        .map_err(|_| anyhow::anyhow!("daemon loopback bind failed"))?;
+        .map_err(|cause| anyhow::anyhow!("daemon loopback bind {}:{} failed: {cause}; stop the conflicting listener or choose an unused daemon.port in runtime config", config.daemon.bind, config.daemon.port))?;
     let port = listener.local_addr()?.port();
     let client = reqwest::Client::builder()
         .no_proxy()
         .redirect(reqwest::redirect::Policy::none())
         .timeout(Duration::from_secs(config.daemon.request_timeout_secs))
         .build()
-        .map_err(|_| anyhow::anyhow!("daemon HTTP client failed"))?;
+        .map_err(|_| anyhow::anyhow!("daemon HTTP client initialization failed; verify system TLS configuration and re-run code-diver doctor"))?;
     let concurrency = config.daemon.max_concurrency;
     let daemon = Arc::new(Daemon {
         config,
@@ -705,7 +750,7 @@ pub async fn run(config: RuntimeConfig, paths: RuntimePaths, _foreground: bool) 
         tokio::select! {
             _ = &mut shutdown => break,
             result = listener.accept() => {
-                let (stream, peer) = result.map_err(|_| anyhow::anyhow!("daemon accept failed"))?;
+                let (stream, peer) = result.map_err(|cause| anyhow::anyhow!("daemon accept failed: {cause}; check file descriptor limits and restart the user service"))?;
                 if peer.ip().is_loopback() {
                     if tasks.len() < 256 { tasks.spawn(connection(stream,daemon.clone(),port)); }
                     else { let _ = tokio::time::timeout(Duration::from_millis(100),send_reply(stream,error(503,"daemon_overloaded"))).await; }
@@ -741,3 +786,43 @@ async fn shutdown_signal() {
 #[cfg(test)]
 #[path = "../tests/daemon_cases/mod.rs"]
 mod tests;
+
+#[cfg(test)]
+mod m5c_tests {
+    use super::*;
+
+    #[test]
+    fn diagnostics_preserve_protocol_codes_and_supply_safe_repairs() {
+        for (code, action) in [
+            ("model_missing_or_invalid", "setup"),
+            ("child_launch_failed", "--llama-server"),
+            ("backend_invalid_json", "doctor"),
+            ("context length exceeded", "Shorten"),
+            ("forbidden_host", "loopback"),
+            ("invalid_body_length", "Content-Length"),
+        ] {
+            let reply = error(503, code);
+            assert_eq!(reply.1["error"]["type"], code);
+            assert_eq!(reply.1["error"]["message"], code);
+            assert!(reply.1["error"]["fix"].as_str().unwrap().contains(action));
+        }
+    }
+
+    #[test]
+    fn m5c_production_manifest_matches_daemon_flags() {
+        let config = RuntimeConfig::default();
+        let defaults = crate::runtime_config::reranker_serving_defaults();
+        let args = child_args(&config, 1, 9000, "model.gguf".into());
+        for (flag, value) in [
+            ("--ctx-size", defaults.ctx),
+            ("--batch-size", defaults.batch),
+            ("--ubatch-size", defaults.ubatch),
+        ] {
+            assert!(
+                args.windows(2)
+                    .any(|pair| pair[0] == flag && pair[1] == value.to_string().as_str())
+            );
+        }
+        assert!(!args.iter().any(|arg| arg == "--parallel"));
+    }
+}

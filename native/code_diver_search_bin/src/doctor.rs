@@ -13,24 +13,55 @@ const MIN_DISK_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 const MIN_RAM_BYTES: u64 = 8 * 1024 * 1024 * 1024;
 const MIN_LLAMA_BUILD: u64 = 9430;
 
+fn reranker_fix() -> String {
+    let serving = crate::runtime_config::DaemonConfig::default();
+    format!(
+        "Check reranker; llama-server: --embedding --reranking --pooling rank --ctx-size {} --batch-size {} --ubatch-size {}; do not set explicit parallel; retain the model manifest's tested serving settings",
+        serving.reranker_ctx, serving.batch, serving.ubatch
+    )
+}
+
+fn artifact_load_error(name: &str, metadata: Option<&crate::metadata::Metadata>) -> String {
+    if name == "meta_ranker"
+        && let Some(metadata) = metadata
+        && metadata.schema_version == crate::metadata::SCHEMA_VERSION
+    {
+        return metadata.ranker_publication_error();
+    }
+    format!("{name} is missing or cannot be loaded")
+}
+
 #[derive(Serialize)]
 struct Check {
     name: String,
     status: &'static str,
     message: String,
-    fix: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    fix: Option<String>,
     elapsed_ms: f64,
 }
 
-#[derive(Default, Serialize)]
+#[derive(Serialize)]
 struct Report {
     checks: Vec<Check>,
+    #[serde(skip)]
+    started: Instant,
+}
+
+impl Default for Report {
+    fn default() -> Self {
+        Self {
+            checks: Vec::new(),
+            started: Instant::now(),
+        }
+    }
 }
 
 impl Report {
     fn warning(&mut self, name: &str, start: Instant, message: String, fix: &str) {
         self.record(name, start, Ok(message), fix);
         self.checks.last_mut().unwrap().status = "WARN";
+        self.checks.last_mut().unwrap().fix = Some(fix.into());
     }
     fn record(&mut self, name: &str, start: Instant, result: Result<String, String>, fix: &str) {
         let (status, message) = match result {
@@ -41,32 +72,56 @@ impl Report {
             name: name.into(),
             status,
             message,
-            fix: fix.into(),
+            fix: (status == "FAIL").then(|| fix.into()),
             elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
         });
     }
 
     fn output(&self, json_output: bool) -> Result<(), String> {
         let passed = !self.checks.iter().any(|check| check.status == "FAIL");
+        let summary = self.summary();
         if json_output {
             println!(
                 "{}",
-                serde_json::to_string_pretty(&json!({"passed":passed,"checks":self.checks}))
-                    .map_err(|_| "Cannot serialize doctor report")?
+                serde_json::to_string_pretty(
+                    &json!({"passed":passed,"checks":self.checks,"summary":summary})
+                )
+                .map_err(|cause| format!("Cannot serialize doctor report: {cause}; run doctor without --json and report this diagnostic defect"))?
             );
         } else {
             for check in &self.checks {
                 println!(
-                    "{} {} ({:.1}ms): {}\n  fix: {}",
-                    check.status, check.name, check.elapsed_ms, check.message, check.fix
+                    "{} {} ({:.1}ms): {}",
+                    check.status, check.name, check.elapsed_ms, check.message
                 );
+                if let Some(fix) = &check.fix {
+                    println!("  fix: {fix}");
+                }
             }
+            println!(
+                "Summary: {} PASS, {} WARN, {} FAIL, {} SKIP ({:.1}ms)",
+                summary["pass"],
+                summary["warn"],
+                summary["fail"],
+                summary["skip"],
+                summary["elapsed_ms"].as_f64().unwrap_or_default()
+            );
         }
         if passed {
             Ok(())
         } else {
             Err("Doctor found failures; follow the reported fix hints".into())
         }
+    }
+
+    fn summary(&self) -> serde_json::Value {
+        let count = |status| {
+            self.checks
+                .iter()
+                .filter(|check| check.status == status)
+                .count()
+        };
+        json!({"pass":count("PASS"),"warn":count("WARN"),"fail":count("FAIL"),"skip":count("SKIP"),"elapsed_ms":self.started.elapsed().as_secs_f64() * 1000.0})
     }
 }
 
@@ -133,7 +188,7 @@ async fn run_checks(
             metadata.validate(&config)?;
             let now = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .map_err(|_| "Invalid system clock")?
+                .map_err(|_| "Invalid system clock: date precedes Unix epoch; correct system date/time and retry doctor")?
                 .as_secs();
             let age = now
                 .checked_sub(metadata.generated_at)
@@ -300,7 +355,12 @@ async fn run_checks(
             _ => crate::lightgbm::load_lightgbm_txt(Path::new(path))
                 .map(|m| format!("{} trees", m.num_trees)),
         }
-        .map_err(|_| format!("{name} is missing or cannot be loaded"));
+        .map_err(|cause| {
+            format!(
+                "{} at {path}: {cause}",
+                artifact_load_error(name, metadata.as_ref().ok())
+            )
+        });
         report.record(
             name,
             start,
@@ -402,7 +462,7 @@ async fn run_checks(
         start,
         dimensions
             .as_ref()
-            .map_err(|_| "Collection missing or vector schema invalid".to_string())
+            .map_err(|_| "Collection missing or vector schema invalid: Qdrant rejected collection validation or returned an incompatible response; check collection name, read credentials, model and dimensions".to_string())
             .and_then(|n| {
                 if config
                     .embedding_dimensions
@@ -520,7 +580,7 @@ async fn run_checks(
         )
         .await
         .map(|_| "Reranker returned a valid score".into());
-        report.record(name, start, result, "Check reranker; llama-server: --embedding --reranking --pooling rank --ctx-size 4096 --batch-size 4096 --ubatch-size 4096 (physical batch and ubatch must both be >=4096); retain the model manifest's tested serving/parallel settings");
+        report.record(name, start, result, &reranker_fix());
         if !config.require_rerank
             && let Some(check) = report.checks.last_mut()
             && check.status == "FAIL"
@@ -603,19 +663,19 @@ async fn runtime_checks(
             .timeout(std::time::Duration::from_secs(5))
             .redirect(reqwest::redirect::Policy::none())
             .build()
-            .map_err(|_| "Cannot initialize daemon health client".to_string())?;
+            .map_err(|_| "Cannot initialize daemon health client: HTTP client setup failed; check system TLS configuration".to_string())?;
         let response = client
             .get(format!("{}/health", config.daemon_url()))
             .send()
             .await
-            .map_err(|_| "Local daemon unreachable".to_string())?;
+            .map_err(|_| format!("Local daemon unreachable at {}; check the user service and configured daemon port", config.daemon_url()))?;
         if !response.status().is_success() {
-            return Err("Local daemon health check failed".into());
+            return Err(format!("Local daemon health check returned HTTP {}; inspect the user service and run code-diver daemon or re-run setup", response.status().as_u16()));
         }
         let health: serde_json::Value = response
             .json()
             .await
-            .map_err(|_| "Invalid daemon health response".to_string())?;
+            .map_err(|_| "Invalid daemon health response: expected JSON; check that daemon.port belongs to code-diver and restart the user service".to_string())?;
         if health
             .get("status")
             .and_then(|v| v.as_str())
@@ -633,7 +693,7 @@ async fn runtime_checks(
         health,
         "Run code-diver daemon or re-run setup",
     );
-    if skip_registration {
+    if skip_registration || config.mcp_registration_opt_out {
         report.record(
             "mcp_hosts",
             Instant::now(),
@@ -645,7 +705,7 @@ async fn runtime_checks(
     }
     let start = Instant::now();
     let registration = std::env::current_exe()
-        .map_err(|_| "Cannot locate code-diver binary".to_string())
+        .map_err(|cause| format!("Cannot locate code-diver binary: {cause}; reinstall the CLI and retry setup"))
         .and_then(|binary| {
             let config_path = args
                 .config
@@ -656,36 +716,15 @@ async fn runtime_checks(
                 config_path
             } else {
                 std::env::current_dir()
-                    .map_err(|_| "Cannot resolve MCP config path".to_string())?
+                    .map_err(|cause| format!("Cannot resolve MCP config path: {cause}; use an absolute --config path from a readable working directory"))?
                     .join(config_path)
             };
             crate::runtime_registration(paths, &binary, &config_path, true)
                 .and_then(|registration| registration.doctor())
-                .map_err(|_| "Cannot inspect MCP host registrations".to_string())
+                .map_err(|_| "Cannot inspect MCP host registrations: host configuration could not be read or parsed; check host configuration permissions and restore valid JSON/TOML".to_string())
         });
     match registration {
-        Ok(registration) => {
-            for host in registration.hosts.iter().filter(|host| host.detected) {
-                report.record(
-                    &format!("mcp_{:?}", host.host),
-                    start,
-                    if host.registered && host.problem.is_none() {
-                        Ok("MCP registration present".into())
-                    } else {
-                        Err("MCP registration missing or invalid".into())
-                    },
-                    "Run code-diver setup to register detected MCP hosts",
-                );
-            }
-            if registration.detected_hosts().is_empty() {
-                report.warning(
-                    "mcp_hosts",
-                    start,
-                    "No MCP hosts detected".into(),
-                    "Install an MCP host then re-run setup",
-                );
-            }
-        }
+        Ok(registration) => record_registration(report, start, &registration),
         Err(error) => report.record(
             "mcp_hosts",
             start,
@@ -695,13 +734,44 @@ async fn runtime_checks(
     }
 }
 
+fn record_registration(
+    report: &mut Report,
+    start: Instant,
+    registration: &crate::mcp_registration::RegistrationReport,
+) {
+    for host in registration.hosts.iter().filter(|host| host.detected) {
+        report.record(
+            &format!("mcp_{:?}", host.host),
+            start,
+            if host.registered && host.problem.is_none() {
+                Ok("MCP registration present".into())
+            } else {
+                Err("MCP registration missing or invalid".into())
+            },
+            "Run code-diver setup to register detected MCP hosts",
+        );
+    }
+    if registration.detected_hosts().is_empty() {
+        report.warning(
+            "mcp_hosts",
+            start,
+            "No MCP hosts detected".into(),
+            "Install an MCP host then re-run setup",
+        );
+    }
+}
+
 fn command_text(path: &Path, args: &[&str]) -> Result<String, String> {
     let output = std::process::Command::new(path)
         .args(args)
         .output()
-        .map_err(|_| "Health probe command unavailable".to_string())?;
+        .map_err(|cause| format!("Health probe {} unavailable: {cause}; install the required system utility and check executable permissions", path.display()))?;
     if !output.status.success() {
-        return Err("Health probe command failed".into());
+        return Err(format!(
+            "Health probe {} exited with {}; check system utility permissions and platform support",
+            path.display(),
+            output.status
+        ));
     }
     Ok(format!(
         "{}{}",
@@ -728,7 +798,7 @@ fn disk_bytes(path: &Path) -> Result<u64, String> {
         .and_then(|line| line.split_whitespace().nth(3))
         .and_then(|value| value.parse::<u64>().ok())
         .and_then(|n| n.checked_mul(1024))
-        .ok_or("Cannot determine free disk space".into())
+        .ok_or_else(|| format!("Cannot determine free disk space for {}: df -Pk returned no valid available-block count; check df platform support and directory access", parent.display()))
 }
 
 fn ram_bytes() -> Result<u64, String> {
@@ -736,36 +806,47 @@ fn ram_bytes() -> Result<u64, String> {
         command_text(Path::new("sysctl"), &["-n", "hw.memsize"])?
             .trim()
             .parse()
-            .map_err(|_| "Cannot determine physical RAM".into())
+            .map_err(|_| "Cannot determine physical RAM: sysctl hw.memsize returned no valid byte count; check sysctl availability and platform support".into())
     } else {
-        std::fs::read_to_string("/proc/meminfo")
-            .ok()
-            .and_then(|text| {
-                text.lines()
-                    .find(|line| line.starts_with("MemTotal:"))
-                    .map(str::to_owned)
-            })
+        let text = std::fs::read_to_string("/proc/meminfo").map_err(|cause| format!("Cannot determine physical RAM: cannot read /proc/meminfo: {cause}; check procfs mount and read permissions"))?;
+        text.lines()
+            .find(|line| line.starts_with("MemTotal:"))
             .and_then(|line| line.split_whitespace().nth(1)?.parse::<u64>().ok())
             .and_then(|n| n.checked_mul(1024))
-            .ok_or("Cannot determine physical RAM".into())
+            .ok_or("Cannot determine physical RAM: /proc/meminfo lacks a valid MemTotal count; check procfs mount and platform support".into())
     }
 }
 
 fn verify_hash(path: &Path, expected: &str, bytes: Option<u64>) -> Result<String, String> {
     use sha2::{Digest, Sha256};
     use std::io::Read;
-    let mut file = std::fs::File::open(path).map_err(|_| "Manifest file missing or unreadable")?;
+    let mut file = std::fs::File::open(path).map_err(|cause| format!("Manifest file missing or unreadable at {}: {cause}; fetch matching artifacts and check read permissions", path.display()))?;
     if let Some(bytes) = bytes
-        && file.metadata().map_err(|_| "Cannot read file size")?.len() != bytes
+        && file
+            .metadata()
+            .map_err(|cause| {
+                format!(
+                    "Cannot read file size at {}: {cause}; check permissions and storage health",
+                    path.display()
+                )
+            })?
+            .len()
+            != bytes
     {
-        return Err("Manifest file size mismatch".into());
+        return Err(format!(
+            "Manifest file size mismatch at {}; fetch artifacts matching index-metadata.json",
+            path.display()
+        ));
     }
     let mut hasher = Sha256::new();
     let mut buffer = [0u8; 65536];
     loop {
-        let count = file
-            .read(&mut buffer)
-            .map_err(|_| "Cannot read manifest file")?;
+        let count = file.read(&mut buffer).map_err(|cause| {
+            format!(
+                "Cannot read manifest file {}: {cause}; check permissions and storage health",
+                path.display()
+            )
+        })?;
         if count == 0 {
             break;
         }
@@ -774,13 +855,102 @@ fn verify_hash(path: &Path, expected: &str, bytes: Option<u64>) -> Result<String
     if format!("{:x}", hasher.finalize()).eq_ignore_ascii_case(expected) {
         Ok("Manifest SHA-256 verified".into())
     } else {
-        Err("Manifest SHA-256 mismatch".into())
+        Err(format!(
+            "Manifest SHA-256 mismatch at {}; fetch matching artifacts; do not mix snapshots",
+            path.display()
+        ))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn missing_manifest_file_reports_path_cause_and_repair() {
+        let error = verify_hash(Path::new("/nonexistent/qa-artifact"), "", None).unwrap_err();
+        for expected in ["qa-artifact", "No such file", "permissions"] {
+            assert!(error.contains(expected), "{error}");
+        }
+    }
+
+    #[test]
+    fn m5c_absent_hosts_without_opt_out_do_not_fail() {
+        assert!(!crate::runtime_config::RuntimeConfig::default().mcp_registration_opt_out);
+        let mut report = Report::default();
+        record_registration(
+            &mut report,
+            Instant::now(),
+            &crate::mcp_registration::RegistrationReport::default(),
+        );
+        assert_eq!(report.summary()["fail"], 0);
+        assert_eq!(report.summary()["warn"], 1);
+    }
+
+    #[test]
+    fn m5c_probe_error_has_cause_and_recovery() {
+        let error = command_text(Path::new("/nonexistent/m5c-probe"), &[]).unwrap_err();
+        assert!(error.contains("m5c-probe"));
+        assert!(error.contains("install"));
+        assert!(error.contains("permissions"));
+    }
+
+    #[test]
+    fn m5c_summary_measures_wall_time_between_checks() {
+        let report = Report::default();
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        assert!(report.summary()["elapsed_ms"].as_f64().unwrap() >= 20.0);
+    }
+
+    #[test]
+    fn m5c_missing_shared_ranker_names_required_publication() {
+        let metadata = crate::metadata::decode(include_bytes!(
+            "../tests/fixtures/shared-index-metadata.json"
+        ))
+        .unwrap();
+        let error = artifact_load_error("meta_ranker", Some(&metadata));
+        assert!(error.contains("ce_meta_ranker.lgb.txt"));
+        assert!(error.contains("owner"));
+        assert!(error.contains("SHA-256"));
+        assert!(error.contains("index-metadata.json"));
+    }
+
+    #[test]
+    fn m5c_pass_checks_omit_fix_in_json() {
+        let mut report = Report::default();
+        report.record("healthy", Instant::now(), Ok("ready".into()), "irrelevant");
+        let value = serde_json::to_value(&report.checks[0]).unwrap();
+        assert!(value.get("fix").is_none());
+        report.warning("warning", Instant::now(), "attention".into(), "repair");
+        let value = serde_json::to_value(&report.checks[1]).unwrap();
+        assert_eq!(value["fix"], "repair");
+        assert_eq!(report.summary()["pass"], 1);
+        assert_eq!(report.summary()["warn"], 1);
+        assert!(report.summary()["elapsed_ms"].as_f64().unwrap() >= 0.0);
+    }
+
+    #[test]
+    fn m5c_reranker_manifest_defaults_and_hint_do_not_diverge() {
+        let serving = crate::runtime_config::reranker_serving_defaults();
+        let defaults = crate::runtime_config::DaemonConfig::default();
+        assert_eq!(
+            (serving.ctx, serving.batch, serving.ubatch),
+            (16384, 4096, 4096)
+        );
+        assert_eq!(
+            (defaults.reranker_ctx, defaults.batch, defaults.ubatch),
+            (serving.ctx, serving.batch, serving.ubatch)
+        );
+        let hint = reranker_fix();
+        for (flag, value) in [
+            ("ctx-size", serving.ctx),
+            ("batch-size", serving.batch),
+            ("ubatch-size", serving.ubatch),
+        ] {
+            assert!(hint.contains(&format!("--{flag} {value}")));
+        }
+        assert!(!hint.contains("--parallel"));
+    }
 
     #[test]
     fn integrity_checks_reject_corruption_wrong_size_and_missing_files() {

@@ -325,6 +325,73 @@ pub struct DownloadProgress {
     pub downloaded: u64,
     pub total: u64,
 }
+pub struct ProgressWriter<W: Write> {
+    writer: W,
+    tty: bool,
+    label: String,
+    started: std::time::Instant,
+    last_percent: Option<u64>,
+    initial: u64,
+}
+impl<W: Write> ProgressWriter<W> {
+    pub fn new(writer: W, tty: bool, label: &str) -> Self {
+        Self {
+            writer,
+            tty,
+            label: label.into(),
+            started: std::time::Instant::now(),
+            last_percent: None,
+            initial: 0,
+        }
+    }
+    pub fn update(&mut self, progress: DownloadProgress) -> std::io::Result<()> {
+        let percent = if progress.total == 0 {
+            100
+        } else {
+            (progress.downloaded as u128 * 100 / progress.total as u128).min(100) as u64
+        };
+        if self.last_percent.is_none() {
+            self.initial = progress.downloaded;
+        }
+        if !self.tty
+            && self
+                .last_percent
+                .is_some_and(|last| percent < 100 && percent / 5 <= last / 5)
+        {
+            return Ok(());
+        }
+        if self.last_percent == Some(100) {
+            return Ok(());
+        }
+        let seconds = self.started.elapsed().as_secs_f64().max(0.001);
+        let speed = progress.downloaded.saturating_sub(self.initial) as f64 / seconds;
+        let eta = if speed > 0.0 {
+            format!(
+                "{:.0}s",
+                progress.total.saturating_sub(progress.downloaded) as f64 / speed
+            )
+        } else {
+            "--".into()
+        };
+        write!(
+            self.writer,
+            "{}{} {percent}% {:.1}/{:.1} MB {:.1} MB/s ETA {eta}{}",
+            if self.tty { "\r\x1b[2K" } else { "" },
+            self.label,
+            progress.downloaded as f64 / 1_000_000.0,
+            progress.total as f64 / 1_000_000.0,
+            speed / 1_000_000.0,
+            if !self.tty || percent == 100 {
+                "\n"
+            } else {
+                ""
+            }
+        )?;
+        self.writer.flush()?;
+        self.last_percent = Some(percent);
+        Ok(())
+    }
+}
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ModelCreationReceipt {
     pub path: PathBuf,
@@ -560,6 +627,28 @@ impl Drop for DownloadLock {
 mod tests {
     use super::*;
     use std::net::TcpListener;
+    #[test]
+    fn m5c_progress_injected_writer_tty_and_non_tty() {
+        for tty in [false, true] {
+            let mut bytes = Vec::new();
+            {
+                let mut writer = ProgressWriter::new(&mut bytes, tty, "model");
+                for downloaded in 0..=100 {
+                    writer
+                        .update(DownloadProgress {
+                            downloaded,
+                            total: 100,
+                        })
+                        .unwrap();
+                }
+            }
+            let text = String::from_utf8(bytes).unwrap();
+            assert!(text.contains("100%"));
+            assert!(text.contains("MB/s ETA"));
+            assert_eq!(text.matches('\n').count(), if tty { 1 } else { 21 });
+            assert_eq!(text.contains('\r'), tty);
+        }
+    }
     #[tokio::test]
     async fn ownership_receipts_are_recorded_under_lock() {
         let temp = tempfile::tempdir().unwrap();

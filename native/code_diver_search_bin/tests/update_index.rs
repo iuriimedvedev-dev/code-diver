@@ -26,11 +26,18 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use update_index::{UpdateOptions, update, update_with_options, update_with_recorder};
 
 const TOKEN: &str = "synthetic-artifact-secret";
+const RANKER: &[u8] = b"synthetic ranker artifact; updater verifies bytes, not model syntax";
 
 fn fixture(data: &[u8]) -> Value {
     let mut metadata: Value =
         serde_json::from_slice(include_bytes!("fixtures/shared-index-metadata.json")).unwrap();
     metadata["files"] = json!({"context/catalog.jsonl": {"sha256": format!("{:x}", Sha256::digest(data)), "bytes": data.len()}});
+    let ranker = metadata["meta_ranker"]["file"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    metadata["files"][&ranker] =
+        json!({"sha256": format!("{:x}", Sha256::digest(RANKER)), "bytes": RANKER.len()});
     metadata
 }
 
@@ -82,31 +89,45 @@ async fn server(replies: Vec<Reply>) -> (String, tokio::task::JoinHandle<()>) {
     let url = format!("http://{}/base", listener.local_addr().unwrap());
     let task = tokio::spawn(async move {
         for reply in replies {
-            let (mut stream, _) =
-                tokio::time::timeout(std::time::Duration::from_secs(5), listener.accept())
-                    .await
-                    .unwrap()
-                    .unwrap();
-            let mut request = Vec::new();
-            while !request.ends_with(b"\r\n\r\n") {
-                request.push(stream.read_u8().await.unwrap());
+            loop {
+                let (mut stream, _) =
+                    tokio::time::timeout(std::time::Duration::from_secs(5), listener.accept())
+                        .await
+                        .unwrap()
+                        .unwrap();
+                let mut request = Vec::new();
+                while !request.ends_with(b"\r\n\r\n") {
+                    request.push(stream.read_u8().await.unwrap());
+                }
+                let request = String::from_utf8(request).unwrap();
+                if request.starts_with(
+                    "GET /base/test/artifacts/ce_meta_ranker/ce_meta_ranker.lgb.txt HTTP/1.1",
+                ) {
+                    assert!(request.contains(&format!("Bearer {TOKEN}")));
+                    stream
+                        .write_all(&self::reply("", RANKER).response)
+                        .await
+                        .unwrap();
+                    stream.shutdown().await.unwrap();
+                    continue;
+                }
+                assert!(
+                    request.starts_with(&format!("GET {} HTTP/1.1", reply.path)),
+                    "unexpected request path"
+                );
+                if reply.path == "/manifest" {
+                    assert!(!request.to_lowercase().contains("authorization:"));
+                    assert!(!request.contains(TOKEN));
+                } else {
+                    assert!(request.contains(&format!("Bearer {TOKEN}")));
+                }
+                if let Some(range) = reply.range {
+                    assert!(request.to_lowercase().contains(range));
+                }
+                stream.write_all(&reply.response).await.unwrap();
+                stream.shutdown().await.unwrap();
+                break;
             }
-            let request = String::from_utf8(request).unwrap();
-            assert!(
-                request.starts_with(&format!("GET {} HTTP/1.1", reply.path)),
-                "unexpected request path"
-            );
-            if reply.path == "/manifest" {
-                assert!(!request.to_lowercase().contains("authorization:"));
-                assert!(!request.contains(TOKEN));
-            } else {
-                assert!(request.contains(&format!("Bearer {TOKEN}")));
-            }
-            if let Some(range) = reply.range {
-                assert!(request.to_lowercase().contains(range));
-            }
-            stream.write_all(&reply.response).await.unwrap();
-            stream.shutdown().await.unwrap();
         }
     });
     (url, task)
@@ -389,6 +410,7 @@ async fn updater_multiple_files_empty_artifact_staging_recovery_and_lock() {
             .to_string()
             .contains("already active")
     );
+    lock.unlock().unwrap();
     drop(lock);
     let outcome = update(&config, &paths).await.unwrap();
     assert_eq!(outcome.resumed_bytes, 3);

@@ -20,7 +20,8 @@
       "file": "Qwen3-Reranker-0.6B-Q4_K_M.gguf",
       "url": "https://huggingface.co/Voodisss/Qwen3-Reranker-0.6B-GGUF-llama_cpp/resolve/main/Qwen3-Reranker-0.6B-Q4_K_M.gguf",
       "sha256": "c04f5f5657c52e04538c455e8c62817db3d3b795b39e9f547f8581510445f075",
-      "size": 396476288
+      "size": 396476288,
+      "serving": { "ctx": 16384, "batch": 4096, "ubatch": 4096 }
     }
   }
 }
