@@ -126,6 +126,119 @@ fn binary() -> Command {
 }
 
 #[test]
+fn m2c_comparator_suffixes_prefixes_and_strict_lane_isolation() {
+    let dir = tempfile::tempdir().unwrap();
+    let reference = dir.path().join("reference.jsonl");
+    let built = dir.path().join("built.jsonl");
+    let mut items = Vec::new();
+    for (suffix, lane) in [
+        ("java", "jvm"),
+        ("KT", "jvm"),
+        ("kts", "jvm"),
+        ("c", "cpp"),
+        ("CC", "cpp"),
+        ("cpp", "cpp"),
+        ("cxx", "cpp"),
+        ("h", "cpp"),
+        ("hh", "cpp"),
+        ("hpp", "cpp"),
+        ("hxx", "cpp"),
+        ("c++", "cpp"),
+        ("H++", "cpp"),
+        ("scala", "generic"),
+        ("SCALA", "generic"),
+        ("cs", "generic"),
+        ("cpp.txt", "generic"),
+    ] {
+        for kind in ["file_summary", "file_manifest"] {
+            let path = format!("scope/worker.{suffix}");
+            items.push(serde_json::json!({
+                "id": format!("{path}::{kind}"), "path": path, "name": lane,
+                "kind": kind, "content": "purpose: synthetic", "symbols": [],
+                "tokenized_name": [], "tokenized_path": [], "tokenized_dir": [],
+                "tokenized_content": []
+            }));
+        }
+    }
+    let mut outside = items[0].clone();
+    outside["id"] = serde_json::json!("outside");
+    outside["path"] = serde_json::json!("other/worker.java");
+    items.push(outside);
+    let write = |path: &std::path::Path, values: &[serde_json::Value]| {
+        std::fs::write(
+            path,
+            values.iter().map(|v| format!("{v}\n")).collect::<String>(),
+        )
+        .unwrap();
+    };
+    write(&reference, &items);
+    write(&built, &items);
+    for (lane, count) in [("jvm", 6), ("cpp", 20), ("generic", 8), ("all", 34)] {
+        let result = binary()
+            .args(["catalog-compare", "--reference"])
+            .arg(&reference)
+            .arg("--built")
+            .arg(&built)
+            .args(["--lane", lane, "--path-prefix", "scope/"])
+            .output()
+            .unwrap();
+        assert!(
+            result.status.success(),
+            "{lane}: {}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        let output = String::from_utf8_lossy(&result.stdout);
+        for label in [
+            "reference items      :",
+            "built items          :",
+            "content equal        :",
+            "tokenized_* all equal:",
+        ] {
+            assert!(
+                output.contains(&format!("{label} {count}")),
+                "{lane}: {output}"
+            );
+        }
+    }
+    for affected in ["jvm", "cpp", "generic"] {
+        for mutation in ["content", "tokens", "missing", "extra"] {
+            let mut changed = items.clone();
+            let index = changed.iter().position(|v| v["name"] == affected).unwrap();
+            match mutation {
+                "content" => changed[index]["content"] = serde_json::json!("purpose: changed"),
+                "tokens" => changed[index]["tokenized_content"] = serde_json::json!(["changed"]),
+                "missing" => {
+                    changed.remove(index);
+                }
+                "extra" => {
+                    let mut extra = changed[index].clone();
+                    extra["id"] = serde_json::json!("extra");
+                    changed.push(extra);
+                }
+                _ => unreachable!(),
+            }
+            write(&built, &changed);
+            for lane in ["jvm", "cpp", "generic", "all"] {
+                let result = binary()
+                    .args(["catalog-compare", "--reference"])
+                    .arg(&reference)
+                    .arg("--built")
+                    .arg(&built)
+                    .args(["--lane", lane, "--path-prefix", "scope/"])
+                    .output()
+                    .unwrap();
+                assert_eq!(
+                    result.status.success(),
+                    lane != affected && lane != "all",
+                    "{mutation} in {affected}, compared {lane}: {}",
+                    String::from_utf8_lossy(&result.stderr)
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn m2b_python_rust_content_counts_and_isolated_mismatches() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("root");

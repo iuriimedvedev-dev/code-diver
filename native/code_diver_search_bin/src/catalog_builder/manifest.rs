@@ -46,11 +46,35 @@ pub fn build_file_manifest(
     symbol_surface: bool,
 ) -> String {
     if symbol_surface {
+        if super::symbols::is_jvm(rel_path) {
+            let declaration = super::symbols::jvm::primary_declaration(text);
+            let mut sections = Vec::new();
+            if let Some(d) = &declaration {
+                let supers = super::symbols::jvm::supertypes(&d.tail);
+                let mut row = format!("declaration: {} {}", d.kind, d.name);
+                if !supers.is_empty() {
+                    row += &format!(" : {}", supers.join(", "));
+                }
+                sections.push(row);
+                if let Some(doc) = super::symbols::jvm::preceding_doc_sentence(text, d.line) {
+                    sections.push(format!(
+                        "doc: {}",
+                        pytext::rstrip(pytext::prefix(&doc, 220))
+                    ));
+                }
+            }
+            sections.push(surface_section(
+                symbols,
+                declaration.as_ref().map(|d| d.name.as_str()),
+            ));
+            sections.push(format!("filename: {}", pytext::file_name(rel_path)));
+            return sections.join("\n");
+        }
         return format!(
             "filename: {}\n{}\n{}",
             pytext::file_name(rel_path),
             config_section(rel_path, text),
-            surface_section(symbols)
+            surface_section(symbols, None)
         );
     }
     let sections = [
@@ -136,7 +160,7 @@ fn symbols_section(symbols: &[Symbol]) -> String {
     format!("symbols:\n{}", rows.join("\n"))
 }
 
-fn surface_section(symbols: &[Symbol]) -> String {
+fn surface_section(symbols: &[Symbol], declared_name: Option<&str>) -> String {
     let trivial = [
         "tostring",
         "equals",
@@ -154,6 +178,7 @@ fn surface_section(symbols: &[Symbol]) -> String {
         .take(MAX_SYMBOLS)
         .filter(|s| {
             !trivial.contains(&s.name.to_lowercase().as_str())
+                && Some(s.name.as_str()) != declared_name
                 && !s.name.starts_with('_')
                 && !s.signature.split_whitespace().any(|w| w == "private")
         })
@@ -224,6 +249,28 @@ fn config_section(rel_path: &str, text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn jvm_surface_matches_declaration_doc_api_order_and_fallback() {
+        let text = "/** Runs work. More detail. */\nclass Worker : Base {\nfun runTask() {}";
+        let symbols = super::super::symbols::extract("Worker.kt", text);
+        assert_eq!(
+            build_file_manifest("Worker.kt", text, &symbols, true),
+            "declaration: class Worker : Base\ndoc: Runs work.\napi:\n- fun runTask() {}\nfilename: Worker.kt"
+        );
+        assert_eq!(
+            build_file_manifest("Empty.java", "", &[], true),
+            "api: none\nfilename: Empty.java"
+        );
+        assert!(
+            build_file_manifest("Worker.scala", text, &symbols, true)
+                .starts_with("filename: Worker.scala\nconfig_keys: none\napi:")
+        );
+        assert!(
+            build_file_manifest("Worker.kt", text, &symbols, false)
+                .starts_with("file: Worker.kt\nfilename: Worker.kt\nextension: .kt")
+        );
+    }
 
     #[test]
     fn package_search_and_import_dedup_precede_caps() {

@@ -1,7 +1,4 @@
 //! `FileSummaryItemBuilder` (src/code_diver/services/file_summary_item_builder.py).
-//! JVM-specific purpose/terms
-//! (declaration role, KDoc sentence, supertypes) are not ported: they only apply to
-//! .java/.kt/.kts.
 
 use std::sync::LazyLock;
 
@@ -76,8 +73,6 @@ static IMPORT_RE: LazyLock<Regex> = LazyLock::new(|| {
 });
 static FILE_ANNOTATION_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^\s*@file:\s*").unwrap());
-static PACKAGE_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^\s*package\s+([\w.]+)").unwrap());
 
 /// Python `re.split(r"(?<=[a-z0-9])(?=[A-Z])|[^A-Za-z0-9]+", s)` without empty pieces.
 pub fn identifier_split(s: &str) -> Vec<String> {
@@ -134,7 +129,8 @@ pub fn build_file_summary(
     cfg: &SummaryConfig,
 ) -> String {
     let mut sections = [
-        purpose_section(rel_path, cfg),
+        super::symbols::jvm::purpose_section(rel_path, text, cfg)
+            .unwrap_or_else(|| purpose_section(rel_path, cfg)),
         terms_section(rel_path, text, symbols, cfg),
         format!("file: {}", file_line_value(rel_path, cfg)),
         format!("extension: {}", suffix_lower(rel_path)),
@@ -192,33 +188,9 @@ fn cap_purpose(line: &str, cfg: &SummaryConfig) -> String {
     content + TRUNCATION_MARKER
 }
 
-fn first_line_package(text: &str) -> Option<String> {
-    // `next((PACKAGE_RE.match(l) for l in lines), None)`: only the FIRST line is tested.
-    let first = splitlines(text).into_iter().next()?;
-    PACKAGE_RE.captures(first).map(|c| c[1].to_string())
-}
-
 fn terms_section(rel_path: &str, text: &str, symbols: &[Symbol], cfg: &SummaryConfig) -> String {
     let extension = suffix_lower(rel_path).trim_start_matches('.').to_string();
-    let mut values: Vec<String> = vec![pytext::stem(rel_path).to_string()];
-    if !cfg.compact_budget {
-        values.extend(pytext::parts(rel_path).into_iter().map(String::from));
-    }
-    for s in symbols.iter().take(MAX_SYMBOLS) {
-        values.push(s.name.clone());
-        values.push(s.signature.clone());
-    }
-    if cfg.compact_budget {
-        if let Some(pkg) = first_line_package(text) {
-            values.push(pkg.rsplit('.').next().unwrap_or("").to_string());
-        }
-        if !cfg.term_stopwords.unwrap_or(cfg.compact_budget) {
-            values.extend(pytext::parts(rel_path).into_iter().map(String::from));
-            if let Some(pkg) = first_line_package(text) {
-                values.push(pkg);
-            }
-        }
-    }
+    let values = super::symbols::jvm::term_values(rel_path, text, symbols, cfg);
     let mut terms: Vec<String> = Vec::new();
     let mut seen = std::collections::HashSet::new();
     for value in &values {
@@ -372,6 +344,26 @@ fn imports_section(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn integrated_jvm_purpose_terms_and_generic_fallback() {
+        let cfg = SummaryConfig {
+            compact_budget: true,
+            ..Default::default()
+        };
+        let text = "package com.work\nclass WorkerServiceImpl : Base {}";
+        let symbols = super::super::symbols::extract("src/X.kt", text);
+        let output = build_file_summary("src/X.kt", text, &symbols, &cfg);
+        assert!(output.starts_with("purpose: service implementation WorkerServiceImpl for Base in work\nterms: worker service implementation base work\n"), "{output}");
+        assert!(
+            build_file_summary("src/Empty.java", "", &[], &cfg)
+                .starts_with("purpose: empty\nterms: empty\n")
+        );
+        assert!(
+            build_file_summary("src/X.scala", text, &symbols, &cfg)
+                .starts_with("purpose: none\nterms: worker service base work\n")
+        );
+    }
 
     #[test]
     fn package_terms_only_inspect_first_line() {

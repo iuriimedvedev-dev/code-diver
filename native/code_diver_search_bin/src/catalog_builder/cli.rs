@@ -33,6 +33,8 @@ pub enum Lane {
     TsJs,
     Python,
     Rust,
+    Jvm,
+    Cpp,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -168,7 +170,7 @@ pub fn run_index(args: IndexArgs) -> Result<(), String> {
     }
     writer.flush().map_err(|e| e.to_string())?;
     eprintln!(
-        "wrote {} items; dedicated-language files: {dedicated} (Go/TS-JS/Python/Rust strategies enabled; other lanes use generic fallback)",
+        "wrote {} items; dedicated-language files: {dedicated} (Go/TS-JS/Python/Rust/JVM/C++ strategies enabled; other lanes use generic fallback)",
         items.len()
     );
     Ok(())
@@ -190,6 +192,8 @@ pub fn run_compare(args: CompareArgs) -> Result<(), String> {
                 Lane::TsJs => symbols::is_ts_js(path),
                 Lane::Python => [".py", ".pyi"].contains(&symbols::suffix_lower(path).as_str()),
                 Lane::Rust => symbols::suffix_lower(path) == ".rs",
+                Lane::Jvm => symbols::is_jvm(path),
+                Lane::Cpp => symbols::is_cpp(path),
             }
     };
     let report = compare::compare(&reference, &built, &keep, 2);
