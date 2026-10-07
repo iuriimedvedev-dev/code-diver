@@ -1,0 +1,8 @@
+3	class	WorkerServiceImpl	public class WorkerServiceImpl extends Base implements API {
+4	method	WorkerServiceImpl	public WorkerServiceImpl() {}
+5	method	run	protected <T> T run(T value) { return value; }
+6	method	reset	private void reset() {}
+8	annotation	Marker	public @interface Marker {}
+9	class	Child	non-sealed class Child {}
+10	record	Row	record Row(int value) {}
+11	enum	Mode	enum Mode { ON }
