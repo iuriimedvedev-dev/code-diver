@@ -4,7 +4,7 @@
 //! Ported here: the markdown-header extractor and the generic regex fallback, which together
 //! cover every extension that has no dedicated Python strategy (md, yaml, tf, html, css, sh,
 //! json, txt, ...). Dedicated strategies (py/pyi via `ast`, go, ts/js, java/kt/kts, rs, c/cpp)
-//! are NOT ported yet; `has_dedicated_strategy` tells callers which paths those are.
+//! are routed in the parent module; `has_dedicated_strategy` describes the Python registry.
 
 use std::sync::LazyLock;
 
@@ -39,8 +39,7 @@ pub fn suffix_lower(rel_path: &str) -> String {
     pytext::suffix(rel_path).to_lowercase()
 }
 
-/// True when the Python indexer routes this path to a language-specific strategy that is not
-/// ported yet (so catalog content for it is only approximated by the generic fallback).
+/// True when the Python indexer routes this path to a language-specific strategy.
 pub fn has_dedicated_strategy(rel_path: &str) -> bool {
     DEDICATED_EXTS.contains(&suffix_lower(rel_path).as_str())
 }

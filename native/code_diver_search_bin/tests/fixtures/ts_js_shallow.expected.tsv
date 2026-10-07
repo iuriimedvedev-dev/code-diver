@@ -1,0 +1,15 @@
+2	class	Zoo	export default abstract class Zoo<T> {}
+3	interface	Shape	export interface Shape { size: number }
+4	type	Alias	export type Alias<T> = T | null;
+5	function	arrow	export const arrow = async (x) => x;
+6	function	expression	const expression = function named() {};
+7	function	generator	export default async function* generator<T>(x: T) {}
+8	symbol	value	export let value = 1, ignored = 2;
+10	symbol	typedReturn	export const typedReturn = (x): number => x;
+11	symbol	genericArrow	export const genericArrow = <T>(x: T) => x;
+12	symbol	nestedParams	export const nestedParams = (x = call()) => x;
+14	class	CommentLeak	class CommentLeak {}
+17	function	Nested	function Nested() {} // signature retains trailing comment
+18	function	$cash$	export const $cash$ = x => x;
+19	class	Aé²漢	class Aé²漢 {}
+22	class	Z	class Z {} class SecondIgnored {}
