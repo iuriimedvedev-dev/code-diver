@@ -1,0 +1,29 @@
+# Addendum: local runtime and one-command setup (milestone M5b)
+
+Goal: a colleague installs ONE file and runs ONE command; everything else (models, helper processes, index access, MCP registration, health) is automated by the same `code-diver` binary. This replaces the Python `pier-sidecar` daemon and the bash launcher scripts of `tools/pier-local/`. The tool is a black box for users: documentation shows commands and PASS/FAIL results, never internals.
+
+## New subcommands
+
+| Command | Behaviour |
+|---|---|
+| `code-diver setup` | Idempotent, interactive only when it must ask. Steps: (1) check the platform; (2) make sure `llama-server` (llama.cpp) is available: use it from PATH if the build is new enough, else install it (`brew install llama.cpp` on macOS with confirmation, print the exact command on Linux) or accept `--llama-server <path>`; (3) download the two model files from Hugging Face over HTTPS into `~/.cache/code-diver/models/` with sha256 verification against an embedded manifest (resume support, progress on stderr, optional `HF_TOKEN`, no download if present and valid); (4) write `~/.config/code-diver/config.toml` with sane defaults for the shared index (URL placeholders filled from an optional `--profile <url or file>` that carries the team's endpoint, collection name, artifact URL and model manifest; the read-only key is asked for once and stored with mode 0600 or in the OS keychain when available, never in the repo and never echoed); (5) install and start the background service (launchd user agent on macOS, systemd `--user` unit on Linux, no sudo); (6) fetch the shared index artifacts (`update-index`); (7) register the MCP server in the hosts found on the machine (Claude Code via `claude mcp add`, opencode `opencode.jsonc`, Codex/Gemini config if present; additive entries only, with a backup of the file and a printed diff; `--no-register` skips); (8) run `doctor` and print the result. Re-running `setup` repairs what is missing and changes nothing else. `--uninstall` removes the service, config and MCP entries it created (models and cache only with `--purge`).
+| `code-diver daemon` | The local runtime in Rust (replaces pier-sidecar): one process on 127.0.0.1 (default 8090) exposing OpenAI-compatible `POST /v1/embeddings`, `POST /v1/rerank`, `GET /v1/models`, `GET /health`; supervises two `llama-server` children (embedder with `--embedding --pooling last`, reranker with `--embedding --reranking --pooling rank` and ubatch large enough for the longest query+document pair we send, plus `--ctx-size 4096` and NO explicit `--parallel`; measured: explicit parallel slots made reranking 30-50% slower); lazy start on first request, stop after an idle timeout (default 10 min), restart on crash, loud errors (503 with a reason, 504 on timeout, never an empty result), `--threads` set explicitly from the CPU limit when running in a container, log files with a hard size cap and rotation, loopback only, JSON-only POST and Host check (no browser-driven requests). `daemon --foreground` for supervisors and Docker. The MCP server and `index` use the daemon URLs from the config by default (so one setting wires everything).
+| `code-diver update-index` | Download the shared catalog, graph and metadata from the team artifact URL (Bearer key), verify sha256 against the metadata, and store them under `~/.local/share/code-diver/<index-name>/` atomically; print what changed; refuse to run if the embedding model in the metadata does not match the local model manifest. |
+| `code-diver doctor` | Extended: checks everything above in one run with PASS/FAIL and a `fix:` line per problem: platform, llama-server build, models present and valid, daemon reachable, embedding dimension and norm, rerank on a short and on a long pair, shared Qdrant reachable with the key, collection exists with the expected vector size, artifacts present and fresh (compare `generated_at` with a staleness threshold), MCP registration present in each detected host, disk and RAM warnings. Exit code non-zero on any FAIL. `doctor --json` for scripts.
+| `code-diver mcp` | Unchanged contract (section 7 of SPEC.md); additionally starts the daemon on demand if it is not running and the config says `autostart = true`.
+
+## Config
+
+TOML, one file, with a `[profile]` block that a team can publish as a URL and nothing else to type: shared Qdrant URL, collection, artifact base URL, model manifest URL, index name. Precedence flag > env > file > default. Secrets only via env var name references or the secret store. A `code-diver config show` command prints the effective config with secrets redacted.
+
+## Distribution
+
+Single static-ish binary per target (macOS arm64/x86_64, Linux x86_64/aarch64) from the release workflow; `curl -fsSL <install-url> | sh` style installer script (checks sha256, installs to `~/.local/bin`, runs `code-diver setup`); no Python, no Node, no Docker required; Docker image optional for CI and Linux servers.
+
+## Acceptance
+
+1. On a clean macOS user account (or a throwaway HOME with a fake llama-server for tests): `setup` completes, `doctor` is green, an MCP `tools/list` through the registered config works, a search against a scratch collection works, `setup --uninstall` leaves nothing behind.
+2. Daemon tests with a fake llama-server: lazy start, idle stop, crash restart, error mapping, concurrency, log cap, loopback/Host checks, `--threads` pass-through. Real-model smoke (ports other than the user's running services): measured RSS and latencies recorded in STATUS.md.
+3. `update-index` tests: checksum mismatch rejected, interrupted download resumes, atomic swap, model mismatch refused.
+4. No secret in any log, config dump, process argument list (pass keys via env or file descriptors, not argv) or error text.
+5. Documentation for colleagues is at most one page: install command, `setup`, `doctor`, what to do when something fails. No internals.
