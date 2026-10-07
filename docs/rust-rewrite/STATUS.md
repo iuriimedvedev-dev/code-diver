@@ -503,3 +503,9 @@ Final QA repeat: rerun the Cargo commands above, then fresh owned scratch index
 initial/unchanged/edit/delete/prune/search and the existing TLS smoke using shared
 search `--config`. Confirm changed model/prefix fail migration before writes and
 all scratch collections are cleaned to 404. Never apply/prune existing Pier.
+## Acceptance update — 2026-10-07 (owner)
+
+Fresh Python-built references (scripts/dump_rust_catalog.py, run once as the golden producer, outputs kept outside the repository):
+- IntelliJ (`configs/intellij/intellij-h66b-budget.yml`, intellij-community at c6143439a2a4): 135404 items; the Rust builder gives JVM lane 129138/129138 equal in content, tokens and first-500 embed text (100%), generic lane 6266/6266 (100%); C/C++ lane has 0 items in this config. The earlier 93% was a stale reference (built from an old snapshot by rust_bench_prepare.py).
+- Pier vs the Python-built collection code_diver_pier_gguf (same commit as the golden catalog): `index` dry run reports added=82 (hidden .github files, decided by SPEC 5.1), changed=0, deleted=32556 (vendor points that the catalog excludes by design): every one of the 16450 reference items matches in content.
+- Build of the IntelliJ catalog: 193 s in a debug build, 2.84 GB peak RSS (streaming output is still to do).
