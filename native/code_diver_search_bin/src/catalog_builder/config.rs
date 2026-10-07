@@ -8,6 +8,8 @@ pub fn parse(raw: &str, is_toml: bool) -> Result<Value, String> {
     }
     let mut scanner = Map::new();
     let mut active = false;
+    let mut scanner_seen = false;
+    let mut field_indent = None;
     let mut list_key: Option<String> = None;
     for (index, line) in raw.lines().enumerate() {
         let error = || {
@@ -21,6 +23,15 @@ pub fn parse(raw: &str, is_toml: bool) -> Result<Value, String> {
             continue;
         }
         if !line.starts_with(' ') && !line.starts_with('\t') {
+            if line
+                .split_once(':')
+                .is_some_and(|(key, _)| key.trim() == "scanner")
+            {
+                if scanner_seen || line.trim() != "scanner:" {
+                    return Err(error());
+                }
+                scanner_seen = true;
+            }
             active = line.trim() == "scanner:";
             list_key = None;
             continue;
@@ -32,7 +43,11 @@ pub fn parse(raw: &str, is_toml: bool) -> Result<Value, String> {
             return Err(error());
         }
         let stripped = line.trim();
+        let indent = line.len() - line.trim_start().len();
         if let Some(item) = stripped.strip_prefix("- ") {
+            if field_indent.is_none_or(|base| indent < base) {
+                return Err(error());
+            }
             let key = list_key.as_ref().ok_or_else(error)?;
             let array = scanner
                 .get_mut(key)
@@ -40,6 +55,9 @@ pub fn parse(raw: &str, is_toml: bool) -> Result<Value, String> {
                 .ok_or_else(error)?;
             array.push(scalar(item).map_err(|_| error())?);
             continue;
+        }
+        if *field_indent.get_or_insert(indent) != indent {
+            return Err(error());
         }
         let (key, value) = stripped.split_once(':').ok_or_else(error)?;
         if key.is_empty() || key.contains([' ', '&', '*', '!']) || scanner.contains_key(key) {
@@ -162,5 +180,12 @@ mod tests {
     fn rejects_anchors_and_duplicate_keys_without_echoing_values() {
         assert!(parse("scanner:\n  include: &secret [a]\n", false).is_err());
         assert!(parse("scanner:\n  include: []\n  include: []\n", false).is_err());
+        for raw in [
+            "scanner: {max_file_bytes: 2}",
+            "scanner:\nscanner:\n",
+            "scanner:\n  include: []\n    max_file_bytes: 2\n",
+        ] {
+            assert!(parse(raw, false).is_err());
+        }
     }
 }

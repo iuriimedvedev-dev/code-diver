@@ -103,7 +103,12 @@ pub fn load_config(path: &Path) -> Result<BuildConfig, String> {
             "file_manifest_symbol_surface" => config.manifest_symbol_surface = boolean()?,
             "file_summary_chunks" => config.file_summary = boolean()?,
             "file_manifest_chunks" => config.file_manifest = boolean()?,
-            "symbol_body" | "chunk_lines" => {}
+            "symbol_body" => {
+                boolean()?;
+            }
+            "chunk_lines" => {
+                number()?;
+            }
             "line_chunks"
             | "structural_chunks"
             | "symbol_chunks"
@@ -120,7 +125,7 @@ pub fn load_config(path: &Path) -> Result<BuildConfig, String> {
                     ));
                 }
             }
-            _ => eprintln!("warning: unknown scanner configuration key (ignored)"),
+            _ => return Err(format!("Unsupported scanner configuration key: {key}")),
         }
     }
     Ok(config)
@@ -189,4 +194,73 @@ pub fn run_compare(args: CompareArgs) -> Result<(), String> {
         return Err("Catalog parity failed; see counts and first differing sections above".into());
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn load(raw: &str) -> Result<BuildConfig, String> {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.yml");
+        fs::write(&path, raw).unwrap();
+        load_config(&path)
+    }
+
+    #[test]
+    fn loads_every_builder_setting() {
+        for compact in [false, true] {
+            let config = load(&format!("scanner:\n  include: ['kb/**']\n  exclude: ['tmp/**']\n  max_file_bytes: 123\n  max_symbols_per_file: 7\n  tokenize_content_chars: 9\n  file_summary_head_line_max_chars: 11\n  file_summary_head_block_max_chars: 13\n  file_summary_compact_budget: {compact}\n  file_summary_compact_path: false\n  file_summary_term_stopwords: true\n  file_manifest_symbol_surface: true\n  file_summary_chunks: false\n  file_manifest_chunks: true\n  symbol_body: false\n  chunk_lines: 20\n")).unwrap();
+            assert_eq!(config.include, ["kb/**"]);
+            assert_eq!(config.exclude, ["tmp/**"]);
+            assert_eq!(config.max_file_bytes, 123);
+            assert_eq!(config.max_symbols_per_file, Some(7));
+            assert_eq!(config.tokenize_content_chars, 9);
+            assert_eq!(config.summary.max_head_line_chars, 11);
+            assert_eq!(config.summary.max_head_block_chars, 13);
+            assert_eq!(config.summary.compact_budget, compact);
+            assert_eq!(config.summary.compact_path, Some(false));
+            assert_eq!(config.summary.term_stopwords, Some(true));
+            assert!(config.manifest_symbol_surface && config.file_manifest);
+            assert!(!config.file_summary);
+        }
+        for limit in ["null", "-1"] {
+            assert_eq!(
+                load(&format!("scanner:\n  max_symbols_per_file: {limit}\n"))
+                    .unwrap()
+                    .max_symbols_per_file,
+                None
+            );
+        }
+        assert_eq!(
+            load("scanner:\n  tokenize_content_chars: 0\n")
+                .unwrap()
+                .tokenize_content_chars,
+            0
+        );
+    }
+
+    #[test]
+    fn rejects_unsupported_and_wrong_typed_settings() {
+        for setting in [
+            "unknown_cap: 4",
+            "symbol_body: yes",
+            "chunk_lines: -1",
+            "include: 4",
+            "max_file_bytes: -1",
+            "tokenize_content_chars: false",
+            "max_symbols_per_file: nope",
+            "file_summary_compact_budget: 1",
+            "file_summary_compact_path: 1",
+            "file_summary_term_stopwords: 1",
+            "file_summary_head_line_max_chars: -1",
+            "file_manifest_symbol_surface: 1",
+            "line_chunks: true",
+        ] {
+            assert!(
+                load(&format!("scanner:\n  {setting}\n")).is_err(),
+                "{setting}"
+            );
+        }
+    }
 }
