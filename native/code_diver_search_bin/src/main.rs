@@ -1,5 +1,6 @@
 mod bm25;
 mod catalog;
+mod catalog_builder;
 mod embedding;
 mod features;
 mod fusion;
@@ -17,8 +18,10 @@ use std::time::Instant;
 
 use clap::Parser;
 
-use crate::pipeline::{dump_features, dump_features_batch, init_search_context, search, SearchTimings};
-use crate::types::{resolve_candidate_limit, resolve_second_pass, SearchConfig};
+use crate::pipeline::{
+    SearchTimings, dump_features, dump_features_batch, init_search_context, search,
+};
+use crate::types::{SearchConfig, resolve_candidate_limit, resolve_second_pass};
 
 #[derive(Parser, Debug)]
 #[command(
@@ -36,6 +39,11 @@ pub struct Cli {
 
 #[derive(clap::Subcommand, Debug, Clone)]
 pub enum Commands {
+    /// Build a catalog without contacting any services
+    Index(catalog_builder::cli::IndexArgs),
+
+    /// Compare catalogs by ID and content
+    CatalogCompare(catalog_builder::cli::CompareArgs),
     /// Pure Rust search pipeline
     Search(SearchArgs),
 
@@ -71,7 +79,11 @@ pub struct DoctorArgs {
     pub qdrant_url: String,
 
     /// Embedding service URL
-    #[arg(short = 'e', long, default_value = "http://localhost:8001/v1/embeddings")]
+    #[arg(
+        short = 'e',
+        long,
+        default_value = "http://localhost:8001/v1/embeddings"
+    )]
     pub embedding_url: String,
 
     /// CE rerank service URL
@@ -124,7 +136,11 @@ pub struct SearchArgs {
     pub model: Option<String>,
 
     /// Embedding service URL
-    #[arg(short = 'e', long, default_value = "http://localhost:8001/v1/embeddings")]
+    #[arg(
+        short = 'e',
+        long,
+        default_value = "http://localhost:8001/v1/embeddings"
+    )]
     pub embedding_url: String,
 
     /// Qdrant service URL
@@ -317,6 +333,8 @@ async fn main() -> Result<(), String> {
     let cli = Cli::parse();
 
     match cli.command {
+        Some(Commands::Index(args)) => catalog_builder::cli::run_index(args),
+        Some(Commands::CatalogCompare(args)) => catalog_builder::cli::run_compare(args),
         Some(Commands::Doctor(args)) => {
             run_doctor(
                 &args.qdrant_url,
@@ -329,24 +347,31 @@ async fn main() -> Result<(), String> {
             .await
         }
         Some(Commands::Info(args)) => {
-            let catalog_path = resolve_path(args.catalog.as_deref(), &[
-                "artifacts/rust_catalog.jsonl",
-                ".code-diver/rust_catalog.jsonl",
-                "/tmp/rust_catalog.jsonl",
-            ]);
-            let graph_path = resolve_path(args.graph.as_deref(), &[
-                "artifacts/rust_graph.jsonl",
-                ".code-diver/rust_graph.jsonl",
-                "/tmp/rust_graph.jsonl",
-            ]);
-            crate::info::run_info(catalog_path.as_deref(), graph_path.as_deref(), &args.qdrant_url).await
+            let catalog_path = resolve_path(
+                args.catalog.as_deref(),
+                &[
+                    "artifacts/rust_catalog.jsonl",
+                    ".code-diver/rust_catalog.jsonl",
+                    "/tmp/rust_catalog.jsonl",
+                ],
+            );
+            let graph_path = resolve_path(
+                args.graph.as_deref(),
+                &[
+                    "artifacts/rust_graph.jsonl",
+                    ".code-diver/rust_graph.jsonl",
+                    "/tmp/rust_graph.jsonl",
+                ],
+            );
+            crate::info::run_info(
+                catalog_path.as_deref(),
+                graph_path.as_deref(),
+                &args.qdrant_url,
+            )
+            .await
         }
-        Some(Commands::Mcp(args)) => {
-            run_mcp(args.search).await
-        }
-        Some(Commands::Search(args)) => {
-            run_search_cli(args).await
-        }
+        Some(Commands::Mcp(args)) => run_mcp(args.search).await,
+        Some(Commands::Search(args)) => run_search_cli(args).await,
         None => {
             if cli.search.doctor {
                 run_doctor(
@@ -368,36 +393,51 @@ async fn main() -> Result<(), String> {
 }
 
 fn build_search_config(args: &SearchArgs) -> Result<(SearchConfig, PathBuf), String> {
-    let catalog_path = resolve_path(args.catalog.as_deref(), &[
-        "artifacts/rust_catalog.jsonl",
-        ".code-diver/rust_catalog.jsonl",
-        "/tmp/rust_catalog.jsonl",
-    ])
-    .ok_or_else(|| "Catalog file not found. Pass --catalog PATH or place at artifacts/rust_catalog.jsonl".to_string())?;
+    let catalog_path = resolve_path(
+        args.catalog.as_deref(),
+        &[
+            "artifacts/rust_catalog.jsonl",
+            ".code-diver/rust_catalog.jsonl",
+            "/tmp/rust_catalog.jsonl",
+        ],
+    )
+    .ok_or_else(|| {
+        "Catalog file not found. Pass --catalog PATH or place at artifacts/rust_catalog.jsonl"
+            .to_string()
+    })?;
 
-    let graph_path = resolve_path(args.graph.as_deref(), &[
-        "artifacts/rust_graph.jsonl",
-        ".code-diver/rust_graph.jsonl",
-        "/tmp/rust_graph.jsonl",
-    ])
-    .ok_or_else(|| "Graph file not found. Pass --graph PATH or place at artifacts/rust_graph.jsonl".to_string())?;
+    let graph_path = resolve_path(
+        args.graph.as_deref(),
+        &[
+            "artifacts/rust_graph.jsonl",
+            ".code-diver/rust_graph.jsonl",
+            "/tmp/rust_graph.jsonl",
+        ],
+    )
+    .ok_or_else(|| {
+        "Graph file not found. Pass --graph PATH or place at artifacts/rust_graph.jsonl".to_string()
+    })?;
 
-    let model_path = resolve_path(args.model.as_deref(), &[
-        "artifacts/ce_meta_ranker/ce_meta_ranker.lgb.txt",
-        ".code-diver/models/ce_meta_ranker.lgb.txt",
-        "models/ce_meta_ranker.lgb.txt",
-    ]);
+    let model_path = resolve_path(
+        args.model.as_deref(),
+        &[
+            "artifacts/ce_meta_ranker/ce_meta_ranker.lgb.txt",
+            ".code-diver/models/ce_meta_ranker.lgb.txt",
+            "models/ce_meta_ranker.lgb.txt",
+        ],
+    );
 
     let meta_ranker_enabled = model_path.is_some();
-    let candidate_limit =
-        resolve_candidate_limit(args.candidate_limit, args.first_pass_cap).map_err(|e| e.to_string())?;
-    let (second_pass_enabled, second_pass_score_floor, second_pass_candidate_cap) = resolve_second_pass(
-        args.preset.as_deref(),
-        args.second_pass_cap,
-        args.second_pass_floor,
-        args.second_pass_disable,
-    )
-    .map_err(|e| e.to_string())?;
+    let candidate_limit = resolve_candidate_limit(args.candidate_limit, args.first_pass_cap)
+        .map_err(|e| e.to_string())?;
+    let (second_pass_enabled, second_pass_score_floor, second_pass_candidate_cap) =
+        resolve_second_pass(
+            args.preset.as_deref(),
+            args.second_pass_cap,
+            args.second_pass_floor,
+            args.second_pass_disable,
+        )
+        .map_err(|e| e.to_string())?;
     if second_pass_enabled && second_pass_candidate_cap > candidate_limit {
         return Err(format!(
             "second-pass cap ({}) must not exceed first-pass window ({})",
@@ -405,7 +445,8 @@ fn build_search_config(args: &SearchArgs) -> Result<(SearchConfig, PathBuf), Str
         ));
     }
 
-    let root_path = args.base_path
+    let root_path = args
+        .base_path
         .as_deref()
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("."));
@@ -480,7 +521,10 @@ async fn run_search_cli(args: SearchArgs) -> Result<(), String> {
     eprintln!("Initializing search context...");
     let init_start = Instant::now();
     let ctx = init_search_context(config).await?;
-    eprintln!("  Initialized in {:.2}s", init_start.elapsed().as_secs_f64());
+    eprintln!(
+        "  Initialized in {:.2}s",
+        init_start.elapsed().as_secs_f64()
+    );
 
     let query = args.resolved_query();
 
@@ -488,7 +532,8 @@ async fn run_search_cli(args: SearchArgs) -> Result<(), String> {
         dump_features_batch(&ctx, &features_file).await?;
     } else if args.dump_features {
         if let Some(q) = query {
-            let expected: Vec<String> = args.expected
+            let expected: Vec<String> = args
+                .expected
                 .unwrap_or_default()
                 .split(',')
                 .filter(|s| !s.is_empty())
@@ -514,10 +559,10 @@ async fn run_search_cli(args: SearchArgs) -> Result<(), String> {
 }
 
 fn resolve_path(cli_arg: Option<&str>, candidates: &[&str]) -> Option<String> {
-    if let Some(arg) = cli_arg {
-        if !arg.is_empty() {
-            return Some(arg.to_string());
-        }
+    if let Some(arg) = cli_arg
+        && !arg.is_empty()
+    {
+        return Some(arg.to_string());
     }
     for candidate in candidates {
         if Path::new(candidate).exists() {
@@ -544,7 +589,11 @@ async fn run_doctor(
 
     // 1. Qdrant
     eprint!("Checking Qdrant ({})... ", qdrant_url);
-    match client.get(format!("{}/collections", qdrant_url.trim_end_matches('/'))).send().await {
+    match client
+        .get(format!("{}/collections", qdrant_url.trim_end_matches('/')))
+        .send()
+        .await
+    {
         Ok(resp) if resp.status().is_success() => eprintln!("OK (status {})", resp.status()),
         Ok(resp) => eprintln!("WARN: HTTP {}", resp.status()),
         Err(e) => eprintln!("FAIL: {}", e),
@@ -560,7 +609,9 @@ async fn run_doctor(
     }
 
     // 3. CE Rerank service
-    let ce_health = ce_url.replace("/v1/rerank", "/health").replace("/rerank", "/health");
+    let ce_health = ce_url
+        .replace("/v1/rerank", "/health")
+        .replace("/rerank", "/health");
     eprint!("Checking CE Rerank Service ({})... ", ce_health);
     match client.get(&ce_health).send().await {
         Ok(resp) if resp.status().is_success() => eprintln!("OK (status {})", resp.status()),
@@ -570,25 +621,34 @@ async fn run_doctor(
 
     // 4. Artifacts check
     eprintln!("\nChecking local artifacts:");
-    let catalog_resolved = resolve_path(catalog, &[
-        "artifacts/rust_catalog.jsonl",
-        ".code-diver/rust_catalog.jsonl",
-        "/tmp/rust_catalog.jsonl",
-    ]);
+    let catalog_resolved = resolve_path(
+        catalog,
+        &[
+            "artifacts/rust_catalog.jsonl",
+            ".code-diver/rust_catalog.jsonl",
+            "/tmp/rust_catalog.jsonl",
+        ],
+    );
     eprintln!("  Catalog: {:?}", catalog_resolved);
 
-    let graph_resolved = resolve_path(graph, &[
-        "artifacts/rust_graph.jsonl",
-        ".code-diver/rust_graph.jsonl",
-        "/tmp/rust_graph.jsonl",
-    ]);
+    let graph_resolved = resolve_path(
+        graph,
+        &[
+            "artifacts/rust_graph.jsonl",
+            ".code-diver/rust_graph.jsonl",
+            "/tmp/rust_graph.jsonl",
+        ],
+    );
     eprintln!("  Graph:   {:?}", graph_resolved);
 
-    let model_resolved = resolve_path(model, &[
-        "artifacts/ce_meta_ranker/ce_meta_ranker.lgb.txt",
-        ".code-diver/models/ce_meta_ranker.lgb.txt",
-        "models/ce_meta_ranker.lgb.txt",
-    ]);
+    let model_resolved = resolve_path(
+        model,
+        &[
+            "artifacts/ce_meta_ranker/ce_meta_ranker.lgb.txt",
+            ".code-diver/models/ce_meta_ranker.lgb.txt",
+            "models/ce_meta_ranker.lgb.txt",
+        ],
+    );
     eprintln!("  Model:   {:?}", model_resolved);
 
     eprintln!("=========================");
@@ -601,15 +661,18 @@ async fn run_index_update(args: &SearchArgs) -> Result<(), String> {
     use crate::catalog::load_catalog;
     use crate::embedding::embed_texts;
     use crate::index_update::{
-        collection_dimensions, delete_points, diff_catalog, embed_text,
-        scroll_indexed, upsert_points,
+        collection_dimensions, delete_points, diff_catalog, embed_text, scroll_indexed,
+        upsert_points,
     };
 
-    let resolved_catalog = resolve_path(args.catalog.as_deref(), &[
-        "artifacts/rust_catalog.jsonl",
-        ".code-diver/rust_catalog.jsonl",
-        "/tmp/rust_catalog.jsonl",
-    ])
+    let resolved_catalog = resolve_path(
+        args.catalog.as_deref(),
+        &[
+            "artifacts/rust_catalog.jsonl",
+            ".code-diver/rust_catalog.jsonl",
+            "/tmp/rust_catalog.jsonl",
+        ],
+    )
     .ok_or_else(|| "--catalog is required or place at artifacts/rust_catalog.jsonl".to_string())?;
 
     let catalog_path = Path::new(&resolved_catalog);
@@ -648,14 +711,21 @@ async fn run_index_update(args: &SearchArgs) -> Result<(), String> {
         collection_dimensions(&http_client, &args.qdrant_url, &args.qdrant_collection).await?;
     eprintln!("  Collection dimensions: {}", dimensions);
 
-    let dirty: Vec<usize> = diff.added.iter().chain(diff.changed.iter()).copied().collect();
+    let dirty: Vec<usize> = diff
+        .added
+        .iter()
+        .chain(diff.changed.iter())
+        .copied()
+        .collect();
     if !dirty.is_empty() {
         let mut upserted = 0;
         for chunk in dirty.chunks(32) {
             let items: Vec<&crate::types::CatalogItem> =
                 chunk.iter().map(|&i| &catalog.items[i]).collect();
-            let texts: Vec<String> =
-                items.iter().map(|it| embed_text(it, args.embed_max_chars)).collect();
+            let texts: Vec<String> = items
+                .iter()
+                .map(|it| embed_text(it, args.embed_max_chars))
+                .collect();
             let vectors = embed_texts(&http_client, &args.embedding_url, &texts).await?;
             if vectors.first().map(|v| v.len()).unwrap_or(0) != dimensions {
                 return Err(format!(
@@ -696,29 +766,37 @@ async fn run_index_update(args: &SearchArgs) -> Result<(), String> {
     Ok(())
 }
 
-async fn run_single(ctx: &pipeline::SearchContext, query: &str, limit: usize) -> Result<(), String> {
+async fn run_single(
+    ctx: &pipeline::SearchContext,
+    query: &str,
+    limit: usize,
+) -> Result<(), String> {
     eprintln!("Searching for: {}", query);
     let start = Instant::now();
     let (results, timings) = search(ctx, query, limit).await?;
     let wall_ms = start.elapsed().as_secs_f64() * 1000.0;
 
-    println!("{}", serde_json::to_string_pretty(&serde_json::json!({
-        "query": query,
-        "results": results,
-        "timings": {
-            "embed_ms": timings.embed_ms,
-            "vector_search_ms": timings.vector_search_ms,
-            "bm25_ms": timings.bm25_ms,
-            "graph_ms": timings.graph_ms,
-            "fusion_ms": timings.fusion_ms,
-            "ce_first_pass_ms": timings.ce_first_pass_ms,
-            "ce_second_pass_ms": timings.ce_second_pass_ms,
-            "feature_extract_ms": timings.feature_extract_ms,
-            "meta_predict_ms": timings.meta_predict_ms,
-            "total_ms": wall_ms,
-        },
-        "num_results": results.len(),
-    })).unwrap_or_default());
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&serde_json::json!({
+            "query": query,
+            "results": results,
+            "timings": {
+                "embed_ms": timings.embed_ms,
+                "vector_search_ms": timings.vector_search_ms,
+                "bm25_ms": timings.bm25_ms,
+                "graph_ms": timings.graph_ms,
+                "fusion_ms": timings.fusion_ms,
+                "ce_first_pass_ms": timings.ce_first_pass_ms,
+                "ce_second_pass_ms": timings.ce_second_pass_ms,
+                "feature_extract_ms": timings.feature_extract_ms,
+                "meta_predict_ms": timings.meta_predict_ms,
+                "total_ms": wall_ms,
+            },
+            "num_results": results.len(),
+        }))
+        .unwrap_or_default()
+    );
 
     eprintln!("  {} results in {:.1}ms", results.len(), wall_ms);
     Ok(())
@@ -730,8 +808,10 @@ async fn run_interactive(ctx: &pipeline::SearchContext, limit: usize) -> Result<
     loop {
         line.clear();
         eprint!("> ");
-        
-        let bytes = std::io::stdin().read_line(&mut line).map_err(|e| e.to_string())?;
+
+        let bytes = std::io::stdin()
+            .read_line(&mut line)
+            .map_err(|e| e.to_string())?;
         if bytes == 0 {
             break;
         }
@@ -750,7 +830,9 @@ async fn run_server(ctx: &pipeline::SearchContext) -> Result<(), String> {
     let mut line = String::new();
     loop {
         line.clear();
-        let bytes = std::io::stdin().read_line(&mut line).map_err(|e| e.to_string())?;
+        let bytes = std::io::stdin()
+            .read_line(&mut line)
+            .map_err(|e| e.to_string())?;
         if bytes == 0 {
             break;
         }
@@ -760,8 +842,8 @@ async fn run_server(ctx: &pipeline::SearchContext) -> Result<(), String> {
         }
 
         // Parse JSON request
-        let req: serde_json::Value = serde_json::from_str(line)
-            .map_err(|e| format!("Invalid JSON: {}", e))?;
+        let req: serde_json::Value =
+            serde_json::from_str(line).map_err(|e| format!("Invalid JSON: {}", e))?;
         let query = req["query"].as_str().ok_or("Missing 'query' field")?;
         let limit = req["limit"].as_u64().unwrap_or(10) as usize;
 
@@ -791,7 +873,8 @@ async fn run_server(ctx: &pipeline::SearchContext) -> Result<(), String> {
 
 async fn run_benchmark(ctx: &pipeline::SearchContext, path: &str, n: usize) -> Result<(), String> {
     eprintln!("Benchmark mode: reading queries from {}", path);
-    let content = std::fs::read_to_string(path).map_err(|e| format!("Cannot read {}: {}", path, e))?;
+    let content =
+        std::fs::read_to_string(path).map_err(|e| format!("Cannot read {}: {}", path, e))?;
 
     let mut queries: Vec<String> = Vec::new();
     for line in content.lines() {
@@ -799,11 +882,11 @@ async fn run_benchmark(ctx: &pipeline::SearchContext, path: &str, n: usize) -> R
             continue;
         }
         // Try to parse as JSON and extract query
-        if let Ok(val) = serde_json::from_str::<serde_json::Value>(line) {
-            if let Some(q) = val["query"].as_str() {
-                queries.push(q.to_string());
-                continue;
-            }
+        if let Ok(val) = serde_json::from_str::<serde_json::Value>(line)
+            && let Some(q) = val["query"].as_str()
+        {
+            queries.push(q.to_string());
+            continue;
         }
         // Fallback: use the whole line as query
         queries.push(line.to_string());
@@ -821,7 +904,13 @@ async fn run_benchmark(ctx: &pipeline::SearchContext, path: &str, n: usize) -> R
             Ok((results, timings)) => {
                 let elapsed = start.elapsed().as_secs_f64() * 1000.0;
                 all_timings.push(timings);
-                eprintln!("  [{}/{}] {:.0}ms, {} results", i + 1, queries.len(), elapsed, results.len());
+                eprintln!(
+                    "  [{}/{}] {:.0}ms, {} results",
+                    i + 1,
+                    queries.len(),
+                    elapsed,
+                    results.len()
+                );
             }
             Err(e) => {
                 eprintln!("  [{}/{}] ERROR: {}", i + 1, queries.len(), e);
@@ -863,7 +952,7 @@ async fn run_benchmark(ctx: &pipeline::SearchContext, path: &str, n: usize) -> R
         });
 
         let summary_json = serde_json::to_string_pretty(&summary).unwrap_or_default();
-        println!("{}", &summary_json);
+        println!("{}", summary_json);
 
         // Save benchmark results to artifacts
         let artifact_dir = "artifacts/research/2026-09-06_rust-benchmark";
@@ -885,7 +974,8 @@ mod cli_tests {
 
     #[test]
     fn test_subcommand_search() {
-        let cli = Cli::try_parse_from(["code-diver-search", "search", "--query", "test_query"]).unwrap();
+        let cli =
+            Cli::try_parse_from(["code-diver-search", "search", "--query", "test_query"]).unwrap();
         match cli.command {
             Some(Commands::Search(args)) => {
                 assert_eq!(args.resolved_query(), Some("test_query".to_string()));
@@ -896,7 +986,13 @@ mod cli_tests {
 
     #[test]
     fn test_subcommand_info() {
-        let cli = Cli::try_parse_from(["code-diver-search", "info", "--qdrant-url", "http://qdrant:6333"]).unwrap();
+        let cli = Cli::try_parse_from([
+            "code-diver-search",
+            "info",
+            "--qdrant-url",
+            "http://qdrant:6333",
+        ])
+        .unwrap();
         match cli.command {
             Some(Commands::Info(args)) => {
                 assert_eq!(args.qdrant_url, "http://qdrant:6333");
@@ -907,7 +1003,13 @@ mod cli_tests {
 
     #[test]
     fn test_subcommand_doctor() {
-        let cli = Cli::try_parse_from(["code-diver-search", "doctor", "--embedding-url", "http://embed:8001"]).unwrap();
+        let cli = Cli::try_parse_from([
+            "code-diver-search",
+            "doctor",
+            "--embedding-url",
+            "http://embed:8001",
+        ])
+        .unwrap();
         match cli.command {
             Some(Commands::Doctor(args)) => {
                 assert_eq!(args.embedding_url, "http://embed:8001");
