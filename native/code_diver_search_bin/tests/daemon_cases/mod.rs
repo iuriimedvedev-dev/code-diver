@@ -2,6 +2,9 @@ use super::*;
 
 mod errors;
 
+#[path = "../helpers/helper_executable.rs"]
+mod helper_executable;
+
 fn fixture() -> (tempfile::TempDir, Arc<Daemon>) {
     use crate::runtime_config::Platform;
     let temp = tempfile::tempdir().unwrap();
@@ -18,7 +21,13 @@ fn fixture() -> (tempfile::TempDir, Arc<Daemon>) {
     config.daemon.log_max_bytes = 24;
     config.daemon.threads = Some(2);
     let binary = temp.path().join("fake-llama");
-    std::fs::write(&binary, include_bytes!("../fixtures/fake_daemon_llama.py")).unwrap();
+    let helper = helper_executable::executable();
+    std::fs::copy(helper, &binary).unwrap_or_else(|error| {
+        panic!(
+            "cannot copy test-only runtime helper: {}: {error}",
+            helper.display()
+        )
+    });
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -282,12 +291,10 @@ async fn exported_run_http_and_idle_shutdown() {
     )
     .unwrap();
     assert_eq!(environment.get("PATH"), std::env::var("PATH").ok().as_ref());
-    // Python coerces the locale; macOS adds its CoreFoundation encoding marker.
+    // macOS may add its CoreFoundation encoding marker.
     assert!(
         environment.keys().all(|key| {
-            key == "PATH"
-                || key == "LC_CTYPE"
-                || (cfg!(target_os = "macos") && key == "__CF_USER_TEXT_ENCODING")
+            key == "PATH" || (cfg!(target_os = "macos") && key == "__CF_USER_TEXT_ENCODING")
         }),
         "unexpected environment keys: {:?}",
         environment.keys().collect::<Vec<_>>()

@@ -14,6 +14,13 @@ use std::time::{Duration, Instant};
 
 const KEY: &str = "acceptance-private-key-never-echo";
 
+#[path = "helpers/pty.rs"]
+mod pty;
+use pty::pty_setup;
+
+#[path = "helpers/helper_executable.rs"]
+mod helper_executable;
+
 fn executable(path: &Path, contents: &str) {
     fs::write(path, contents).unwrap();
     fs::set_permissions(path, fs::Permissions::from_mode(0o700)).unwrap();
@@ -222,10 +229,7 @@ impl Fixture {
         fs::create_dir(&home).unwrap();
         fs::create_dir(&bin).unwrap();
         let gateway = Gateway::new();
-        executable(
-            &bin.join("llama-server"),
-            include_str!("fixtures/acceptance_llama.py"),
-        );
+        fs::copy(helper_executable::executable(), bin.join("llama-server")).unwrap();
         let manager_script = "#!/bin/sh\nprintf '%s\\n' \"$@\" >> \"$CODE_DIVER_HOME/manager-args\"\ncase \"$*\" in\n*is-active*|print*) test -f \"$CODE_DIVER_HOME/ready\";;\n*disable*|bootout*) touch \"$CODE_DIVER_HOME/stop-service\";;\n*enable*|bootstrap*) touch \"$CODE_DIVER_HOME/start-service\"; i=0; while ! test -f \"$CODE_DIVER_HOME/ready\"; do i=$((i+1)); test $i -lt 300 || exit 1; sleep 0.1; done;;\n*) exit 0;;\nesac\n";
         for name in ["launchctl", "systemctl"] {
             executable(&bin.join(name), manager_script);
@@ -233,10 +237,7 @@ impl Fixture {
         for name in ["brew", "security"] {
             executable(&bin.join(name), "#!/bin/sh\nexit 44\n");
         }
-        executable(
-            &bin.join("claude"),
-            include_str!("fixtures/acceptance_host.py"),
-        );
+        fs::copy(helper_executable::executable(), bin.join("claude")).unwrap();
         let mut manifest: Value =
             serde_json::from_str(include_str!("../src/runtime_models.json")).unwrap();
         for role in ["embedder", "reranker"] {
@@ -419,6 +420,24 @@ fn no_register_setup_skips_only_registration_checks() {
         .output()
         .unwrap();
     assert_redacted(&doctor);
+    assert!(doctor.status.success());
+    let report: Value = serde_json::from_slice(&doctor.stdout).unwrap();
+    assert!(report["checks"].as_array().unwrap().iter().any(|check| {
+        check["name"] == "mcp_hosts"
+            && check["status"] == "SKIP"
+            && check.to_string().contains("Skipped by setup --no-register")
+    }));
+    let config_path = fixture.home.join("config/config.toml");
+    let original_config = fs::read_to_string(&config_path).unwrap();
+    let mut config: toml::Value = toml::from_str(&original_config).unwrap();
+    config["mcp_registration_opt_out"] = toml::Value::Boolean(false);
+    fs::write(&config_path, toml::to_string(&config).unwrap()).unwrap();
+    let doctor = fixture
+        .command()
+        .args(["doctor", "--json"])
+        .output()
+        .unwrap();
+    assert_redacted(&doctor);
     assert_eq!(doctor.status.code(), Some(1));
     let report: Value = serde_json::from_slice(&doctor.stdout).unwrap();
     let failures: Vec<_> = report["checks"]
@@ -434,6 +453,7 @@ fn no_register_setup_skips_only_registration_checks() {
             .all(|check| check["name"].as_str().unwrap().starts_with("mcp_")),
         "{failures:?}"
     );
+    fs::write(config_path, original_config).unwrap();
     fixture
         .gateway
         .fail_stored_profile
@@ -669,39 +689,10 @@ fn setup_doctor_registered_mcp_search_and_owned_purge() {
 #[test]
 fn piped_installer_prompts_profile_and_hidden_key_once_via_controlling_tty() {
     let fixture = Fixture::new();
-    let runner = fixture.bin.join("pty-runner");
-    executable(&runner, include_str!("fixtures/acceptance_pty.py"));
     let port = fs::read_to_string(fixture.temp.path().join("port")).unwrap();
-    let base = fixture.command();
-    let mut command = Command::new(runner);
-    command
-        .env_clear()
-        .envs(
-            base.get_envs()
-                .filter_map(|(key, value)| value.map(|value| (key, value))),
-        )
-        .current_dir(fixture.temp.path())
-        .args([
-            env!("CARGO_BIN_EXE_code-diver"),
-            "setup",
-            "--daemon-port",
-            &port,
-        ])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    let mut child = command.spawn().unwrap();
-    child
-        .stdin
-        .take()
-        .unwrap()
-        .write_all(
-            json!({"profile":fixture.profile,"key":KEY})
-                .to_string()
-                .as_bytes(),
-        )
-        .unwrap();
-    let output = child.wait_with_output().unwrap();
+    let mut command = fixture.command();
+    command.args(["setup", "--daemon-port", &port]);
+    let output = pty_setup(command, fixture.profile.to_str().unwrap(), KEY);
     assert_redacted(&output);
     assert!(
         output.status.success(),
