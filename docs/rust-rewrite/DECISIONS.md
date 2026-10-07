@@ -1,5 +1,39 @@
 # Rust rewrite decisions
 
+## 2026-10-07 — M4 independent runtime measurement
+
+- Keep live QA read-only: existing Qdrant/services untouched, local release
+  binary only, external reads limited to Pier `tmp/rust-pier`. READY's main
+  checkout model cannot be read; missing-meta warning is verified, not waived.
+  Worktree-root inspection and catalog fallback metadata do not establish real
+  Pier source ranges. Final user authorization permits scoped logical commits,
+  not pushes or committing data/scratch outputs.
+- Use available `.tmp/m2c-intellij.jsonl` (135404 rows) with a local empty graph
+  for memory stress. Pier collection stays explicit; mixed-catalog results are
+  not a retrieval claim. Retain initial missing-graph failure as harness evidence.
+- Distinguish latest lazy readiness828.508/20.483ms from catalog loading
+  257.454/4077.046ms and first search5180.245/8876.776ms (Pier/IntelliJ).
+  Latest Pier readiness exceeds0.5s; do not extrapolate earlier faster runs.
+  Sampled postsearch RSS139575296/1753481216 bytes versus pre-interning
+  218497024/3014705152: approximately36.1%/41.8% lower, not high-water or a
+  50% claim. Pier <1GB requirement met; IntelliJ >1GB remains a limitation.
+- Keep exact catalog-wide Arc token interning, lazy BM25 and removed unused
+  maps; preserve JSON, case, sequence, duplicates and numeric ranking goldens.
+  Candidate-content cloning remains; loading is slower than the baseline.
+- Close the exposed-score defect using the existing comparator's score, not
+  adapter sorting or changed result IDs. Regenerated long-query checker passes
+  unchanged with scores0.2787063419818878/0.25131291151046753/0.23123851418495175.
+- Independently rerun fmt check, offline all-target Clippy -D warnings, and
+  offline tests:533 executions (175x2 +6/5/82/11/6/1/72), zero failed/ignored.
+  Earlier627/629 arithmetic totals are incorrect. Exact live calls/bytes/RSS
+  remain ignored `.tmp/m4-qa/`; STATUS reports their latest actual values.
+- Conservative byte-based embedding token budget is not exact tokenizer parity;
+  complex Python symbol ranges use indentation/decorators, not CPython AST.
+  No live meta-ranking or80-query Hit@k claim or new retrieval gate.
+- Commit the joined implementation/tests/Cargo files as one compiling group,
+  then validation scripts/docs. Splitting intertwined shared types/server/search
+  changes would risk broken intermediate commits; leave session/plans untracked.
+
 ## 2026-10-07 — Final commit authorization
 
 - Commit the coherent M3 implementation/shared transport with its regressions and

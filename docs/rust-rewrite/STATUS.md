@@ -1,5 +1,98 @@
 # Rust rewrite status
 
+## M4 independent read-only runtime validation — 2026-10-07
+
+M4 surface is implemented: six tools, sandboxed bounded inspection, protocol
+negotiation/ping/error shapes, lazy search and independent inspection concurrency,
+Cargo version, search metadata/previews/truncation and degradation warnings.
+Final independent `cargo fmt --check`, offline all-target Clippy `-D warnings`
+and offline tests pass: **533 executions**, zero failed/ignored:
+175 + 175 + 6 + 5 + 82 + 11 + 6 + 1 + 72. Earlier 627/629 counts were arithmetic
+errors, not authoritative totals. The two binaries repeat shared module tests.
+Offline release build previously passed in **32.62s**; latest regenerated
+evidence includes the joined token-interning and exposed-ordering-score fixes.
+Actual Node stdio runs:
+`node scripts/m4-validation.mjs`; evidence remains ignored in `.tmp/m4-qa/`.
+
+Latest Pier run (16,450 items, 49,619,641 catalog bytes; collection
+`code_diver_pier`, live info reports 49,006 points):
+
+| Call | Latency ms | JSON-RPC output bytes, including newline |
+|---|---:|---:|
+| initialize | 826.668 | 176 |
+| tools/list (six tools) | 0.171 | 1707 |
+| ping | 0.088 | 37 |
+| read | 2.544 | 252 |
+| grep | 2.678 | 244 |
+| symbols | 5.883 | 1314 |
+| tree | 7.336 | 206 |
+| info | 70.175 | 633 |
+| hostile traversal path | 0.184 | 151 |
+| hostile absolute path | 0.134 | 152 |
+| hostile empty query | 0.079 | 121 |
+| hostile malformed regex | 0.102 | 140 |
+| hostile negative lines | 0.095 | 122 |
+| hostile limit=35 | 0.161 | 194 |
+| read during first search | 1.016 | 397 |
+| first search, five results/80-character previews | 5180.097 | 2379 |
+| warm repeated search, five results/no previews | 3211.235 | 1882 |
+| 10,000-character query, three results | 13324.470 | 1200 |
+| huge lines=1,000,000,000, safely capped | 1.512 | 23931 |
+
+Absolute/traversal paths, empty query, malformed regex, negative lines and
+limit=35 all returned MCP `isError:true`, not protocol errors (0.079–0.184ms,
+121–194 bytes). Full per-call measurements and responses are in `pier.json`.
+Version is 0.4.5; valid calls passed. Search has real non-null CE scores and an
+explicit missing-meta warning; long query additionally warns embedding truncated
+to 480 characters. No service restart, Qdrant mutation or Python run.
+
+| Catalog | Lazy MCP ready ms | Catalog load ms | Idle RSS bytes | Load-complete RSS bytes | Sampled loading/first-search peak bytes | Postsearch sampled peak bytes |
+|---|---:|---:|---:|---:|---:|---:|
+| Pier 16,450 | 828.508 | 257.454 | 17,809,408 | 117,751,808 | 137,871,360 | 139,575,296 |
+| IntelliJ 135,404 | 20.483 | 4077.046 | 9,551,872 | 1,611,481,088 | 1,753,448,448 | 1,753,481,216 |
+
+RSS uses `/bin/ps -o rss= -p <owned child>` every 100ms (KiB converted to
+bytes), not an OS high-water mark; load duration is parent-observed stderr
+Loading/Loaded timestamps. Load-complete sampling can overlap subsequent work.
+IntelliJ initialize/tools-list/ping took 19.531/0.122/0.060ms and 176/1707/37
+bytes. First stress search took 8876.702ms/1763 bytes; simultaneous read
+1.403ms/396 bytes. Parent-observed first search: Pier5180.245ms,
+IntelliJ8876.776ms. Latest Pier readiness exceeds 0.5s; previous faster runs
+do not establish a consistent readiness guarantee.
+Legacy BM25 duplication removal/lazy build and exact catalog-wide shared token
+interning are implemented; serialization, case, multiplicity and scores are
+preserved. Candidate-content cloning remains. Against pre-interning postsearch
+baselines218497024/3014705152 bytes, reductions are approximately36.1%/41.8%.
+**No 50% reduction claim. Pier meets <1GB; IntelliJ remains >1GB.** Catalog load
+increased from131.660/1972.884ms; memory improvements trade allocation/hash work
+for shared storage. These sampled comparisons are not universal guarantees.
+
+### Resolved score contract and remaining validation limits
+
+- Exposed `score` now follows the existing final comparator without reordering
+  IDs. Regenerated long-query scores are
+  `[0.2787063419818878, 0.25131291151046753, 0.23123851418495175]`;
+  actual `node scripts/m4-score-check.mjs` passes, assertion unchanged.
+- Embedding token budget uses conservative UTF-8 bytes including prefix, not
+  exact model tokenizer parity; lexical/CE/meta retain the full query.
+- Symbol ranges retain bounded lexical/declaration heuristics. Python uses
+  indentation/decorators, not CPython AST; complex multiline signatures,
+  strings and continuation constructs remain exact-range parity limitations.
+- READY's model and binary point into the forbidden main checkout. Used this
+  worktree binary, no model, worktree inspection/base root; Pier source was not
+  read outside its authorized artifact directory. Source line ranges/previews
+  therefore use catalog fallback, not real Pier source validation.
+- IntelliJ artifact `.tmp/m2c-intellij.jsonl` is accessible and has 135,404 lines.
+  Used a local empty graph and required Pier collection for memory stress only:
+  returned Pier vector paths are NOT IntelliJ retrieval/parity evidence. Initial
+  stress attempt failed without an explicit graph; supplied local empty graph.
+- No 80-query Hit@k or live meta-ranking parity claimed; retained golden tests
+  cover synthetic ordering, not full live retrieval parity. Binary/UTF-8/symlink,
+  cancellation, oversized protocol records and CE outage are covered by the
+  reported automated suite, not independently repeated against live services.
+- A report-only whole-file Node read exceeded its string-size limit; `wc -l`
+  verified the catalog count without loading it into a JavaScript string.
+
 M3 core implementation and shared transport are complete and independently
 validated. Full SPEC acceptance is not claimed: token audit candidate counts are
 estimates, not exact tokenizer parity; the synthetic request fixture is manually
