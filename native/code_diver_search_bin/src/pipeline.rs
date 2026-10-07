@@ -138,6 +138,15 @@ async fn cached_embed_query(ctx: &SearchContext, query: &str) -> Result<Vec<f64>
         &query,
     )
     .await?;
+    if ctx
+        .config
+        .embedding_dimensions
+        .is_some_and(|size| size != vector.len())
+    {
+        return Err(
+            "Embedding dimension mismatch with index metadata; use a matching model/index".into(),
+        );
+    }
     if ctx.config.embed_cache_size > 0
         && let Ok(mut cache) = ctx.embed_cache.lock()
     {
@@ -218,7 +227,7 @@ pub async fn init_search_context(config: SearchConfig) -> Result<SearchContext, 
     // Reranking shares TLS/redirect policy, never embedding or Qdrant credentials.
     let http_client = crate::index_net::client(
         &Default::default(),
-        &Default::default(),
+        &config.ce_api_key,
         config.ca_bundle.as_deref(),
         config.insecure_skip_verify,
         120_000,
@@ -287,12 +296,20 @@ pub async fn init_search_context(config: SearchConfig) -> Result<SearchContext, 
 }
 
 /// Shared retrieval and CE pipeline for inference and feature export.
+#[derive(Default)]
+struct RerankState {
+    applied: bool,
+    second_pass_failed: bool,
+    error: Option<String>,
+}
+
 async fn prepare_candidates(
     ctx: &SearchContext,
     query: &str,
-) -> Result<(Vec<Candidate>, SearchTimings, Vec<String>), String> {
+) -> Result<(Vec<Candidate>, SearchTimings, Vec<String>, RerankState), String> {
     let start = Instant::now();
     let mut timings = SearchTimings::default();
+    let mut rerank = RerankState::default();
     let mut notices = Vec::new();
 
     // Step 1: Embed the query (server-mode LRU cache in front when enabled)
@@ -448,7 +465,7 @@ async fn prepare_candidates(
     timings.fusion_ms = t0.elapsed().as_secs_f64() * 1000.0;
 
     if rerank_candidates.is_empty() {
-        return Ok((vec![], timings, notices));
+        return Ok((vec![], timings, notices, rerank));
     }
 
     // Set base fused ranks
@@ -474,15 +491,22 @@ async fn prepare_candidates(
     let ce_scores = match ce_scores {
         Ok(scores) => scores,
         Err(e) => {
+            if ctx.config.require_rerank {
+                return Err(format!(
+                    "Required CE first pass failed: {e}; fix reranker or opt out with --require-rerank=false"
+                ));
+            }
             notices.push(format!(
                 "CE reranking unavailable; using fused ranking: {e}"
             ));
+            rerank.error = Some(e);
             sort_by_fused(&mut rerank_candidates);
             timings.total_ms = start.elapsed().as_secs_f64() * 1000.0;
-            return Ok((rerank_candidates, timings, notices));
+            return Ok((rerank_candidates, timings, notices, rerank));
         }
     };
     timings.ce_first_pass_ms = t0.elapsed().as_secs_f64() * 1000.0;
+    rerank.applied = true;
 
     for (i, score) in ce_scores.iter().enumerate() {
         if i < rerank_candidates.len() {
@@ -540,8 +564,15 @@ async fn prepare_candidates(
                         }
                     }
                     Err(e) => {
+                        if ctx.config.require_rerank {
+                            return Err(format!(
+                                "Required CE second pass failed: {e}; fix reranker or opt out with --require-rerank=false"
+                            ));
+                        }
                         eprintln!("  WARNING: Second CE pass failed: {}", e);
                         notices.push(format!("Second CE pass failed; retaining first pass: {e}"));
+                        rerank.second_pass_failed = true;
+                        rerank.error = Some(e);
                     }
                 }
             }
@@ -553,7 +584,7 @@ async fn prepare_candidates(
     finalize_ce_candidates(&mut rerank_candidates, &ctx.config);
 
     timings.total_ms = start.elapsed().as_secs_f64() * 1000.0;
-    Ok((rerank_candidates, timings, notices))
+    Ok((rerank_candidates, timings, notices, rerank))
 }
 
 /// Perform a single search query.
@@ -587,7 +618,8 @@ pub async fn search_with_options(
     validate_search_options(&ctx.config, options)?;
     let (_, notice) = prepare_embedding_query(&ctx.config, query)?;
     let start = Instant::now();
-    let (mut rerank_candidates, mut timings, mut notices) = prepare_candidates(ctx, query).await?;
+    let (mut rerank_candidates, mut timings, mut notices, rerank) =
+        prepare_candidates(ctx, query).await?;
     notices.extend(notice);
     if ctx.meta_ranker.is_none() {
         notices.push("Meta-ranker unavailable; using CE/fused ranking".into());
@@ -620,9 +652,7 @@ pub async fn search_with_options(
     timings.total_ms = start.elapsed().as_secs_f64() * 1000.0;
 
     // Build final results
-    let ce_available = !notices
-        .iter()
-        .any(|n| n.starts_with("CE reranking unavailable"));
+    let ce_available = rerank.applied;
     let results: Vec<SearchResult> = rerank_candidates
         .into_iter()
         .take(options.limit)
@@ -644,7 +674,17 @@ pub async fn search_with_options(
         })
         .collect();
 
-    Ok((SearchResponse { results, notices }, timings))
+    Ok((
+        SearchResponse {
+            results,
+            rerank_applied: ce_available,
+            rerank_second_pass_failed: rerank.second_pass_failed,
+            rerank_error: rerank.error,
+            meta_ranker_applied: ctx.meta_ranker.is_some(),
+            notices,
+        },
+        timings,
+    ))
 }
 
 fn final_ordering_score(candidate: &Candidate, meta_available: bool, ce_available: bool) -> f64 {
@@ -1074,7 +1114,7 @@ async fn dump_features_single(
     expected_set: &HashSet<String>,
 ) -> Result<usize, String> {
     let start = Instant::now();
-    let (rerank_candidates, _, notices) = prepare_candidates(ctx, query).await?;
+    let (rerank_candidates, _, notices, _) = prepare_candidates(ctx, query).await?;
     if !notices.is_empty() {
         return Err(notices.join("; "));
     }

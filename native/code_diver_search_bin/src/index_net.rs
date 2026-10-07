@@ -95,8 +95,21 @@ pub async fn request(
     url: &str,
     body: Option<&Value>,
 ) -> Result<reqwest::Response, String> {
+    request_with_timeout(client, method, url, body, None).await
+}
+
+pub async fn request_with_timeout(
+    client: &reqwest::Client,
+    method: reqwest::Method,
+    url: &str,
+    body: Option<&Value>,
+    timeout: Option<Duration>,
+) -> Result<reqwest::Response, String> {
     for attempt in 0..3 {
         let mut request = client.request(method.clone(), url);
+        if let Some(timeout) = timeout {
+            request = request.timeout(timeout);
+        }
         if let Some(body) = body {
             request = request.json(body);
         }

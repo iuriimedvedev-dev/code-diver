@@ -205,17 +205,12 @@ async fn post_ce(
     body: &serde_json::Value,
     timeout_ms: u64,
 ) -> Result<reqwest::Response, String> {
-    client
-        .post(url)
-        .timeout(std::time::Duration::from_millis(timeout_ms.max(1)))
-        .json(body)
-        .send()
-        .await
-        .map_err(|e| {
-            if e.is_timeout() {
-                format!("CE rerank timed out after {timeout_ms}ms: {e}")
+    crate::index_net::request_with_timeout(client, reqwest::Method::POST, url, Some(body), Some(std::time::Duration::from_millis(timeout_ms.max(1))))
+        .await.map_err(|error| {
+            if error.contains("timed out") {
+                format!("CE rerank timed out after {timeout_ms}ms; check service or increase --ce-timeout-ms")
             } else {
-                format!("CE rerank request failed: {e}")
+                "CE rerank request failed; check service, credentials and TLS trust".into()
             }
         })
 }
@@ -286,12 +281,12 @@ fn parse_ce_scores(data: &serde_json::Value, num_documents: usize) -> Result<Vec
 /// - `route_mode "auto"` (default): POST to `url` as-is; if the server answers
 ///   404/405 (e.g. vLLM-metal exposes `/rerank` but not `/v1/rerank`), retry once
 ///   against the alternate route. Any other status or transport error is returned
-///   directly -- Python parity is a single attempt, degradation is the caller's job.
+///   directly after the shared M3 transient retries; degradation is the caller's job.
 /// - `route_mode "v1"` / `"legacy"`: normalize `url` to the `.../v1/rerank` or
 ///   `.../rerank` form and use it with no fallback.
 ///
-/// Timeout handling mirrors Python's `CrossEncoderRerankConfig.timeout_ms`: one
-/// per-request timeout, no retry loop inside the provider.
+/// The timeout applies to each of at most three transient attempts per route,
+/// with the shared M3 100/200ms backoff. 404/405 alone enables route fallback.
 pub async fn ce_rerank_with_options(
     client: &reqwest::Client,
     url: &str,
@@ -317,7 +312,7 @@ pub async fn ce_rerank_with_options(
             || status == reqwest::StatusCode::METHOD_NOT_ALLOWED
         {
             last_status_error = Some(format!(
-                "CE HTTP {status} at {candidate_url} (route fallback {})",
+                "CE HTTP {status} (route fallback {})",
                 if attempt + 1 < urls.len() {
                     "will try alternate route"
                 } else {
@@ -328,16 +323,15 @@ pub async fn ce_rerank_with_options(
             continue;
         }
         if !status.is_success() {
-            let text = resp.text().await.unwrap_or_default();
-            let snippet: String = text.chars().take(300).collect();
-            return Err(format!("CE HTTP {status} at {candidate_url}: {snippet}"));
+            return Err(format!(
+                "CE HTTP {status}; check reranker credentials and configuration"
+            ));
         }
         let data: serde_json::Value = resp
             .json()
             .await
-            .map_err(|e| format!("CE parse failed at {candidate_url}: {e}"))?;
-        return parse_ce_scores(&data, documents.len())
-            .map_err(|e| format!("{e} (from {candidate_url})"));
+            .map_err(|_| "CE returned invalid JSON; check reranker compatibility".to_string())?;
+        return parse_ce_scores(&data, documents.len());
     }
     Err(last_status_error.unwrap_or_else(|| "CE: no route attempted".to_string()))
 }
@@ -345,6 +339,55 @@ pub async fn ce_rerank_with_options(
 #[cfg(test)]
 mod ce_tests {
     use super::*;
+
+    #[tokio::test]
+    async fn failure_never_exposes_server_secrets() {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/v1/rerank", listener.local_addr().unwrap());
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(std::time::Duration::from_secs(2)))
+                .unwrap();
+            let mut buffer = [0; 8192];
+            let mut request = Vec::new();
+            loop {
+                let count = stream.read(&mut buffer).unwrap();
+                assert!(count > 0);
+                request.extend_from_slice(&buffer[..count]);
+                if let Some(end) = request.windows(4).position(|v| v == b"\r\n\r\n") {
+                    let headers = String::from_utf8_lossy(&request[..end]);
+                    let size: usize = headers
+                        .lines()
+                        .find_map(|line| {
+                            line.to_ascii_lowercase()
+                                .strip_prefix("content-length:")
+                                .map(|n| n.trim().parse().unwrap())
+                        })
+                        .unwrap();
+                    if request.len() >= end + 4 + size {
+                        break;
+                    }
+                }
+            }
+            let body = "synthetic-private-api-key";
+            write!(stream, "HTTP/1.1 401 Unauthorized\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}", body.len()).unwrap();
+        });
+        let error = ce_rerank_with_options(
+            &reqwest::Client::new(),
+            &url,
+            &CeOptions::default(),
+            "q",
+            &["d".into()],
+        )
+        .await
+        .unwrap_err();
+        server.join().unwrap();
+        assert!(!error.contains("synthetic-private-api-key"), "{error}");
+        assert!(!error.contains(&url), "{error}");
+        assert!(error.contains("401"), "{error}");
+    }
 
     #[test]
     fn alternate_swaps_v1_and_legacy_forms() {

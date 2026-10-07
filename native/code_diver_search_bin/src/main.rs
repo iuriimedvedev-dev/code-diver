@@ -1,6 +1,7 @@
 mod bm25;
 mod catalog;
 mod catalog_builder;
+mod doctor;
 mod embedding;
 mod features;
 mod fusion;
@@ -12,6 +13,7 @@ pub mod info;
 mod inspection;
 mod lightgbm;
 pub mod mcp;
+mod metadata;
 mod pipeline;
 mod types;
 
@@ -43,6 +45,11 @@ pub struct Cli {
 
 #[derive(clap::Subcommand, Debug, Clone)]
 pub enum Commands {
+    /// Print effective configuration with service secrets redacted
+    Config {
+        #[command(subcommand)]
+        command: ConfigCommand,
+    },
     /// Read sandboxed numbered lines
     Read(ReadArgs),
     /// Search repository text
@@ -96,33 +103,15 @@ pub struct InfoArgs {
 
 #[derive(clap::Args, Debug, Clone)]
 pub struct DoctorArgs {
-    /// Qdrant service URL
-    #[arg(short = 'd', long, default_value = "http://localhost:6333")]
-    pub qdrant_url: String,
+    #[command(flatten)]
+    pub search: SearchArgs,
+    #[arg(long)]
+    pub json: bool,
+}
 
-    /// Embedding service URL
-    #[arg(
-        short = 'e',
-        long,
-        default_value = "http://localhost:8001/v1/embeddings"
-    )]
-    pub embedding_url: String,
-
-    /// CE rerank service URL
-    #[arg(short = 'r', long, default_value = "http://localhost:18081/v1/rerank")]
-    pub ce_url: String,
-
-    /// Path to catalog JSONL file
-    #[arg(short = 'c', long)]
-    pub catalog: Option<String>,
-
-    /// Path to graph adjacency JSONL file
-    #[arg(short = 'g', long)]
-    pub graph: Option<String>,
-
-    /// Path to LightGBM meta-ranker model
-    #[arg(short = 'm', long)]
-    pub model: Option<String>,
+#[derive(clap::Subcommand, Debug, Clone)]
+pub enum ConfigCommand {
+    Show(SearchArgs),
 }
 
 #[derive(clap::Args, Debug, Clone)]
@@ -135,6 +124,18 @@ pub struct McpArgs {
 
 #[derive(clap::Args, Debug, Clone)]
 pub struct SearchArgs {
+    /// Fail rather than return degraded results on any reranker failure
+    #[arg(long, num_args = 0..=1, default_missing_value = "true", require_equals = true)]
+    pub require_rerank: Option<bool>,
+    /// Allow degraded results when reranking is unavailable
+    #[arg(long, conflicts_with = "require_rerank")]
+    pub no_require_rerank: bool,
+    /// llama-server executable used by doctor build checks
+    #[arg(long)]
+    pub llama_server: Option<PathBuf>,
+    /// Local model cache used by doctor (default ~/.cache/code-diver/models)
+    #[arg(long)]
+    pub models_dir: Option<PathBuf>,
     #[arg(long)]
     pub root: Option<PathBuf>,
     #[arg(long)]
@@ -144,11 +145,19 @@ pub struct SearchArgs {
     #[arg(long)]
     pub embedding_query_prefix: Option<String>,
     #[arg(long)]
+    pub embedding_document_prefix: Option<String>,
+    #[arg(long)]
+    pub embedding_dimensions: Option<usize>,
+    #[arg(long)]
+    pub index_metadata: Option<PathBuf>,
+    #[arg(long)]
     pub qdrant_api_key: Option<index_net::Secret>,
     #[arg(long)]
     pub qdrant_bearer: Option<index_net::Secret>,
     #[arg(long)]
     pub embedding_api_key: Option<index_net::Secret>,
+    #[arg(long)]
+    pub ce_api_key: Option<index_net::Secret>,
     #[arg(long)]
     pub ca_bundle: Option<String>,
     #[arg(long)]
@@ -186,27 +195,27 @@ pub struct SearchArgs {
     pub qdrant_url: Option<String>,
 
     /// CE rerank service URL
-    #[arg(short = 'r', long, default_value = "http://localhost:18081/v1/rerank")]
-    pub ce_url: String,
+    #[arg(short = 'r', long)]
+    pub ce_url: Option<String>,
 
     /// Optional second-pass CE URL (mixed routing, e.g. vLLM-metal for long
     /// docs). Empty (default) = reuse --ce-url for both passes.
-    #[arg(long, default_value = "")]
-    pub second_ce_url: String,
+    #[arg(long)]
+    pub second_ce_url: Option<String>,
 
     /// CE rerank route mode: auto (use --ce-url, fall back v1<->legacy on 404/405),
     /// v1 (force .../v1/rerank), legacy (force .../rerank)
-    #[arg(long, default_value = "auto")]
-    pub ce_route: String,
+    #[arg(long)]
+    pub ce_route: Option<String>,
 
     /// Per-request CE timeout in ms (Python CrossEncoderRerankConfig.timeout_ms parity)
-    #[arg(long, default_value_t = 60000)]
-    pub ce_timeout_ms: u64,
+    #[arg(long)]
+    pub ce_timeout_ms: Option<u64>,
 
     /// Optional CE `model` body field (empty = omit; llama.cpp scores with the
     /// loaded model, vLLM-metal pooling with the served one)
-    #[arg(long, default_value = "")]
-    pub ce_model: String,
+    #[arg(long)]
+    pub ce_model: Option<String>,
 
     /// Vector weight in H-91a manual fusion
     #[arg(long, default_value_t = 0.42)]
@@ -633,18 +642,29 @@ async fn main() -> Result<(), String> {
             serde_json::json!({"path":args.path,"limit":args.limit}),
         ),
         Some(Commands::Index(args)) => catalog_builder::cli::run_index(args).await,
-        Some(Commands::CatalogCompare(args)) => catalog_builder::cli::run_compare(args),
-        Some(Commands::Doctor(args)) => {
-            run_doctor(
-                &args.qdrant_url,
-                &args.embedding_url,
-                &args.ce_url,
-                args.catalog.as_deref(),
-                args.graph.as_deref(),
-                args.model.as_deref(),
-            )
-            .await
+        Some(Commands::Config {
+            command: ConfigCommand::Show(args),
+        }) => {
+            let (config, _) = build_search_config_for(&args, false)?;
+            let mut effective =
+                serde_json::to_value(config).map_err(|_| "Cannot encode configuration")?;
+            for key in [
+                "qdrant_api_key",
+                "qdrant_bearer",
+                "embedding_api_key",
+                "ce_api_key",
+            ] {
+                effective[key] = serde_json::json!("[redacted]");
+            }
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&effective)
+                    .map_err(|_| "Cannot encode configuration")?
+            );
+            Ok(())
         }
+        Some(Commands::CatalogCompare(args)) => catalog_builder::cli::run_compare(args),
+        Some(Commands::Doctor(args)) => doctor::run(&args.search, args.json).await,
         Some(Commands::Info(args)) => {
             let info = collect_configured_info(
                 args.config.as_deref(),
@@ -666,21 +686,7 @@ async fn main() -> Result<(), String> {
         Some(Commands::Search(args)) => run_search_cli(args).await,
         None => {
             if cli.search.doctor {
-                run_doctor(
-                    cli.search
-                        .qdrant_url
-                        .as_deref()
-                        .unwrap_or("http://localhost:6333"),
-                    cli.search
-                        .embedding_url
-                        .as_deref()
-                        .unwrap_or("http://localhost:8001/v1/embeddings"),
-                    &cli.search.ce_url,
-                    cli.search.catalog.as_deref(),
-                    cli.search.graph.as_deref(),
-                    cli.search.model.as_deref(),
-                )
-                .await
+                doctor::run(&cli.search, false).await
             } else if cli.search.index_update {
                 run_index_update(&cli.search).await
             } else {
@@ -713,6 +719,21 @@ pub(crate) fn configured_candidate_limit(args: &SearchArgs) -> Result<usize, Str
 }
 
 fn build_search_config(args: &SearchArgs) -> Result<(SearchConfig, PathBuf), String> {
+    build_search_config_for(args, true)
+}
+
+fn build_search_config_for(
+    args: &SearchArgs,
+    require_artifacts: bool,
+) -> Result<(SearchConfig, PathBuf), String> {
+    build_search_config_default(args, require_artifacts, false)
+}
+
+fn build_search_config_default(
+    args: &SearchArgs,
+    require_artifacts: bool,
+    default_require_rerank: bool,
+) -> Result<(SearchConfig, PathBuf), String> {
     let config_path = args
         .config
         .clone()
@@ -723,6 +744,25 @@ fn build_search_config(args: &SearchArgs) -> Result<(SearchConfig, PathBuf), Str
     let e = &remote["embedding"];
     let value = |cli: Option<&str>, env: &str, config: &serde_json::Value, default: &str| {
         indexing::setting(cli, env, None, config, default)
+    };
+    let root_path = indexing::configured_path(
+        args.root
+            .as_deref()
+            .or_else(|| args.base_path.as_deref().map(Path::new)),
+        "ROOT",
+        &remote["root"],
+        config_path.as_deref(),
+        Path::new("."),
+    );
+    let artifact = |configured: &Path, defaults: &[&str]| {
+        if !configured.as_os_str().is_empty() {
+            return Some(configured.to_string_lossy().into_owned());
+        }
+        defaults
+            .iter()
+            .map(|p| root_path.join(p))
+            .find(|p| p.is_file())
+            .map(|p| p.to_string_lossy().into_owned())
     };
     let configured_catalog = indexing::configured_path(
         args.catalog.as_deref().map(Path::new),
@@ -738,37 +778,51 @@ fn build_search_config(args: &SearchArgs) -> Result<(SearchConfig, PathBuf), Str
         config_path.as_deref(),
         Path::new(""),
     );
-    let catalog_path = resolve_path(
-        (!configured_catalog.as_os_str().is_empty())
-            .then(|| configured_catalog.to_str())
-            .flatten(),
+    let catalog_path = artifact(
+        &configured_catalog,
         &[
             "artifacts/rust_catalog.jsonl",
             ".code-diver/rust_catalog.jsonl",
-            "/tmp/rust_catalog.jsonl",
         ],
     )
+    .or_else(|| {
+        (!require_artifacts).then(|| {
+            root_path
+                .join("artifacts/rust_catalog.jsonl")
+                .to_string_lossy()
+                .into_owned()
+        })
+    })
     .ok_or_else(|| {
         "Catalog file not found. Pass --catalog PATH or place at artifacts/rust_catalog.jsonl"
             .to_string()
     })?;
 
-    let graph_path = resolve_path(
-        (!configured_graph.as_os_str().is_empty())
-            .then(|| configured_graph.to_str())
-            .flatten(),
-        &[
-            "artifacts/rust_graph.jsonl",
-            ".code-diver/rust_graph.jsonl",
-            "/tmp/rust_graph.jsonl",
-        ],
+    let graph_path = artifact(
+        &configured_graph,
+        &["artifacts/rust_graph.jsonl", ".code-diver/rust_graph.jsonl"],
     )
+    .or_else(|| {
+        (!require_artifacts).then(|| {
+            root_path
+                .join("artifacts/rust_graph.jsonl")
+                .to_string_lossy()
+                .into_owned()
+        })
+    })
     .ok_or_else(|| {
         "Graph file not found. Pass --graph PATH or place at artifacts/rust_graph.jsonl".to_string()
     })?;
 
-    let model_path = resolve_path(
-        args.model.as_deref(),
+    let configured_model = indexing::configured_path(
+        args.model.as_deref().map(Path::new),
+        "MODEL",
+        &remote["model"],
+        config_path.as_deref(),
+        Path::new(""),
+    );
+    let model_path = artifact(
+        &configured_model,
         &[
             "artifacts/ce_meta_ranker/ce_meta_ranker.lgb.txt",
             ".code-diver/models/ce_meta_ranker.lgb.txt",
@@ -793,20 +847,41 @@ fn build_search_config(args: &SearchArgs) -> Result<(SearchConfig, PathBuf), Str
         ));
     }
 
-    let root_path = args
-        .root
-        .clone()
-        .or_else(|| args.base_path.as_deref().map(PathBuf::from))
-        .unwrap_or_else(|| PathBuf::from("."));
-
     let mut config = SearchConfig {
         catalog_path,
         graph_path,
-        ce_url: args.ce_url.clone(),
-        second_ce_url: args.second_ce_url.clone(),
-        ce_route: args.ce_route.clone(),
-        ce_timeout_ms: args.ce_timeout_ms,
-        ce_model: args.ce_model.clone(),
+        ce_url: value(
+            args.ce_url.as_deref(),
+            "CE_URL",
+            &remote["cross_encoder_rerank"]["url"],
+            "http://localhost:18081/v1/rerank",
+        ),
+        second_ce_url: value(
+            args.second_ce_url.as_deref(),
+            "SECOND_CE_URL",
+            &remote["cross_encoder_rerank"]["second_ce_url"],
+            "",
+        ),
+        ce_route: value(
+            args.ce_route.as_deref(),
+            "CE_ROUTE",
+            &remote["cross_encoder_rerank"]["route"],
+            "auto",
+        ),
+        ce_timeout_ms: value(
+            args.ce_timeout_ms.map(|n| n.to_string()).as_deref(),
+            "CE_TIMEOUT_MS",
+            &remote["cross_encoder_rerank"]["timeout_ms"],
+            "60000",
+        )
+        .parse()
+        .map_err(|_| "Invalid CE timeout")?,
+        ce_model: value(
+            args.ce_model.as_deref(),
+            "CE_MODEL",
+            &remote["cross_encoder_rerank"]["model"],
+            "",
+        ),
         retrieval_limit: args.retrieval_limit,
         candidate_limit,
         vector_weight: args.vector_weight,
@@ -857,6 +932,47 @@ fn build_search_config(args: &SearchArgs) -> Result<(SearchConfig, PathBuf), Str
         &e["query_prefix"],
         "",
     );
+    config.require_rerank = value(
+        (if args.no_require_rerank {
+            Some(false)
+        } else {
+            args.require_rerank
+        })
+        .map(|v| if v { "true" } else { "false" }),
+        "REQUIRE_RERANK",
+        &remote["search"]["require_rerank"],
+        if default_require_rerank {
+            "true"
+        } else {
+            "false"
+        },
+    )
+    .parse()
+    .map_err(|_| "Invalid require_rerank; expected true or false")?;
+    config.embedding_document_prefix = value(
+        args.embedding_document_prefix.as_deref(),
+        "EMBEDDING_DOCUMENT_PREFIX",
+        &e["document_prefix"],
+        "",
+    );
+    let dimension = value(
+        args.embedding_dimensions.map(|n| n.to_string()).as_deref(),
+        "EMBEDDING_DIMENSIONS",
+        &e["dimensions"],
+        "",
+    );
+    config.embedding_dimensions = if dimension.is_empty() {
+        None
+    } else {
+        Some(
+            dimension
+                .parse()
+                .map_err(|_| "Invalid embedding dimensions")?,
+        )
+    };
+    if config.embedding_dimensions == Some(0) || config.ce_timeout_ms == 0 {
+        return Err("Embedding dimensions and CE timeout must be positive".into());
+    }
     let chars = value(None, "MAX_INPUT_CHARS", &e["max_input_chars"], "2000")
         .parse::<usize>()
         .map_err(|_| "Invalid max_input_chars")?;
@@ -920,6 +1036,17 @@ fn build_search_config(args: &SearchArgs) -> Result<(SearchConfig, PathBuf), Str
         &e["api_key"],
         "",
     ));
+    config.ce_api_key = index_net::Secret(indexing::setting(
+        args.ce_api_key.as_ref().map(|s| s.0.as_str()),
+        "CE_API_KEY",
+        Some(
+            remote["cross_encoder_rerank"]["api_key_env"]
+                .as_str()
+                .unwrap_or("CE_API_KEY"),
+        ),
+        &remote["cross_encoder_rerank"]["api_key"],
+        "",
+    ));
     let ca = indexing::setting(
         args.ca_bundle.as_deref(),
         "CA_BUNDLE",
@@ -962,7 +1089,10 @@ fn build_search_config(args: &SearchArgs) -> Result<(SearchConfig, PathBuf), Str
             .into_owned(),
         );
     }
-    for url in [&config.embedding_url, &config.qdrant_url] {
+    for url in [&config.embedding_url, &config.qdrant_url, &config.ce_url]
+        .into_iter()
+        .chain((!config.second_ce_url.is_empty()).then_some(&config.second_ce_url))
+    {
         let url = reqwest::Url::parse(url).map_err(|_| "Invalid service URL")?;
         if !matches!(url.scheme(), "http" | "https")
             || !url.username().is_empty()
@@ -994,6 +1124,85 @@ fn build_search_config(args: &SearchArgs) -> Result<(SearchConfig, PathBuf), Str
         return Err("Unsupported embedding provider".into());
     }
 
+    let configured_metadata = indexing::configured_path(
+        args.index_metadata.as_deref(),
+        "INDEX_METADATA",
+        &remote["index_metadata"],
+        config_path.as_deref(),
+        Path::new(""),
+    );
+    config.index_metadata =
+        metadata::discover(&configured_metadata, Path::new(&config.catalog_path));
+    if let Some(path) = &config.index_metadata {
+        let metadata = metadata::load(path)?;
+        let explicit = |cli: bool, env: &str, field: &serde_json::Value| {
+            cli || std::env::var_os(format!("CODE_DIVER_{env}")).is_some() || !field.is_null()
+        };
+        if !explicit(
+            args.embedding_model.is_some(),
+            "EMBEDDING_MODEL",
+            &e["model"],
+        ) {
+            config.embedding_model = metadata.embedding.model.clone();
+        }
+        if !explicit(
+            !args.qdrant_collection.is_empty(),
+            "QDRANT_COLLECTION",
+            &q["collection"],
+        ) {
+            config.qdrant_collection = metadata.collection.clone();
+        }
+        if !explicit(
+            args.embedding_query_prefix.is_some(),
+            "EMBEDDING_QUERY_PREFIX",
+            &e["query_prefix"],
+        ) {
+            config.embedding_query_prefix = metadata.embedding.query_prefix.clone();
+        }
+        if !explicit(
+            args.embedding_document_prefix.is_some(),
+            "EMBEDDING_DOCUMENT_PREFIX",
+            &e["document_prefix"],
+        ) {
+            config.embedding_document_prefix = metadata.embedding.document_prefix.clone();
+        }
+        let limit = |key: &str, env: &str, fallback: usize| -> Result<usize, String> {
+            metadata
+                .embedding
+                .extra
+                .get(key)
+                .map(|v| {
+                    value(None, env, &e[key], &v.to_string())
+                        .parse::<usize>()
+                        .map_err(|_| format!("Invalid embedding {key}"))
+                })
+                .unwrap_or(Ok(fallback))
+        };
+        let chars = limit("max_input_chars", "MAX_INPUT_CHARS", chars)?;
+        let tokens = limit("max_input_tokens", "MAX_INPUT_TOKENS", tokens)?;
+        let margin = limit("token_safety_margin", "TOKEN_SAFETY_MARGIN", margin)?;
+        let token_budget = tokens
+            .checked_sub(margin)
+            .filter(|n| *n > 0)
+            .ok_or("Metadata token safety margin exhausts token window")?;
+        config.embedding_query_char_limit = if chars == 0 {
+            token_budget.saturating_mul(3)
+        } else {
+            chars.min(token_budget.saturating_mul(3))
+        };
+        if !explicit(
+            args.embedding_query_token_budget.is_some(),
+            "EMBEDDING_QUERY_TOKEN_BUDGET",
+            &e["query_token_budget"],
+        ) {
+            config.embedding_query_token_budget = token_budget;
+        }
+        metadata.validate(&config)?;
+        if let Some(warning) = metadata.prefix_warning(&config) {
+            eprintln!("WARNING: {warning}");
+        }
+        config.embedding_dimensions = Some(metadata.embedding.dimensions);
+    }
     Ok((config, root_path))
 }
 
@@ -1015,19 +1224,7 @@ async fn run_mcp(args: McpArgs) -> Result<(), String> {
 
 async fn run_search_cli(args: SearchArgs) -> Result<(), String> {
     if args.doctor {
-        return run_doctor(
-            args.qdrant_url
-                .as_deref()
-                .unwrap_or("http://localhost:6333"),
-            args.embedding_url
-                .as_deref()
-                .unwrap_or("http://localhost:8001/v1/embeddings"),
-            &args.ce_url,
-            args.catalog.as_deref(),
-            args.graph.as_deref(),
-            args.model.as_deref(),
-        )
-        .await;
+        return doctor::run(&args, false).await;
     }
     if args.index_update {
         return run_index_update(&args).await;
@@ -1087,89 +1284,6 @@ fn resolve_path(cli_arg: Option<&str>, candidates: &[&str]) -> Option<String> {
         }
     }
     None
-}
-
-/// Doctor / Healthcheck command
-async fn run_doctor(
-    qdrant_url: &str,
-    embedding_url: &str,
-    ce_url: &str,
-    catalog: Option<&str>,
-    graph: Option<&str>,
-    model: Option<&str>,
-) -> Result<(), String> {
-    eprintln!("=== code-diver doctor ===");
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(5))
-        .build()
-        .map_err(|e| e.to_string())?;
-
-    // 1. Qdrant
-    eprint!("Checking Qdrant ({})... ", qdrant_url);
-    match client
-        .get(format!("{}/collections", qdrant_url.trim_end_matches('/')))
-        .send()
-        .await
-    {
-        Ok(resp) if resp.status().is_success() => eprintln!("OK (status {})", resp.status()),
-        Ok(resp) => eprintln!("WARN: HTTP {}", resp.status()),
-        Err(e) => eprintln!("FAIL: {}", e),
-    }
-
-    // 2. Embedding service
-    let embed_health = embedding_url.replace("/v1/embeddings", "/v1/models");
-    eprint!("Checking Embedding Service ({})... ", embed_health);
-    match client.get(&embed_health).send().await {
-        Ok(resp) if resp.status().is_success() => eprintln!("OK (status {})", resp.status()),
-        Ok(resp) => eprintln!("WARN: HTTP {}", resp.status()),
-        Err(e) => eprintln!("FAIL: {}", e),
-    }
-
-    // 3. CE Rerank service
-    let ce_health = ce_url
-        .replace("/v1/rerank", "/health")
-        .replace("/rerank", "/health");
-    eprint!("Checking CE Rerank Service ({})... ", ce_health);
-    match client.get(&ce_health).send().await {
-        Ok(resp) if resp.status().is_success() => eprintln!("OK (status {})", resp.status()),
-        Ok(resp) => eprintln!("WARN: HTTP {}", resp.status()),
-        Err(e) => eprintln!("FAIL: {}", e),
-    }
-
-    // 4. Artifacts check
-    eprintln!("\nChecking local artifacts:");
-    let catalog_resolved = resolve_path(
-        catalog,
-        &[
-            "artifacts/rust_catalog.jsonl",
-            ".code-diver/rust_catalog.jsonl",
-            "/tmp/rust_catalog.jsonl",
-        ],
-    );
-    eprintln!("  Catalog: {:?}", catalog_resolved);
-
-    let graph_resolved = resolve_path(
-        graph,
-        &[
-            "artifacts/rust_graph.jsonl",
-            ".code-diver/rust_graph.jsonl",
-            "/tmp/rust_graph.jsonl",
-        ],
-    );
-    eprintln!("  Graph:   {:?}", graph_resolved);
-
-    let model_resolved = resolve_path(
-        model,
-        &[
-            "artifacts/ce_meta_ranker/ce_meta_ranker.lgb.txt",
-            ".code-diver/models/ce_meta_ranker.lgb.txt",
-            "models/ce_meta_ranker.lgb.txt",
-        ],
-    );
-    eprintln!("  Model:   {:?}", model_resolved);
-
-    eprintln!("=========================");
-    Ok(())
 }
 
 /// Incremental index update: diff --catalog against Qdrant, embed + upsert
@@ -1328,7 +1442,19 @@ async fn run_single(
 ) -> Result<(), String> {
     eprintln!("Searching for: {}", query);
     let start = Instant::now();
-    let (results, timings) = search(ctx, query, limit).await?;
+    let (response, timings) = pipeline::search_with_options(
+        ctx,
+        query,
+        &types::SearchOptions {
+            limit,
+            preview_chars: 0,
+        },
+    )
+    .await?;
+    for notice in &response.notices {
+        eprintln!("WARNING: {notice}");
+    }
+    let results = &response.results;
     let wall_ms = start.elapsed().as_secs_f64() * 1000.0;
 
     println!(
@@ -1336,6 +1462,11 @@ async fn run_single(
         serde_json::to_string_pretty(&serde_json::json!({
             "query": query,
             "results": results,
+            "rerank_applied": response.rerank_applied,
+            "rerank_second_pass_failed": response.rerank_second_pass_failed,
+            "rerank_error": response.rerank_error,
+            "meta_ranker_applied": response.meta_ranker_applied,
+            "notices": response.notices,
             "timings": {
                 "embed_ms": timings.embed_ms,
                 "vector_search_ms": timings.vector_search_ms,
@@ -1596,7 +1727,10 @@ mod cli_tests {
         .unwrap();
         match cli.command {
             Some(Commands::Doctor(args)) => {
-                assert_eq!(args.embedding_url, "http://embed:8001");
+                assert_eq!(
+                    args.search.embedding_url.as_deref(),
+                    Some("http://embed:8001")
+                );
             }
             _ => panic!("Expected Doctor subcommand"),
         }

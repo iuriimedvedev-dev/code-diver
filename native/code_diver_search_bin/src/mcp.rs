@@ -57,7 +57,7 @@ impl Server {
                 let args = self.config.args.clone();
                 let runtime = tokio::runtime::Handle::current();
                 tokio::task::spawn_blocking(move || {
-                    let (config, _) = crate::build_search_config(&args)?;
+                    let (config, _) = crate::build_search_config_default(&args, true, true)?;
                     runtime.block_on(init_search_context(config)).map(Arc::new)
                 })
                 .await
@@ -108,6 +108,13 @@ impl Server {
                 serde_json::to_string(&results).map_err(|e| e.to_string())?,
                 false,
             );
+            result["structuredContent"] = json!({
+                "results": results,
+                "rerank_applied": search_response.rerank_applied,
+                "rerank_second_pass_failed": search_response.rerank_second_pass_failed,
+                "rerank_error": search_response.rerank_error,
+                "meta_ranker_applied": search_response.meta_ranker_applied,
+            });
             if !search_response.notices.is_empty() {
                 result["content"].as_array_mut().unwrap().push(json!({"type":"text","text":format!("WARNING: {}", search_response.notices.join("; "))}));
             }

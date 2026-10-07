@@ -98,6 +98,10 @@ impl Default for SearchOptions {
 #[derive(Debug, Serialize)]
 pub struct SearchResponse {
     pub results: Vec<SearchResult>,
+    pub rerank_applied: bool,
+    pub rerank_second_pass_failed: bool,
+    pub rerank_error: Option<String>,
+    pub meta_ranker_applied: bool,
     /// Adapters (including MCP) must expose these notices to their callers.
     pub notices: Vec<String>,
 }
@@ -271,6 +275,8 @@ pub struct LgbModel {
 /// Search configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchConfig {
+    #[serde(default)]
+    pub require_rerank: bool,
     #[serde(default = "default_retrieval_limit")]
     pub retrieval_limit: usize,
     pub candidate_limit: usize,
@@ -309,6 +315,12 @@ pub struct SearchConfig {
     pub embedding_model: String,
     #[serde(default)]
     pub embedding_query_prefix: String,
+    #[serde(default)]
+    pub embedding_document_prefix: String,
+    #[serde(default)]
+    pub embedding_dimensions: Option<usize>,
+    #[serde(default)]
+    pub index_metadata: Option<std::path::PathBuf>,
     #[serde(default = "default_embedding_query_char_limit")]
     pub embedding_query_char_limit: usize,
     /// Conservative byte-token upper bound, including prefix; reserves 32 tokens
@@ -321,6 +333,8 @@ pub struct SearchConfig {
     pub qdrant_bearer: crate::index_net::Secret,
     #[serde(skip)]
     pub embedding_api_key: crate::index_net::Secret,
+    #[serde(skip)]
+    pub ce_api_key: crate::index_net::Secret,
     #[serde(default)]
     pub ca_bundle: Option<String>,
     #[serde(default)]
@@ -421,15 +435,20 @@ impl Default for SearchConfig {
             hub_prior_protect_top: 4,
             hub_prior_protect_margin: 0.0,
             ce_meta_ranker_enabled: true,
+            require_rerank: false,
             ce_meta_model_path: String::new(),
             embedding_url: "http://localhost:8001/v1/embeddings".to_string(),
             embedding_model: crate::embedding::EMBED_MODEL.to_string(),
             embedding_query_prefix: String::new(),
+            embedding_document_prefix: String::new(),
+            embedding_dimensions: None,
+            index_metadata: None,
             embedding_query_char_limit: default_embedding_query_char_limit(),
             embedding_query_token_budget: default_embedding_query_token_budget(),
             qdrant_api_key: Default::default(),
             qdrant_bearer: Default::default(),
             embedding_api_key: Default::default(),
+            ce_api_key: Default::default(),
             ca_bundle: None,
             insecure_skip_verify: false,
             qdrant_url: "http://localhost:6333".to_string(),

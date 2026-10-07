@@ -12,6 +12,8 @@ struct State {
     fail_next: Option<u16>,
     delay_ms: u64,
     context_limit: Option<usize>,
+    unit_vectors: bool,
+    fail_rerank: bool,
 }
 
 struct Mock {
@@ -97,14 +99,14 @@ impl Mock {
                     let data: Vec<_> = inputs
                         .iter()
                         .enumerate()
-                        .map(|(i, _)| json!({"index": i, "embedding": [1., 2., 3., 4.]}))
+                        .map(|(i, _)| json!({"index": i, "embedding": if state.unit_vectors { vec![1.,0.,0.,0.] } else { vec![1.,2.,3.,4.] }}))
                         .collect();
                     (200, json!({"data": data}))
                 } else if first.contains("/points/search ") {
                     (200, json!({"result": []}))
                 } else if first.contains("/rerank ") {
                     let results: Vec<_> = body["documents"].as_array().unwrap().iter().enumerate().map(|(index, _)| json!({"index": index, "relevance_score": 0.8})).collect();
-                    (200, json!({"results": results}))
+                    (if state.fail_rerank { 401 } else { 200 }, json!({"results": results}))
                 } else if first.contains("/scroll ") {
                     (
                         200,
@@ -253,7 +255,33 @@ fn search_shared_config_env_cli_model_prefix_and_isolated_auth() {
     let server = Mock::start();
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("a.md"), "# Alpha\nSearch text").unwrap();
-    success(server.run(dir.path(), &["--apply"]));
+    success(server.run(
+        dir.path(),
+        &[
+            "--apply",
+            "--embedding-model",
+            "cli-model",
+            "--embedding-query-prefix",
+            "env-query: ",
+            "--embedding-document-prefix",
+            "Represent this code file metadata for retrieval: ",
+        ],
+    ));
+    {
+        let state = server.state.lock().unwrap();
+        for (_, _, body) in state
+            .requests
+            .iter()
+            .filter(|(first, _, _)| first.contains("/embeddings "))
+        {
+            assert!(body["input"].as_array().unwrap().iter().all(|input| {
+                input
+                    .as_str()
+                    .unwrap()
+                    .starts_with("Represent this code file metadata for retrieval: ")
+            }));
+        }
+    }
     server.state.lock().unwrap().requests.clear();
     let config = dir.path().join("services.toml");
     std::fs::write(&config, format!("catalog = '.code-diver/rust_catalog.jsonl'\ngraph_path = '.code-diver/rust_graph.jsonl'\n[storage.qdrant]\nurl = '{}'\ncollection = 'zz_synthetic'\napi_key = 'q-secret'\n[embedding]\nurl = '{}/embeddings'\nmodel = 'config-model'\nquery_prefix = 'query: '\napi_key = 'e-secret'\n", server.url, server.url)).unwrap();
@@ -297,6 +325,39 @@ fn search_shared_config_env_cli_model_prefix_and_isolated_auth() {
     }
     drop(state);
     server.state.lock().unwrap().requests.clear();
+    let mismatch = Command::new(env!("CARGO_BIN_EXE_code-diver"))
+        .args(["search", "--config"])
+        .arg(&config)
+        .args([
+            "--query",
+            "Alpha",
+            "--embedding-model",
+            "incompatible-model",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(mismatch.status.code(), Some(1));
+    assert!(
+        String::from_utf8_lossy(&mismatch.stderr)
+            .contains("Index metadata embedding model mismatch")
+    );
+    assert!(server.state.lock().unwrap().requests.is_empty());
+    let server = Mock::start();
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("a.md"), "# Alpha\nSearch text").unwrap();
+    success(server.run(
+        dir.path(),
+        &[
+            "--apply",
+            "--embedding-model",
+            "config-model",
+            "--embedding-query-prefix",
+            "query: ",
+        ],
+    ));
+    server.state.lock().unwrap().requests.clear();
+    let config = dir.path().join("services.toml");
+    std::fs::write(&config, format!("catalog = '.code-diver/rust_catalog.jsonl'\ngraph_path = '.code-diver/rust_graph.jsonl'\n[storage.qdrant]\nurl = '{}'\ncollection = 'zz_synthetic'\napi_key = 'q-secret'\n[embedding]\nurl = '{}/embeddings'\nmodel = 'config-model'\nquery_prefix = 'query: '\napi_key = 'e-secret'\n", server.url, server.url)).unwrap();
     success(
         Command::new(env!("CARGO_BIN_EXE_code-diver"))
             .args([
@@ -343,6 +404,215 @@ fn audit_reports_measurable_estimated_candidates_without_exact_parity_claim() {
     assert!(stderr.contains("would_differ_from_python=unknown"));
     assert!(stderr.contains("NOT exact token counts"));
     assert_eq!(server.state.lock().unwrap().requests.len(), 1);
+}
+
+#[test]
+fn doctor_probes_profile_long_rerank_and_freshness_without_writes() {
+    let server = Mock::start();
+    server.state.lock().unwrap().unit_vectors = true;
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("a.md"), "# Alpha\nSearch text").unwrap();
+    success(server.run(dir.path(), &["--apply"]));
+    let model = dir.path().join("model.txt");
+    std::fs::write(&model, "Tree=0\nnum_leaves=1\nleaf_value=0.1\n").unwrap();
+    let llama = dir.path().join("llama-server");
+    std::fs::write(&llama, "#!/bin/sh\nprintf 'version: 9430 (synthetic)\\n'\n").unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&llama, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let metadata_path = dir
+        .path()
+        .join(".code-diver/rust_catalog.jsonl.metadata.json");
+    let mut metadata: Value =
+        serde_json::from_slice(&std::fs::read(&metadata_path).unwrap()).unwrap();
+    let hash = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+    std::fs::write(dir.path().join("synthetic.gguf"), "abc").unwrap();
+    metadata["embedding"]["model_file"] = json!("synthetic.gguf");
+    metadata["embedding"]["sha256"] = json!(hash);
+    metadata["reranker"] = json!({"gguf":"synthetic.gguf","sha256":hash});
+    use sha2::{Digest, Sha256};
+    metadata["meta_ranker"] = json!({"file":"model.txt", "sha256":format!("{:x}", Sha256::digest(std::fs::read(&model).unwrap()))});
+    std::fs::write(&metadata_path, serde_json::to_vec(&metadata).unwrap()).unwrap();
+    let run = |extra: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_code-diver"))
+            .args(["doctor", "--json", "--root"])
+            .arg(dir.path())
+            .args([
+                "--qdrant-url",
+                &server.url,
+                "--qdrant-collection",
+                "zz_synthetic",
+                "--embedding-url",
+                &format!("{}/embeddings", server.url),
+                "--ce-url",
+                &format!("{}/rerank", server.url),
+                "--qdrant-api-key",
+                "q-secret",
+                "--embedding-api-key",
+                "e-secret",
+                "--model",
+            ])
+            .arg(&model)
+            .arg("--llama-server")
+            .arg(&llama)
+            .arg("--models-dir")
+            .arg(dir.path())
+            .args(extra)
+            .output()
+            .unwrap()
+    };
+    server.state.lock().unwrap().requests.clear();
+    let output = run(&[]);
+    assert!(
+        output.status.success(),
+        "{} {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["passed"], true);
+    assert!(report["checks"].as_array().unwrap().iter().all(|c| {
+        if c["name"] == "disk" || c["name"] == "ram" {
+            c["status"] == "PASS" || c["status"] == "WARN"
+        } else {
+            c["status"] == "PASS"
+        }
+    }));
+    {
+        let state = server.state.lock().unwrap();
+        assert!(
+            state
+                .requests
+                .iter()
+                .all(|(first, _, _)| first.starts_with("GET ")
+                    || first.contains("/scroll ")
+                    || first.contains("/embeddings ")
+                    || first.contains("/rerank "))
+        );
+        let long = state
+            .requests
+            .iter()
+            .find(|(_, _, body)| {
+                body["documents"][0]
+                    .as_str()
+                    .is_some_and(|doc| doc.split_whitespace().count() == 2100)
+            })
+            .unwrap();
+        assert!(!long.1.contains("q-secret") && !long.1.contains("e-secret"));
+    }
+    std::fs::write(dir.path().join("synthetic.gguf"), "abd").unwrap();
+    let corrupted = run(&[]);
+    assert_eq!(corrupted.status.code(), Some(1));
+    let report: Value = serde_json::from_slice(&corrupted.stdout).unwrap();
+    for name in ["embedding_model_file", "reranker_model_file"] {
+        let check = report["checks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|c| c["name"] == name)
+            .unwrap();
+        assert_eq!(check["status"], "FAIL");
+        assert!(
+            check["message"]
+                .as_str()
+                .unwrap()
+                .contains("SHA-256 mismatch")
+        );
+    }
+    std::fs::write(dir.path().join("synthetic.gguf"), "abc").unwrap();
+    std::fs::write(&model, "Tree=0\nnum_leaves=1\nleaf_value=0.2\n").unwrap();
+    let mismatched = run(&[]);
+    assert_eq!(mismatched.status.code(), Some(1));
+    let report: Value = serde_json::from_slice(&mismatched.stdout).unwrap();
+    assert!(
+        report["checks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|c| c["name"] == "meta_ranker_integrity" && c["status"] == "FAIL")
+    );
+    std::fs::write(&model, "Tree=0\nnum_leaves=1\nleaf_value=0.1\n").unwrap();
+    std::fs::write(&llama, "#!/bin/sh\nprintf 'version: 9429 (synthetic)\\n'\n").unwrap();
+    let outdated = run(&[]);
+    assert_eq!(outdated.status.code(), Some(1));
+    let report: Value = serde_json::from_slice(&outdated.stdout).unwrap();
+    assert!(
+        report["checks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|c| c["name"] == "llama_server" && c["status"] == "FAIL")
+    );
+    std::fs::write(&llama, "#!/bin/sh\nprintf 'version: 9430 (synthetic)\\n'\n").unwrap();
+    server.state.lock().unwrap().fail_rerank = true;
+    assert_eq!(run(&[]).status.code(), Some(1));
+    let degraded = run(&["--no-require-rerank"]);
+    assert!(degraded.status.success());
+    let report: Value = serde_json::from_slice(&degraded.stdout).unwrap();
+    assert!(
+        report["checks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|c| c["name"].as_str().unwrap().starts_with("rerank_"))
+            .all(|c| c["status"] == "WARN")
+    );
+    server.state.lock().unwrap().fail_rerank = false;
+    server.state.lock().unwrap().unit_vectors = false;
+    let nonunit = run(&[]);
+    assert_eq!(nonunit.status.code(), Some(1));
+    let report: Value = serde_json::from_slice(&nonunit.stdout).unwrap();
+    assert!(
+        report["checks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|c| c["name"] == "embedding"
+                && c["status"] == "FAIL"
+                && c["message"].as_str().unwrap().contains("unit normalized"))
+    );
+    server.state.lock().unwrap().unit_vectors = true;
+    server.state.lock().unwrap().points[0]["payload"]["model"] = json!("wrong-model");
+    let wrong_payload = run(&[]);
+    assert_eq!(wrong_payload.status.code(), Some(1));
+    let report: Value = serde_json::from_slice(&wrong_payload.stdout).unwrap();
+    assert!(
+        report["checks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|c| c["name"] == "stored_embedding_profile" && c["status"] == "FAIL")
+    );
+    server.state.lock().unwrap().points[0]["payload"]["model"] =
+        json!("mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ");
+    std::fs::write(&model, "not a LightGBM model").unwrap();
+    let invalid_model = run(&[]);
+    assert_eq!(invalid_model.status.code(), Some(1));
+    let report: Value = serde_json::from_slice(&invalid_model.stdout).unwrap();
+    assert!(
+        report["checks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|c| c["name"] == "meta_ranker" && c["status"] == "FAIL")
+    );
+    std::fs::write(&model, "Tree=0\nnum_leaves=1\nleaf_value=0.1\n").unwrap();
+    let path = dir
+        .path()
+        .join(".code-diver/rust_catalog.jsonl.metadata.json");
+    let mut metadata: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    metadata["generated_at"] = json!(0);
+    std::fs::write(&path, metadata.to_string()).unwrap();
+    let stale = run(&[]);
+    assert_eq!(stale.status.code(), Some(1));
+    let report: Value = serde_json::from_slice(&stale.stdout).unwrap();
+    assert!(report["checks"].as_array().unwrap().iter().any(|c| {
+        c["name"] == "metadata"
+            && c["status"] == "FAIL"
+            && c["message"]
+                .as_str()
+                .unwrap()
+                .contains("older than 30 days")
+    }));
 }
 
 #[test]

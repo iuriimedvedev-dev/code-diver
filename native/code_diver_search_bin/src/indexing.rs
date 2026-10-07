@@ -40,6 +40,8 @@ pub struct IndexOptions {
     #[arg(long)]
     pub embedding_document_prefix: Option<String>,
     #[arg(long)]
+    pub embedding_query_prefix: Option<String>,
+    #[arg(long)]
     pub max_input_chars: Option<usize>,
     #[arg(long)]
     pub max_input_tokens: Option<usize>,
@@ -97,7 +99,9 @@ pub(crate) fn remote_config(path: Option<&Path>) -> Result<Value, String> {
     };
     let raw = std::fs::read_to_string(path).map_err(|_| "Cannot read index configuration")?;
     if path.extension().is_some_and(|ext| ext == "toml") {
-        return crate::catalog_builder::config::parse(&raw, true);
+        let mut config = crate::catalog_builder::config::parse(&raw, true)?;
+        apply_profile(&mut config)?;
+        return Ok(config);
     }
     // Reuse the scanner's scalar/list reader for the supported service mappings.
     let mut result = json!({});
@@ -105,7 +109,13 @@ pub(crate) fn remote_config(path: Option<&Path>) -> Result<Value, String> {
         if let Some((key, _)) = line.split_once(':')
             && matches!(
                 key,
-                "root" | "catalog" | "graph_path" | "ca_bundle" | "insecure_skip_verify"
+                "root"
+                    | "catalog"
+                    | "graph_path"
+                    | "model"
+                    | "index_metadata"
+                    | "ca_bundle"
+                    | "insecure_skip_verify"
             )
         {
             result[key] = crate::catalog_builder::config::parse(
@@ -115,7 +125,13 @@ pub(crate) fn remote_config(path: Option<&Path>) -> Result<Value, String> {
                 .clone();
         }
     }
-    for section in ["embedding", "indexing"] {
+    for section in [
+        "embedding",
+        "indexing",
+        "search",
+        "cross_encoder_rerank",
+        "profile",
+    ] {
         let mut active = false;
         let mut block = String::from("scanner:\n");
         for line in raw.lines() {
@@ -157,7 +173,48 @@ pub(crate) fn remote_config(path: Option<&Path>) -> Result<Value, String> {
     }
     result["storage"] =
         json!({"qdrant": crate::catalog_builder::config::parse(&block, false)?["scanner"]});
+    apply_profile(&mut result)?;
     Ok(result)
+}
+
+fn apply_profile(config: &mut Value) -> Result<(), String> {
+    let profile = config["profile"].clone();
+    for (key, path) in [
+        ("qdrant_url", &["storage", "qdrant", "url"][..]),
+        (
+            "qdrant_collection",
+            &["storage", "qdrant", "collection"][..],
+        ),
+        ("embedding_url", &["embedding", "url"][..]),
+        ("embedding_model", &["embedding", "model"][..]),
+        ("embedding_dimensions", &["embedding", "dimensions"][..]),
+        ("embedding_query_prefix", &["embedding", "query_prefix"][..]),
+        (
+            "embedding_document_prefix",
+            &["embedding", "document_prefix"][..],
+        ),
+        ("ce_url", &["cross_encoder_rerank", "url"][..]),
+        ("ce_model", &["cross_encoder_rerank", "model"][..]),
+        ("catalog", &["catalog"][..]),
+        ("graph_path", &["graph_path"][..]),
+        ("model", &["model"][..]),
+        ("index_metadata", &["index_metadata"][..]),
+    ] {
+        if profile[key].is_null() {
+            continue;
+        }
+        let mut target = &mut *config;
+        for key in path {
+            if !target.is_null() && !target.is_object() {
+                return Err("Invalid configuration mapping; expected a table".into());
+            }
+            target = &mut target[*key];
+        }
+        if target.is_null() {
+            *target = profile[key].clone();
+        }
+    }
+    Ok(())
 }
 
 pub(crate) fn setting(
@@ -215,6 +272,11 @@ pub(crate) fn configured_path(
 }
 
 pub(crate) fn validate_config(config: &Value) -> Result<(), String> {
+    if !config["search"]["require_rerank"].is_null()
+        && !config["search"]["require_rerank"].is_boolean()
+    {
+        return Err("Invalid search.require_rerank; expected a boolean".into());
+    }
     for (section, fields) in [
         (
             "embedding",
@@ -582,11 +644,18 @@ pub async fn run(
     } else {
         Default::default()
     };
+    let query_prefix = setting(
+        options.embedding_query_prefix.as_deref(),
+        "EMBEDDING_QUERY_PREFIX",
+        None,
+        &embedding["query_prefix"],
+        "",
+    );
     let profile = json!({
         "version": 1, "text_preparation": "unicode-character-fallback-v1",
         "qdrant_url": qurl, "collection": collection, "root": root.to_string_lossy(),
         "embedding_url": eurl, "provider": provider, "model": model,
-        "document_prefix": prefix, "max_input_chars": chars,
+        "document_prefix": prefix, "query_prefix": query_prefix, "max_input_chars": chars,
         "max_input_tokens": tokens, "token_safety_margin": margin,
         "dimensions": dimensions, "send_dimensions": send_dimensions
     });
@@ -732,6 +801,39 @@ pub async fn run(
             "Retained {} removed points; pass --apply --prune to delete",
             diff.deleted.len()
         );
+    }
+    if let Some(dimensions) = existing_dimensions {
+        let path = crate::metadata::sidecar(catalog);
+        let metadata = crate::metadata::Metadata {
+            schema_version: crate::metadata::SCHEMA_VERSION,
+            generated_at: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_err(|_| "System clock precedes Unix epoch")?
+                .as_secs(),
+            collection,
+            extra: Default::default(),
+            embedding: crate::metadata::Embedding {
+                model,
+                dimensions,
+                query_prefix,
+                document_prefix: prefix,
+                extra: [
+                    ("max_input_chars".into(), json!(chars)),
+                    ("max_input_tokens".into(), json!(tokens)),
+                    ("token_safety_margin".into(), json!(margin)),
+                ]
+                .into(),
+            },
+        };
+        let should_write =
+            !path.exists() || !dirty.is_empty() || (options.prune && !diff.deleted.is_empty());
+        if should_write {
+            std::fs::write(
+                path,
+                serde_json::to_vec_pretty(&metadata).map_err(|_| "Cannot encode index metadata")?,
+            )
+            .map_err(|_| "Cannot persist index metadata")?;
+        }
     }
     Ok(())
 }

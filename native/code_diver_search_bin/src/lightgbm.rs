@@ -38,6 +38,11 @@ pub fn load_lightgbm_txt(path: &Path) -> Result<LgbModel, String> {
         }
     }
 
+    if trees.is_empty() {
+        return Err(
+            "Invalid meta-ranker: no loadable trees; supply a valid LightGBM TXT model".into(),
+        );
+    }
     // Determine num_features from the max split_feature index
     for tree in &trees {
         let fi = max_feature_index(tree) + 1;

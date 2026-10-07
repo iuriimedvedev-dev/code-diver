@@ -6,6 +6,27 @@ use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 
 #[tokio::test]
 async fn long_query_preview_and_degraded_search_are_caller_visible() {
+    rerank_failure(false, false, false).await;
+}
+
+#[tokio::test]
+async fn required_rerank_failure_is_mcp_tool_error() {
+    rerank_failure(true, false, false).await;
+}
+
+#[tokio::test]
+async fn slow_reranker_is_strict_error_or_explicit_degradation() {
+    rerank_failure(true, true, false).await;
+    rerank_failure(false, true, false).await;
+}
+
+#[tokio::test]
+async fn second_pass_failure_is_strict_error_or_retains_first_pass_explicitly() {
+    rerank_failure(true, false, true).await;
+    rerank_failure(false, false, true).await;
+}
+
+async fn rerank_failure(strict: bool, slow: bool, second: bool) {
     let root = tempfile::tempdir().unwrap();
     let catalog = root.path().join("catalog.jsonl");
     let graph = root.path().join("graph.jsonl");
@@ -14,7 +35,8 @@ async fn long_query_preview_and_degraded_search_are_caller_visible() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let url = format!("http://{}", listener.local_addr().unwrap());
     let mock = tokio::spawn(async move {
-        for request in 0..6 {
+        let fail_from = if second { 7 } else { 5 };
+        for request in 0..(fail_from + 3) {
             let (mut socket, _) = listener.accept().await.unwrap();
             let mut bytes = Vec::new();
             let (headers, body) = loop {
@@ -44,15 +66,22 @@ async fn long_query_preview_and_degraded_search_are_caller_visible() {
             let mut status = "200 OK";
             let payload = if headers.starts_with("POST /embed ") {
                 assert_eq!(body["input"].as_str().unwrap().len(), 96);
+                assert!(body["input"].as_str().unwrap().starts_with("query: "));
+                assert!(!headers.contains("ce-private-key"));
                 json!({"data":[{"embedding":[1.0,0.0]}]})
             } else if headers.contains("/points/search ") {
+                assert!(!headers.contains("ce-private-key"));
                 json!({"result":[{"id":"hello","score":0.9,"payload":{"item_id":"hello","path":"hello.rs"}}]})
             } else {
                 assert_eq!(body["query"].as_str().unwrap().len(), 10_000);
-                if request == 5 { status = "503 Unavailable"; }
-                json!({"results":[{"index":0,"relevance_score":0.8}]})
+                assert!(headers.contains("Bearer ce-private-key"));
+                if request >= fail_from { status = "503 Unavailable"; }
+                json!({"results":[{"index":0,"relevance_score":if second && [2, 6].contains(&request) { 0.2 } else { 0.8 }}]})
             }.to_string();
-            socket.write_all(format!("HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{payload}", payload.len()).as_bytes()).await.unwrap();
+            if request >= fail_from && slow {
+                tokio::time::sleep(Duration::from_millis(150)).await;
+            }
+            let _ = socket.write_all(format!("HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{payload}", payload.len()).as_bytes()).await;
         }
     });
     let mut s = Session::start(
@@ -68,11 +97,23 @@ async fn long_query_preview_and_degraded_search_are_caller_visible() {
             &url,
             "--ce-url",
             &format!("{url}/v1/rerank"),
-            "--second-pass-disable",
+            "--ce-api-key",
+            "ce-private-key",
+            "--second-pass-floor",
+            if second { "0.3" } else { "0.0" },
             "--embedding-query-token-budget",
             "96",
+            "--embedding-query-prefix",
+            "query: ",
             "--embed-cache-size",
             "0",
+            "--ce-timeout-ms",
+            if slow { "20" } else { "60000" },
+            if strict {
+                "--require-rerank=true"
+            } else {
+                "--no-require-rerank"
+            },
         ],
     );
     s.initialize().await;
@@ -84,6 +125,24 @@ async fn long_query_preview_and_degraded_search_are_caller_visible() {
                 json!({"query":"x".repeat(10_000),"preview_chars":if degraded {5} else {0}}),
             )
             .await;
+        assert!(!result.to_string().contains("ce-private-key"));
+        if degraded && strict {
+            assert_eq!(result["result"]["isError"], true, "{result}");
+            assert!(result.get("error").is_none(), "{result}");
+            let text = result["result"]["content"][0]["text"].as_str().unwrap();
+            assert!(
+                text.contains(if second {
+                    "Required CE second pass failed"
+                } else {
+                    "Required CE first pass failed"
+                }),
+                "{text}"
+            );
+            if slow {
+                assert!(text.contains("timed out"), "{text}");
+            }
+            continue;
+        }
         assert_eq!(result["result"]["isError"], false, "{result}");
         let content = result["result"]["content"].as_array().unwrap();
         assert_eq!(content.len(), 2);
@@ -91,7 +150,14 @@ async fn long_query_preview_and_degraded_search_are_caller_visible() {
         assert!(warning.starts_with("WARNING"));
         assert!(warning.contains("truncated"));
         assert!(warning.contains("Meta-ranker"));
-        assert_eq!(warning.contains("CE reranking unavailable"), degraded);
+        assert_eq!(
+            warning.contains(if second {
+                "Second CE pass failed"
+            } else {
+                "CE reranking unavailable"
+            }),
+            degraded
+        );
         let results: Value = serde_json::from_str(content[0]["text"].as_str().unwrap()).unwrap();
         assert_eq!(results.as_array().unwrap().len(), 1);
         for field in [
@@ -105,8 +171,21 @@ async fn long_query_preview_and_degraded_search_are_caller_visible() {
             assert!(results[0].get(field).is_some(), "{results}");
         }
         if degraded {
+            assert_eq!(
+                result["result"]["structuredContent"]["rerank_applied"],
+                second
+            );
+            assert!(
+                result["result"]["structuredContent"]["rerank_error"]
+                    .as_str()
+                    .is_some()
+            );
             assert_eq!(results[0]["preview"], "first");
-            assert!(results[0]["ce_score"].is_null());
+            assert_eq!(results[0]["ce_score"].is_null(), !second);
+            assert_eq!(
+                result["result"]["structuredContent"]["rerank_second_pass_failed"],
+                second
+            );
         } else {
             assert!(results[0].get("preview").is_none());
             assert!(results[0]["ce_score"].is_number());
