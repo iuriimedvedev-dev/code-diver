@@ -21,14 +21,27 @@
   summary (24) versus manifest (20) import caps.
 - M1 emits only summary/manifest items, with `symbols: []`. Unsupported item
   generation flags set true fail explicitly rather than being silently ignored.
-  Unknown scanner keys warn without logging their potentially sensitive values.
+  Unknown scanner keys and wrong-typed inert settings now fail explicitly;
+  configuration values are never logged.
 - Network prohibition plus the absence of a cached YAML crate forced a scoped
   scanner-section YAML reader. Supported grammar is documented in STATUS;
   anchors/tags/multiline scanner values fail clearly, not silently misparse.
   This is justified temporary debt, not a claim of complete YAML compatibility.
+  Corrective offline cache inspection again found no YAML crate. Inline scanner
+  maps, duplicate sections and nested scanner values fail rather than defaulting.
+  M1 scanner/builder settings are directly covered through `load_config`; full
+  application TOML configuration remains beyond M1.
 - Golden expected templates are manually reference-derived synthetic data;
   neither Python nor the external prototype was executed. Real parity uses only
   the already-existing catalog, with generated Rust data kept under `.tmp/`.
+  Only our synthetic files moved to `tests/fixtures/` as explicitly requested;
+  their README states manual derivation, not Python generation.
+- Comparator validates all required token fields and symbols as string arrays.
+  Diagnostic samples cover missing/extra IDs, first differing content section,
+  metadata field and token field; extras remain a strict failure. Whole generic
+  shared records match 11116/11116, but overall ID sets do not match (78 extras).
+  Enumeration replay is supplemental only, never acceptance evidence replacing
+  the required SPEC-compatible default scan.
 - Required full-crate fmt/Clippy checks exposed baseline style debt. Apply
   mechanical fixes rather than allow/suppress lints or weaken tests. Existing
   tests cover the touched search helpers and remain green.
