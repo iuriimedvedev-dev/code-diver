@@ -1,8 +1,30 @@
 # Code Diver
 
-`code-diver` is a local code exploration assistant and retrieval-evaluation sandbox. It indexes a repository into local artifacts, answers natural-language code-navigation queries with cited files/snippets, and runs reproducible retrieval evaluations.
+`code-diver` is a single Rust executable for code exploration, indexing, search,
+and MCP integration. No Python, Node, or Docker runtime is required.
 
-> **🚀 Standalone Pure Rust Engine**: A single high-performance binary with zero Python dependencies is available in `native/code_diver_search_bin/` and distributed via GitHub Releases. It delivers **+28.7 pp Hit@1** (+75% relative gain) and **+24.4 pp MRR@10** over JetBrains Context (`jbcontext 0.9.14`) on the full 1,065-query IntelliJ benchmark. See [`docs/distribution/STANDALONE_RUST_GUIDE.md`](docs/distribution/STANDALONE_RUST_GUIDE.md), [`docs/architecture/retrieval_and_mcp_architecture.md`](docs/architecture/retrieval_and_mcp_architecture.md), and [`docs/research/LATENCY_AND_1065_BENCHMARK_ANALYSIS.md`](docs/research/LATENCY_AND_1065_BENCHMARK_ANALYSIS.md).
+```sh
+curl -fsSL https://raw.githubusercontent.com/iuriimedvedev-dev/code-diver/HEAD/install.sh | sh
+export PATH="$HOME/.local/bin:$PATH"
+code-diver doctor
+```
+
+The installer verifies SHA256 and runs setup interactively: enter the team profile
+URL or file path, then credentials at the hidden prompt. Run it in a terminal.
+It requires a compatible published
+release; this documentation does not assert current release availability.
+See [the colleague guide](docs/COLLEAGUES.md) for PASS/FAIL checks and recovery.
+After setup, use the binary directly:
+
+```sh
+code-diver index
+code-diver search "Where is configuration loaded?"
+code-diver mcp
+```
+
+`index` previews changes by default; follow its instructions to apply them.
+The research and historical prototype documentation below is separate from this
+single-binary installation path.
 
 ## Benchmark: code-diver v0.2.0 vs jbcontext 0.9.14
 

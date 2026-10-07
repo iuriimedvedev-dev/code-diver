@@ -6,6 +6,20 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- POSIX `install.sh` downloads the configured GitHub release for macOS
+  arm64/x86_64 or Linux aarch64/x86_64, verifies SHA256 before installing to
+  `$HOME/.local/bin`, and runs interactive setup. `INSTALL_DIR` overrides the
+  installation directory independently of `CODE_DIVER_HOME`;
+  `CODE_DIVER_VERSION` and `CODE_DIVER_REPOSITORY` allow pinned installs.
+- Rust release workflow builds, strips and packages all four targets with
+  per-archive `.sha256` files; tag builds publish only after every build succeeds.
+  Manual builds validate packaging without publishing a release.
+- One-page colleague install/setup/doctor/recovery guide and single-binary
+  README introduction. No published release or completed runtime acceptance is
+  claimed by these distribution changes.
+
 ### Changed
 
 - **Rust M5 configuration and health validation implemented.** Query/document
