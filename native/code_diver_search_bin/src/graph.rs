@@ -145,6 +145,21 @@ fn parse_neighbors(json: &str) -> Vec<(String, f64)> {
     let mut result = Vec::new();
     let mut i = 0;
     let bytes = json.as_bytes();
+    // extract_json_array returns the wrapping neighbors array. Skip that
+    // outer '[' when the first element is a nested pair or object so the
+    // wrapper is not consumed as the first neighbor.
+    while i < json.len() && bytes[i].is_ascii_whitespace() {
+        i += 1;
+    }
+    if i < json.len() && bytes[i] == b'[' {
+        let mut j = i + 1;
+        while j < json.len() && bytes[j].is_ascii_whitespace() {
+            j += 1;
+        }
+        if j < json.len() && (bytes[j] == b'[' || bytes[j] == b'{') {
+            i += 1;
+        }
+    }
     while i < json.len() {
         if bytes[i] == b'{' {
             // Object format: {"path":"...","weight":0.8}
@@ -251,5 +266,49 @@ mod tests {
         assert!(result.contains_key("a"));
         assert!(result.contains_key("b"));
         assert!((result["b"] - 0.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn parse_neighbors_keeps_first_nested_array_pair() {
+        assert_eq!(
+            parse_neighbors(r#"[["other.txt",1.0],["third.txt",0.5]]"#),
+            vec![
+                ("other.txt".to_string(), 1.0),
+                ("third.txt".to_string(), 0.5)
+            ]
+        );
+        assert_eq!(
+            parse_neighbors(r#"[["other.txt", 1.0], ["third.txt", 0.5]]"#),
+            vec![
+                ("other.txt".to_string(), 1.0),
+                ("third.txt".to_string(), 0.5)
+            ]
+        );
+        assert_eq!(
+            parse_neighbors(r#"[["only.txt",1.0]]"#),
+            vec![("only.txt".to_string(), 1.0)]
+        );
+    }
+
+    #[test]
+    fn load_graph_reads_shared_array_pair_jsonl() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("rust_graph.jsonl");
+        std::fs::write(
+            &path,
+            r#"{"path":"smoke.txt","neighbors":[["other.txt",1.0],["third.txt",0.5]]}"#,
+        )
+        .unwrap();
+        let graph = load_graph_adjacency(&path).unwrap();
+        assert_eq!(
+            graph.edges.get("smoke.txt").map(Vec::as_slice),
+            Some(
+                [
+                    ("other.txt".to_string(), 1.0),
+                    ("third.txt".to_string(), 0.5)
+                ]
+                .as_slice()
+            )
+        );
     }
 }
