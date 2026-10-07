@@ -8,6 +8,22 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- **Rust M5 configuration and health validation implemented.** Query/document
+  embedding prefixes honor flags, environment, config, profile and index
+  metadata, with an empty legacy fallback; configured Python prefix semantics
+  are preserved. Schema-2 metadata supports the actual hyphenated filename and
+  ISO/unix timestamps, checks artifact hashes, refuses model/dimension/collection
+  mismatches and warns on prefix overrides. `config show` redacts secrets.
+  MCP/doctor require reranking by default; CLI search remains optional with
+  `--no-require-rerank`, and failures in either CE pass are explicit. Doctor
+  reports timed checks/JSON and exits 1 for failures. Long CE requires physical
+  batch/ubatch >=4096, preserving manifest-tested parallel settings.
+  Final joined fmt/Clippy/tests/build passed (554 test executions); real-service
+  doctor runs remain non-green for missing metadata, long CE500 or incompatible
+  models. Paired 80-query prefix testing found only one-query Hit@5/10 differences,
+  not statistical superiority. Daemon/setup/MCP registration remain **M5b**;
+  full evidence and limitations are in `docs/rust-rewrite/STATUS.md`.
+
 - **H-91a (LightGBM meta-ranker) promoted to new champion.** Replaced the hand-tuned `ce_score + hub_prior` additive formula with a learned LambdaRank model (200 trees, 16 features) trained on 856 queries from the 1065-case dataset. WHERE-78: 78.2% → **87.2%** hit@10 (+7 hits), MRR 0.386 → **0.707** (+0.321), hit@1 23% → **63%** (+31). mech150: 88.2% hit@10, MRR 0.817, hit@1 78.2% — all non-regressive. New champion config: `configs/intellij/intellij-h91a-meta-ranker.yml`. Model artifact: `artifacts/ce_meta_ranker/`.
 
 - Hub prior (H-87..H-89): optional fan-in centrality prior for cross-encoder tail re-ordering (`hub_prior_*` settings, default off); new production champion `configs/intellij/intellij-h89a-champion.yml`.

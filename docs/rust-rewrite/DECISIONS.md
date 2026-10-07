@@ -1,5 +1,43 @@
 # Rust rewrite decisions
 
+## 2026-10-07 — M5 accepted scope and evidence
+
+- Accept implemented prefix/configuration, schema-2 metadata compatibility,
+  required-rerank guards and timed JSON doctor checks as M5. Keep daemon, setup
+  and MCP registration in M5b; do not claim full runtime-addendum acceptance.
+- Resolve query/document prefixes from flags/env/config/profile/index metadata
+  with an empty legacy fallback. Preserve stored profile/metadata prefixes and
+  Python's configured-prefix semantics. Explicit prefix overrides warn; model,
+  dimension and collection mismatches fail fast; verify artifact hashes. Support
+  the actual hyphenated metadata filename and ISO/unix timestamps. Redact
+  secrets in `config show`.
+- Default required reranking on for MCP/doctor, keep CLI search optional with
+  `--no-require-rerank`, and expose failures from both CE passes. Long CE needs
+  physical batch/ubatch >=4096 with manifest-tested parallel settings preserved,
+  not an instruction to omit parallel settings. Validation did not change live
+  services or fabricate missing local metadata.
+- Recommend empty query-prefix fallback only for legacy indexes lacking
+  metadata; use recorded prefixes otherwise. Warm persistent paired MCP testing
+  (34 candidates, alternating 80 queries/arm, all 160 reranked, zero excluded)
+  measured OFF Hit@1/5/10 49/69/74 and ON 49/68/73. Exact ON prefix:
+  `Represent this code search query for retrieving relevant files: `.
+  Mean/p50/p95 ms: OFF 4570/4450/6445, ON 4571/4608/6425. Do not claim statistical
+  superiority or equality to the supplied 62.5/86.2/93.8% reference.
+- Final joined fmt/Clippy/tests/build pass with 554 test executions, as reported
+  by implementation/QA; replace provisional 552, not historical dated totals.
+  Live doctor is separately non-green: local/cloud Pier 13 PASS / 2 FAIL (missing
+  metadata, long CE HTTP 500); wrong GGUF cloud model 11 PASS / 4 FAIL (including
+  stored model mismatch and embedder HTTP 404), both exit 1. GGUF metadata plus MLX is refused
+  actionably. Keep these failures visible rather than weakening health checks.
+- Preserve external graph/manifest unchanged; STATUS records sizes and hashes.
+  Keep `.tmp` evidence uncommitted. Environment-only secret retrieval did not
+  prevent exposure in tool execution metadata; the agent unset the read-only
+  cloud key, but operator rotation is required. Never reproduce the credential.
+- Final acceptance independently reran fmt, offline all-target Clippy, all 554
+  native test executions, harness self-test and diff-check successfully. Commit
+  native core/doctor together for shared-config coherence, then harness/docs/M5
+  records; preserve unrelated files and exclude temporary evidence. No push.
+
 ## 2026-10-07 — M4 independent runtime measurement
 
 - Keep live QA read-only: existing Qdrant/services untouched, local release

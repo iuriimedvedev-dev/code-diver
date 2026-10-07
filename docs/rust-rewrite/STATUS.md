@@ -1,5 +1,70 @@
 # Rust rewrite status
 
+## M5 configuration, metadata and health validation — 2026-10-07
+
+M5 is implemented; **M5b runtime automation is not**. Final joined validation
+reported by implementation/QA: `cargo fmt --check`, all-target Clippy
+`-D warnings`, tests (**554 executions**) and build pass. This supersedes the
+earlier M4 test total below; historical measurements remain dated evidence.
+Final acceptance independently reran fmt, offline all-target Clippy, offline
+native tests (554 passed, zero failed/ignored), harness self-test and diff-check.
+
+### Implemented surface
+
+- Query/document embedding prefixes resolve through flags, environment, config,
+  profile and index metadata, with an empty legacy fallback. Profile/metadata
+  prefixes are preserved; Python also honors configured prefixes, so this is
+  not a claim that Python embeds unprefixed text. `config show` redacts secrets.
+- Index metadata supports the actual schema 2, hyphenated filename and ISO/unix
+  timestamps. Model, dimension and collection mismatches are refused; explicit
+  prefix overrides warn, and artifact hashes are checked.
+- Required reranking defaults to true for MCP and doctor. CLI search remains
+  optional, with `--no-require-rerank` available. Failures in either reranking
+  pass are explicit rather than silently presented as successful reranking.
+- Doctor supplies timed checks, JSON output and exit status 1 on failure.
+  Daemon supervision, setup and MCP registration remain M5b work; the current
+  doctor is not proof of the full runtime addendum's acceptance.
+- Long-pair CE correction requires physical batch and microbatch
+  (`batch`/`ubatch`) **at least 4096** while preserving the manifest-tested
+  parallel settings. Omitting parallel settings is not the fix. No live service
+  changes were made during this validation.
+
+### Paired prefix measurement
+
+Warm persistent MCP, candidate count 34, alternating OFF/ON across 80 queries
+per arm; all 160 calls confirmed reranking, with zero calls excluded. ON used
+the exact prefix `Represent this code search query for retrieving relevant files: `
+(including its trailing space).
+
+| Query prefix | Hit@1 | Hit@5 | Hit@10 | Mean / p50 / p95 latency ms |
+|---|---:|---:|---:|---:|
+| OFF | 49/80 (61.25%) | 69/80 (86.25%) | 74/80 (92.50%) | 4570 / 4450 / 6445 |
+| ON | 49/80 (61.25%) | 68/80 (85.00%) | 73/80 (91.25%) | 4571 / 4608 / 6425 |
+
+The supplied reference 62.5% / 86.2% / 93.8% is not identical to this repeat.
+The paired arms differ by one query at Hit@5 and Hit@10; no statistical
+superiority is established. Recommend the measured empty fallback for legacy
+indexes without metadata, and the recorded prefix when profile/metadata exists,
+not an unconditional prefix change for existing indexes.
+
+### Real-service evidence and limits
+
+- Local/cloud `code_diver_pier`: **13 PASS / 2 FAIL, exit 1**. Missing metadata
+  and long-pair CE HTTP 500 remain failures; short rerank, embedder, Qdrant 1024
+  dimensions and stored-model checks passed. No local metadata was fabricated.
+- Cloud Pier with the wrong GGUF model: **11 PASS / 4 FAIL, exit 1**, including
+  stored-model mismatch and embedder HTTP 404. GGUF metadata with an MLX model
+  was rejected with an actionable model-mismatch error. These are
+  non-green real-service checks, not evidence that the automated suite failed.
+- External graph stayed unchanged: 118376 bytes, SHA-256
+  `704c2ee82dbf1df8571d205d2b481040be5d9a3fd6ad3f84c0fb52b8788b81f4`;
+  manifest 118408 bytes, SHA-256
+  `c3413237ee19f0e2f375990ba44eaa10b609e0bc116b9172537997ba52b950cc`.
+- Evidence outputs remain uncommitted under `.tmp`. A read-only cloud credential
+  appeared in tool execution environment metadata despite environment-only
+  retrieval; it was unset by the agent and requires operator rotation. No
+  credential is reproduced here.
+
 ## M4 independent read-only runtime validation — 2026-10-07
 
 M4 surface is implemented: six tools, sandboxed bounded inspection, protocol
