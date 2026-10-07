@@ -24,10 +24,7 @@ fn coverage(query_terms: &[String], candidates: &HashSet<String>) -> f64 {
 }
 
 /// Symbol match score: matches / max(min(len(candidates), len(query_terms)), 1)
-fn symbol_match(
-    query_terms: &[String],
-    candidates: &HashSet<String>,
-) -> f64 {
+fn symbol_match(query_terms: &[String], candidates: &HashSet<String>) -> f64 {
     if candidates.is_empty() {
         return 0.0;
     }
@@ -132,7 +129,8 @@ mod tests {
     #[test]
     fn single_item_matches_all() {
         let items = vec![make_item(
-            "doc1", "/src/foo.py",
+            "doc1",
+            "/src/foo.py",
             &["foo", "bar"],
             &["foo", "bar", "baz"],
             &["foo", "bar"],
@@ -154,7 +152,8 @@ mod tests {
     #[test]
     fn no_match_filtered() {
         let items = vec![make_item(
-            "doc1", "/src/foo.py",
+            "doc1",
+            "/src/foo.py",
             &["aaa"],
             &["bbb"],
             &["ccc"],
@@ -169,7 +168,8 @@ mod tests {
     #[test]
     fn partial_match() {
         let items = vec![make_item(
-            "doc1", "/src/foo.py",
+            "doc1",
+            "/src/foo.py",
             &["foo"],
             &["bar"],
             &["foo"],
@@ -192,7 +192,15 @@ mod tests {
     fn sorting_by_lexical_desc() {
         let items = vec![
             make_item("low", "/low.py", &[], &["foo"], &[], &[], None),
-            make_item("high", "/high.py", &["foo"], &["foo", "bar"], &[], &[], None),
+            make_item(
+                "high",
+                "/high.py",
+                &["foo"],
+                &["foo", "bar"],
+                &[],
+                &[],
+                None,
+            ),
         ];
         let terms: Vec<String> = vec!["foo".to_string(), "bar".to_string()];
         let result = seed_coverages(items, &terms, 10);
@@ -246,16 +254,16 @@ mod tests {
             // Actually tokenize is case-insensitive in Python, but for Rust test we're case-sensitive
             // Let's make it match: metadata has "foo"
             make_item(
-                "with_sym", "/f.py",
-                &[], &[], &[], &["foo", "class"],
+                "with_sym",
+                "/f.py",
+                &[],
+                &[],
+                &[],
+                &["foo", "class"],
                 Some("Foo"),
             ),
             // Without symbol: symbol = meta_cov = 1/2 = 0.5
-            make_item(
-                "no_sym", "/f.py",
-                &[], &[], &[], &["foo", "class"],
-                None,
-            ),
+            make_item("no_sym", "/f.py", &[], &[], &[], &["foo", "class"], None),
         ];
         let terms: Vec<String> = vec!["foo".to_string(), "bar".to_string()];
         let result = seed_coverages(items, &terms, 10);
@@ -270,8 +278,12 @@ mod tests {
     #[test]
     fn symbol_match_zero_when_no_metadata_match() {
         let items = vec![make_item(
-            "doc1", "/f.py",
-            &["foo"], &[], &[], &["zzz"],
+            "doc1",
+            "/f.py",
+            &["foo"],
+            &[],
+            &[],
+            &["zzz"],
             Some("Foo"),
         )];
         let terms: Vec<String> = vec!["foo".to_string()];

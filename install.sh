@@ -3,7 +3,7 @@ set -eu
 
 fail() { printf 'FAIL: %s\n' "$1" >&2; exit 1; }
 repo=${CODE_DIVER_REPOSITORY:-iuriimedvedev-dev/code-diver}
-version=${CODE_DIVER_VERSION:-latest}
+version=${CODE_DIVER_VERSION:-v0.5.0}
 case "$repo" in *[!A-Za-z0-9_./-]*|*..*|/*|*/|'') fail 'Invalid release repository.' ;; esac
 case "$version" in *[!A-Za-z0-9_.-]*|.|..|'') fail 'Invalid release version.' ;; esac
 for tool in curl tar uname mktemp chmod mv mkdir cp rm; do

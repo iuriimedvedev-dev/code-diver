@@ -152,9 +152,17 @@ mod tests {
         let result = search_flat(&query, &flat, &offsets, 10);
         assert_eq!(result.len(), 2);
         assert_eq!(result[0].0, 0, "index 0 (vector [1,0]) should be first");
-        assert!(approx_eq(result[0].1, 1.0), "expected score 1.0, got {}", result[0].1);
+        assert!(
+            approx_eq(result[0].1, 1.0),
+            "expected score 1.0, got {}",
+            result[0].1
+        );
         assert_eq!(result[1].0, 1, "index 1 (vector [0,1]) should be second");
-        assert!(approx_eq(result[1].1, 0.0), "expected score 0.0, got {}", result[1].1);
+        assert!(
+            approx_eq(result[1].1, 0.0),
+            "expected score 0.0, got {}",
+            result[1].1
+        );
     }
 
     #[test]

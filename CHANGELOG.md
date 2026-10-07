@@ -6,6 +6,21 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-07
+
+### M6 distribution and validation
+
+- Rust-only CI runs fmt, Clippy (`-D warnings`) and both crates' tests on Ubuntu
+  and macOS; shell mocks exercise acceptance without Python or a real cluster.
+- Release jobs package a `code-diver` executable for aarch64/x86_64 macOS and
+  Linux (Linux via cross), with `.tar.gz.sha256` files. Publication is tag-gated
+  and requires all builds; manual dispatch never publishes.
+- Installer defaults to `v0.5.0`; README begins with installation, setup, doctor
+  and MCP. Python installation is deprecated; see `docs/DEPRECATION.md`.
+- Repeatable isolated acceptance and nine full-sequence/failure mocks added.
+  Mock success does not establish real shared-collection acceptance or release
+  availability. Four-target builds and publication remain external release gates.
+
 ### Added
 
 - POSIX `install.sh` downloads the configured GitHub release for macOS
@@ -13,7 +28,7 @@ All notable changes to this project are documented here. The format follows
   `$HOME/.local/bin`, and runs interactive setup. `INSTALL_DIR` overrides the
   installation directory independently of `CODE_DIVER_HOME`;
   `CODE_DIVER_VERSION` and `CODE_DIVER_REPOSITORY` allow pinned installs.
-- Rust release workflow builds, strips and packages all four targets with
+- Rust release workflow builds and packages all four targets with
   per-archive `.sha256` files; tag builds publish only after every build succeeds.
   Manual builds validate packaging without publishing a release.
 - One-page colleague install/setup/doctor/recovery guide and single-binary

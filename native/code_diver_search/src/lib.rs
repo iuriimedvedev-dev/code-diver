@@ -12,7 +12,7 @@ pub use file_propagate::{
     FilePropagateParams,
 };
 pub use seed_scores::{seed_coverages, ItemSeedData};
-pub use vector_math::{normalize, dot, search_flat, search_flat_f64};
+pub use vector_math::{dot, normalize, search_flat, search_flat_f64};
 
 #[cfg(feature = "python")]
 use pyo3::exceptions::PyValueError;
@@ -34,7 +34,9 @@ fn normalize_py(vector: Vec<f64>) -> Vec<f64> {
 fn dot_py(left: Vec<f64>, right: Vec<f64>) -> PyResult<f64> {
     if left.len() != right.len() {
         return Err(PyValueError::new_err(format!(
-            "Vector dimension mismatch: {} != {}", left.len(), right.len()
+            "Vector dimension mismatch: {} != {}",
+            left.len(),
+            right.len()
         )));
     }
     Ok(dot(&left, &right))
@@ -103,13 +105,7 @@ impl PyInvertedIndex {
     }
 
     #[pyo3(signature = (terms, k, k1=1.2, b=0.75))]
-    fn bm25_topk(
-        &self,
-        terms: Vec<String>,
-        k: usize,
-        k1: f64,
-        b: f64,
-    ) -> Vec<(String, f64)> {
+    fn bm25_topk(&self, terms: Vec<String>, k: usize, k1: f64, b: f64) -> Vec<(String, f64)> {
         self.inner.bm25_topk(&terms, k, k1, b)
     }
 }
@@ -407,6 +403,6 @@ fn code_diver_search(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(dot_py, m)?)?;
     m.add_function(wrap_pyfunction!(search_flat_py, m)?)?;
     m.add_function(wrap_pyfunction!(search_flat_f64_py, m)?)?;
-    m.add("__version__", "0.2.0")?;
+    m.add("__version__", env!("CARGO_PKG_VERSION"))?;
     Ok(())
 }

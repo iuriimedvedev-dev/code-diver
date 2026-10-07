@@ -1,5 +1,22 @@
 # Rust rewrite status
 
+## M6 distribution — 0.5.0, 2026-10-07
+
+Rust-only Ubuntu/macOS CI and four-target checksummed release packaging are
+implemented. Linux targets use cross; publication requires a version tag and all
+matrix builds. Nine shell acceptance mocks pass (full sequence plus eight injected
+failures), checking owned-process cleanup and secret safety. Real-machine shared
+collection acceptance, four-target compilation and publication have **not** been
+run by this distribution task. `actionlint` is unavailable; workflows were
+carefully reviewed. See [acceptance](../acceptance.md) and
+[deprecation status](../DEPRECATION.md). Older dated results below are historical.
+
+Mandatory CLI CI validates only `native/code_diver_search_bin`: fmt, all-targets
+Clippy/tests and mock acceptance on stock Rust runners, without Python. The legacy
+`native/code_diver_search` PyO3 extension is optional and separately validated by
+its maintainers with Python/PyO3 prerequisites; its uncached PyO3 dependency prevents
+offline validation here and is not a CLI release gate. Both crates remain 0.5.0.
+
 ## M5b local runtime automation — 2026-10-07
 
 **Implemented locally; final offline QA passes; release publication remains pending.**

@@ -6,13 +6,13 @@ and MCP integration. No Python, Node, or Docker runtime is required.
 ```sh
 curl -fsSL https://raw.githubusercontent.com/iuriimedvedev-dev/code-diver/HEAD/install.sh | sh
 export PATH="$HOME/.local/bin:$PATH"
-code-diver doctor
+code-diver doctor --json
 ```
 
 The installer verifies SHA256 and runs setup interactively: enter the team profile
 URL or file path, then credentials at the hidden prompt. Run it in a terminal.
 It requires a compatible published
-release; this documentation does not assert current release availability.
+v0.5.0 release; this documentation does not assert current release availability.
 See [the colleague guide](docs/COLLEAGUES.md) for PASS/FAIL checks and recovery.
 After setup, use the binary directly:
 
@@ -21,6 +21,13 @@ code-diver index
 code-diver search "Where is configuration loaded?"
 code-diver mcp
 ```
+
+For non-interactive setup, use `code-diver setup --yes --no-register --profile /path/to/team.toml --key-file /path/to/private-key`.
+Use `code-diver update-index` to refresh the shared index. Connect your MCP client
+with command `code-diver`, arguments `["mcp"]`, and your repository as its working directory.
+The Python distribution is deprecated for new installations; see
+[deprecation status](docs/DEPRECATION.md). Release maintainers can run the
+[isolated acceptance procedure](docs/acceptance.md).
 
 `index` previews changes by default; follow its instructions to apply them.
 The research and historical prototype documentation below is separate from this
