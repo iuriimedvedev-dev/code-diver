@@ -112,3 +112,70 @@ remain uncommitted under `.tmp/m1/` only. No Python, services or network were us
 M1 code and corrections are locally validated with these explicit acceptance gaps;
 do not mark all SPEC acceptance criteria complete. Initial independent QA completed;
 parent must join this corrective worker before any final independent re-review.
+
+## M2a — 2026-10-07
+
+Implemented dedicated Go and TS/JS shallow extractors, generic fallback when a
+dedicated result is empty, all eight TS/JS routing suffixes, and `catalog-compare`
+lanes `go` and `ts-js`. Synthetic goldens and routing/comparison tests are included.
+M2a implementation and Pier QA are complete; Knotgate acceptance is blocked.
+
+Actual offline validation passed: `cargo fmt`, then
+`cargo clippy --offline --all-targets -- -D warnings` and `cargo test --offline`.
+After removing two redundant agent-created standalone TS harness sources,
+`cargo fmt --check`, Clippy and tests passed again. Counts: **126 unit tests per
+binary + 4 integration tests = 130 distinct tests / 256 executions**, no failures
+or ignored tests. Duplicate-ID stderr is expected from a negative integration
+test. All retained fixtures total **7735 bytes**, below 200 KB.
+
+### Measured M2a Pier parity
+
+Same read-only Pier root, HEAD and reference as M1 above; the reference generation
+revision remains unknown. Exact STATUS scanner config, not blanket includes:
+
+```sh
+BIN=native/code_diver_search_bin/target/debug/code-diver
+PIER=/Users/iurii.medvedev/Work/sre-support-pier
+mkdir -p .tmp/m2a
+"$BIN" index --catalog-only --root "$PIER" --out .tmp/m2a/pier.jsonl \
+  --config "$PIER/.code-diver/code-diver-pier.yml"
+"$BIN" catalog-compare --reference "$PIER/tmp/rust-pier/rust_catalog.jsonl" \
+  --built .tmp/m2a/pier.jsonl --lane go
+"$BIN" catalog-compare --reference "$PIER/tmp/rust-pier/rust_catalog.jsonl" \
+  --built .tmp/m2a/pier.jsonl --lane ts-js
+```
+
+| Lane | Reference/built files | Reference/built items | IDs | Content | Tokens | Embed first500 |
+|---|---:|---:|---:|---:|---:|---:|
+| Go | 2038/2038 | 4076/4076 | 100% | 100% | 100% | 100% |
+| TS/JS | 507/507 | 1014/1014 | 100% | 100% | 100% | 100% |
+| TS subset | 491/491 | 982/982 | 100% | 100% | 100% | 100% |
+
+TS/JS contains 491 `.ts`, 14 `.js` and 2 `.mjs` files, explaining the expected
+TS491 count. Both CLI comparisons exit 0. No unmatched M2a categories exist.
+Read-only JSON analysis checked every shared field; see PARITY.md for the
+whole-catalog differences and the independent first500 definition.
+
+### Knotgate blocker (not parity)
+
+`/Users/iurii.medvedev/Work/knotgate/.code-diver` and its requested
+`rust_catalog.jsonl` do not exist (`stat` evidence). No matching scanner config
+was found in root inspection or tracked code-diver paths. Reference comparison
+cannot run; restore/provide the reference and its config before acceptance.
+
+Supplemental default-config build only:
+
+```sh
+"$BIN" index --catalog-only --root /Users/iurii.medvedev/Work/knotgate \
+  --out .tmp/m2a/knotgate-current-default-1000.jsonl \
+  --tokenize-content-chars 1000
+```
+
+This produced 9220 items / 4610 files, including Go 6/3 and TS/JS 7284/3642.
+The requested cutoff is **2026-10-04**, not 2024. Excluding mtime at or after
+`2026-10-05T00:00:00+02:00` (end of that local calendar day) removes 182 files,
+including 160 TS/JS and zero Go. Eligible totals are 8856 items / 4428 files;
+TS/JS 6964/3482, Go 6/3. These are eligibility counts, **not parity**. Copies and
+checkouts can alter mtime; this heuristic cannot establish snapshot identity.
+Outputs remain uncommitted under `.tmp/m2a/` and Cargo `target`; no network,
+services, external writes or Python code-diver/strategy execution were used.

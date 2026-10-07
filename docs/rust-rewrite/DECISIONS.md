@@ -45,3 +45,25 @@
 - Required full-crate fmt/Clippy checks exposed baseline style debt. Apply
   mechanical fixes rather than allow/suppress lints or weaken tests. Existing
   tests cover the touched search helpers and remain green.
+
+## 2026-10-07 — M2a
+
+- Dedicated Go and TS/JS results replace generic symbols only when nonempty;
+  empty dedicated results retain generic fallback. Match Python recognizer order
+  and shallow extraction quirks rather than introducing AST parsing or broader
+  syntax interpretation. Routing covers `.ts/.tsx/.js/.jsx/.mjs/.cjs/.mts/.cts`.
+- Scanner defaults intentionally omit `.mjs/.cjs/.mts/.cts`, as Python does;
+  explicit includes bypass the suffix filter. Do not expand scanner defaults
+  merely because the router supports those suffixes. Preserve SPEC hidden-file
+  traversal and its documented whole-catalog extras.
+- Pier must use the exact documented config and full-content tokenization, not
+  blanket includes or the Knotgate 1000-character override. Both M2a lanes have
+  100% ID/content/token/embed500 equality; no unmatched M2a categories remain.
+  Remaining shared mismatches are solely the unported Python AST lane.
+- Missing Knotgate reference/config blocks comparison. A default scan and mtime
+  filtering are supplemental evidence only, never substitute parity. Interpret
+  the requested 2026-10-04 cutoff as end of the local day; timestamps cannot prove
+  snapshot identity. The earlier 2024 date in planning was incorrect.
+- Keep useful manually derived synthetic goldens; remove only the two redundant
+  agent-created standalone TS harness source fixtures. Finalization and local
+  logical commits are now explicitly authorized; no push or data-output staging.
