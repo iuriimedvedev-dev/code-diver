@@ -179,3 +179,62 @@ TS/JS 6964/3482, Go 6/3. These are eligibility counts, **not parity**. Copies an
 checkouts can alter mtime; this heuristic cannot establish snapshot identity.
 Outputs remain uncommitted under `.tmp/m2a/` and Cargo `target`; no network,
 services, external writes or Python code-diver/strategy execution were used.
+
+## M2b — Python and Rust, 2026-10-07
+
+Implemented case-insensitive `.py/.pyi` and `.rs` symbol dispatch and comparator
+lanes `python` and `rust`, preserving generic fallback for empty dedicated results.
+Python uses a dependency-free tolerant token/suite parser; Rust ports the Python
+strategy's shallow line regexes, not a Rust grammar. Limitations and rationale
+are recorded in DECISIONS.md; this is not a full Python AST compatibility claim.
+
+Agent 5 reported green offline validation: `cargo test --offline
+catalog_builder::symbols` (35 focused tests), `cargo test --offline --test
+catalog_cli` (5 integrations), `cargo fmt`, `cargo fmt --check`,
+`cargo clippy --offline --all-targets -- -D warnings`, and `cargo test --offline`.
+Full suite: **142 unit tests per binary + 5 integrations = 147 distinct tests /
+289 executions**. Python and Rust each have 8 lane unit tests; the Rust golden
+contains 21 symbols. Goldens are manually reference-derived, not Python-executed.
+These are prior worker results, not tests rerun by this documentation update.
+
+### Measured M2b Pier evidence
+
+Same read-only root/config/reference as above; reference source revision is
+unpinned and freshness unknown. Agent 5 built 16532 records against 16450 in the
+reference, with full-content tokenization:
+
+```sh
+BIN=native/code_diver_search_bin/target/debug/code-diver
+PIER=/Users/iurii.medvedev/Work/sre-support-pier
+"$BIN" index --catalog-only --root "$PIER" \
+  --config "$PIER/.code-diver/code-diver-pier.yml" --out .tmp/m2b/pier-native.jsonl
+"$BIN" catalog-compare --reference "$PIER/tmp/rust-pier/rust_catalog.jsonl" \
+  --built .tmp/m2b/pier-native.jsonl --lane python
+"$BIN" catalog-compare --reference "$PIER/tmp/rust-pier/rust_catalog.jsonl" \
+  --built .tmp/m2b/pier-native.jsonl --lane rust
+```
+
+Python: reference **122 files / 244 records**, built **124 files / 248 records**.
+All 244 common IDs match in content, every token field, embed500, name, kind and
+path (**244/244, 100%**). No missing IDs; four extras are summary/manifest pairs
+for `repos/sre/.github/actions/changed-files/check.py` and `test_check.py`.
+Strict whole-lane ID-set equality is **not 100%**; comparison exits 1. Preserve
+SPEC hidden traversal rather than filter extras. Per-category counts: PARITY.md.
+
+Scoped include-directory inspection after standard exclusions found **126 `.py`
+files, zero `.pyi`, zero `.rs`**. Two empty files,
+`repos/sre-docs/tests/__init__.py` and `tests/sources/__init__.py`, produce no
+records, leaving 124 built Python files. Raw recursive counts were 47319 `.py`,
+2602 `.pyi`, 110 `.rs`; those include excluded temporary/virtualenv trees and
+are irrelevant to the roughly 120 scoped files. All 110 Rust files are under
+excluded `tmp/`.
+
+Pier and IntelliJ references both contain **zero Rust records** (IntelliJ also
+has zero Python records). Pier's empty Rust comparison exits 0 but establishes
+no nonempty real-world Rust parity; only golden/unit/integration validation is
+available. Required next verification: a nonempty pinned Rust reference/config,
+Python reference snapshot/freshness confirmation and hidden-coverage acceptance,
+broader Python grammar/decorator/Unicode cases, plus existing M1/M2a blockers.
+**Not all SPEC gates are met.** Local data/build outputs remain uncommitted under
+`.tmp/m2b/` and Cargo `target`; no network, services, external writes or Python
+code-diver execution. This documentation pass ran only `git diff --check`.
