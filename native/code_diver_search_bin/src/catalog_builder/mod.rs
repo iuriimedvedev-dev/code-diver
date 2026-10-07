@@ -115,7 +115,7 @@ mod tests {
     #[test]
     fn synthetic_reference_templates() {
         let cases: Vec<serde_json::Value> =
-            serde_json::from_str(include_str!("../../tests/goldens/generic.json")).unwrap();
+            serde_json::from_str(include_str!("../../tests/fixtures/generic.json")).unwrap();
         for case in cases {
             let path = case["path"].as_str().unwrap();
             let items = build_records(
