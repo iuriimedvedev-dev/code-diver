@@ -1,225 +1,370 @@
-use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::io::{self, BufRead, Write};
-use std::path::Path;
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::Arc;
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::sync::{Mutex, OnceCell, Semaphore};
+use tokio::task::{AbortHandle, JoinSet};
 
-use crate::pipeline::{SearchContext, search};
+use crate::SearchArgs;
+use crate::pipeline::{SearchContext, init_search_context, search_with_options};
+use crate::types::SearchOptions;
 
-#[derive(Debug, Deserialize)]
-#[allow(dead_code)]
-struct JsonRpcRequest {
-    jsonrpc: String,
-    id: Option<Value>,
-    method: String,
-    params: Option<Value>,
+const MAX_REQUEST_BYTES: usize = 1_048_576;
+const MAX_ACTIVE_CALLS: usize = 128;
+const PROTOCOLS: &[&str] = &["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
+
+pub struct McpConfig {
+    pub args: SearchArgs,
+    pub root_dir: PathBuf,
+    pub max_concurrent_searches: usize,
 }
 
-#[derive(Debug, Serialize)]
-struct JsonRpcResponse {
-    jsonrpc: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    id: Option<Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    result: Option<Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    error: Option<Value>,
+struct Server {
+    config: McpConfig,
+    context: OnceCell<Arc<SearchContext>>,
+    searches: Semaphore,
 }
 
-pub struct McpConfig<'a> {
-    pub ctx: &'a SearchContext,
-    pub root_dir: &'a Path,
+fn error(id: Value, code: i64, message: &str) -> Value {
+    json!({"jsonrpc":"2.0","id":id,"error":{"code":code,"message":message}})
 }
 
-impl<'a> McpConfig<'a> {
-    pub fn new(ctx: &'a SearchContext, root_dir: &'a Path) -> Self {
-        Self { ctx, root_dir }
+fn response(id: Value, result: Value) -> Value {
+    json!({"jsonrpc":"2.0","id":id,"result":result})
+}
+
+fn text_result(text: String, is_error: bool) -> Value {
+    json!({"content":[{"type":"text","text":text}],"isError":is_error})
+}
+
+fn tools(max_limit: usize) -> Value {
+    let tool = |name: &str, description: &str, properties: Value, required: Value| json!({"name":name,"description":description,"inputSchema":{"type":"object","properties":properties,"required":required,"additionalProperties":false}});
+    json!({"tools":[
+        tool("code_diver_search", "Search repository code", json!({"query":{"type":"string","minLength":1},"limit":{"type":"integer","minimum":1,"maximum":max_limit,"default":10},"preview_chars":{"type":"integer","minimum":0,"default":0}}), json!(["query"])),
+        tool("code_diver_read", "Read sandboxed numbered lines", json!({"file":{"type":"string"},"start_line":{"type":"integer","minimum":1,"default":1},"lines":{"type":"integer","minimum":1,"maximum":400,"default":100}}), json!(["file"])),
+        tool("code_diver_grep", "Gitignore-aware text search", json!({"pattern":{"type":"string"},"path":{"type":"string"},"limit":{"type":"integer","minimum":1,"default":50},"regex":{"type":"boolean","default":false}}), json!(["pattern"])),
+        tool("code_diver_symbols", "List source symbols", json!({"path":{"type":"string"},"limit":{"type":"integer","minimum":1,"default":100}}), json!([])),
+        tool("code_diver_tree", "Gitignore-aware directory tree", json!({"path":{"type":"string"},"depth":{"type":"integer","minimum":1,"default":3},"limit":{"type":"integer","minimum":1,"default":100}}), json!([])),
+        tool("code_diver_info", "Configured collection and artifacts", json!({}), json!([]))
+    ]})
+}
+
+impl Server {
+    async fn context(&self) -> Result<&Arc<SearchContext>, String> {
+        self.context
+            .get_or_try_init(|| async {
+                let args = self.config.args.clone();
+                let runtime = tokio::runtime::Handle::current();
+                tokio::task::spawn_blocking(move || {
+                    let (config, _) = crate::build_search_config(&args)?;
+                    runtime.block_on(init_search_context(config)).map(Arc::new)
+                })
+                .await
+                .map_err(|_| "Search initialization worker failed".to_string())?
+            })
+            .await
+    }
+
+    async fn call(&self, name: &str, args: Value) -> Result<Value, String> {
+        if name == "code_diver_search" {
+            let query = args["query"]
+                .as_str()
+                .filter(|q| !q.trim().is_empty())
+                .ok_or("query must be a nonempty string")?;
+            let limit = integer(&args, "limit", 10, false)?;
+            let preview = integer(&args, "preview_chars", 0, true)?;
+            if args.as_object().is_some_and(|m| {
+                m.keys()
+                    .any(|k| !matches!(k.as_str(), "query" | "limit" | "preview_chars"))
+            }) {
+                return Err("Unknown search argument".into());
+            }
+            let _permit = self
+                .searches
+                .acquire()
+                .await
+                .map_err(|_| "Search queue closed")?;
+            let ctx = self.context().await?;
+            let (search_response, _timings) = search_with_options(
+                ctx,
+                query,
+                &SearchOptions {
+                    limit,
+                    preview_chars: preview,
+                },
+            )
+            .await?;
+            let mut results =
+                serde_json::to_value(search_response.results).map_err(|e| e.to_string())?;
+            if let Some(results) = results.as_array_mut() {
+                for result in results {
+                    if result.get("ce_score").is_none() {
+                        result["ce_score"] = Value::Null;
+                    }
+                }
+            }
+            let mut result = text_result(
+                serde_json::to_string(&results).map_err(|e| e.to_string())?,
+                false,
+            );
+            if !search_response.notices.is_empty() {
+                result["content"].as_array_mut().unwrap().push(json!({"type":"text","text":format!("WARNING: {}", search_response.notices.join("; "))}));
+            }
+            return Ok(result);
+        }
+        if name == "code_diver_info" {
+            if !args.as_object().is_some_and(|m| m.is_empty()) {
+                return Err("info accepts no arguments".into());
+            }
+            let info = crate::configured_info(&self.config.args).await?;
+            return Ok(text_result(
+                serde_json::to_string(&info).map_err(|e| e.to_string())?,
+                false,
+            ));
+        }
+        let root = self.config.root_dir.clone();
+        let name = name.to_owned();
+        tokio::task::spawn_blocking(move || {
+            crate::inspection::call(&root, &name, &args).map_err(|e| e.to_string())
+        })
+        .await
+        .map_err(|_| "Inspection worker failed".to_string())?
     }
 }
 
-pub async fn run_mcp_server(config: McpConfig<'_>) -> Result<(), String> {
-    run_mcp_server_raw(config.ctx, config.root_dir).await
+fn integer(args: &Value, key: &str, default: usize, zero: bool) -> Result<usize, String> {
+    match args.get(key) {
+        None => Ok(default),
+        Some(v) => v
+            .as_u64()
+            .and_then(|n| usize::try_from(n).ok())
+            .filter(|n| zero || *n > 0)
+            .ok_or_else(|| {
+                format!(
+                    "{key} must be {} integer",
+                    if zero { "a nonnegative" } else { "a positive" }
+                )
+            }),
+    }
 }
 
-pub async fn run_mcp_server_raw(ctx: &SearchContext, root_dir: &Path) -> Result<(), String> {
-    eprintln!("[code-diver-mcp] Starting native Rust MCP stdio server...");
-    let stdin = io::stdin();
-    let mut reader = stdin.lock();
-    let mut stdout = io::stdout();
+async fn write(stdout: &tokio::sync::mpsc::Sender<Value>, value: Value) -> Result<(), String> {
+    stdout
+        .send(value)
+        .await
+        .map_err(|_| "stdout writer closed".to_string())
+}
 
-    let mut line = String::new();
+// Retain at most one bounded record, but always consume through its delimiter.
+async fn record<R: tokio::io::AsyncBufRead + Unpin>(
+    reader: &mut R,
+) -> Result<Option<Vec<u8>>, String> {
+    let mut data = Vec::new();
+    let mut oversized = false;
     loop {
-        line.clear();
-        let bytes = reader.read_line(&mut line).map_err(|e| e.to_string())?;
-        if bytes == 0 {
-            break;
+        let buf = reader.fill_buf().await.map_err(|e| e.to_string())?;
+        if buf.is_empty() {
+            return if data.is_empty() && !oversized {
+                Ok(None)
+            } else if oversized {
+                Ok(Some(Vec::new()))
+            } else {
+                Ok(Some(data))
+            };
         }
-
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-            continue;
+        let newline = buf.iter().position(|b| *b == b'\n');
+        let n = newline.map_or(buf.len(), |i| i + 1);
+        if !oversized {
+            if data.len().saturating_add(n) > MAX_REQUEST_BYTES {
+                oversized = true;
+                data.clear();
+            } else {
+                data.extend_from_slice(&buf[..n]);
+            }
         }
+        reader.consume(n);
+        if newline.is_some() {
+            return Ok(Some(data));
+        }
+    }
+}
 
-        let req: JsonRpcRequest = match serde_json::from_str(trimmed) {
-            Ok(r) => r,
-            Err(e) => {
-                let err_resp = JsonRpcResponse {
-                    jsonrpc: "2.0".to_string(),
-                    id: None,
-                    result: None,
-                    error: Some(json!({
-                        "code": -32700,
-                        "message": format!("Parse error: {}", e)
-                    })),
-                };
-                let out = serde_json::to_string(&err_resp).unwrap_or_default();
-                writeln!(stdout, "{}", out).map_err(|e| e.to_string())?;
-                stdout.flush().map_err(|e| e.to_string())?;
+pub async fn run_mcp_server(config: McpConfig) -> Result<(), String> {
+    if config.max_concurrent_searches == 0 {
+        return Err("max-concurrent-searches must be positive".into());
+    }
+    let server = Arc::new(Server {
+        searches: Semaphore::new(config.max_concurrent_searches),
+        config,
+        context: OnceCell::new(),
+    });
+    let (stdout, mut responses) = tokio::sync::mpsc::channel::<Value>(MAX_ACTIVE_CALLS);
+    let writer = tokio::spawn(async move {
+        let mut output = tokio::io::stdout();
+        while let Some(value) = responses.recv().await {
+            let mut bytes = serde_json::to_vec(&value).map_err(|e| e.to_string())?;
+            bytes.push(b'\n');
+            output.write_all(&bytes).await.map_err(|e| e.to_string())?;
+            output.flush().await.map_err(|e| e.to_string())?;
+        }
+        Ok::<_, String>(())
+    });
+    let mut reader = BufReader::new(tokio::io::stdin());
+    let mut tasks = JoinSet::new();
+    let active: Arc<Mutex<HashMap<String, AbortHandle>>> = Arc::new(Mutex::new(HashMap::new()));
+    let mut initialized = false;
+    let mut ready = false;
+    while let Some(bytes) = record(&mut reader).await? {
+        while let Some(done) = tasks.try_join_next() {
+            if let Ok(result) = done {
+                result?;
+            }
+        }
+        let value: Value = match serde_json::from_slice(&bytes) {
+            Ok(v) => v,
+            Err(_) => {
+                write(
+                    &stdout,
+                    error(Value::Null, -32700, "Invalid JSON or request exceeds 1 MiB"),
+                )
+                .await?;
                 continue;
             }
         };
-
-        let resp = handle_request(ctx, root_dir, &req).await;
-        if let Some(r) = resp {
-            let out = serde_json::to_string(&r).unwrap_or_default();
-            writeln!(stdout, "{}", out).map_err(|e| e.to_string())?;
-            stdout.flush().map_err(|e| e.to_string())?;
-        }
-    }
-
-    Ok(())
-}
-
-async fn handle_request(
-    ctx: &SearchContext,
-    root_dir: &Path,
-    req: &JsonRpcRequest,
-) -> Option<JsonRpcResponse> {
-    // If it's a notification (no id), we might not send response, except for certain flows.
-    let id = req.id.clone();
-
-    match req.method.as_str() {
-        "initialize" => Some(JsonRpcResponse {
-            jsonrpc: "2.0".to_string(),
-            id,
-            result: Some(json!({
-                "protocolVersion": "2024-11-05",
-                "capabilities": {
-                    "tools": {}
-                },
-                "serverInfo": {
-                    "name": "code-diver",
-                    "version": "0.1.0"
-                }
-            })),
-            error: None,
-        }),
-        "notifications/initialized" => None,
-        "tools/list" => Some(JsonRpcResponse {
-            jsonrpc: "2.0".to_string(),
-            id,
-            result: Some(json!({
-                "tools": [
-                    {
-                        "name": "code_diver_search",
-                        "description": "High-precision neural + BM25 + LightGBM meta-ranker code search.",
-                        "inputSchema": {
-                            "type": "object",
-                            "properties": {
-                                "query": { "type": "string", "description": "Search query describing function or subsystem" },
-                                "limit": { "type": "integer", "description": "Max results to return", "default": 10 }
-                            },
-                            "required": ["query"]
-                        }
+        let id = value.get("id").cloned();
+        let valid_id = id
+            .as_ref()
+            .is_none_or(|v| v.is_string() || v.is_i64() || v.is_u64());
+        let method = value["method"].as_str();
+        if !value.is_object() || value["jsonrpc"] != "2.0" || method.is_none() || !valid_id {
+            write(
+                &stdout,
+                error(
+                    if valid_id {
+                        id.unwrap_or(Value::Null)
+                    } else {
+                        Value::Null
                     },
-                    {
-                        "name": "code_diver_read",
-                        "description": "Read bounded file excerpt with line numbers.",
-                        "inputSchema": {
-                            "type": "object",
-                            "properties": {
-                                "file": { "type": "string", "description": "Relative file path" },
-                                "start_line": { "type": "integer", "default": 1 },
-                                "lines": { "type": "integer", "default": 80 }
-                            },
-                            "required": ["file"]
-                        }
-                    }
-                ]
-            })),
-            error: None,
-        }),
-        "tools/call" => {
-            let params = req.params.as_ref().cloned().unwrap_or(Value::Null);
-            let name = params["name"].as_str().unwrap_or_default();
-            let args = &params["arguments"];
-
-            let call_res = match name {
-                "code_diver_search" => {
-                    let query = args["query"].as_str().unwrap_or_default();
-                    let limit = args["limit"].as_u64().unwrap_or(10) as usize;
-                    match search(ctx, query, limit).await {
-                        Ok((results, _timings)) => {
-                            let text = serde_json::to_string_pretty(&results).unwrap_or_default();
-                            Ok(json!({
-                                "content": [{ "type": "text", "text": text }]
-                            }))
-                        }
-                        Err(e) => Err(format!("Search failed: {}", e)),
-                    }
-                }
-                "code_diver_read" => {
-                    let file = args["file"].as_str().unwrap_or_default();
-                    let start_line = args["start_line"].as_u64().unwrap_or(1) as usize;
-                    let lines_count = args["lines"].as_u64().unwrap_or(80) as usize;
-
-                    let file_path = root_dir.join(file);
-                    match std::fs::read_to_string(&file_path) {
-                        Ok(content) => {
-                            let all_lines: Vec<&str> = content.lines().collect();
-                            let start_idx = if start_line > 0 { start_line - 1 } else { 0 };
-                            let end_idx = (start_idx + lines_count).min(all_lines.len());
-                            let mut excerpt = String::new();
-                            for (i, line) in
-                                all_lines.iter().enumerate().take(end_idx).skip(start_idx)
-                            {
-                                excerpt.push_str(&format!("{:4}: {}\n", i + 1, line));
-                            }
-                            Ok(json!({
-                                "content": [{ "type": "text", "text": excerpt }]
-                            }))
-                        }
-                        Err(e) => Err(format!("Could not read file {}: {}", file, e)),
-                    }
-                }
-                _ => Err(format!("Unknown tool: {}", name)),
-            };
-
-            match call_res {
-                Ok(val) => Some(JsonRpcResponse {
-                    jsonrpc: "2.0".to_string(),
-                    id,
-                    result: Some(val),
-                    error: None,
-                }),
-                Err(err_msg) => Some(JsonRpcResponse {
-                    jsonrpc: "2.0".to_string(),
-                    id,
-                    result: None,
-                    error: Some(json!({
-                        "code": -32603,
-                        "message": err_msg
-                    })),
-                }),
-            }
+                    -32600,
+                    "Invalid JSON-RPC request",
+                ),
+            )
+            .await?;
+            continue;
         }
-        _ => Some(JsonRpcResponse {
-            jsonrpc: "2.0".to_string(),
-            id,
-            result: None,
-            error: Some(json!({
-                "code": -32601,
-                "message": format!("Method not found: {}", req.method)
-            })),
-        }),
+        let method = method.unwrap();
+        let params = value.get("params").cloned().unwrap_or_else(|| json!({}));
+        if !params.is_object() {
+            if let Some(id) = id {
+                write(&stdout, error(id, -32602, "params must be an object")).await?;
+            }
+            continue;
+        }
+        if method == "notifications/cancelled" && id.is_none() {
+            if let Some(id) = params.get("requestId")
+                && let Some(handle) = active.lock().await.remove(&id.to_string())
+            {
+                handle.abort();
+            }
+            continue;
+        }
+        let Some(id) = id else {
+            if method == "notifications/initialized" && initialized {
+                ready = true;
+            }
+            continue;
+        };
+        if active.lock().await.contains_key(&id.to_string()) {
+            write(&stdout, error(id, -32600, "Duplicate active request id")).await?;
+            continue;
+        }
+        let result = match method {
+            "initialize" => {
+                if initialized {
+                    Err((-32600, "Already initialized"))
+                } else if !params["protocolVersion"].is_string()
+                    || !params["capabilities"].is_object()
+                    || !params["clientInfo"]["name"].is_string()
+                    || !params["clientInfo"]["version"].is_string()
+                {
+                    Err((
+                        -32602,
+                        "initialize requires protocolVersion, capabilities and clientInfo",
+                    ))
+                } else {
+                    initialized = true;
+                    let requested = params["protocolVersion"].as_str().unwrap();
+                    let version = if PROTOCOLS.contains(&requested) {
+                        requested
+                    } else {
+                        PROTOCOLS[0]
+                    };
+                    Ok(
+                        json!({"protocolVersion":version,"capabilities":{"tools":{},"resources":{},"prompts":{}},"serverInfo":{"name":"code-diver","version":env!("CARGO_PKG_VERSION")}}),
+                    )
+                }
+            }
+            "ping" => Ok(json!({})),
+            _ if !ready => Err((
+                -32600,
+                "Complete initialize and notifications/initialized first",
+            )),
+            "tools/list" => Ok(tools(crate::configured_candidate_limit(
+                &server.config.args,
+            )?)),
+            "resources/list" => Ok(json!({"resources":[]})),
+            "resources/templates/list" => Ok(json!({"resourceTemplates":[]})),
+            "prompts/list" => Ok(json!({"prompts":[]})),
+            "tools/call" => {
+                let args = params
+                    .get("arguments")
+                    .cloned()
+                    .unwrap_or_else(|| json!({}));
+                if !params["name"].is_string() || !args.is_object() {
+                    Err((-32602, "tools/call requires name and object arguments"))
+                } else if active.lock().await.len() >= MAX_ACTIVE_CALLS {
+                    Err((-32603, "Too many active requests; retry later"))
+                } else {
+                    let name = params["name"].as_str().unwrap().to_string();
+                    let server = server.clone();
+                    let stdout = stdout.clone();
+                    let key = id.to_string();
+                    let task_key = key.clone();
+                    let task_active = active.clone();
+                    let (ready, start) = tokio::sync::oneshot::channel();
+                    let handle = tasks.spawn(async move {
+                        let _ = start.await;
+                        let result = server
+                            .call(&name, args)
+                            .await
+                            .unwrap_or_else(|e| text_result(e, true));
+                        task_active.lock().await.remove(&task_key);
+                        write(&stdout, response(id, result)).await
+                    });
+                    active.lock().await.insert(key, handle);
+                    let _ = ready.send(());
+                    continue;
+                }
+            }
+            _ => Err((-32601, "Method not found")),
+        };
+        write(
+            &stdout,
+            match result {
+                Ok(result) => response(id, result),
+                Err((code, message)) => error(id, code, message),
+            },
+        )
+        .await?;
     }
+    while let Some(done) = tasks.join_next().await {
+        if let Ok(result) = done {
+            result?;
+        }
+    }
+    drop(stdout);
+    writer
+        .await
+        .map_err(|_| "stdout writer failed".to_string())?
 }

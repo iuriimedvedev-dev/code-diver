@@ -237,7 +237,7 @@ struct Suite {
     class: Option<String>,
 }
 
-fn located(text: &str) -> Option<Vec<(usize, Symbol)>> {
+pub(super) fn located(text: &str) -> Option<Vec<(usize, Symbol)>> {
     let statements = statements(text)?;
     let lines = splitlines(text);
     let mut symbols = Vec::new();

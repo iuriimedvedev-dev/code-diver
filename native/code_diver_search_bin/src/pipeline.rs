@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use std::collections::VecDeque;
 use std::fs;
 use std::path::Path;
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 use std::time::Instant;
 
 use crate::bm25::{
@@ -18,13 +18,14 @@ use crate::fusion::{
 use crate::graph::{load_graph_adjacency, propagate_scores};
 use crate::lightgbm::{load_lightgbm_txt, predict};
 use crate::types::{
-    Candidate, Catalog, GraphAdjacency, LgbModel, MetaFeatures, SearchConfig, SearchResult,
+    Candidate, Catalog, GraphAdjacency, LgbModel, MetaFeatures, SearchConfig, SearchOptions,
+    SearchResponse, SearchResult,
 };
 
-/// Context: all data loaded once at startup.
+/// Context: catalog/graph loaded at startup, BM25 initialized on first search.
 pub struct SearchContext {
     pub catalog: Catalog,
-    pub bm25_index: crate::types::Bm25Index,
+    pub bm25_index: OnceLock<crate::types::Bm25Index>,
     pub graph_adjacency: GraphAdjacency,
     pub fan_in_degrees: HashMap<String, f64>,
     pub meta_ranker: Option<LgbModel>,
@@ -35,6 +36,13 @@ pub struct SearchContext {
     /// In-memory LRU cache: query string -> embedding vector.
     /// Capacity 0 = disabled. Shared across server-mode queries via interior mutability.
     pub embed_cache: Mutex<EmbedCache>,
+}
+
+impl SearchContext {
+    pub fn bm25_index(&self) -> &crate::types::Bm25Index {
+        self.bm25_index
+            .get_or_init(|| build_bm25_index(&self.catalog.items))
+    }
 }
 
 /// Bounded in-memory LRU for query embeddings.
@@ -112,10 +120,7 @@ impl EmbedCache {
 /// Embed with the server-mode LRU cache in front. Cache disabled when
 /// `embed_cache_size == 0` (default): behaviour identical to a direct call.
 async fn cached_embed_query(ctx: &SearchContext, query: &str) -> Result<Vec<f64>, String> {
-    let query: String = format!("{}{}", ctx.config.embedding_query_prefix, query)
-        .chars()
-        .take(ctx.config.embedding_query_char_limit)
-        .collect();
+    let (query, _) = prepare_embedding_query(&ctx.config, query)?;
     if ctx.config.embed_cache_size > 0
         && let Ok(mut cache) = ctx.embed_cache.lock()
         && let Some(vector) = cache.get(
@@ -139,6 +144,44 @@ async fn cached_embed_query(ctx: &SearchContext, query: &str) -> Result<Vec<f64>
         cache.put(&query, vector.clone());
     }
     Ok(vector)
+}
+
+/// Bound the embedding input only; lexical/CE/meta ranking still uses the original
+/// query. Without a model tokenizer, UTF-8 bytes are a conservative token upper
+/// bound for byte-fallback tokenizers, not an exact token count.
+pub fn prepare_embedding_query(
+    config: &SearchConfig,
+    query: &str,
+) -> Result<(String, Option<String>), String> {
+    if query.trim().is_empty() {
+        return Err("query must not be empty".into());
+    }
+    if config.embedding_query_token_budget == 0 || config.embedding_query_char_limit == 0 {
+        return Err("embedding query token and character budgets must be positive".into());
+    }
+    let prefix = &config.embedding_query_prefix;
+    if prefix.len() >= config.embedding_query_token_budget
+        || prefix.chars().count() >= config.embedding_query_char_limit
+    {
+        return Err("embedding query prefix exhausts the configured input budget".into());
+    }
+    let bounded = truncate_chars(
+        query,
+        config.embedding_query_char_limit - prefix.chars().count(),
+    );
+    let byte_budget = config.embedding_query_token_budget - prefix.len();
+    let mut end = bounded.len().min(byte_budget);
+    while !bounded.is_char_boundary(end) {
+        end -= 1;
+    }
+    let bounded = &bounded[..end];
+    if bounded.trim().is_empty() {
+        return Err("embedding query budget cannot fit a nonempty query after the prefix".into());
+    }
+    let notice = (bounded.len() != query.len()).then(|| format!(
+        "Embedding query truncated to {} characters (conservative byte-token budget {}, including prefix); lexical and reranking query unchanged.",
+        bounded.chars().count(), config.embedding_query_token_budget));
+    Ok((format!("{prefix}{bounded}"), notice))
 }
 
 /// Timings for performance measurement.
@@ -185,13 +228,7 @@ pub async fn init_search_context(config: SearchConfig) -> Result<SearchContext, 
     let catalog = load_catalog(Path::new(&config.catalog_path))?;
     eprintln!("  Loaded {} items", catalog.items.len());
 
-    eprintln!("Building BM25 index...");
-    let bm25_index = build_bm25_index(&catalog.items);
-    eprintln!(
-        "  {} docs, {} terms",
-        bm25_index.num_docs,
-        bm25_index.postings.len()
-    );
+    let bm25_index = OnceLock::new();
 
     eprintln!("Loading graph adjacency from: {}", config.graph_path);
     let graph_adjacency = load_graph_adjacency(Path::new(&config.graph_path))?;
@@ -253,9 +290,10 @@ pub async fn init_search_context(config: SearchConfig) -> Result<SearchContext, 
 async fn prepare_candidates(
     ctx: &SearchContext,
     query: &str,
-) -> Result<(Vec<Candidate>, SearchTimings), String> {
+) -> Result<(Vec<Candidate>, SearchTimings, Vec<String>), String> {
     let start = Instant::now();
     let mut timings = SearchTimings::default();
+    let mut notices = Vec::new();
 
     // Step 1: Embed the query (server-mode LRU cache in front when enabled)
     let t0 = Instant::now();
@@ -311,11 +349,11 @@ async fn prepare_candidates(
 
     // Step 3: BM25 scoring for all candidates
     let t0 = Instant::now();
-    let bm25_raw = bm25_scores(&ctx.bm25_index, &query_terms, 1.2, 0.75);
+    let bm25_raw = bm25_scores(ctx.bm25_index(), &query_terms, 1.2, 0.75);
     timings.bm25_ms = t0.elapsed().as_secs_f64() * 1000.0;
 
     // Normalize BM25 scores
-    let mut bm25_normalized = bm25_raw.clone();
+    let mut bm25_normalized = bm25_raw;
     normalize_scores(&mut bm25_normalized);
 
     // Merge BM25 scores into candidates
@@ -410,7 +448,7 @@ async fn prepare_candidates(
     timings.fusion_ms = t0.elapsed().as_secs_f64() * 1000.0;
 
     if rerank_candidates.is_empty() {
-        return Ok((vec![], timings));
+        return Ok((vec![], timings, notices));
     }
 
     // Set base fused ranks
@@ -432,7 +470,18 @@ async fn prepare_candidates(
         query,
         &documents,
     )
-    .await?;
+    .await;
+    let ce_scores = match ce_scores {
+        Ok(scores) => scores,
+        Err(e) => {
+            notices.push(format!(
+                "CE reranking unavailable; using fused ranking: {e}"
+            ));
+            sort_by_fused(&mut rerank_candidates);
+            timings.total_ms = start.elapsed().as_secs_f64() * 1000.0;
+            return Ok((rerank_candidates, timings, notices));
+        }
+    };
     timings.ce_first_pass_ms = t0.elapsed().as_secs_f64() * 1000.0;
 
     for (i, score) in ce_scores.iter().enumerate() {
@@ -492,6 +541,7 @@ async fn prepare_candidates(
                     }
                     Err(e) => {
                         eprintln!("  WARNING: Second CE pass failed: {}", e);
+                        notices.push(format!("Second CE pass failed; retaining first pass: {e}"));
                     }
                 }
             }
@@ -503,7 +553,7 @@ async fn prepare_candidates(
     finalize_ce_candidates(&mut rerank_candidates, &ctx.config);
 
     timings.total_ms = start.elapsed().as_secs_f64() * 1000.0;
-    Ok((rerank_candidates, timings))
+    Ok((rerank_candidates, timings, notices))
 }
 
 /// Perform a single search query.
@@ -512,8 +562,36 @@ pub async fn search(
     query: &str,
     limit: usize,
 ) -> Result<(Vec<SearchResult>, SearchTimings), String> {
+    let (response, timings) = search_with_options(
+        ctx,
+        query,
+        &SearchOptions {
+            limit,
+            preview_chars: 0,
+        },
+    )
+    .await?;
+    for notice in response.notices {
+        eprintln!("WARNING: {notice}");
+    }
+    Ok((response.results, timings))
+}
+
+/// MCP/CLI adapter: expose `response.notices` as caller-visible warning text.
+/// Any positive limit within `config.candidate_limit` is supported, not just 34.
+pub async fn search_with_options(
+    ctx: &SearchContext,
+    query: &str,
+    options: &SearchOptions,
+) -> Result<(SearchResponse, SearchTimings), String> {
+    validate_search_options(&ctx.config, options)?;
+    let (_, notice) = prepare_embedding_query(&ctx.config, query)?;
     let start = Instant::now();
-    let (mut rerank_candidates, mut timings) = prepare_candidates(ctx, query).await?;
+    let (mut rerank_candidates, mut timings, mut notices) = prepare_candidates(ctx, query).await?;
+    notices.extend(notice);
+    if ctx.meta_ranker.is_none() {
+        notices.push("Meta-ranker unavailable; using CE/fused ranking".into());
+    }
 
     // Step 9: Apply meta-ranker
     let t0 = Instant::now();
@@ -542,23 +620,89 @@ pub async fn search(
     timings.total_ms = start.elapsed().as_secs_f64() * 1000.0;
 
     // Build final results
+    let ce_available = !notices
+        .iter()
+        .any(|n| n.starts_with("CE reranking unavailable"));
     let results: Vec<SearchResult> = rerank_candidates
         .into_iter()
-        .take(limit)
-        .map(|c| SearchResult {
-            item_id: c.item_id,
-            path: c.path,
-            score: c.meta_score.max(c.ce_score_final).max(c.fused_score),
-            ce_score: Some(c.ce_score_final),
-            meta_score: if c.meta_score != 0.0 {
-                Some(c.meta_score)
-            } else {
-                None
-            },
+        .take(options.limit)
+        .map(|c| {
+            let (start_line, end_line, preview) =
+                result_content_metadata(&c, &ctx.config, options.preview_chars);
+            let score = final_ordering_score(&c, ctx.meta_ranker.is_some(), ce_available);
+            SearchResult {
+                title: ce_title(&c).to_string(),
+                start_line,
+                end_line,
+                preview,
+                item_id: c.item_id,
+                path: c.path,
+                score,
+                ce_score: ce_available.then_some(c.ce_score_final),
+                meta_score: ctx.meta_ranker.is_some().then_some(c.meta_score),
+            }
         })
         .collect();
 
-    Ok((results, timings))
+    Ok((SearchResponse { results, notices }, timings))
+}
+
+fn final_ordering_score(candidate: &Candidate, meta_available: bool, ce_available: bool) -> f64 {
+    if meta_available {
+        candidate.meta_score
+    } else if ce_available {
+        candidate.ce_score_final
+    } else {
+        candidate.fused_score
+    }
+}
+
+pub fn validate_search_options(
+    config: &SearchConfig,
+    options: &SearchOptions,
+) -> Result<(), String> {
+    if options.limit == 0 || options.limit > config.candidate_limit {
+        return Err(format!(
+            "search limit must be in 1..={} (got {}); increase the configured candidate_limit to request more results",
+            config.candidate_limit, options.limit
+        ));
+    }
+    Ok(())
+}
+
+/// Exact catalog snippets found in readable source report their inclusive source
+/// range. Generated metadata (or absent source) falls back to the whole available
+/// content: source if readable, catalog otherwise. No source I/O without base_path.
+pub fn result_content_metadata(
+    candidate: &Candidate,
+    config: &SearchConfig,
+    preview_chars: usize,
+) -> (usize, usize, Option<String>) {
+    let source = if config.base_path.is_empty() {
+        None
+    } else {
+        // Metadata must not expose source outside the configured root.
+        fs::canonicalize(&config.base_path).ok().and_then(|root| {
+            fs::canonicalize(root.join(&candidate.path))
+                .ok()
+                .filter(|path| path.starts_with(&root))
+                .and_then(|path| fs::read_to_string(path).ok())
+        })
+    };
+    let catalog_content = candidate.content.as_deref().unwrap_or("");
+    let mut content = source.as_deref().unwrap_or(catalog_content);
+    let mut start_line = 1;
+    if let Some(source) = source.as_deref()
+        && !catalog_content.is_empty()
+        && let Some(offset) = source.find(catalog_content)
+        && (offset == 0 || source.as_bytes()[offset - 1] == b'\n')
+    {
+        start_line += source[..offset].bytes().filter(|&b| b == b'\n').count();
+        content = catalog_content;
+    }
+    let end_line = start_line + content.lines().count().max(1) - 1;
+    let preview = (preview_chars > 0).then(|| truncate_chars(content, preview_chars).to_string());
+    (start_line, end_line, preview)
 }
 
 // ============================================================================
@@ -930,7 +1074,10 @@ async fn dump_features_single(
     expected_set: &HashSet<String>,
 ) -> Result<usize, String> {
     let start = Instant::now();
-    let (rerank_candidates, _) = prepare_candidates(ctx, query).await?;
+    let (rerank_candidates, _, notices) = prepare_candidates(ctx, query).await?;
+    if !notices.is_empty() {
+        return Err(notices.join("; "));
+    }
 
     let feature_rows = candidate_features(&rerank_candidates, query, &ctx.fan_in_degrees);
     let elapsed_s = start.elapsed().as_secs_f64();
@@ -963,6 +1110,65 @@ async fn dump_features_single(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn final_ordering_score_matches_comparator_without_reordering() {
+        let candidates = vec![
+            Candidate {
+                item_id: "a".into(),
+                meta_score: -2.0,
+                ce_score: -1.0,
+                ce_score_final: -1.0,
+                fused_score: 0.9,
+                ..Default::default()
+            },
+            Candidate {
+                item_id: "b".into(),
+                meta_score: 0.0,
+                ce_score: -3.0,
+                ce_score_final: -3.0,
+                fused_score: 0.1,
+                ..Default::default()
+            },
+            Candidate {
+                item_id: "c".into(),
+                meta_score: -1.0,
+                ce_score: -2.0,
+                ce_score_final: -2.0,
+                fused_score: 0.5,
+                ..Default::default()
+            },
+        ];
+        for (meta, ce, ids, scores) in [
+            (true, true, ["b", "c", "a"], [0.0, -1.0, -2.0]),
+            (true, false, ["b", "c", "a"], [0.0, -1.0, -2.0]),
+            (false, true, ["a", "c", "b"], [-1.0, -2.0, -3.0]),
+            (false, false, ["a", "c", "b"], [0.9, 0.5, 0.1]),
+        ] {
+            let mut ordered = candidates.clone();
+            if meta {
+                sort_by_meta(&mut ordered);
+            } else if ce {
+                sort_by_ce(&mut ordered);
+            } else {
+                sort_by_fused(&mut ordered);
+            }
+            assert_eq!(
+                ordered
+                    .iter()
+                    .map(|c| c.item_id.as_str())
+                    .collect::<Vec<_>>(),
+                ids
+            );
+            assert_eq!(
+                ordered
+                    .iter()
+                    .map(|c| final_ordering_score(c, meta, ce))
+                    .collect::<Vec<_>>(),
+                scores
+            );
+        }
+    }
 
     #[test]
     fn embed_cache_disabled_returns_none() {

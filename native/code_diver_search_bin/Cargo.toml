@@ -13,6 +13,7 @@ name = "code_diver_search_bin"
 path = "src/compat_main.rs"
 
 [dependencies]
+anyhow = "1"
 clap = { version = "4.6.6", features = ["derive"] }
 ignore = "0.4.33"
 regex = "1.13.1"

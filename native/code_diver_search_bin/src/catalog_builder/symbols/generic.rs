@@ -28,7 +28,7 @@ const DEDICATED_EXTS: &[&str] = &[
 static MARKDOWN_HEADER_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^(#{1,6})\s+(.+)$").unwrap());
 
-static GENERIC_SYMBOL_RE: LazyLock<Regex> = LazyLock::new(|| {
+pub(super) static GENERIC_SYMBOL_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
         r"(?m)^\s*(?:export\s+)?(?:pub(?:\([^)]+\))?\s+)?(?:async\s+)?(?:class|interface|trait|type|function|def|fn|struct|enum)\s+([A-Za-z_][\w$]*)|^\s*func\s+(?:\([^)]+\)\s+)?([A-Za-z_]\w*)|^\s*impl(?:\s*<[^>]+>)?\s+(?:[A-Za-z_]\w+\s+for\s+)?([A-Za-z_]\w*)|^\s*(?:export\s+)?const\s+([A-Za-z_][\w$]*)\s*=",
     )

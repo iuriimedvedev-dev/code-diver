@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
+use std::sync::Arc;
 
 use crate::types::{Catalog, CatalogItem};
 
@@ -10,14 +11,30 @@ pub fn load_catalog(path: &Path) -> Result<Catalog, String> {
     let file = File::open(path).map_err(|e| format!("Cannot open catalog: {}", e))?;
     let reader = BufReader::new(file);
     let mut items = Vec::new();
+    let mut tokens: rustc_hash::FxHashSet<Arc<str>> = Default::default();
 
     for (line_num, line) in reader.lines().enumerate() {
         let line = line.map_err(|e| format!("Line {}: {}", line_num + 1, e))?;
         if line.trim().is_empty() {
             continue;
         }
-        let item: CatalogItem =
+        let mut item: CatalogItem =
             serde_json::from_str(&line).map_err(|e| format!("Line {}: {}", line_num + 1, e))?;
+        for field in [
+            &mut item.tokenized_name,
+            &mut item.tokenized_path,
+            &mut item.tokenized_dir,
+            &mut item.tokenized_content,
+        ] {
+            for token in field.iter_mut() {
+                if let Some(shared) = tokens.get(token.as_str()) {
+                    token.0 = Arc::clone(shared);
+                } else {
+                    tokens.insert(Arc::clone(&token.0));
+                }
+            }
+            field.shrink_to_fit();
+        }
         items.push(item);
     }
 

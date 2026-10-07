@@ -79,7 +79,7 @@ fn split_words(value: &str) -> impl Iterator<Item = &str> {
         .filter(|word| !word.is_empty())
 }
 
-fn extract_numbered(text: &str) -> Vec<(usize, Symbol)> {
+pub(super) fn extract_numbered(text: &str) -> Vec<(usize, Symbol)> {
     let lines = splitlines(text);
     let mut symbols = Vec::new();
     for (index, line) in lines.iter().enumerate() {

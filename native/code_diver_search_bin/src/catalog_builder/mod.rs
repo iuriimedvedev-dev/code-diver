@@ -49,14 +49,26 @@ fn record(path: &str, kind: &str, content: String, chars: usize) -> CatalogItem 
         id: ids::item_id(path, kind),
         path: path.into(),
         kind: kind.into(),
-        tokenized_name: tokenize::tokenize(&name),
-        tokenized_path: tokenize::tokenize(path),
-        tokenized_dir: tokenize::tokenize(dir),
+        tokenized_name: tokenize::tokenize(&name)
+            .into_iter()
+            .map(Into::into)
+            .collect(),
+        tokenized_path: tokenize::tokenize(path)
+            .into_iter()
+            .map(Into::into)
+            .collect(),
+        tokenized_dir: tokenize::tokenize(dir)
+            .into_iter()
+            .map(Into::into)
+            .collect(),
         tokenized_content: tokenize::tokenize(if chars == 0 {
             &content
         } else {
             pytext::prefix(&content, chars)
-        }),
+        })
+        .into_iter()
+        .map(Into::into)
+        .collect(),
         name,
         content,
         symbols: vec![],

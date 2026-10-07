@@ -1,16 +1,105 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::Arc;
+
+/// Shared catalog token. JSON remains a string; catalog loading interns exact bytes.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct CatalogToken(pub Arc<str>);
+
+impl PartialEq<&str> for CatalogToken {
+    fn eq(&self, other: &&str) -> bool {
+        self.as_str() == *other
+    }
+}
+
+impl CatalogToken {
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::ops::Deref for CatalogToken {
+    type Target = str;
+    fn deref(&self) -> &str {
+        self.as_str()
+    }
+}
+
+impl From<String> for CatalogToken {
+    fn from(value: String) -> Self {
+        Self(Arc::from(value))
+    }
+}
+
+impl From<&str> for CatalogToken {
+    fn from(value: &str) -> Self {
+        Self(Arc::from(value))
+    }
+}
+
+impl Serialize for CatalogToken {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for CatalogToken {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        String::deserialize(deserializer).map(Self::from)
+    }
+}
 
 /// A single search result: a file path with a relevance score.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchResult {
     pub item_id: String,
     pub path: String,
+    /// Final ordering signal: meta prediction, adjusted CE, or degraded fused score.
+    /// CE epsilon ties may use fused score as a secondary ordering key.
     pub score: f64,
+    #[serde(default)]
+    pub title: String,
+    /// Inclusive source lines when source is readable; otherwise catalog-content lines.
+    /// Empty content uses the nonempty fallback range 1..=1.
+    #[serde(default = "first_line")]
+    pub start_line: usize,
+    #[serde(default = "first_line")]
+    pub end_line: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preview: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ce_score: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub meta_score: Option<f64>,
+}
+
+fn first_line() -> usize {
+    1
+}
+
+/// Request options for the search adapter. The configured candidate window is
+/// authoritative: requests exceeding it fail instead of silently returning 34.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SearchOptions {
+    pub limit: usize,
+    pub preview_chars: usize,
+}
+
+impl Default for SearchOptions {
+    fn default() -> Self {
+        Self {
+            limit: 10,
+            preview_chars: 0,
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+pub struct SearchResponse {
+    pub results: Vec<SearchResult>,
+    /// Adapters (including MCP) must expose these notices to their callers.
+    pub notices: Vec<String>,
 }
 
 /// A catalog item as loaded from JSONL.
@@ -29,13 +118,13 @@ pub struct CatalogItem {
     #[serde(default)]
     pub symbols: Vec<String>,
     #[serde(default)]
-    pub tokenized_name: Vec<String>,
+    pub tokenized_name: Vec<CatalogToken>,
     #[serde(default)]
-    pub tokenized_path: Vec<String>,
+    pub tokenized_path: Vec<CatalogToken>,
     #[serde(default)]
-    pub tokenized_dir: Vec<String>,
+    pub tokenized_dir: Vec<CatalogToken>,
     #[serde(default)]
-    pub tokenized_content: Vec<String>,
+    pub tokenized_content: Vec<CatalogToken>,
 }
 
 /// The full catalog: all items, indexed by id and by path.
@@ -51,16 +140,21 @@ pub struct Catalog {
 /// BM25 index data.
 #[derive(Debug, Clone)]
 pub struct Bm25Index {
-    /// Mapping: doc_id -> doc_idx
+    /// Mapping: doc_idx -> doc_id
     pub doc_ids: Vec<String>,
+    /// Unused reverse lookup retained for source compatibility, intentionally empty.
+    #[allow(dead_code)]
     pub doc_id_to_idx: rustc_hash::FxHashMap<String, usize>,
     /// doc_idx -> document length in tokens
     pub doc_lengths: Vec<u32>,
     /// term -> list of (doc_idx, term_frequency)
     pub inverted_index: rustc_hash::FxHashMap<String, Vec<(u32, u32)>>,
-    /// Legacy compatibility fields
+    /// Legacy compatibility fields, intentionally empty: scoring uses the compact index.
+    #[allow(dead_code)]
     pub term_frequencies: HashMap<String, HashMap<String, u32>>,
+    #[allow(dead_code)]
     pub document_lengths: HashMap<String, u32>,
+    #[allow(dead_code)]
     pub postings: HashMap<String, Vec<String>>,
     /// average document length
     pub avgdl: f64,
@@ -217,6 +311,10 @@ pub struct SearchConfig {
     pub embedding_query_prefix: String,
     #[serde(default = "default_embedding_query_char_limit")]
     pub embedding_query_char_limit: usize,
+    /// Conservative byte-token upper bound, including prefix; reserves 32 tokens
+    /// for model-added tokens at the default 512-token endpoint. Not a tokenizer.
+    #[serde(default = "default_embedding_query_token_budget")]
+    pub embedding_query_token_budget: usize,
     #[serde(skip)]
     pub qdrant_api_key: crate::index_net::Secret,
     #[serde(skip)]
@@ -258,6 +356,10 @@ fn default_embedding_model() -> String {
 
 fn default_embedding_query_char_limit() -> usize {
     (512 - 32) * 3
+}
+
+fn default_embedding_query_token_budget() -> usize {
+    512 - 32
 }
 
 fn default_retrieval_limit() -> usize {
@@ -324,6 +426,7 @@ impl Default for SearchConfig {
             embedding_model: crate::embedding::EMBED_MODEL.to_string(),
             embedding_query_prefix: String::new(),
             embedding_query_char_limit: default_embedding_query_char_limit(),
+            embedding_query_token_budget: default_embedding_query_token_budget(),
             qdrant_api_key: Default::default(),
             qdrant_bearer: Default::default(),
             embedding_api_key: Default::default(),

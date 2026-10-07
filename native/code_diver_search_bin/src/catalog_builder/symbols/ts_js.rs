@@ -28,12 +28,12 @@ static RULES: LazyLock<Vec<(Regex, &str)>> = LazyLock::new(|| {
     .collect()
 });
 
-struct LocatedSymbol {
-    line: usize,
-    symbol: Symbol,
+pub(super) struct LocatedSymbol {
+    pub(super) line: usize,
+    pub(super) symbol: Symbol,
 }
 
-fn located_symbols(text: &str) -> Vec<LocatedSymbol> {
+pub(super) fn located_symbols(text: &str) -> Vec<LocatedSymbol> {
     let mut symbols = Vec::new();
     for (index, line) in splitlines(text).into_iter().enumerate() {
         let stripped = strip(line);

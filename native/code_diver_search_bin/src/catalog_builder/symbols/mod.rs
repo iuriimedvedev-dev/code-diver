@@ -3,6 +3,8 @@ pub mod generic;
 pub mod go;
 pub mod jvm;
 pub mod python;
+mod ranges;
+pub use ranges::extract_ranges;
 pub mod rust_lang;
 pub mod ts_js;
 pub use generic::{Symbol, has_dedicated_strategy, limit_symbols, suffix_lower};

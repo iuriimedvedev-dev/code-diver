@@ -9,6 +9,7 @@ mod index_net;
 mod index_update;
 mod indexing;
 pub mod info;
+mod inspection;
 mod lightgbm;
 pub mod mcp;
 mod pipeline;
@@ -27,7 +28,8 @@ use crate::types::{SearchConfig, resolve_candidate_limit, resolve_second_pass};
 
 #[derive(Parser, Debug)]
 #[command(
-    name = "code-diver-search",
+    name = "code-diver",
+    version,
     about = "Pure Rust search pipeline for code-diver",
     args_conflicts_with_subcommands = true
 )]
@@ -41,6 +43,14 @@ pub struct Cli {
 
 #[derive(clap::Subcommand, Debug, Clone)]
 pub enum Commands {
+    /// Read sandboxed numbered lines
+    Read(ReadArgs),
+    /// Search repository text
+    Grep(GrepArgs),
+    /// Render a repository tree
+    Tree(TreeArgs),
+    /// List source symbols
+    Symbols(SymbolsArgs),
     /// Build a catalog without contacting any services
     Index(catalog_builder::cli::IndexArgs),
 
@@ -61,6 +71,16 @@ pub enum Commands {
 
 #[derive(clap::Args, Debug, Clone)]
 pub struct InfoArgs {
+    #[arg(long)]
+    pub config: Option<PathBuf>,
+    #[arg(long)]
+    pub root: Option<PathBuf>,
+    #[arg(long, default_value = "")]
+    pub qdrant_collection: String,
+    #[arg(long)]
+    pub model: Option<String>,
+    #[arg(long)]
+    pub json: bool,
     /// Path to catalog JSONL file (defaults to ./artifacts/rust_catalog.jsonl or /tmp/rust_catalog.jsonl)
     #[arg(short = 'c', long)]
     pub catalog: Option<String>,
@@ -107,12 +127,16 @@ pub struct DoctorArgs {
 
 #[derive(clap::Args, Debug, Clone)]
 pub struct McpArgs {
+    #[arg(long, default_value_t = 2)]
+    pub max_concurrent_searches: usize,
     #[command(flatten)]
     pub search: SearchArgs,
 }
 
 #[derive(clap::Args, Debug, Clone)]
 pub struct SearchArgs {
+    #[arg(long)]
+    pub root: Option<PathBuf>,
     #[arg(long)]
     pub config: Option<PathBuf>,
     #[arg(long)]
@@ -230,8 +254,12 @@ pub struct SearchArgs {
     pub tie_break_epsilon: f64,
 
     /// Candidate limit for CE rerank (first pass window)
-    #[arg(long, default_value = "34")]
-    pub candidate_limit: usize,
+    #[arg(long)]
+    pub candidate_limit: Option<usize>,
+
+    /// Conservative embedding query token budget, including the prefix
+    #[arg(long)]
+    pub embedding_query_token_budget: Option<usize>,
 
     /// Alias for --candidate-limit: first-pass CE window size (1..=512).
     /// When present, wins over --candidate-limit.
@@ -342,11 +370,268 @@ impl SearchArgs {
 
 pub type Args = SearchArgs;
 
+#[derive(clap::Args, Debug, Clone)]
+pub struct InspectionArgs {
+    #[arg(long)]
+    pub root: Option<PathBuf>,
+    #[arg(long)]
+    pub config: Option<PathBuf>,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(clap::Args, Debug, Clone)]
+pub struct ReadArgs {
+    pub file: String,
+    #[arg(long, default_value_t = 1)]
+    pub start_line: usize,
+    #[arg(long, default_value_t = 100)]
+    pub lines: usize,
+    #[command(flatten)]
+    pub common: InspectionArgs,
+}
+
+#[derive(clap::Args, Debug, Clone)]
+pub struct GrepArgs {
+    pub pattern: String,
+    #[arg(long)]
+    pub path: Option<String>,
+    #[arg(long, default_value_t = 50)]
+    pub limit: usize,
+    #[arg(long)]
+    pub regex: bool,
+    #[command(flatten)]
+    pub common: InspectionArgs,
+}
+
+#[derive(clap::Args, Debug, Clone)]
+pub struct TreeArgs {
+    pub path: Option<String>,
+    #[arg(long, default_value_t = 3)]
+    pub depth: usize,
+    #[arg(long, default_value_t = 100)]
+    pub limit: usize,
+    #[command(flatten)]
+    pub common: InspectionArgs,
+}
+
+#[derive(clap::Args, Debug, Clone)]
+pub struct SymbolsArgs {
+    pub path: Option<String>,
+    #[arg(long, default_value_t = 200)]
+    pub limit: usize,
+    #[command(flatten)]
+    pub common: InspectionArgs,
+}
+
+fn inspection_root(root: Option<&Path>, config: Option<&Path>) -> Result<PathBuf, String> {
+    let config = config
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("CODE_DIVER_CONFIG").map(PathBuf::from));
+    let remote = indexing::remote_config(config.as_deref())?;
+    Ok(indexing::configured_path(
+        root,
+        "ROOT",
+        &remote["root"],
+        config.as_deref(),
+        Path::new("."),
+    ))
+}
+
+fn run_inspection_cli(
+    tool: &str,
+    common: &InspectionArgs,
+    mut args: serde_json::Value,
+) -> Result<(), String> {
+    if let Some(object) = args.as_object_mut() {
+        object.retain(|_, value| !value.is_null());
+    }
+    let root = inspection_root(common.root.as_deref(), common.config.as_deref())?;
+    let result = inspection::call(&root, tool, &args).map_err(|e| e.to_string())?;
+    if common.json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&result).map_err(|e| e.to_string())?
+        );
+    } else if let Some(content) = result["content"].as_array() {
+        for item in content {
+            if let Some(text) = item["text"].as_str() {
+                if tool == "code_diver_symbols" {
+                    let symbols: Vec<serde_json::Value> =
+                        serde_json::from_str(text).map_err(|e| e.to_string())?;
+                    for symbol in symbols {
+                        println!(
+                            "{}:{}: {} {} - {}",
+                            symbol["path"].as_str().ok_or("Missing symbol path")?,
+                            symbol["startLine"]
+                                .as_u64()
+                                .ok_or("Missing symbol startLine")?,
+                            symbol["kind"].as_str().ok_or("Missing symbol kind")?,
+                            symbol["name"].as_str().ok_or("Missing symbol name")?,
+                            symbol["signature"]
+                                .as_str()
+                                .ok_or("Missing symbol signature")?,
+                        );
+                    }
+                } else {
+                    println!("{text}");
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+async fn configured_info(args: &SearchArgs) -> Result<info::NativeInfo, String> {
+    collect_configured_info(
+        args.config.as_deref(),
+        args.catalog.as_deref(),
+        args.graph.as_deref(),
+        args.model.as_deref(),
+        args.qdrant_url.as_deref(),
+        &args.qdrant_collection,
+        Some(args),
+    )
+    .await
+}
+
+async fn collect_configured_info(
+    config: Option<&Path>,
+    catalog: Option<&str>,
+    graph: Option<&str>,
+    model: Option<&str>,
+    url: Option<&str>,
+    collection: &str,
+    overrides: Option<&SearchArgs>,
+) -> Result<info::NativeInfo, String> {
+    let config = config
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("CODE_DIVER_CONFIG").map(PathBuf::from));
+    let remote = indexing::remote_config(config.as_deref())?;
+    let artifact =
+        |cli: Option<&str>, env: &str, value: &serde_json::Value, candidates: &[&str]| {
+            let path = indexing::configured_path(
+                cli.map(Path::new),
+                env,
+                value,
+                config.as_deref(),
+                Path::new(""),
+            );
+            resolve_path(path.to_str().filter(|s| !s.is_empty()), candidates)
+        };
+    let catalog = artifact(
+        catalog,
+        "CATALOG",
+        &remote["catalog"],
+        &[
+            ".code-diver/rust_catalog.jsonl",
+            "artifacts/rust_catalog.jsonl",
+        ],
+    );
+    let graph = artifact(
+        graph,
+        "GRAPH",
+        &remote["graph_path"],
+        &[".code-diver/rust_graph.jsonl", "artifacts/rust_graph.jsonl"],
+    );
+    let model = artifact(
+        model,
+        "MODEL",
+        &remote["model"],
+        &[
+            ".code-diver/models/ce_meta_ranker.lgb.txt",
+            "artifacts/ce_meta_ranker/ce_meta_ranker.lgb.txt",
+        ],
+    );
+    let url = indexing::setting(
+        url,
+        "QDRANT_URL",
+        None,
+        &remote["storage"]["qdrant"]["url"],
+        "http://localhost:6333",
+    );
+    let collection = indexing::setting(
+        (!collection.is_empty()).then_some(collection),
+        "COLLECTION",
+        Some("CODE_DIVER_QDRANT_COLLECTION"),
+        &remote["storage"]["qdrant"]["collection"],
+        "",
+    );
+    let q = &remote["storage"]["qdrant"];
+    let api_key = indexing::setting(
+        overrides.and_then(|a| a.qdrant_api_key.as_ref().map(|s| s.0.as_str())),
+        "QDRANT_API_KEY",
+        Some(q["api_key_env"].as_str().unwrap_or("QDRANT_API_KEY")),
+        &q["api_key"],
+        "",
+    );
+    let bearer = indexing::setting(
+        overrides.and_then(|a| a.qdrant_bearer.as_ref().map(|s| s.0.as_str())),
+        "QDRANT_BEARER",
+        None,
+        &q["bearer"],
+        "",
+    );
+    let ca = indexing::configured_path(
+        overrides.and_then(|a| a.ca_bundle.as_deref().map(Path::new)),
+        "CA_BUNDLE",
+        &remote["ca_bundle"],
+        config.as_deref(),
+        Path::new(""),
+    );
+    let ca = (!ca.as_os_str().is_empty()).then_some(ca);
+    let client = index_net::client(
+        &index_net::Secret(api_key),
+        &index_net::Secret(bearer),
+        ca.as_deref().and_then(Path::to_str),
+        overrides.is_some_and(|a| a.insecure_skip_verify)
+            || indexing::setting(
+                None,
+                "INSECURE_SKIP_VERIFY",
+                None,
+                &remote["insecure_skip_verify"],
+                "false",
+            )
+            .parse::<bool>()
+            .map_err(|_| "Invalid TLS verification setting")?,
+        2000,
+    )?;
+    Ok(info::collect_info_with_client(
+        catalog.as_deref(),
+        graph.as_deref(),
+        model.as_deref(),
+        &url,
+        &collection,
+        &client,
+    )
+    .await)
+}
+
 #[tokio::main]
 async fn main() -> Result<(), String> {
     let cli = Cli::parse();
 
     match cli.command {
+        Some(Commands::Read(args)) => run_inspection_cli(
+            "code_diver_read",
+            &args.common,
+            serde_json::json!({"file":args.file,"start_line":args.start_line,"lines":args.lines}),
+        ),
+        Some(Commands::Grep(args)) => run_inspection_cli(
+            "code_diver_grep",
+            &args.common,
+            serde_json::json!({"pattern":args.pattern,"path":args.path,"limit":args.limit,"regex":args.regex}),
+        ),
+        Some(Commands::Tree(args)) => run_inspection_cli(
+            "code_diver_tree",
+            &args.common,
+            serde_json::json!({"path":args.path,"depth":args.depth,"limit":args.limit}),
+        ),
+        Some(Commands::Symbols(args)) => run_inspection_cli(
+            "code_diver_symbols",
+            &args.common,
+            serde_json::json!({"path":args.path,"limit":args.limit}),
+        ),
         Some(Commands::Index(args)) => catalog_builder::cli::run_index(args).await,
         Some(Commands::CatalogCompare(args)) => catalog_builder::cli::run_compare(args),
         Some(Commands::Doctor(args)) => {
@@ -361,30 +646,23 @@ async fn main() -> Result<(), String> {
             .await
         }
         Some(Commands::Info(args)) => {
-            let catalog_path = resolve_path(
+            let info = collect_configured_info(
+                args.config.as_deref(),
                 args.catalog.as_deref(),
-                &[
-                    "artifacts/rust_catalog.jsonl",
-                    ".code-diver/rust_catalog.jsonl",
-                    "/tmp/rust_catalog.jsonl",
-                ],
-            );
-            let graph_path = resolve_path(
                 args.graph.as_deref(),
-                &[
-                    "artifacts/rust_graph.jsonl",
-                    ".code-diver/rust_graph.jsonl",
-                    "/tmp/rust_graph.jsonl",
-                ],
-            );
-            crate::info::run_info(
-                catalog_path.as_deref(),
-                graph_path.as_deref(),
-                &args.qdrant_url,
+                args.model.as_deref(),
+                (args.qdrant_url != "http://localhost:6333").then_some(args.qdrant_url.as_str()),
+                &args.qdrant_collection,
+                None,
             )
-            .await
+            .await?;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&info).map_err(|e| e.to_string())?
+            );
+            Ok(())
         }
-        Some(Commands::Mcp(args)) => run_mcp(args.search).await,
+        Some(Commands::Mcp(args)) => run_mcp(args).await,
         Some(Commands::Search(args)) => run_search_cli(args).await,
         None => {
             if cli.search.doctor {
@@ -410,6 +688,28 @@ async fn main() -> Result<(), String> {
             }
         }
     }
+}
+
+pub(crate) fn configured_candidate_limit(args: &SearchArgs) -> Result<usize, String> {
+    let path = args
+        .config
+        .clone()
+        .or_else(|| std::env::var_os("CODE_DIVER_CONFIG").map(PathBuf::from));
+    let remote = indexing::remote_config(path.as_deref())?;
+    let value = indexing::setting(
+        args.candidate_limit
+            .as_ref()
+            .map(|n| n.to_string())
+            .as_deref(),
+        "CANDIDATE_LIMIT",
+        None,
+        &remote["search"]["candidate_limit"],
+        "34",
+    );
+    let limit = value
+        .parse::<usize>()
+        .map_err(|_| "Invalid candidate limit")?;
+    resolve_candidate_limit(limit, args.first_pass_cap).map_err(|e| e.to_string())
 }
 
 fn build_search_config(args: &SearchArgs) -> Result<(SearchConfig, PathBuf), String> {
@@ -477,8 +777,7 @@ fn build_search_config(args: &SearchArgs) -> Result<(SearchConfig, PathBuf), Str
     );
 
     let meta_ranker_enabled = model_path.is_some();
-    let candidate_limit = resolve_candidate_limit(args.candidate_limit, args.first_pass_cap)
-        .map_err(|e| e.to_string())?;
+    let candidate_limit = configured_candidate_limit(args)?;
     let (second_pass_enabled, second_pass_score_floor, second_pass_candidate_cap) =
         resolve_second_pass(
             args.preset.as_deref(),
@@ -495,9 +794,9 @@ fn build_search_config(args: &SearchArgs) -> Result<(SearchConfig, PathBuf), Str
     }
 
     let root_path = args
-        .base_path
-        .as_deref()
-        .map(PathBuf::from)
+        .root
+        .clone()
+        .or_else(|| args.base_path.as_deref().map(PathBuf::from))
         .unwrap_or_else(|| PathBuf::from("."));
 
     let mut config = SearchConfig {
@@ -529,7 +828,7 @@ fn build_search_config(args: &SearchArgs) -> Result<(SearchConfig, PathBuf), Str
         qdrant_collection: args.qdrant_collection.clone(),
         ce_meta_model_path: model_path.unwrap_or_default(),
         ce_meta_ranker_enabled: meta_ranker_enabled,
-        base_path: args.base_path.clone().unwrap_or_default(),
+        base_path: root_path.to_string_lossy().into_owned(),
         embed_cache_size: args.embed_cache_size,
         ..SearchConfig::default()
     };
@@ -570,7 +869,25 @@ fn build_search_config(args: &SearchArgs) -> Result<(SearchConfig, PathBuf), Str
     if tokens == 0 {
         return Err("Token window must be positive".into());
     }
-    let budget = tokens.saturating_sub(margin).max(1).saturating_mul(3);
+    let token_budget = tokens
+        .checked_sub(margin)
+        .filter(|n| *n > 0)
+        .ok_or("Token safety margin exhausts token window")?;
+    config.embedding_query_token_budget = match args.embedding_query_token_budget {
+        Some(budget) => budget,
+        None => value(
+            None,
+            "EMBEDDING_QUERY_TOKEN_BUDGET",
+            &e["query_token_budget"],
+            &token_budget.to_string(),
+        )
+        .parse::<usize>()
+        .map_err(|_| "Invalid embedding query token budget")?,
+    };
+    if config.embedding_query_token_budget == 0 {
+        return Err("Embedding query token budget must be positive".into());
+    }
+    let budget = token_budget.saturating_mul(3);
     config.embedding_query_char_limit = if chars == 0 {
         budget
     } else {
@@ -680,12 +997,18 @@ fn build_search_config(args: &SearchArgs) -> Result<(SearchConfig, PathBuf), Str
     Ok((config, root_path))
 }
 
-async fn run_mcp(args: SearchArgs) -> Result<(), String> {
-    let (config, root_path) = build_search_config(&args)?;
-    let ctx = init_search_context(config).await?;
+async fn run_mcp(args: McpArgs) -> Result<(), String> {
+    let root_path = inspection_root(
+        args.search
+            .root
+            .as_deref()
+            .or_else(|| args.search.base_path.as_deref().map(Path::new)),
+        args.search.config.as_deref(),
+    )?;
     let mcp_config = crate::mcp::McpConfig {
-        ctx: &ctx,
-        root_dir: &root_path,
+        args: args.search,
+        root_dir: root_path,
+        max_concurrent_searches: args.max_concurrent_searches,
     };
     crate::mcp::run_mcp_server(mcp_config).await
 }

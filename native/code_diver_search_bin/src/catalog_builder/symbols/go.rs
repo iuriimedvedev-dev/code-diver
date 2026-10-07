@@ -52,7 +52,7 @@ pub(super) fn extract(text: &str) -> Vec<Symbol> {
         .collect()
 }
 
-fn extract_numbered(text: &str) -> Vec<(usize, Symbol)> {
+pub(super) fn extract_numbered(text: &str) -> Vec<(usize, Symbol)> {
     let mut symbols = Vec::new();
     let mut in_type_block = false;
     for (index, line) in splitlines(text).into_iter().enumerate() {

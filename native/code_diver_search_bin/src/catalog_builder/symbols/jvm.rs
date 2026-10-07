@@ -48,7 +48,7 @@ static LEGACY_RULES: LazyLock<Vec<(Regex, &str)>> = LazyLock::new(|| {
         .collect()
 });
 
-fn numbered(text: &str, legacy: bool) -> Vec<(usize, Symbol)> {
+pub(super) fn numbered(text: &str, legacy: bool) -> Vec<(usize, Symbol)> {
     let mut symbols = Vec::new();
     for (index, line) in splitlines(text).into_iter().enumerate() {
         let stripped = strip(line);

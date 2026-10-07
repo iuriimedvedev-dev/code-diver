@@ -1,19 +1,22 @@
 use rustc_hash::FxHashMap;
+use std::borrow::Cow;
 use std::collections::HashMap;
 
-use crate::catalog::tokenize;
-use crate::types::{Bm25Index, CatalogItem};
+use crate::types::{Bm25Index, CatalogItem, CatalogToken};
+
+fn tokenize(text: &str) -> Vec<CatalogToken> {
+    crate::catalog::tokenize(text)
+        .into_iter()
+        .map(Into::into)
+        .collect()
+}
 
 /// Build a BM25 index from a slice of catalog items.
 pub fn build_bm25_index(items: &[CatalogItem]) -> Bm25Index {
-    let mut term_frequencies: HashMap<String, HashMap<String, u32>> = HashMap::new();
-    let mut document_lengths: HashMap<String, u32> = HashMap::new();
-    let mut postings: HashMap<String, Vec<String>> = HashMap::new();
     let mut total_tokens: u64 = 0;
     let mut num_docs: usize = 0;
 
     let mut doc_ids: Vec<String> = Vec::with_capacity(items.len());
-    let mut doc_id_to_idx: FxHashMap<String, usize> = FxHashMap::default();
     let mut doc_lengths: Vec<u32> = Vec::with_capacity(items.len());
     let mut inverted_index: FxHashMap<String, Vec<(u32, u32)>> = FxHashMap::default();
 
@@ -28,11 +31,8 @@ pub fn build_bm25_index(items: &[CatalogItem]) -> Bm25Index {
         }
 
         let doc_idx = num_docs as u32;
-        doc_ids.push(doc_id.clone());
-        doc_id_to_idx.insert(doc_id.clone(), doc_idx as usize);
+        doc_ids.push(doc_id);
 
-        // Collect all tokens from different fields
-        let mut all_tokens: Vec<String> = Vec::new();
         // Use pre-tokenized fields if available (all 4 fields), otherwise fall back
         // to raw tokenization of name, path, and content (Rust v11 baseline parity).
         let has_pre_tokenized = !item.tokenized_name.is_empty()
@@ -40,55 +40,50 @@ pub fn build_bm25_index(items: &[CatalogItem]) -> Bm25Index {
             || !item.tokenized_dir.is_empty()
             || !item.tokenized_content.is_empty();
 
-        if has_pre_tokenized {
-            for t in &item.tokenized_name {
-                all_tokens.push(t.to_lowercase());
-            }
-            for t in &item.tokenized_path {
-                all_tokens.push(t.to_lowercase());
-            }
-            for t in &item.tokenized_dir {
-                all_tokens.push(t.to_lowercase());
-            }
-            for t in &item.tokenized_content {
-                all_tokens.push(t.to_lowercase());
-            }
+        let fallback;
+        let tokens: Box<dyn Iterator<Item = &CatalogToken> + '_> = if has_pre_tokenized {
+            Box::new(
+                item.tokenized_name
+                    .iter()
+                    .chain(&item.tokenized_path)
+                    .chain(&item.tokenized_dir)
+                    .chain(&item.tokenized_content),
+            )
         } else {
-            // Fallback: tokenize raw fields
-            for t in tokenize(&item.name) {
-                all_tokens.push(t);
-            }
-            for t in tokenize(&item.path) {
-                all_tokens.push(t);
-            }
-            for t in tokenize(&item.content) {
-                all_tokens.push(t.to_lowercase());
-            }
+            fallback = tokenize(&item.name)
+                .into_iter()
+                .chain(tokenize(&item.path))
+                .chain(tokenize(&item.content))
+                .collect::<Vec<_>>();
+            Box::new(fallback.iter())
+        };
+        // Borrow canonical tokens; only allocate for mixed-case input. The
+        // inverted index interns each distinct term once for the whole corpus.
+        let mut tf: HashMap<Cow<'_, str>, u32> = HashMap::new();
+        let mut doc_len = 0u32;
+        for token in tokens {
+            let lower = if token
+                .chars()
+                .any(|c| c.to_lowercase().ne(std::iter::once(c)))
+            {
+                Cow::Owned(token.to_lowercase())
+            } else {
+                Cow::Borrowed(token.as_str())
+            };
+            *tf.entry(lower).or_insert(0) += 1;
+            doc_len += 1;
         }
-
-        let mut tf: HashMap<String, u32> = HashMap::new();
-        for token in &all_tokens {
-            *tf.entry(token.clone()).or_insert(0) += 1;
-        }
-
-        let doc_len = all_tokens.len() as u32;
-        document_lengths.insert(doc_id.clone(), doc_len);
         doc_lengths.push(doc_len);
         total_tokens += doc_len as u64;
         num_docs += 1;
 
-        for (term, freq) in &tf {
-            postings
-                .entry(term.clone())
-                .or_default()
-                .push(doc_id.clone());
-            inverted_index
-                .entry(term.clone())
-                .or_default()
-                .push((doc_idx, *freq));
+        for (term, freq) in tf {
+            if let Some(postings) = inverted_index.get_mut(term.as_ref()) {
+                postings.push((doc_idx, freq));
+            } else {
+                inverted_index.insert(term.into_owned(), vec![(doc_idx, freq)]);
+            }
         }
-
-        term_frequencies.insert(doc_id, tf);
     }
 
     let avgdl = if num_docs > 0 {
@@ -99,12 +94,12 @@ pub fn build_bm25_index(items: &[CatalogItem]) -> Bm25Index {
 
     Bm25Index {
         doc_ids,
-        doc_id_to_idx,
+        doc_id_to_idx: FxHashMap::default(),
         doc_lengths,
         inverted_index,
-        term_frequencies,
-        document_lengths,
-        postings,
+        term_frequencies: HashMap::new(),
+        document_lengths: HashMap::new(),
+        postings: HashMap::new(),
         avgdl,
         num_docs,
     }
@@ -205,8 +200,8 @@ pub fn path_coverage_score(doc: &CatalogItem, query_terms: &[String]) -> f64 {
     if query_terms.is_empty() {
         return 0.0;
     }
-    let fallback_path: Vec<String>;
-    let path_tokens: &[String] = if !doc.tokenized_path.is_empty() {
+    let fallback_path: Vec<CatalogToken>;
+    let path_tokens: &[CatalogToken] = if !doc.tokenized_path.is_empty() {
         &doc.tokenized_path
     } else if !doc.path.is_empty() {
         fallback_path = tokenize(&doc.path);
@@ -231,8 +226,8 @@ pub fn lexical_coverage_score(doc: &CatalogItem, query_terms: &[String]) -> f64 
         return 0.0;
     }
     // Content coverage: from tokenized_content and tokenized_name
-    let fallback_content: Vec<String>;
-    let content_tokens: &[String] = if !doc.tokenized_content.is_empty() {
+    let fallback_content: Vec<CatalogToken>;
+    let content_tokens: &[CatalogToken] = if !doc.tokenized_content.is_empty() {
         &doc.tokenized_content
     } else if !doc.content.is_empty() {
         fallback_content = tokenize(&doc.content);
@@ -249,8 +244,8 @@ pub fn lexical_coverage_score(doc: &CatalogItem, query_terms: &[String]) -> f64 
     let content_cov = content_matched as f64 / query_terms.len() as f64;
 
     // Title coverage: from tokenized_name
-    let fallback_name: Vec<String>;
-    let title_tokens: &[String] = if !doc.tokenized_name.is_empty() {
+    let fallback_name: Vec<CatalogToken>;
+    let title_tokens: &[CatalogToken] = if !doc.tokenized_name.is_empty() {
         &doc.tokenized_name
     } else if !doc.name.is_empty() {
         fallback_name = tokenize(&doc.name);
@@ -276,8 +271,8 @@ pub fn symbol_coverage_score(doc: &CatalogItem, query_terms: &[String]) -> f64 {
     if query_terms.is_empty() {
         return 0.0;
     }
-    let fallback_name: Vec<String>;
-    let name_tokens: &[String] = if !doc.tokenized_name.is_empty() {
+    let fallback_name: Vec<CatalogToken>;
+    let name_tokens: &[CatalogToken] = if !doc.tokenized_name.is_empty() {
         &doc.tokenized_name
     } else if !doc.name.is_empty() {
         fallback_name = tokenize(&doc.name);
@@ -289,8 +284,8 @@ pub fn symbol_coverage_score(doc: &CatalogItem, query_terms: &[String]) -> f64 {
         &[]
     };
 
-    let fallback_content: Vec<String>;
-    let content_tokens: &[String] = if !doc.tokenized_content.is_empty() {
+    let fallback_content: Vec<CatalogToken>;
+    let content_tokens: &[CatalogToken] = if !doc.tokenized_content.is_empty() {
         &doc.tokenized_content
     } else if !doc.content.is_empty() {
         fallback_content = tokenize(&doc.content);
@@ -303,8 +298,8 @@ pub fn symbol_coverage_score(doc: &CatalogItem, query_terms: &[String]) -> f64 {
     let token_set: std::collections::HashSet<&str> = content_tokens
         .iter()
         .chain(name_tokens.iter())
-        .chain(doc.symbols.iter())
         .map(|s| s.as_str())
+        .chain(doc.symbols.iter().map(|s| s.as_str()))
         .collect();
     let matched = query_terms
         .iter()
@@ -321,7 +316,7 @@ pub fn symbol_match_score(doc: &CatalogItem, query_terms: &[String]) -> f64 {
     }
     // Use name tokens as proxy for symbol metadata (Python: CodeItemMetadata.SYMBOL)
     // If tokenized_name is empty, fallback to tokenizing doc.name or doc.path.
-    let fallback_tokens: Vec<String>;
+    let fallback_tokens: Vec<CatalogToken>;
     let symbol_terms: Vec<&str> = if !doc.tokenized_name.is_empty() {
         doc.tokenized_name.iter().map(|s| s.as_str()).collect()
     } else if !doc.name.is_empty() {
@@ -379,7 +374,7 @@ mod tests {
     #[test]
     fn test_bm25_single_doc() {
         let mut item = make_item("doc1", "hello world", "/path/file.rs");
-        item.tokenized_name = vec!["hello".to_string(), "world".to_string()];
+        item.tokenized_name = vec!["hello".into(), "world".into()];
         let items = vec![item];
         let index = build_bm25_index(&items);
         let scores = bm25_scores(&index, &["hello".to_string()], 1.2, 0.75);
@@ -390,7 +385,7 @@ mod tests {
     #[test]
     fn test_coverage_score() {
         let mut item = make_item("doc1", "hello world", "/path/file.rs");
-        item.tokenized_name = vec!["hello".to_string(), "world".to_string()];
+        item.tokenized_name = vec!["hello".into(), "world".into()];
         let terms = vec!["hello".to_string(), "world".to_string()];
         let score = coverage_score(&item, &terms);
         assert!(score > 0.0);
