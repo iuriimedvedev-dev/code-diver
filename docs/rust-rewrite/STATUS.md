@@ -238,3 +238,42 @@ broader Python grammar/decorator/Unicode cases, plus existing M1/M2a blockers.
 **Not all SPEC gates are met.** Local data/build outputs remain uncommitted under
 `.tmp/m2b/` and Cargo `target`; no network, services, external writes or Python
 code-diver execution. This documentation pass ran only `git diff --check`.
+
+## M2c — JVM and C/C++, 2026-10-07
+
+Implemented dedicated JVM/C/C++ extraction, JVM summary purpose/terms and manifest
+surface integration, case-insensitive routing, comparator lanes and strict lane
+isolation tests. Java/Kotlin/Kotlin scripts are dedicated; Scala stays generic.
+Manual reference-derived fixtures are not Python-generated catalogs.
+**Implementation is available; the >=99% real-reference target is NOT achieved
+and M2c acceptance is not complete.**
+
+Joined worker validation: fmt-check, offline all-target Clippy with `-D warnings`,
+offline tests and release build green. The saved test log confirms **163 unit
+tests per binary x 2 + 6 integrations = 332 executions / 169 distinct tests**,
+zero failures or ignored tests. This documentation pass does not rerun Cargo.
+
+IntelliJ full-root build: **136152 reference / 135404 built records**. Closest
+scanner configuration is `configs/intellij/intellij-h66b-budget.yml` in the
+read-only Python code-diver checkout; literal exact config identity is unproven.
+The duplicate champion has identical scanner settings. Reference source revision
+and freshness are unknown. JVM has 128706 reference / 129138 built / 125984 common
+records, 2722 missing and 3154 extra. Common content is **93.0721%**, tokens
+**93.0952%**, first500 embedding text **98.7721%**. Strict JVM comparison fails;
+C/C++ is 0/0 and supplies no real-reference coverage. See PARITY.md for all counts
+and examples, not a stale-reference waiver of acceptance.
+
+An independent stdlib script replayed current Python rules without importing or
+executing code-diver: zero audited-section differences across 64569 JVM files.
+All 8728 common-content mismatches match current rules; 6296 have demonstrably
+absent old source rows, while 2432 remain historically unattributed. Current-rule
+agreement cannot prove the historical reference/config was generated identically.
+
+Build elapsed **30.86s**, maximum RSS **2934030336 bytes (2.73 GiB)**. Existing
+whole-catalog retention remains a limitation: 46271283 token Strings require
+1.11 GB of headers alone; retained payload floor is 1.58 GiB before allocator,
+capacity and other overhead. Streaming is needed, outside this milestone's scope.
+Reports/catalogs/build outputs remain ignored and uncommitted under `.tmp/` and
+Cargo `target`. Obtain pinned source/config and nonempty C/C++ evidence, resolve
+historical attribution and meet the real-reference target before acceptance;
+earlier milestone blockers also remain open.

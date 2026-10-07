@@ -116,3 +116,69 @@ resolve hidden-file coverage acceptance. Verify broader Python SyntaxError,
 decorator `ast.unparse` and Unicode identifier cases (DECISIONS.md), and retain
 M1/Knotgate/other milestone blockers. **Not all SPEC gates are met.** No data or
 build outputs are committed; this pass changes documentation only.
+
+## M2c — JVM and C/C++, 2026-10-07
+
+Existing IntelliJ reference: 136152 total items; current build: 135404. Closest
+config is `configs/intellij/intellij-h66b-budget.yml` in the Python checkout,
+not proven literal exact. Source/config snapshot identity and freshness remain
+unknown. Saved `.tmp/m2c-*-compare.log` reports give:
+
+| JVM measurement | Count | Equality over common IDs |
+|---|---:|---:|
+| Reference / built | 128706 / 129138 | — |
+| Common IDs | 125984 | 97.89% of reference |
+| Missing / extra | 2722 / 3154 | ID sets unequal |
+| Content equal | 117256 | 93.0721% |
+| All token fields equal | 117285 | 93.0952% |
+| Embed first500 equal | 124437 | 98.7721% |
+| Name / kind / path equal (each) | 125984 | 100% |
+
+Embedding text uses the first500 definition above. **None of content, tokens or
+embedding reaches >=99%; strict comparison fails.** C/C++ reference/built/common
+are all zero: an empty comparison is no real-reference coverage or parity score.
+
+### Every first-content mismatch category
+
+Counts partition the 8728 mismatching common items by first positional difference;
+later sections can also differ. Example names identify paths in the saved reports.
+
+| Category | Count | Example and observed difference |
+|---|---:|---|
+| Manifest config_keys | 18 | `grid/core-impl/src/datagrid/GridSelection.java`: added Nullable import shifts rows; actual config keys are unchanged, not a key-extraction error |
+| Manifest imports | 1929 | `aether-dependency-resolver/src/org/jetbrains/idea/maven/aether/RepositorySystemHolder.java`: current LocalReadWriteLockNamedLockFactory import |
+| Manifest symbols | 2046 | `fleet/compiler-plugins/expects/srcJvmMain/fleet/multiplatform/expects/ExpectsPluginIrGenerationExtension.kt`: matchesWith body/signature changed to mismatchReason comparison |
+| Summary head | 1799 | `aether-dependency-resolver/src/org/jetbrains/idea/maven/aether/ArtifactRepositoryManager.java`: current `/**` and `*/` delimiter rows versus old field rows |
+| Summary imports | 798 | `grid/core-impl/src/extensions/ExtensionScriptsUtil.java`: old LocalFileSystem import changed |
+| Summary purpose | 176 | `grid/impl/src/run/actions/ColumnPinActions.kt`: changed pin-selection documentation |
+| Summary symbols | 737 | `fleet/util/core/srcCommonMain/fleet/util/async/Resource.kt`: Lazy changed from data object to data class |
+| Summary terms | 1225 | ExpectsPluginIrGenerationExtension.kt above: current mismatchReason/params/desc terms |
+
+Other categories: **8699 tokenized_content differences**, no differing other
+token fields or name/kind/path; **1547 embedding first500 differences**. Missing
+2722 records all have absent current source (example: FairLocalReadWriteLockNamedLockFactory.java
+in the aether path above). Extra 3154 records have current source (example:
+`fleet/lsp.protocol/srcCommonMain/com/jetbrains/lsp/implementation/LspServerCapabilities.kt`).
+
+### Independent current-source audit, not historical acceptance
+
+The stdlib-only replay script never imports/executes code-diver. It independently
+replays the read-only current Python rules for all **64569 JVM files** (129138
+items): summary purpose/terms/head/symbols/imports and manifest
+symbols/imports/package/config_keys show **zero differences** from Rust.
+All 8728 common-content mismatches are fully confirmed by current rules.
+Of these, 6296 show at least one old source row demonstrably absent now;
+2432 have unresolved historical attribution. Absence is evidence of drift, not
+proof of all causes; absence of such evidence is not proof of an implementation
+bug or a fresh oracle. For example, ArtifactRepositoryManager.java delimiter rows
+match current head rules despite unresolved historical provenance.
+
+Nonexclusive differing-section totals (not the first-difference partition):
+summary head 3251, imports 3278, symbols 2155, terms 1381, purpose 176;
+manifest imports 3127 and symbols 2155. All match the current replay. This supports
+current-source behavior, but does not establish historical Python version/config
+identity. Pin both sides and investigate the remaining 2432 items; do not alter
+correct current rules or filter IDs to manufacture acceptance.
+
+Validation and memory measurement are in STATUS.md. Retained whole-catalog
+Strings remain an existing scaling limitation; streaming is deferred explicitly.

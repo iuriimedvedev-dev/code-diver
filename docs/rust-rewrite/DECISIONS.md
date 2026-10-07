@@ -107,3 +107,34 @@
   evidence, Python snapshot/coverage acceptance and broader parser verification
   remain open alongside M1/M2a acceptance gaps. No all-SPEC-complete claim and
   no commits authorized by this documentation task.
+
+## 2026-10-07 — M2c
+
+- Follow the actual Python registry: `.java/.kt/.kts` use JVM; Scala remains
+  generic. C/C++ covers `.c/.cc/.cpp/.cxx/.h/.hh/.hpp/.hxx/.c++/.h++`, all
+  case-insensitive. Preserve scanner defaults and empty dedicated-result fallback.
+- Port shallow reference recognizers, not language grammars. JVM retains legacy
+  symbol fallback only when the strategy is empty; purpose/terms and manifest
+  surface follow declaration/doc/supertype rules. Manual goldens establish the
+  intended contract, not independently Python-generated evidence.
+- Rust regex has no lookahead. C/C++ terminal `(?=\{|$)` is manually rewritten
+  as `(?:\{|$)`: consuming the brace is equivalent for this extractor because
+  nothing follows the assertion, captures are unchanged and match offsets are
+  unused. Tests cover brace/end acceptance and prototype rejection; this is a
+  local equivalence, not a general lookahead transformation.
+- Keep strict ID failure separate from common-record percentages. JVM content,
+  tokens and first500 embedding are below >=99%; C/C++ 0/0 is no coverage.
+  Implementation does not imply completed acceptance. Use closest h66b-budget
+  config with explicit uncertainty, never claim literal exact historical config.
+- Independent stdlib current-rule replay is allowed; importing/executing Python
+  code-diver is not. Zero differences across 64569 files and confirmation of all
+  8728 mismatches support the current port, not historical-reference identity.
+  6296 mismatches show absent old rows; 2432 remain historically unresolved.
+  Preserve current rules instead of tailoring them to an unpinned stale oracle.
+- Existing whole-catalog retention explains substantial memory pressure:
+  46271283 token String headers alone cost 1110510792 bytes; payload floor is
+  1.58 GiB and measured RSS 2.73 GiB. Streaming is necessary future work, outside
+  M2c scope; no memory acceptance or regression-free claim is made.
+- Finalization now authorizes explicit-path logical local commits of current
+  session lanes/fixtures, integration/tests and documentation. Preserve the local
+  plan, exclude `.tmp/`, build/data artifacts and unrelated user changes; no push.
