@@ -2856,10 +2856,15 @@ mod cli_tests {
         let (config, _) = build_search_config(&args).unwrap();
         assert_eq!(config.embedding_url, "http://localhost:8001/v1/embeddings");
         assert_eq!(config.embedding_query_char_limit, 96);
-        assert_eq!(
-            config.ca_bundle,
-            Some(dir.path().join("ca.pem").to_string_lossy().into_owned())
-        );
+        // Environment variables outrank the config file, so the file value is only observable when neither is set.
+        if std::env::var_os("CODE_DIVER_CA_BUNDLE").is_none()
+            && std::env::var_os("SSL_CERT_FILE").is_none()
+        {
+            assert_eq!(
+                config.ca_bundle,
+                Some(dir.path().join("ca.pem").to_string_lossy().into_owned())
+            );
+        }
         assert!(!config.insecure_skip_verify);
     }
 
