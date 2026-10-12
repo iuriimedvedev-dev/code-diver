@@ -6,6 +6,31 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-12
+
+### Added
+
+- Search ranks files from the repository or directory named in the question
+  (`repos/<name>`, `kb/...`) above others and accepts an optional `path_prefix`
+  argument with the same behaviour.
+- Search results carry a preview of the matched content, a title and the line
+  range by default (`preview_chars` 400).
+- Search profiles: `--config <file>` loads a TOML profile with the keys of the
+  H-91a configuration (`profiles/h91a-pier.toml`, `profiles/h91a-intellij.toml`);
+  unknown keys are an error that names the key.
+
+### Fixed
+
+- The fan-in feature of the meta-ranker is computed from the graph instead of
+  being a constant; the additive hub prior is implemented.
+
+### Known gaps
+
+- H-91a parity with the Python reference is not reached: on the 100 Pier code
+  questions hit@10 is 84-86% against 94%. The H-91a profile is experimental;
+  several of its keys are read but not applied yet (see `docs/PARITY.md`). The
+  defaults stay unchanged.
+
 ## [0.5.0] - 2026-10-07
 
 ### M6 distribution and validation

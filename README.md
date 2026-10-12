@@ -12,7 +12,7 @@ code-diver doctor --json
 The installer verifies SHA256 and runs setup interactively: enter the team profile
 URL or file path, then credentials at the hidden prompt. Run it in a terminal.
 It requires a compatible published
-v0.5.0 release; this documentation does not assert current release availability.
+v0.6.0 release; this documentation does not assert current release availability.
 See [the colleague guide](docs/COLLEAGUES.md) for PASS/FAIL checks and recovery.
 After setup, use the binary directly:
 
