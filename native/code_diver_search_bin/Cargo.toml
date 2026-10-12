@@ -1,13 +1,54 @@
 [package]
 name = "code_diver_search_bin"
-version = "0.4.5"
+version = "0.6.0"
 edition = "2024"
+default-run = "code-diver"
+
+[[bin]]
+name = "code-diver"
+path = "src/main.rs"
+
+[[bin]]
+name = "code_diver_search_bin"
+path = "src/compat_main.rs"
 
 [dependencies]
+anyhow = "1"
 clap = { version = "4.6.6", features = ["derive"] }
+ignore = "0.4.33"
+regex = "1.13.1"
 reqwest = { version = "0.13.4", features = ["json"] }
 rustc-hash = "2.1.3"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
+toml = "1.1.6"
+sha1 = "0.11.0"
 tokio = { version = "1.53.1", features = ["full"] }
 uuid = { version = "1.26.1", features = ["v5"] }
+time = { version = "0.3.51", features = ["parsing", "formatting"] }
+sha2 = "0.10.9"
+
+[dev-dependencies]
+tempfile = "3"
+libc = "0.2"
+
+[[test]]
+name = "runtime-test-helper"
+path = "tests/helpers/runtime_helper.rs"
+harness = false
+
+[[test]]
+name = "runtime_foundation"
+path = "src/runtime_config.rs"
+
+[[test]]
+name = "runtime_cli"
+path = "tests/runtime_cli.rs"
+
+[[test]]
+name = "runtime_acceptance"
+path = "tests/runtime_acceptance.rs"
+
+[[test]]
+name = "mcp_hosts"
+path = "src/mcp_registration.rs"

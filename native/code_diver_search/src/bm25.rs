@@ -92,11 +92,8 @@ impl InvertedIndex {
                 if tf <= 0.0 {
                     continue;
                 }
-                let document_frequency = self
-                    .postings
-                    .get(term)
-                    .map(|s| s.len())
-                    .unwrap_or(0) as f64;
+                let document_frequency =
+                    self.postings.get(term).map(|s| s.len()).unwrap_or(0) as f64;
                 let idf = (1.0
                     + (total_documents - document_frequency + 0.5) / (document_frequency + 0.5))
                     .ln();
@@ -265,10 +262,7 @@ pub fn bm25_scores_from_data(
             if tf <= 0.0 {
                 continue;
             }
-            let document_frequency = postings
-                .get(term)
-                .map(|s| s.len())
-                .unwrap_or(0) as f64;
+            let document_frequency = postings.get(term).map(|s| s.len()).unwrap_or(0) as f64;
             let idf = (1.0
                 + (total_documents - document_frequency + 0.5) / (document_frequency + 0.5))
                 .ln();
@@ -363,8 +357,8 @@ mod tests {
             file_vote: 0.7,
         };
         let actual = fuse_hybrid_batch(
-            &fields[0], &fields[1], &fields[2], &fields[3], &fields[4], &fields[5],
-            &fields[6], weights,
+            &fields[0], &fields[1], &fields[2], &fields[3], &fields[4], &fields[5], &fields[6],
+            weights,
         )
         .unwrap();
         let expected = vec![
@@ -424,7 +418,14 @@ mod tests {
     fn fuse_hybrid_batch_handles_empty_input() {
         let empty: Vec<f64> = Vec::new();
         assert!(fuse_hybrid_batch(
-            &empty, &empty, &empty, &empty, &empty, &empty, &empty, test_weights()
+            &empty,
+            &empty,
+            &empty,
+            &empty,
+            &empty,
+            &empty,
+            &empty,
+            test_weights()
         )
         .unwrap()
         .is_empty());
@@ -480,10 +481,7 @@ mod tests {
     #[test]
     fn bm25_scores_from_data_matches_inverted_index() {
         let mut idx = InvertedIndex::new();
-        idx.ingest(
-            "doc1".into(),
-            &["foo".into(), "bar".into(), "bar".into()],
-        );
+        idx.ingest("doc1".into(), &["foo".into(), "bar".into(), "bar".into()]);
         idx.ingest("doc2".into(), &["foo".into(), "foo".into(), "foo".into()]);
         idx.ingest("doc3".into(), &["baz".into()]);
 
@@ -512,8 +510,20 @@ mod tests {
             }
         }
 
-        let actual = bm25_scores_from_data(&tf, &dl, &postings, 7.0 / 3.0, &["foo".into(), "bar".into()], 1.2, 0.75);
-        assert_eq!(expected.len(), actual.len(), "same number of positive scores");
+        let actual = bm25_scores_from_data(
+            &tf,
+            &dl,
+            &postings,
+            7.0 / 3.0,
+            &["foo".into(), "bar".into()],
+            1.2,
+            0.75,
+        );
+        assert_eq!(
+            expected.len(),
+            actual.len(),
+            "same number of positive scores"
+        );
         for (id, exp_score) in &expected {
             let act_score = actual.get(id).expect("id should be in result");
             assert!(
@@ -543,14 +553,11 @@ mod tests {
         let mut dl = HashMap::new();
         dl.insert("doc1".into(), 1);
         let mut postings = HashMap::new();
-        postings.insert(
-            "foo".into(),
-            {
-                let mut s = HashSet::new();
-                s.insert("doc1".into());
-                s
-            },
-        );
+        postings.insert("foo".into(), {
+            let mut s = HashSet::new();
+            s.insert("doc1".into());
+            s
+        });
 
         let result = bm25_scores_from_data(&tf, &dl, &postings, 1.0, &["bar".into()], 1.2, 0.75);
         assert!(result.is_empty());

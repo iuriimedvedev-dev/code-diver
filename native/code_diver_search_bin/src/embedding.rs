@@ -1,4 +1,3 @@
-
 use crate::fusion::l2_normalize;
 
 /// Embedding model sent in every request body. Shared with the pipeline
@@ -6,29 +5,19 @@ use crate::fusion::l2_normalize;
 pub const EMBED_MODEL: &str = "mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ";
 
 /// Get the embedding for a query from the embedding provider.
-pub async fn embed_query(client: &reqwest::Client, url: &str, query: &str) -> Result<Vec<f64>, String> {
+pub async fn embed_query(
+    client: &reqwest::Client,
+    url: &str,
+    model: &str,
+    query: &str,
+) -> Result<Vec<f64>, String> {
     let body = serde_json::json!({
-        "model": EMBED_MODEL,
+        "model": model,
         "input": query,
+        "encoding_format": "float",
     });
 
-    let resp = client
-        .post(url)
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| format!("Embedding request failed: {}", e))?;
-
-    let status = resp.status();
-    if !status.is_success() {
-        let text = resp.text().await.unwrap_or_default();
-        return Err(format!("Embedding HTTP {}: {}", status, text));
-    }
-
-    let data: serde_json::Value = resp
-        .json()
-        .await
-        .map_err(|e| format!("Embedding parse failed: {}", e))?;
+    let data = crate::index_net::embedding_request(client, url, &body).await?;
 
     let embedding: Vec<f64> = data["data"][0]["embedding"]
         .as_array()
@@ -87,7 +76,9 @@ pub async fn embed_texts(
                 .ok_or_else(|| "No embedding in batch row".to_string())
                 .map(|arr| {
                     l2_normalize(
-                        &arr.iter().map(|v| v.as_f64().unwrap_or(0.0)).collect::<Vec<_>>(),
+                        &arr.iter()
+                            .map(|v| v.as_f64().unwrap_or(0.0))
+                            .collect::<Vec<_>>(),
                     )
                 })
         })
@@ -110,23 +101,9 @@ pub async fn vector_search(
         "with_payload": true,
     });
 
-    let resp = client
-        .post(&search_url)
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| format!("Qdrant search failed: {}", e))?;
-
-    let status = resp.status();
-    if !status.is_success() {
-        let text = resp.text().await.unwrap_or_default();
-        return Err(format!("Qdrant HTTP {}: {}", status, text));
-    }
-
-    let data: serde_json::Value = resp
-        .json()
-        .await
-        .map_err(|e| format!("Qdrant parse failed: {}", e))?;
+    let response =
+        crate::index_net::request(client, reqwest::Method::POST, &search_url, Some(&body)).await?;
+    let data = crate::index_net::json(response).await?;
 
     let results = data["result"]
         .as_array()
@@ -176,10 +153,9 @@ pub fn alternate_ce_url(url: &str) -> Option<String> {
     let base = url.trim_end_matches('/');
     if let Some(prefix) = base.strip_suffix("/v1/rerank") {
         Some(format!("{prefix}/rerank"))
-    } else if let Some(prefix) = base.strip_suffix("/rerank") {
-        Some(format!("{prefix}/v1/rerank"))
     } else {
-        None
+        base.strip_suffix("/rerank")
+            .map(|prefix| format!("{prefix}/v1/rerank"))
     }
 }
 
@@ -215,10 +191,10 @@ pub fn normalize_ce_url(url: &str, route_mode: &str) -> Result<String, String> {
 /// Resolve the ordered list of URLs to try for one rerank call.
 fn resolve_ce_urls(url: &str, route_mode: &str) -> Result<Vec<String>, String> {
     let normalized = normalize_ce_url(url, route_mode)?;
-    if route_mode.trim().to_ascii_lowercase().as_str() == "auto" {
-        if let Some(alt) = alternate_ce_url(&normalized) {
-            return Ok(vec![normalized, alt]);
-        }
+    if route_mode.trim().to_ascii_lowercase().as_str() == "auto"
+        && let Some(alt) = alternate_ce_url(&normalized)
+    {
+        return Ok(vec![normalized, alt]);
     }
     Ok(vec![normalized])
 }
@@ -229,17 +205,12 @@ async fn post_ce(
     body: &serde_json::Value,
     timeout_ms: u64,
 ) -> Result<reqwest::Response, String> {
-    client
-        .post(url)
-        .timeout(std::time::Duration::from_millis(timeout_ms.max(1)))
-        .json(body)
-        .send()
-        .await
-        .map_err(|e| {
-            if e.is_timeout() {
-                format!("CE rerank timed out after {timeout_ms}ms: {e}")
+    crate::index_net::request_with_timeout(client, reqwest::Method::POST, url, Some(body), Some(std::time::Duration::from_millis(timeout_ms.max(1))))
+        .await.map_err(|error| {
+            if error.contains("timed out") {
+                format!("CE rerank timed out after {timeout_ms}ms; check service or increase --ce-timeout-ms")
             } else {
-                format!("CE rerank request failed: {e}")
+                "CE rerank request failed; check service, credentials and TLS trust".into()
             }
         })
 }
@@ -271,7 +242,10 @@ fn parse_ce_scores(data: &serde_json::Value, num_documents: usize) -> Result<Vec
             .and_then(|v| v.as_f64());
         let (Some(score), Some(index)) = (
             score,
-            entry.get("index").and_then(|v| v.as_u64()).map(|i| i as usize),
+            entry
+                .get("index")
+                .and_then(|v| v.as_u64())
+                .map(|i| i as usize),
         ) else {
             all_indexed = false;
             break;
@@ -307,12 +281,12 @@ fn parse_ce_scores(data: &serde_json::Value, num_documents: usize) -> Result<Vec
 /// - `route_mode "auto"` (default): POST to `url` as-is; if the server answers
 ///   404/405 (e.g. vLLM-metal exposes `/rerank` but not `/v1/rerank`), retry once
 ///   against the alternate route. Any other status or transport error is returned
-///   directly -- Python parity is a single attempt, degradation is the caller's job.
+///   directly after the shared M3 transient retries; degradation is the caller's job.
 /// - `route_mode "v1"` / `"legacy"`: normalize `url` to the `.../v1/rerank` or
 ///   `.../rerank` form and use it with no fallback.
 ///
-/// Timeout handling mirrors Python's `CrossEncoderRerankConfig.timeout_ms`: one
-/// per-request timeout, no retry loop inside the provider.
+/// The timeout applies to each of at most three transient attempts per route,
+/// with the shared M3 100/200ms backoff. 404/405 alone enables route fallback.
 pub async fn ce_rerank_with_options(
     client: &reqwest::Client,
     url: &str,
@@ -338,7 +312,7 @@ pub async fn ce_rerank_with_options(
             || status == reqwest::StatusCode::METHOD_NOT_ALLOWED
         {
             last_status_error = Some(format!(
-                "CE HTTP {status} at {candidate_url} (route fallback {})",
+                "CE HTTP {status} (route fallback {})",
                 if attempt + 1 < urls.len() {
                     "will try alternate route"
                 } else {
@@ -349,16 +323,15 @@ pub async fn ce_rerank_with_options(
             continue;
         }
         if !status.is_success() {
-            let text = resp.text().await.unwrap_or_default();
-            let snippet: String = text.chars().take(300).collect();
-            return Err(format!("CE HTTP {status} at {candidate_url}: {snippet}"));
+            return Err(format!(
+                "CE HTTP {status}; check reranker credentials and configuration"
+            ));
         }
         let data: serde_json::Value = resp
             .json()
             .await
-            .map_err(|e| format!("CE parse failed at {candidate_url}: {e}"))?;
-        return parse_ce_scores(&data, documents.len())
-            .map_err(|e| format!("{e} (from {candidate_url})"));
+            .map_err(|_| "CE returned invalid JSON; check reranker compatibility".to_string())?;
+        return parse_ce_scores(&data, documents.len());
     }
     Err(last_status_error.unwrap_or_else(|| "CE: no route attempted".to_string()))
 }
@@ -366,6 +339,55 @@ pub async fn ce_rerank_with_options(
 #[cfg(test)]
 mod ce_tests {
     use super::*;
+
+    #[tokio::test]
+    async fn failure_never_exposes_server_secrets() {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/v1/rerank", listener.local_addr().unwrap());
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(std::time::Duration::from_secs(2)))
+                .unwrap();
+            let mut buffer = [0; 8192];
+            let mut request = Vec::new();
+            loop {
+                let count = stream.read(&mut buffer).unwrap();
+                assert!(count > 0);
+                request.extend_from_slice(&buffer[..count]);
+                if let Some(end) = request.windows(4).position(|v| v == b"\r\n\r\n") {
+                    let headers = String::from_utf8_lossy(&request[..end]);
+                    let size: usize = headers
+                        .lines()
+                        .find_map(|line| {
+                            line.to_ascii_lowercase()
+                                .strip_prefix("content-length:")
+                                .map(|n| n.trim().parse().unwrap())
+                        })
+                        .unwrap();
+                    if request.len() >= end + 4 + size {
+                        break;
+                    }
+                }
+            }
+            let body = "synthetic-private-api-key";
+            write!(stream, "HTTP/1.1 401 Unauthorized\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}", body.len()).unwrap();
+        });
+        let error = ce_rerank_with_options(
+            &reqwest::Client::new(),
+            &url,
+            &CeOptions::default(),
+            "q",
+            &["d".into()],
+        )
+        .await
+        .unwrap_err();
+        server.join().unwrap();
+        assert!(!error.contains("synthetic-private-api-key"), "{error}");
+        assert!(!error.contains(&url), "{error}");
+        assert!(error.contains("401"), "{error}");
+    }
 
     #[test]
     fn alternate_swaps_v1_and_legacy_forms() {
@@ -440,7 +462,8 @@ mod ce_tests {
     }
 
     #[test]
-    fn parse_rejects_count_mismatch_and_duplicates() {        let short = serde_json::json!({"results": [{"index": 0, "relevance_score": 1.0}]});
+    fn parse_rejects_count_mismatch_and_duplicates() {
+        let short = serde_json::json!({"results": [{"index": 0, "relevance_score": 1.0}]});
         assert!(parse_ce_scores(&short, 2).is_err());
         let dup = serde_json::json!({"results": [
             {"index": 0, "relevance_score": 0.5},

@@ -1,0 +1,26 @@
+[
+  {
+    "path": "docs/readMe.md",
+    "text": "# Intro\nHello world\n## Details\nMore\n",
+    "summary": "file: docs/readMe.md\nextension: .md\npurpose: read me\nterms: read me docs md intro details\nsymbols:\n- title Intro: # Intro\n- section Details: ## Details\nhead:\n- # Intro\n- Hello world\n- ## Details\n- More\nimports: none",
+    "manifest": "file: docs/readMe.md\nfilename: readMe.md\nextension: .md\ndirectories: docs\npath_tokens: docs readme md\npackage: none\nsymbols:\n- title Intro: # Intro\n- section Details: ## Details\nimports: none\nconfig_keys: none"
+  },
+  {
+    "path": "deploy/app.yaml",
+    "text": "name: demo\nspec:\n  Image: local\n",
+    "summary": "file: deploy/app.yaml\nextension: .yaml\npurpose: app\nterms: app deploy yaml\nsymbols: none\nhead:\n- name: demo\n- spec:\n- Image: local\nimports: none",
+    "manifest": "file: deploy/app.yaml\nfilename: app.yaml\nextension: .yaml\ndirectories: deploy\npath_tokens: deploy app yaml\npackage: none\nsymbols: none\nimports: none\nconfig_keys:\n- name\n- spec\n- Image"
+  },
+  {
+    "path": "config/app.json",
+    "text": "{\"name\": \"demo\", \"enabled\": true}\n",
+    "summary": "file: config/app.json\nextension: .json\npurpose: app\nterms: app config json\nsymbols: none\nhead:\n- {\"name\": \"demo\", \"enabled\": true}\nimports: none",
+    "manifest": "file: config/app.json\nfilename: app.json\nextension: .json\ndirectories: config\npath_tokens: config app json\npackage: none\nsymbols: none\nimports: none\nconfig_keys: none"
+  },
+  {
+    "path": "Dockerfile",
+    "text": "FROM scratch\nLABEL name=demo\n",
+    "summary": "file: Dockerfile\nextension: \npurpose: dockerfile\nterms: dockerfile\nsymbols: none\nhead:\n- FROM scratch\n- LABEL name=demo\nimports: none",
+    "manifest": "file: Dockerfile\nfilename: Dockerfile\nextension: \ndirectories: none\npath_tokens: dockerfile\npackage: none\nsymbols: none\nimports: none\nconfig_keys: none"
+  }
+]

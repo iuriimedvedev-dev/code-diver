@@ -3,31 +3,81 @@ use std::collections::HashSet;
 use std::collections::VecDeque;
 use std::fs;
 use std::path::Path;
-use std::sync::Mutex;
-use std::time::Duration;
+use std::sync::{Mutex, OnceLock};
 use std::time::Instant;
 
-use crate::bm25::{bm25_scores, build_bm25_index, path_coverage_score, symbol_coverage_score, symbol_match_score};
+use crate::bm25::{
+    bm25_scores, build_bm25_index, path_coverage_score, symbol_coverage_score, symbol_match_score,
+};
 use crate::catalog::{load_catalog, tokenize};
-use crate::embedding::{ce_rerank_with_options, embed_query, vector_search, CeOptions, EMBED_MODEL};
+use crate::embedding::{CeOptions, ce_rerank_with_options, embed_query, vector_search};
 use crate::features::{build_fan_in_degrees, extract_features};
-use crate::fusion::{logit, normalize_scores, sort_by_ce, sort_by_fused, sort_by_meta, tie_break_by_fused};
+use crate::fusion::{
+    logit, normalize_scores, sort_by_ce, sort_by_fused, sort_by_meta, tie_break_by_fused,
+};
 use crate::graph::{load_graph_adjacency, propagate_scores};
 use crate::lightgbm::{load_lightgbm_txt, predict};
-use crate::types::{Candidate, Catalog, GraphAdjacency, LgbModel, MetaFeatures, SearchConfig, SearchResult};
+use crate::types::{
+    Candidate, Catalog, GraphAdjacency, LgbModel, MetaFeatures, SearchConfig, SearchOptions,
+    SearchResponse, SearchResult,
+};
 
-/// Context: all data loaded once at startup.
+// Scope helpers — inlined so integration tests (which compile pipeline.rs
+// without the full crate root) can still resolve them.
+mod scope_helpers {
+    use regex::Regex;
+    use std::sync::LazyLock;
+
+    static SCOPE_RE: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"\b(repos/[a-zA-Z0-9_][a-zA-Z0-9_/\-]*|kb/[a-zA-Z0-9_][a-zA-Z0-9_/\-]*)")
+            .unwrap()
+    });
+
+    pub fn detect_scopes(query: &str) -> Vec<String> {
+        let mut scopes = Vec::new();
+        for cap in SCOPE_RE.captures_iter(query) {
+            if let Some(s) = cap
+                .get(1)
+                .map(|m| m.as_str().trim_end_matches('/').to_string())
+                && !scopes.contains(&s)
+            {
+                scopes.push(s);
+            }
+        }
+        scopes
+    }
+
+    pub fn is_in_scope(path: &str, scopes: &[String]) -> bool {
+        for scope in scopes {
+            if path == scope.as_str() || path.starts_with(&format!("{}/", scope)) {
+                return true;
+            }
+        }
+        false
+    }
+}
+
+/// Context: catalog/graph loaded at startup, BM25 initialized on first search.
 pub struct SearchContext {
     pub catalog: Catalog,
-    pub bm25_index: crate::types::Bm25Index,
+    pub bm25_index: OnceLock<crate::types::Bm25Index>,
     pub graph_adjacency: GraphAdjacency,
     pub fan_in_degrees: HashMap<String, f64>,
     pub meta_ranker: Option<LgbModel>,
     pub config: SearchConfig,
     pub http_client: reqwest::Client,
+    pub embedding_client: reqwest::Client,
+    pub qdrant_client: reqwest::Client,
     /// In-memory LRU cache: query string -> embedding vector.
     /// Capacity 0 = disabled. Shared across server-mode queries via interior mutability.
     pub embed_cache: Mutex<EmbedCache>,
+}
+
+impl SearchContext {
+    pub fn bm25_index(&self) -> &crate::types::Bm25Index {
+        self.bm25_index
+            .get_or_init(|| build_bm25_index(&self.catalog.items))
+    }
 }
 
 /// Bounded in-memory LRU for query embeddings.
@@ -105,20 +155,77 @@ impl EmbedCache {
 /// Embed with the server-mode LRU cache in front. Cache disabled when
 /// `embed_cache_size == 0` (default): behaviour identical to a direct call.
 async fn cached_embed_query(ctx: &SearchContext, query: &str) -> Result<Vec<f64>, String> {
-    if ctx.config.embed_cache_size > 0 {
-        if let Ok(mut cache) = ctx.embed_cache.lock() {
-            if let Some(vector) = cache.get(&ctx.config.embedding_url, EMBED_MODEL, query) {
-                return Ok(vector);
-            }
-        }
+    let (query, _) = prepare_embedding_query(&ctx.config, query)?;
+    if ctx.config.embed_cache_size > 0
+        && let Ok(mut cache) = ctx.embed_cache.lock()
+        && let Some(vector) = cache.get(
+            &ctx.config.embedding_url,
+            &ctx.config.embedding_model,
+            &query,
+        )
+    {
+        return Ok(vector);
     }
-    let vector = embed_query(&ctx.http_client, &ctx.config.embedding_url, query).await?;
-    if ctx.config.embed_cache_size > 0 {
-        if let Ok(mut cache) = ctx.embed_cache.lock() {
-            cache.put(query, vector.clone());
-        }
+    let vector = embed_query(
+        &ctx.embedding_client,
+        &ctx.config.embedding_url,
+        &ctx.config.embedding_model,
+        &query,
+    )
+    .await?;
+    if ctx
+        .config
+        .embedding_dimensions
+        .is_some_and(|size| size != vector.len())
+    {
+        return Err(
+            "Embedding dimension mismatch with index metadata; use a matching model/index".into(),
+        );
+    }
+    if ctx.config.embed_cache_size > 0
+        && let Ok(mut cache) = ctx.embed_cache.lock()
+    {
+        cache.put(&query, vector.clone());
     }
     Ok(vector)
+}
+
+/// Bound the embedding input only; lexical/CE/meta ranking still uses the original
+/// query. Without a model tokenizer, UTF-8 bytes are a conservative token upper
+/// bound for byte-fallback tokenizers, not an exact token count.
+pub fn prepare_embedding_query(
+    config: &SearchConfig,
+    query: &str,
+) -> Result<(String, Option<String>), String> {
+    if query.trim().is_empty() {
+        return Err("query must not be empty".into());
+    }
+    if config.embedding_query_token_budget == 0 || config.embedding_query_char_limit == 0 {
+        return Err("embedding query token and character budgets must be positive".into());
+    }
+    let prefix = &config.embedding_query_prefix;
+    if prefix.len() >= config.embedding_query_token_budget
+        || prefix.chars().count() >= config.embedding_query_char_limit
+    {
+        return Err("embedding query prefix exhausts the configured input budget".into());
+    }
+    let bounded = truncate_chars(
+        query,
+        config.embedding_query_char_limit - prefix.chars().count(),
+    );
+    let byte_budget = config.embedding_query_token_budget - prefix.len();
+    let mut end = bounded.len().min(byte_budget);
+    while !bounded.is_char_boundary(end) {
+        end -= 1;
+    }
+    let bounded = &bounded[..end];
+    if bounded.trim().is_empty() {
+        return Err("embedding query budget cannot fit a nonempty query after the prefix".into());
+    }
+    let notice = (bounded.len() != query.len()).then(|| format!(
+        "Embedding query truncated to {} characters (conservative byte-token budget {}, including prefix); lexical and reranking query unchanged.",
+        bounded.chars().count(), config.embedding_query_token_budget));
+    Ok((format!("{prefix}{bounded}"), notice))
 }
 
 /// Timings for performance measurement.
@@ -138,22 +245,34 @@ pub struct SearchTimings {
 
 /// Initialize the search context from config.
 pub async fn init_search_context(config: SearchConfig) -> Result<SearchContext, String> {
-    // One reusable client for the whole process (server/bench loops share it):
-    // keep idle pooled connections alive so back-to-back queries skip TCP+TLS setup.
-    let http_client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(120))
-        .pool_idle_timeout(Duration::from_secs(90))
-        .pool_max_idle_per_host(32)
-        .build()
-        .map_err(|e| format!("HTTP client: {}", e))?;
+    let embedding_client = crate::index_net::client(
+        &Default::default(),
+        &config.embedding_api_key,
+        config.ca_bundle.as_deref(),
+        config.insecure_skip_verify,
+        120_000,
+    )?;
+    let qdrant_client = crate::index_net::client(
+        &config.qdrant_api_key,
+        &config.qdrant_bearer,
+        config.ca_bundle.as_deref(),
+        config.insecure_skip_verify,
+        120_000,
+    )?;
+    // Reranking shares TLS/redirect policy, never embedding or Qdrant credentials.
+    let http_client = crate::index_net::client(
+        &Default::default(),
+        &config.ce_api_key,
+        config.ca_bundle.as_deref(),
+        config.insecure_skip_verify,
+        120_000,
+    )?;
 
     eprintln!("Loading catalog from: {}", config.catalog_path);
     let catalog = load_catalog(Path::new(&config.catalog_path))?;
     eprintln!("  Loaded {} items", catalog.items.len());
 
-    eprintln!("Building BM25 index...");
-    let bm25_index = build_bm25_index(&catalog.items);
-    eprintln!("  {} docs, {} terms", bm25_index.num_docs, bm25_index.postings.len());
+    let bm25_index = OnceLock::new();
 
     eprintln!("Loading graph adjacency from: {}", config.graph_path);
     let graph_adjacency = load_graph_adjacency(Path::new(&config.graph_path))?;
@@ -165,10 +284,16 @@ pub async fn init_search_context(config: SearchConfig) -> Result<SearchContext, 
     let meta_ranker = if config.ce_meta_ranker_enabled && !config.ce_meta_model_path.is_empty() {
         let model_path = Path::new(&config.ce_meta_model_path);
         if model_path.exists() {
-            eprintln!("Loading meta-ranker model from: {}", config.ce_meta_model_path);
+            eprintln!(
+                "Loading meta-ranker model from: {}",
+                config.ce_meta_model_path
+            );
             match load_lightgbm_txt(model_path) {
                 Ok(model) => {
-                    eprintln!("  {} trees, {} features", model.num_trees, model.num_features);
+                    eprintln!(
+                        "  {} trees, {} features",
+                        model.num_trees, model.num_features
+                    );
                     Some(model)
                 }
                 Err(e) => {
@@ -177,7 +302,10 @@ pub async fn init_search_context(config: SearchConfig) -> Result<SearchContext, 
                 }
             }
         } else {
-            eprintln!("  WARNING: Model not found at {}", config.ce_meta_model_path);
+            eprintln!(
+                "  WARNING: Model not found at {}",
+                config.ce_meta_model_path
+            );
             None
         }
     } else {
@@ -193,20 +321,31 @@ pub async fn init_search_context(config: SearchConfig) -> Result<SearchContext, 
         embed_cache: Mutex::new(EmbedCache::new(
             config.embed_cache_size,
             config.embedding_url.clone(),
-            EMBED_MODEL.to_string(),
+            config.embedding_model.clone(),
         )),
         config,
         http_client,
+        embedding_client,
+        qdrant_client,
     })
 }
 
 /// Shared retrieval and CE pipeline for inference and feature export.
+#[derive(Default)]
+struct RerankState {
+    applied: bool,
+    second_pass_failed: bool,
+    error: Option<String>,
+}
+
 async fn prepare_candidates(
     ctx: &SearchContext,
     query: &str,
-) -> Result<(Vec<Candidate>, SearchTimings), String> {
+) -> Result<(Vec<Candidate>, SearchTimings, Vec<String>, RerankState), String> {
     let start = Instant::now();
     let mut timings = SearchTimings::default();
+    let mut rerank = RerankState::default();
+    let mut notices = Vec::new();
 
     // Step 1: Embed the query (server-mode LRU cache in front when enabled)
     let t0 = Instant::now();
@@ -218,9 +357,9 @@ async fn prepare_candidates(
     // Step 2: Vector search via Qdrant
     let t0 = Instant::now();
     let fetch_limit = ctx.config.retrieval_limit;
-    let qdrant_collection = "intellij_h66b_budget_qwen";
+    let qdrant_collection = &ctx.config.qdrant_collection;
     let vector_results = vector_search(
-        &ctx.http_client,
+        &ctx.qdrant_client,
         &ctx.config.qdrant_url,
         qdrant_collection,
         &query_vector,
@@ -233,13 +372,20 @@ async fn prepare_candidates(
     let mut candidates: HashMap<String, Candidate> = HashMap::new();
     for (item_id, path, score) in &vector_results {
         let (title, content) = if let Some(indices) = ctx.catalog.by_path.get(path) {
-            indices.first().map(|&idx| {
-                let item = &ctx.catalog.items[idx];
-                (
-                    item.name.clone(),
-                    if item.content.is_empty() { None } else { Some(item.content.clone()) },
-                )
-            }).unwrap_or_default()
+            indices
+                .first()
+                .map(|&idx| {
+                    let item = &ctx.catalog.items[idx];
+                    (
+                        item.name.clone(),
+                        if item.content.is_empty() {
+                            None
+                        } else {
+                            Some(item.content.clone())
+                        },
+                    )
+                })
+                .unwrap_or_default()
         } else {
             (String::new(), None)
         };
@@ -255,11 +401,11 @@ async fn prepare_candidates(
 
     // Step 3: BM25 scoring for all candidates
     let t0 = Instant::now();
-    let bm25_raw = bm25_scores(&ctx.bm25_index, &query_terms, 1.2, 0.75);
+    let bm25_raw = bm25_scores(ctx.bm25_index(), &query_terms, 1.2, 0.75);
     timings.bm25_ms = t0.elapsed().as_secs_f64() * 1000.0;
 
     // Normalize BM25 scores
-    let mut bm25_normalized = bm25_raw.clone();
+    let mut bm25_normalized = bm25_raw;
     normalize_scores(&mut bm25_normalized);
 
     // Merge BM25 scores into candidates
@@ -271,12 +417,15 @@ async fn prepare_candidates(
 
     // Step 3b: admit BM25-only candidates (Python HybridRetrievalStrategy parity:
     // lexical_candidates merged into scores up to lexical_candidate_limit).
+    // Scopes are passed so in-scope lexical candidates are admitted first.
+    let scopes = detect_scopes_for_query(query);
     admit_lexical_candidates(
         &mut candidates,
         &bm25_normalized,
         &ctx.catalog,
         &query_terms,
         ctx.config.lexical_candidate_limit,
+        &scopes,
     );
 
     // Also compute path/symbol/symbol_match scores from separate coverage (Python champion parity)
@@ -285,7 +434,7 @@ async fn prepare_candidates(
     //   symbol_score = symbol_coverage
     //   symbol_match_score = _symbol_match_score(item, profile)
     // lexical_score stays as BM25 (from step 3 above), which matches Python champion.
-    for (_doc_id, candidate) in &mut candidates {
+    for candidate in candidates.values_mut() {
         let item = ctx
             .catalog
             .by_id
@@ -307,8 +456,11 @@ async fn prepare_candidates(
     // Step 4: Graph propagation
     let t0 = Instant::now();
     let mut seed_scores: HashMap<String, f64> = HashMap::new();
-    for (_doc_id, candidate) in &candidates {
-        seed_scores.insert(candidate.path.clone(), candidate.vector_score + candidate.lexical_score);
+    for candidate in candidates.values() {
+        seed_scores.insert(
+            candidate.path.clone(),
+            candidate.vector_score + candidate.lexical_score,
+        );
     }
     let propagated = if ctx.config.graph_weight > 0.0 {
         propagate_scores(
@@ -351,7 +503,7 @@ async fn prepare_candidates(
     timings.fusion_ms = t0.elapsed().as_secs_f64() * 1000.0;
 
     if rerank_candidates.is_empty() {
-        return Ok((vec![], timings));
+        return Ok((vec![], timings, notices, rerank));
     }
 
     // Set base fused ranks
@@ -366,10 +518,33 @@ async fn prepare_candidates(
         .map(|c| build_document(c, &ctx.config))
         .collect();
     let ce_options = ce_options_from_config(&ctx.config);
-    let ce_scores =
-        ce_rerank_with_options(&ctx.http_client, &ctx.config.ce_url, &ce_options, query, &documents)
-            .await?;
+    let ce_scores = ce_rerank_with_options(
+        &ctx.http_client,
+        &ctx.config.ce_url,
+        &ce_options,
+        query,
+        &documents,
+    )
+    .await;
+    let ce_scores = match ce_scores {
+        Ok(scores) => scores,
+        Err(e) => {
+            if ctx.config.require_rerank {
+                return Err(format!(
+                    "Required CE first pass failed: {e}; fix reranker or opt out with --require-rerank=false"
+                ));
+            }
+            notices.push(format!(
+                "CE reranking unavailable; using fused ranking: {e}"
+            ));
+            rerank.error = Some(e);
+            sort_by_fused(&mut rerank_candidates);
+            timings.total_ms = start.elapsed().as_secs_f64() * 1000.0;
+            return Ok((rerank_candidates, timings, notices, rerank));
+        }
+    };
     timings.ce_first_pass_ms = t0.elapsed().as_secs_f64() * 1000.0;
+    rerank.applied = true;
 
     for (i, score) in ce_scores.iter().enumerate() {
         if i < rerank_candidates.len() {
@@ -427,7 +602,15 @@ async fn prepare_candidates(
                         }
                     }
                     Err(e) => {
+                        if ctx.config.require_rerank {
+                            return Err(format!(
+                                "Required CE second pass failed: {e}; fix reranker or opt out with --require-rerank=false"
+                            ));
+                        }
                         eprintln!("  WARNING: Second CE pass failed: {}", e);
+                        notices.push(format!("Second CE pass failed; retaining first pass: {e}"));
+                        rerank.second_pass_failed = true;
+                        rerank.error = Some(e);
                     }
                 }
             }
@@ -435,11 +618,11 @@ async fn prepare_candidates(
     }
     timings.ce_second_pass_ms = t0.elapsed().as_secs_f64() * 1000.0;
 
-    // Step 8: Apply ranking adjustments (logit, tie-break)
-    finalize_ce_candidates(&mut rerank_candidates, &ctx.config);
+    // Step 8: Apply ranking adjustments (logit, hub prior, tie-break)
+    finalize_ce_candidates(&mut rerank_candidates, &ctx.config, &ctx.fan_in_degrees);
 
     timings.total_ms = start.elapsed().as_secs_f64() * 1000.0;
-    Ok((rerank_candidates, timings))
+    Ok((rerank_candidates, timings, notices, rerank))
 }
 
 /// Perform a single search query.
@@ -448,15 +631,47 @@ pub async fn search(
     query: &str,
     limit: usize,
 ) -> Result<(Vec<SearchResult>, SearchTimings), String> {
+    let (response, timings) = search_with_options(
+        ctx,
+        query,
+        &SearchOptions {
+            limit,
+            preview_chars: 0,
+            path_prefix: None,
+        },
+    )
+    .await?;
+    for notice in response.notices {
+        eprintln!("WARNING: {notice}");
+    }
+    Ok((response.results, timings))
+}
+
+/// MCP/CLI adapter: expose `response.notices` as caller-visible warning text.
+/// Any positive limit within `config.candidate_limit` is supported, not just 34.
+pub async fn search_with_options(
+    ctx: &SearchContext,
+    query: &str,
+    options: &SearchOptions,
+) -> Result<(SearchResponse, SearchTimings), String> {
+    validate_search_options(&ctx.config, options)?;
+    let (_, notice) = prepare_embedding_query(&ctx.config, query)?;
     let start = Instant::now();
-    let (mut rerank_candidates, mut timings) = prepare_candidates(ctx, query).await?;
+    let (mut rerank_candidates, mut timings, mut notices, rerank) =
+        prepare_candidates(ctx, query).await?;
+    notices.extend(notice);
+    if ctx.meta_ranker.is_none() {
+        notices.push("Meta-ranker unavailable; using CE/fused ranking".into());
+    }
 
     // Step 9: Apply meta-ranker
     let t0 = Instant::now();
     if let Some(ref model) = ctx.meta_ranker {
-        let feature_vecs: Vec<Vec<f64>> = candidate_features(
-            &rerank_candidates, query, &ctx.fan_in_degrees,
-        ).iter().map(MetaFeatures::to_vec).collect();
+        let feature_vecs: Vec<Vec<f64>> =
+            candidate_features(&rerank_candidates, query, &ctx.fan_in_degrees)
+                .iter()
+                .map(MetaFeatures::to_vec)
+                .collect();
 
         timings.feature_extract_ms = t0.elapsed().as_secs_f64() * 1000.0;
 
@@ -475,20 +690,107 @@ pub async fn search(
 
     timings.total_ms = start.elapsed().as_secs_f64() * 1000.0;
 
+    // Apply scope preference: in-scope candidates rank above out-of-scope ones
+    let mut all_scopes = detect_scopes_for_query(query);
+    if let Some(ref prefix) = options.path_prefix
+        && !all_scopes.contains(prefix)
+    {
+        all_scopes.push(prefix.clone());
+    }
+    apply_scope_preference(&mut rerank_candidates, &all_scopes);
+
     // Build final results
+    let ce_available = rerank.applied;
     let results: Vec<SearchResult> = rerank_candidates
         .into_iter()
-        .take(limit)
-        .map(|c| SearchResult {
-            item_id: c.item_id,
-            path: c.path,
-            score: c.meta_score.max(c.ce_score_final).max(c.fused_score),
-            ce_score: Some(c.ce_score_final),
-            meta_score: if c.meta_score != 0.0 { Some(c.meta_score) } else { None },
+        .take(options.limit)
+        .map(|c| {
+            let (start_line, end_line, preview) =
+                result_content_metadata(&c, &ctx.config, options.preview_chars);
+            let score = final_ordering_score(&c, ctx.meta_ranker.is_some(), ce_available);
+            SearchResult {
+                title: ce_title(&c).to_string(),
+                start_line,
+                end_line,
+                preview,
+                item_id: c.item_id,
+                path: c.path,
+                score,
+                ce_score: ce_available.then_some(c.ce_score_final),
+                meta_score: ctx.meta_ranker.is_some().then_some(c.meta_score),
+            }
         })
         .collect();
 
-    Ok((results, timings))
+    Ok((
+        SearchResponse {
+            results,
+            rerank_applied: ce_available,
+            rerank_second_pass_failed: rerank.second_pass_failed,
+            rerank_error: rerank.error,
+            meta_ranker_applied: ctx.meta_ranker.is_some(),
+            notices,
+        },
+        timings,
+    ))
+}
+
+fn final_ordering_score(candidate: &Candidate, meta_available: bool, ce_available: bool) -> f64 {
+    if meta_available {
+        candidate.meta_score
+    } else if ce_available {
+        candidate.ce_score_final
+    } else {
+        candidate.fused_score
+    }
+}
+
+pub fn validate_search_options(
+    config: &SearchConfig,
+    options: &SearchOptions,
+) -> Result<(), String> {
+    if options.limit == 0 || options.limit > config.candidate_limit {
+        return Err(format!(
+            "search limit must be in 1..={} (got {}); increase the configured candidate_limit to request more results",
+            config.candidate_limit, options.limit
+        ));
+    }
+    Ok(())
+}
+
+/// Exact catalog snippets found in readable source report their inclusive source
+/// range. Generated metadata (or absent source) falls back to the whole available
+/// content: source if readable, catalog otherwise. No source I/O without base_path.
+pub fn result_content_metadata(
+    candidate: &Candidate,
+    config: &SearchConfig,
+    preview_chars: usize,
+) -> (usize, usize, Option<String>) {
+    let source = if config.base_path.is_empty() {
+        None
+    } else {
+        // Metadata must not expose source outside the configured root.
+        fs::canonicalize(&config.base_path).ok().and_then(|root| {
+            fs::canonicalize(root.join(&candidate.path))
+                .ok()
+                .filter(|path| path.starts_with(&root))
+                .and_then(|path| fs::read_to_string(path).ok())
+        })
+    };
+    let catalog_content = candidate.content.as_deref().unwrap_or("");
+    let mut content = source.as_deref().unwrap_or(catalog_content);
+    let mut start_line = 1;
+    if let Some(source) = source.as_deref()
+        && !catalog_content.is_empty()
+        && let Some(offset) = source.find(catalog_content)
+        && (offset == 0 || source.as_bytes()[offset - 1] == b'\n')
+    {
+        start_line += source[..offset].bytes().filter(|&b| b == b'\n').count();
+        content = catalog_content;
+    }
+    let end_line = start_line + content.lines().count().max(1) - 1;
+    let preview = (preview_chars > 0).then(|| truncate_chars(content, preview_chars).to_string());
+    (start_line, end_line, preview)
 }
 
 // ============================================================================
@@ -509,7 +811,9 @@ pub async fn dump_features(
     expected: &[String],
 ) -> Result<(), String> {
     let expected_set: HashSet<String> = expected.iter().cloned().collect();
-    dump_features_single(ctx, query, query_id, &expected_set).await.map(|_| ())
+    dump_features_single(ctx, query, query_id, &expected_set)
+        .await
+        .map(|_| ())
 }
 
 /// Admit BM25-only candidates that vector search missed.
@@ -518,6 +822,8 @@ pub async fn dump_features(
 /// the top `lexical_candidate_limit` lexical hits are merged into the score map with
 /// no cap on the combined total. `lexical_limit` therefore bounds only the number of
 /// NEW admissions here, not `candidates.len()`.
+///
+/// When `scopes` is provided, in-scope candidates are admitted first (before out-of-scope ones).
 #[allow(dead_code)]
 pub fn admit_lexical_candidates(
     candidates: &mut HashMap<String, Candidate>,
@@ -525,12 +831,28 @@ pub fn admit_lexical_candidates(
     catalog: &Catalog,
     query_terms: &[String],
     lexical_limit: usize,
+    scopes: &[String],
 ) {
     let mut sorted_bm25: Vec<(&String, &f64)> = bm25_normalized.iter().collect();
     sorted_bm25.sort_by(|a, b| {
-        b.1.partial_cmp(a.1)
-            .unwrap_or(std::cmp::Ordering::Equal)
-            .then_with(|| a.0.cmp(b.0))
+        // Prioritize in-scope candidates
+        let a_in_scope = !scopes.is_empty()
+            && a.1 > &0.0
+            && catalog
+                .by_id
+                .get(a.0)
+                .is_some_and(|&idx| scope_helpers::is_in_scope(&catalog.items[idx].path, scopes));
+        let b_in_scope = !scopes.is_empty()
+            && b.1 > &0.0
+            && catalog
+                .by_id
+                .get(b.0)
+                .is_some_and(|&idx| scope_helpers::is_in_scope(&catalog.items[idx].path, scopes));
+        b_in_scope.cmp(&a_in_scope).then_with(|| {
+            b.1.partial_cmp(a.1)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| a.0.cmp(b.0))
+        })
     });
     let mut admitted = 0usize;
     for (doc_id, score) in sorted_bm25 {
@@ -540,34 +862,34 @@ pub fn admit_lexical_candidates(
         if *score <= 0.0 {
             continue;
         }
-        if !candidates.contains_key(doc_id) {
-            if let Some(&idx) = catalog.by_id.get(doc_id) {
-                let item = &catalog.items[idx];
-                let content = if item.content.is_empty() {
-                    None
-                } else {
-                    Some(item.content.clone())
-                };
-                let path_score = path_coverage_score(item, query_terms);
-                let symbol_score = symbol_coverage_score(item, query_terms);
-                let symbol_match_score = symbol_match_score(item, query_terms);
-                candidates.insert(
-                    doc_id.clone(),
-                    Candidate {
-                        item_id: doc_id.clone(),
-                        path: item.path.clone(),
-                        title: item.name.clone(),
-                        content,
-                        vector_score: 0.0,
-                        lexical_score: *score,
-                        path_score,
-                        symbol_score,
-                        symbol_match_score,
-                        ..Default::default()
-                    },
-                );
-                admitted += 1;
-            }
+        if !candidates.contains_key(doc_id)
+            && let Some(&idx) = catalog.by_id.get(doc_id)
+        {
+            let item = &catalog.items[idx];
+            let content = if item.content.is_empty() {
+                None
+            } else {
+                Some(item.content.clone())
+            };
+            let path_score = path_coverage_score(item, query_terms);
+            let symbol_score = symbol_coverage_score(item, query_terms);
+            let symbol_match_score = symbol_match_score(item, query_terms);
+            candidates.insert(
+                doc_id.clone(),
+                Candidate {
+                    item_id: doc_id.clone(),
+                    path: item.path.clone(),
+                    title: item.name.clone(),
+                    content,
+                    vector_score: 0.0,
+                    lexical_score: *score,
+                    path_score,
+                    symbol_score,
+                    symbol_match_score,
+                    ..Default::default()
+                },
+            );
+            admitted += 1;
         }
     }
 }
@@ -586,7 +908,10 @@ pub fn apply_file_vote_scores(candidates: &mut [Candidate], config: &SearchConfi
             + cand.symbol_score * config.symbol_weight
             + cand.symbol_match_score * config.symbol_match_weight
             + cand.graph_score * config.graph_weight;
-        by_path.entry(cand.path.as_str()).or_default().push(base_total);
+        by_path
+            .entry(cand.path.as_str())
+            .or_default()
+            .push(base_total);
     }
 
     let mut raw_votes: HashMap<String, f64> = HashMap::with_capacity(by_path.len());
@@ -626,22 +951,72 @@ fn candidate_features(
 ) -> Vec<MetaFeatures> {
     let query_terms = crate::features::query_terms(query);
     let query_term_set: HashSet<String> = query_terms.iter().cloned().collect();
-    let max_fan_in = candidates.iter()
-        .filter_map(|c| fan_in_degrees.get(&c.path)).copied()
+    let max_fan_in = candidates
+        .iter()
+        .filter_map(|c| fan_in_degrees.get(&c.path))
+        .copied()
         .fold(0.0, f64::max);
-    candidates.iter().map(|candidate| extract_features(
-        candidate, &query_terms, &query_term_set, query_terms.len() as f64,
-        max_fan_in, fan_in_degrees,
-    )).collect()
+    candidates
+        .iter()
+        .map(|candidate| {
+            extract_features(
+                candidate,
+                &query_terms,
+                &query_term_set,
+                query_terms.len() as f64,
+                max_fan_in,
+                fan_in_degrees,
+            )
+        })
+        .collect()
 }
 
-fn finalize_ce_candidates(candidates: &mut Vec<Candidate>, config: &SearchConfig) {
+fn finalize_ce_candidates(
+    candidates: &mut [Candidate],
+    config: &SearchConfig,
+    fan_in_degrees: &HashMap<String, f64>,
+) {
+    // Apply logit conversion first
     for candidate in candidates.iter_mut() {
         if config.rank_by_raw_logits {
             candidate.ce_score_final = logit(candidate.ce_score_final);
         }
         candidate.ce_score = candidate.ce_score_final;
     }
+
+    // Apply hub prior (additive mode) — matches Python HubPriorScorer.priors()
+    if config.hub_prior_enabled && config.hub_prior_mode == "additive" {
+        let max_fan_in = candidates
+            .iter()
+            .filter_map(|c| fan_in_degrees.get(&c.path))
+            .copied()
+            .fold(0.0, f64::max);
+
+        if max_fan_in > 0.0 {
+            // Store original scores for protection
+            let originals: Vec<f64> = candidates.iter().map(|c| c.ce_score_final).collect();
+
+            for (i, candidate) in candidates.iter_mut().enumerate() {
+                let fan_in = fan_in_degrees.get(&candidate.path).copied().unwrap_or(0.0);
+                let role = crate::features::role_prior(&candidate.path);
+                let fanin_prior = (1.0 + fan_in).ln() / (1.0 + max_fan_in).ln();
+                let prior = config.hub_prior_role_weight * role
+                    + config.hub_prior_fanin_weight * fanin_prior;
+                candidate.hub_prior = prior;
+                let adjusted = candidate.ce_score_final + prior;
+
+                // Protect top N candidates from being down-ranked
+                let protected = i < config.hub_prior_protect_top;
+                if protected {
+                    candidate.ce_score_final = originals[i].max(adjusted);
+                } else {
+                    candidate.ce_score_final = adjusted;
+                }
+                candidate.ce_score = candidate.ce_score_final;
+            }
+        }
+    }
+
     sort_by_ce(candidates);
     if config.tie_break_by_fused_score {
         tie_break_by_fused(candidates, config.tie_break_epsilon);
@@ -665,9 +1040,12 @@ fn ce_options_from_config(config: &SearchConfig) -> CeOptions {
 }
 
 fn second_pass_indices(candidates: &[Candidate], config: &SearchConfig) -> Vec<usize> {
-    let mut indices: Vec<usize> = candidates.iter().enumerate()
+    let mut indices: Vec<usize> = candidates
+        .iter()
+        .enumerate()
         .filter(|(_, c)| c.ce_score < config.second_pass_score_floor)
-        .map(|(i, _)| i).collect();
+        .map(|(i, _)| i)
+        .collect();
     let cap = config.second_pass_candidate_cap;
     if cap > 0 && indices.len() > cap {
         indices.sort_by_key(|&i| candidates[i].ce_index);
@@ -676,9 +1054,286 @@ fn second_pass_indices(candidates: &[Candidate], config: &SearchConfig) -> Vec<u
     indices
 }
 
+/// Longest `&str` prefix holding at most `max_chars` Unicode scalar values.
+/// Byte slicing would panic on non-char boundaries and miscount non-ASCII text.
+fn truncate_chars(s: &str, max_chars: usize) -> &str {
+    match s.char_indices().nth(max_chars) {
+        Some((idx, _)) => &s[..idx],
+        None => s,
+    }
+}
+
+/// Collect scope prefixes from query text.
+fn detect_scopes_for_query(query: &str) -> Vec<String> {
+    scope_helpers::detect_scopes(query)
+}
+
+/// Stable partition: in-scope candidates move to the front, preserving relative order
+/// within each group. This is applied after all ranking (CE, meta-ranker) but before
+/// truncating to `options.limit`.
+pub fn apply_scope_preference(candidates: &mut [Candidate], scopes: &[String]) {
+    if scopes.is_empty() {
+        return;
+    }
+    candidates.sort_by(|a, b| {
+        let a_in = scope_helpers::is_in_scope(&a.path, scopes);
+        let b_in = scope_helpers::is_in_scope(&b.path, scopes);
+        // In-scope first; within each group preserve original order (stable sort)
+        b_in.cmp(&a_in)
+    });
+}
+
+/// Title for the CE document: catalog title (`name`, = Python `item.title`),
+/// falling back to the full path exactly like Python (`title or path`).
+fn ce_title(candidate: &Candidate) -> &str {
+    if candidate.title.is_empty() {
+        &candidate.path
+    } else {
+        &candidate.title
+    }
+}
+
+/// Build a document string matching Python's `_fused_locator_document` exactly.
+/// Format: "path: {path}\ntitle: {title}\nscore: {score:.6f}\ncontent:\n{content}"
+/// where the content slice is `content[:max_document_chars]` (chars, not bytes) and
+/// the header is NOT counted against the budget. Falls back to catalog content if
+/// filesystem is not available.
+fn build_document(candidate: &Candidate, config: &SearchConfig) -> String {
+    let title = ce_title(candidate);
+
+    // Try to read from filesystem first (Rust-only extra; base_path empty in eval).
+    if !config.base_path.is_empty() {
+        let file_path = Path::new(&config.base_path).join(&candidate.path);
+        if file_path.exists()
+            && let Ok(content) = std::fs::read_to_string(&file_path)
+        {
+            let content = content.trim();
+            if !content.is_empty() {
+                return format!(
+                    "path: {}\ntitle: {}\nscore: {:.6}\ncontent:\n{}",
+                    candidate.path,
+                    title,
+                    candidate.fused_score,
+                    truncate_chars(content, config.max_document_chars),
+                );
+            }
+        }
+    }
+
+    // Catalog content, Python parity: item.content[:max_document_chars], no trim.
+    let content = candidate.content.as_deref().unwrap_or("");
+    format!(
+        "path: {}\ntitle: {}\nscore: {:.6}\ncontent:\n{}",
+        candidate.path,
+        title,
+        candidate.fused_score,
+        truncate_chars(content, config.max_document_chars),
+    )
+}
+
+/// Build a long document string for second pass (same Python format, larger budget).
+fn build_long_document(candidate: &Candidate, config: &SearchConfig) -> String {
+    let title = ce_title(candidate);
+
+    if !config.base_path.is_empty() {
+        let file_path = Path::new(&config.base_path).join(&candidate.path);
+        if file_path.exists()
+            && let Ok(content) = std::fs::read_to_string(&file_path)
+        {
+            let content = content.trim();
+            if !content.is_empty() {
+                return format!(
+                    "path: {}\ntitle: {}\nscore: {:.6}\ncontent:\n{}",
+                    candidate.path,
+                    title,
+                    candidate.fused_score,
+                    truncate_chars(content, config.second_pass_max_document_chars),
+                );
+            }
+        }
+    }
+
+    let content = candidate.content.as_deref().unwrap_or("");
+    format!(
+        "path: {}\ntitle: {}\nscore: {:.6}\ncontent:\n{}",
+        candidate.path,
+        title,
+        candidate.fused_score,
+        truncate_chars(content, config.second_pass_max_document_chars),
+    )
+}
+
+/// Batch feature extraction: read queries from a JSONL file, process all in one process.
+/// Each line: {"id": "...", "query": "...", "expected": ["path1", "path2", ...]}
+/// Outputs JSONL features to stdout.
+pub async fn dump_features_batch(ctx: &SearchContext, file_path: &str) -> Result<(), String> {
+    let content = fs::read_to_string(file_path).map_err(|e| format!("Read file: {}", e))?;
+    let lines: Vec<&str> = content.lines().filter(|l| !l.trim().is_empty()).collect();
+    eprintln!("Processing {} queries from {}", lines.len(), file_path);
+
+    let start_total = Instant::now();
+    let mut total_candidates = 0;
+    let mut errors = 0;
+
+    for (i, line) in lines.iter().enumerate() {
+        let record: serde_json::Value =
+            serde_json::from_str(line).map_err(|e| format!("Parse line {}: {}", i + 1, e))?;
+
+        let query_id = record["id"].as_str().unwrap_or("unknown");
+        let query = record["query"]
+            .as_str()
+            .ok_or_else(|| format!("No query at line {}", i + 1))?;
+        let expected: Vec<String> = record["expected"]
+            .as_array()
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        let query_start = Instant::now();
+        let expected_set: HashSet<String> = expected.iter().cloned().collect();
+
+        // Use the same pre-meta pipeline and output as single-query export.
+        match dump_features_single(ctx, query, query_id, &expected_set).await {
+            Ok(n) => {
+                total_candidates += n;
+                let elapsed = query_start.elapsed().as_secs_f64();
+                if (i + 1) % 10 == 0 || i == 0 {
+                    eprintln!(
+                        "  [{}/{}] {}: {} candidates in {:.1}s ({:.0}%)",
+                        i + 1,
+                        lines.len(),
+                        query_id,
+                        n,
+                        elapsed,
+                        (i + 1) * 100 / lines.len()
+                    );
+                }
+            }
+            Err(e) => {
+                eprintln!("  [{}/{}] {}: ERROR: {}", i + 1, lines.len(), query_id, e);
+                errors += 1;
+            }
+        }
+    }
+
+    let total = start_total.elapsed().as_secs_f64();
+    eprintln!(
+        "Done: {} queries, {} candidates, {} errors, {:.0}s total ({:.1}s/query)",
+        lines.len(),
+        total_candidates,
+        errors,
+        total,
+        total / lines.len() as f64
+    );
+    Ok(())
+}
+
+/// Process a single query for batch feature extraction, returns candidate count.
+async fn dump_features_single(
+    ctx: &SearchContext,
+    query: &str,
+    query_id: &str,
+    expected_set: &HashSet<String>,
+) -> Result<usize, String> {
+    let start = Instant::now();
+    let (rerank_candidates, _, notices, _) = prepare_candidates(ctx, query).await?;
+    if !notices.is_empty() {
+        return Err(notices.join("; "));
+    }
+
+    let feature_rows = candidate_features(&rerank_candidates, query, &ctx.fan_in_degrees);
+    let elapsed_s = start.elapsed().as_secs_f64();
+
+    // Output features
+    for (candidate, features) in rerank_candidates.iter().zip(&feature_rows) {
+        let label = if expected_set.contains(&candidate.path) {
+            1
+        } else {
+            0
+        };
+        let line = serde_json::json!({
+            "query_id": query_id, "query": query, "candidate_path": candidate.path, "label": label,
+            "ce_score": features.ce_score, "ce_rank": features.ce_rank,
+            "fan_in_prior": features.fan_in_prior, "role_prior": features.role_prior,
+            "base_fused_score": features.base_fused_score, "base_fused_rank": features.base_fused_rank,
+            "lexical_overlap": features.lexical_overlap, "path_depth": features.path_depth,
+            "filename_len": features.filename_len, "is_test": features.is_test,
+            "ext_java": features.ext_java, "ext_kt": features.ext_kt,
+            "ext_xml": features.ext_xml, "ext_md": features.ext_md,
+            "query_term_count": features.query_term_count, "dir_proximity": features.dir_proximity,
+            "time_s": elapsed_s,
+        });
+        println!("{}", serde_json::to_string(&line).unwrap_or_default());
+    }
+
+    Ok(rerank_candidates.len())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn final_ordering_score_matches_comparator_without_reordering() {
+        let candidates = vec![
+            Candidate {
+                item_id: "a".into(),
+                meta_score: -2.0,
+                ce_score: -1.0,
+                ce_score_final: -1.0,
+                fused_score: 0.9,
+                ..Default::default()
+            },
+            Candidate {
+                item_id: "b".into(),
+                meta_score: 0.0,
+                ce_score: -3.0,
+                ce_score_final: -3.0,
+                fused_score: 0.1,
+                ..Default::default()
+            },
+            Candidate {
+                item_id: "c".into(),
+                meta_score: -1.0,
+                ce_score: -2.0,
+                ce_score_final: -2.0,
+                fused_score: 0.5,
+                ..Default::default()
+            },
+        ];
+        for (meta, ce, ids, scores) in [
+            (true, true, ["b", "c", "a"], [0.0, -1.0, -2.0]),
+            (true, false, ["b", "c", "a"], [0.0, -1.0, -2.0]),
+            (false, true, ["a", "c", "b"], [-1.0, -2.0, -3.0]),
+            (false, false, ["a", "c", "b"], [0.9, 0.5, 0.1]),
+        ] {
+            let mut ordered = candidates.clone();
+            if meta {
+                sort_by_meta(&mut ordered);
+            } else if ce {
+                sort_by_ce(&mut ordered);
+            } else {
+                sort_by_fused(&mut ordered);
+            }
+            assert_eq!(
+                ordered
+                    .iter()
+                    .map(|c| c.item_id.as_str())
+                    .collect::<Vec<_>>(),
+                ids
+            );
+            assert_eq!(
+                ordered
+                    .iter()
+                    .map(|c| final_ordering_score(c, meta, ce))
+                    .collect::<Vec<_>>(),
+                scores
+            );
+        }
+    }
 
     #[test]
     fn embed_cache_disabled_returns_none() {
@@ -718,41 +1373,86 @@ mod tests {
     #[test]
     fn duplicate_paths_do_not_consume_ce_slots() {
         let candidates = vec![
-            Candidate { path: "a.rs".into(), fused_score: 3.0, ..Default::default() },
-            Candidate { path: "a.rs".into(), fused_score: 2.0, ..Default::default() },
-            Candidate { path: "b.rs".into(), fused_score: 1.0, ..Default::default() },
+            Candidate {
+                path: "a.rs".into(),
+                fused_score: 3.0,
+                ..Default::default()
+            },
+            Candidate {
+                path: "a.rs".into(),
+                fused_score: 2.0,
+                ..Default::default()
+            },
+            Candidate {
+                path: "b.rs".into(),
+                fused_score: 1.0,
+                ..Default::default()
+            },
         ];
         let selected = select_ce_candidates(candidates, 2);
-        assert_eq!(selected.iter().map(|c| c.path.as_str()).collect::<Vec<_>>(), vec!["a.rs", "b.rs"]);
+        assert_eq!(
+            selected.iter().map(|c| c.path.as_str()).collect::<Vec<_>>(),
+            vec!["a.rs", "b.rs"]
+        );
         assert_eq!(selected[0].fused_score, 3.0);
     }
 
     #[test]
     fn capped_retry_uses_original_candidate_index() {
         let candidates = vec![
-            Candidate { ce_score: 0.2, ce_index: 2, ..Default::default() },
-            Candidate { ce_score: 0.1, ce_index: 0, ..Default::default() },
-            Candidate { ce_score: 0.05, ce_index: 1, ..Default::default() },
+            Candidate {
+                ce_score: 0.2,
+                ce_index: 2,
+                ..Default::default()
+            },
+            Candidate {
+                ce_score: 0.1,
+                ce_index: 0,
+                ..Default::default()
+            },
+            Candidate {
+                ce_score: 0.05,
+                ce_index: 1,
+                ..Default::default()
+            },
         ];
-        let config = SearchConfig { second_pass_candidate_cap: 1, ..Default::default() };
+        let config = SearchConfig {
+            second_pass_candidate_cap: 1,
+            ..Default::default()
+        };
         assert_eq!(second_pass_indices(&candidates, &config), vec![1]);
     }
 
     #[test]
     fn uncapped_retry_preserves_order_and_excludes_score_floor() {
         let candidates = vec![
-            Candidate { ce_score: 0.3, ce_index: 1, ..Default::default() },
-            Candidate { ce_score: 0.2, ce_index: 2, ..Default::default() },
-            Candidate { ce_score: 0.1, ce_index: 0, ..Default::default() },
+            Candidate {
+                ce_score: 0.3,
+                ce_index: 1,
+                ..Default::default()
+            },
+            Candidate {
+                ce_score: 0.2,
+                ce_index: 2,
+                ..Default::default()
+            },
+            Candidate {
+                ce_score: 0.1,
+                ce_index: 0,
+                ..Default::default()
+            },
         ];
-        let config = SearchConfig { second_pass_candidate_cap: 0, ..Default::default() };
+        let config = SearchConfig {
+            second_pass_candidate_cap: 0,
+            ..Default::default()
+        };
         assert_eq!(second_pass_indices(&candidates, &config), vec![1, 2]);
     }
 
     #[test]
     fn empty_and_zero_candidate_windows_are_safe() {
         let mut candidates = select_ce_candidates(vec![Candidate::default()], 0);
-        finalize_ce_candidates(&mut candidates, &SearchConfig::default());
+        finalize_ce_candidates(&mut candidates, &SearchConfig::default(), &HashMap::new());
         assert!(candidates.is_empty());
         assert!(candidate_features(&candidates, "", &HashMap::new()).is_empty());
         assert!(select_ce_candidates(vec![], 34).is_empty());
@@ -763,8 +1463,16 @@ mod tests {
     #[test]
     fn equal_fused_scores_have_deterministic_file_selection() {
         let candidates = vec![
-            Candidate { path: "b.rs".into(), fused_score: 1.0, ..Default::default() },
-            Candidate { path: "a.rs".into(), fused_score: 1.0, ..Default::default() },
+            Candidate {
+                path: "b.rs".into(),
+                fused_score: 1.0,
+                ..Default::default()
+            },
+            Candidate {
+                path: "a.rs".into(),
+                fused_score: 1.0,
+                ..Default::default()
+            },
         ];
         let mut reversed = candidates.clone();
         reversed.reverse();
@@ -775,14 +1483,31 @@ mod tests {
     #[test]
     fn second_pass_improvement_controls_final_order_and_rank_features() {
         let mut candidates = vec![
-            Candidate { path: "first.rs".into(), ce_score: 0.8, ce_score_final: 0.8,
-                ce_index: 1, ce_rank: 0, base_fused_rank: 1, ..Default::default() },
-            Candidate { path: "rescued.rs".into(), ce_score: 0.1, ce_score_final: 0.9,
-                ce_index: 0, ce_rank: 1, base_fused_rank: 0, ..Default::default() },
+            Candidate {
+                path: "first.rs".into(),
+                ce_score: 0.8,
+                ce_score_final: 0.8,
+                ce_index: 1,
+                ce_rank: 0,
+                base_fused_rank: 1,
+                ..Default::default()
+            },
+            Candidate {
+                path: "rescued.rs".into(),
+                ce_score: 0.1,
+                ce_score_final: 0.9,
+                ce_index: 0,
+                ce_rank: 1,
+                base_fused_rank: 0,
+                ..Default::default()
+            },
         ];
-        let config = SearchConfig { rank_by_raw_logits: false, tie_break_by_fused_score: false,
-            ..Default::default() };
-        finalize_ce_candidates(&mut candidates, &config);
+        let config = SearchConfig {
+            rank_by_raw_logits: false,
+            tie_break_by_fused_score: false,
+            ..Default::default()
+        };
+        finalize_ce_candidates(&mut candidates, &config, &HashMap::new());
         assert_eq!(candidates[0].path, "rescued.rs");
         for (rank, candidate) in candidates.iter().enumerate() {
             assert_eq!(candidate.ce_rank, rank);
@@ -803,14 +1528,30 @@ mod tests {
     #[test]
     fn final_ties_refresh_both_ranks_after_logit() {
         let mut candidates = vec![
-            Candidate { ce_score: 0.9, ce_score_final: 0.9, fused_score: 1.0,
-                ce_rank: 0, base_fused_rank: 0, ..Default::default() },
-            Candidate { ce_score: 0.1, ce_score_final: 0.9, fused_score: 2.0,
-                ce_rank: 1, base_fused_rank: 1, ..Default::default() },
+            Candidate {
+                ce_score: 0.9,
+                ce_score_final: 0.9,
+                fused_score: 1.0,
+                ce_rank: 0,
+                base_fused_rank: 0,
+                ..Default::default()
+            },
+            Candidate {
+                ce_score: 0.1,
+                ce_score_final: 0.9,
+                fused_score: 2.0,
+                ce_rank: 1,
+                base_fused_rank: 1,
+                ..Default::default()
+            },
         ];
-        let config = SearchConfig { rank_by_raw_logits: true, tie_break_by_fused_score: true,
-            tie_break_epsilon: 1e-6, ..Default::default() };
-        finalize_ce_candidates(&mut candidates, &config);
+        let config = SearchConfig {
+            rank_by_raw_logits: true,
+            tie_break_by_fused_score: true,
+            tie_break_epsilon: 1e-6,
+            ..Default::default()
+        };
+        finalize_ce_candidates(&mut candidates, &config, &HashMap::new());
         assert_eq!(candidates[0].fused_score, 2.0);
         assert_eq!(candidates[0].ce_rank, 0);
         assert_eq!(candidates[0].base_fused_rank, 0);
@@ -967,7 +1708,7 @@ mod tests {
 
         let query_terms = vec!["lex2".to_string()];
         // lexical_limit = 1 (only 1 NEW candidate may be admitted on top of vec_doc)
-        admit_lexical_candidates(&mut candidates, &bm25, &catalog, &query_terms, 1);
+        admit_lexical_candidates(&mut candidates, &bm25, &catalog, &query_terms, 1, &[]);
 
         assert_eq!(candidates.len(), 2);
         // lex_doc2 had higher score (0.95 vs 0.8), so it was admitted first
@@ -1010,7 +1751,10 @@ mod tests {
 
     #[test]
     fn ce_document_uses_catalog_title_and_content_budget() {
-        let config = SearchConfig { max_document_chars: 5, ..Default::default() };
+        let config = SearchConfig {
+            max_document_chars: 5,
+            ..Default::default()
+        };
         let candidate = Candidate {
             path: "src/Foo.java".into(),
             title: "CatalogTitle".into(),
@@ -1024,7 +1768,10 @@ mod tests {
             "path: src/Foo.java\ntitle: CatalogTitle\nscore: 1.500000\ncontent:\nabcde"
         );
         // Empty title falls back to the full path (Python `title or path`).
-        let no_title = Candidate { title: String::new(), ..candidate.clone() };
+        let no_title = Candidate {
+            title: String::new(),
+            ..candidate.clone()
+        };
         assert!(build_document(&no_title, &config).contains("title: src/Foo.java\n"));
     }
 
@@ -1032,10 +1779,14 @@ mod tests {
     fn admit_lexical_limit_bounds_new_admissions_not_total() {
         let mut candidates = HashMap::new();
         for i in 0..5 {
-            candidates.insert(format!("vec{}", i), Candidate {
-                item_id: format!("vec{}", i), path: format!("v{}.rs", i),
-                ..Default::default()
-            });
+            candidates.insert(
+                format!("vec{}", i),
+                Candidate {
+                    item_id: format!("vec{}", i),
+                    path: format!("v{}.rs", i),
+                    ..Default::default()
+                },
+            );
         }
         let mut bm25 = HashMap::new();
         bm25.insert("lex1".to_string(), 0.9);
@@ -1045,192 +1796,135 @@ mod tests {
         by_id.insert("lex2".to_string(), 1);
         let catalog = Catalog {
             items: vec![
-                crate::types::CatalogItem { id: "lex1".into(), path: "l1.rs".into(), ..Default::default() },
-                crate::types::CatalogItem { id: "lex2".into(), path: "l2.rs".into(), ..Default::default() },
+                crate::types::CatalogItem {
+                    id: "lex1".into(),
+                    path: "l1.rs".into(),
+                    ..Default::default()
+                },
+                crate::types::CatalogItem {
+                    id: "lex2".into(),
+                    path: "l2.rs".into(),
+                    ..Default::default()
+                },
             ],
-            by_id, by_path: HashMap::new(), by_norm_path: HashMap::new(),
+            by_id,
+            by_path: HashMap::new(),
+            by_norm_path: HashMap::new(),
         };
         // Total (5) already exceeds any retrieval cap; both lexical hits must
         // still be admitted because the limit counts NEW admissions only.
-        admit_lexical_candidates(&mut candidates, &bm25, &catalog, &[], 1000);
+        admit_lexical_candidates(&mut candidates, &bm25, &catalog, &[], 1000, &[]);
         assert_eq!(candidates.len(), 7);
         // Zero limit admits nothing.
         let mut candidates2 = HashMap::new();
         candidates2.insert("vec0".to_string(), Candidate::default());
-        admit_lexical_candidates(&mut candidates2, &bm25, &catalog, &[], 0);
+        admit_lexical_candidates(&mut candidates2, &bm25, &catalog, &[], 0, &[]);
         assert_eq!(candidates2.len(), 1);
     }
-}
 
-/// Longest `&str` prefix holding at most `max_chars` Unicode scalar values.
-/// Byte slicing would panic on non-char boundaries and miscount non-ASCII text.
-fn truncate_chars(s: &str, max_chars: usize) -> &str {
-    match s.char_indices().nth(max_chars) {
-        Some((idx, _)) => &s[..idx],
-        None => s,
-    }
-}
-
-/// Title for the CE document: catalog title (`name`, = Python `item.title`),
-/// falling back to the full path exactly like Python (`title or path`).
-fn ce_title(candidate: &Candidate) -> &str {
-    if candidate.title.is_empty() {
-        &candidate.path
-    } else {
-        &candidate.title
-    }
-}
-
-/// Build a document string matching Python's `_fused_locator_document` exactly.
-/// Format: "path: {path}\ntitle: {title}\nscore: {score:.6f}\ncontent:\n{content}"
-/// where the content slice is `content[:max_document_chars]` (chars, not bytes) and
-/// the header is NOT counted against the budget. Falls back to catalog content if
-/// filesystem is not available.
-fn build_document(candidate: &Candidate, config: &SearchConfig) -> String {
-    let title = ce_title(candidate);
-
-    // Try to read from filesystem first (Rust-only extra; base_path empty in eval).
-    if !config.base_path.is_empty() {
-        let file_path = Path::new(&config.base_path).join(&candidate.path);
-        if file_path.exists() {
-            if let Ok(content) = std::fs::read_to_string(&file_path) {
-                let content = content.trim();
-                if !content.is_empty() {
-                    return format!(
-                        "path: {}\ntitle: {}\nscore: {:.6}\ncontent:\n{}",
-                        candidate.path,
-                        title,
-                        candidate.fused_score,
-                        truncate_chars(content, config.max_document_chars),
-                    );
-                }
-            }
-        }
+    #[test]
+    fn scope_preference_in_scope_wins_over_out_of_scope() {
+        let mut candidates = vec![
+            Candidate {
+                item_id: "out1".into(),
+                path: "other/repo/file.go".into(),
+                ce_score_final: 0.9,
+                ..Default::default()
+            },
+            Candidate {
+                item_id: "in1".into(),
+                path: "repos/cloud-console/src/main.go".into(),
+                ce_score_final: 0.85,
+                ..Default::default()
+            },
+            Candidate {
+                item_id: "out2".into(),
+                path: "other/repo/util.go".into(),
+                ce_score_final: 0.8,
+                ..Default::default()
+            },
+        ];
+        let scopes = vec!["repos/cloud-console".to_string()];
+        apply_scope_preference(&mut candidates, &scopes);
+        // In-scope candidate moves to front despite lower score
+        assert_eq!(candidates[0].item_id, "in1");
+        // Out-of-scope candidates preserve relative order
+        assert_eq!(candidates[1].item_id, "out1");
+        assert_eq!(candidates[2].item_id, "out2");
     }
 
-    // Catalog content, Python parity: item.content[:max_document_chars], no trim.
-    let content = candidate.content.as_deref().unwrap_or("");
-    format!(
-        "path: {}\ntitle: {}\nscore: {:.6}\ncontent:\n{}",
-        candidate.path,
-        title,
-        candidate.fused_score,
-        truncate_chars(content, config.max_document_chars),
-    )
-}
-
-/// Build a long document string for second pass (same Python format, larger budget).
-fn build_long_document(candidate: &Candidate, config: &SearchConfig) -> String {
-    let title = ce_title(candidate);
-
-    if !config.base_path.is_empty() {
-        let file_path = Path::new(&config.base_path).join(&candidate.path);
-        if file_path.exists() {
-            if let Ok(content) = std::fs::read_to_string(&file_path) {
-                let content = content.trim();
-                if !content.is_empty() {
-                    return format!(
-                        "path: {}\ntitle: {}\nscore: {:.6}\ncontent:\n{}",
-                        candidate.path,
-                        title,
-                        candidate.fused_score,
-                        truncate_chars(content, config.second_pass_max_document_chars),
-                    );
-                }
-            }
-        }
+    #[test]
+    fn scope_preference_fill_up_when_scope_has_few() {
+        let mut candidates = vec![
+            Candidate {
+                item_id: "in1".into(),
+                path: "repos/sre/config.yaml".into(),
+                ce_score_final: 0.7,
+                ..Default::default()
+            },
+            Candidate {
+                item_id: "out1".into(),
+                path: "other/file.go".into(),
+                ce_score_final: 0.95,
+                ..Default::default()
+            },
+            Candidate {
+                item_id: "out2".into(),
+                path: "another/file.rs".into(),
+                ce_score_final: 0.9,
+                ..Default::default()
+            },
+        ];
+        let scopes = vec!["repos/sre".to_string()];
+        apply_scope_preference(&mut candidates, &scopes);
+        // In-scope first, then out-of-scope in original order
+        assert_eq!(candidates[0].item_id, "in1");
+        assert_eq!(candidates[1].item_id, "out1");
+        assert_eq!(candidates[2].item_id, "out2");
     }
 
-    let content = candidate.content.as_deref().unwrap_or("");
-    format!(
-        "path: {}\ntitle: {}\nscore: {:.6}\ncontent:\n{}",
-        candidate.path,
-        title,
-        candidate.fused_score,
-        truncate_chars(content, config.second_pass_max_document_chars),
-    )
-}
-
-/// Batch feature extraction: read queries from a JSONL file, process all in one process.
-/// Each line: {"id": "...", "query": "...", "expected": ["path1", "path2", ...]}
-/// Outputs JSONL features to stdout.
-pub async fn dump_features_batch(ctx: &SearchContext, file_path: &str) -> Result<(), String> {
-    let content = fs::read_to_string(file_path).map_err(|e| format!("Read file: {}", e))?;
-    let lines: Vec<&str> = content.lines().filter(|l| !l.trim().is_empty()).collect();
-    eprintln!("Processing {} queries from {}", lines.len(), file_path);
-
-    let start_total = Instant::now();
-    let mut total_candidates = 0;
-    let mut errors = 0;
-
-    for (i, line) in lines.iter().enumerate() {
-        let record: serde_json::Value = serde_json::from_str(line)
-            .map_err(|e| format!("Parse line {}: {}", i + 1, e))?;
-
-        let query_id = record["id"].as_str().unwrap_or("unknown");
-        let query = record["query"].as_str().ok_or_else(|| format!("No query at line {}", i + 1))?;
-        let expected: Vec<String> = record["expected"]
-            .as_array()
-            .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
-            .unwrap_or_default();
-
-        let query_start = Instant::now();
-        let expected_set: HashSet<String> = expected.iter().cloned().collect();
-
-        // Use the same pre-meta pipeline and output as single-query export.
-        match dump_features_single(ctx, query, query_id, &expected_set).await {
-            Ok(n) => {
-                total_candidates += n;
-                let elapsed = query_start.elapsed().as_secs_f64();
-                if (i + 1) % 10 == 0 || i == 0 {
-                    eprintln!("  [{}/{}] {}: {} candidates in {:.1}s ({:.0}%)",
-                        i + 1, lines.len(), query_id, n, elapsed,
-                        (i + 1) * 100 / lines.len());
-                }
-            }
-            Err(e) => {
-                eprintln!("  [{}/{}] {}: ERROR: {}", i + 1, lines.len(), query_id, e);
-                errors += 1;
-            }
-        }
+    #[test]
+    fn scope_preference_empty_scopes_no_change() {
+        let mut candidates = vec![
+            Candidate {
+                item_id: "a".into(),
+                path: "repos/cloud-console/src/main.go".into(),
+                ce_score_final: 0.8,
+                ..Default::default()
+            },
+            Candidate {
+                item_id: "b".into(),
+                path: "other/file.go".into(),
+                ce_score_final: 0.9,
+                ..Default::default()
+            },
+        ];
+        apply_scope_preference(&mut candidates, &[]);
+        // Order unchanged
+        assert_eq!(candidates[0].item_id, "a");
+        assert_eq!(candidates[1].item_id, "b");
     }
 
-    let total = start_total.elapsed().as_secs_f64();
-    eprintln!("Done: {} queries, {} candidates, {} errors, {:.0}s total ({:.1}s/query)",
-        lines.len(), total_candidates, errors, total, total / lines.len() as f64);
-    Ok(())
-}
-
-/// Process a single query for batch feature extraction, returns candidate count.
-async fn dump_features_single(
-    ctx: &SearchContext,
-    query: &str,
-    query_id: &str,
-    expected_set: &HashSet<String>,
-) -> Result<usize, String> {
-    let start = Instant::now();
-    let (rerank_candidates, _) = prepare_candidates(ctx, query).await?;
-
-    let feature_rows = candidate_features(&rerank_candidates, query, &ctx.fan_in_degrees);
-    let elapsed_s = start.elapsed().as_secs_f64();
-
-    // Output features
-    for (candidate, features) in rerank_candidates.iter().zip(&feature_rows) {
-        let label = if expected_set.contains(&candidate.path) { 1 } else { 0 };
-        let line = serde_json::json!({
-            "query_id": query_id, "query": query, "candidate_path": candidate.path, "label": label,
-            "ce_score": features.ce_score, "ce_rank": features.ce_rank,
-            "fan_in_prior": features.fan_in_prior, "role_prior": features.role_prior,
-            "base_fused_score": features.base_fused_score, "base_fused_rank": features.base_fused_rank,
-            "lexical_overlap": features.lexical_overlap, "path_depth": features.path_depth,
-            "filename_len": features.filename_len, "is_test": features.is_test,
-            "ext_java": features.ext_java, "ext_kt": features.ext_kt,
-            "ext_xml": features.ext_xml, "ext_md": features.ext_md,
-            "query_term_count": features.query_term_count, "dir_proximity": features.dir_proximity,
-            "time_s": elapsed_s,
-        });
-        println!("{}", serde_json::to_string(&line).unwrap_or_default());
+    #[test]
+    fn scope_preference_all_in_scope_no_change() {
+        let mut candidates = vec![
+            Candidate {
+                item_id: "a".into(),
+                path: "repos/sre/a.yaml".into(),
+                ce_score_final: 0.8,
+                ..Default::default()
+            },
+            Candidate {
+                item_id: "b".into(),
+                path: "repos/sre/b.yaml".into(),
+                ce_score_final: 0.9,
+                ..Default::default()
+            },
+        ];
+        let scopes = vec!["repos/sre".to_string()];
+        apply_scope_preference(&mut candidates, &scopes);
+        // All in scope, order preserved
+        assert_eq!(candidates[0].item_id, "a");
+        assert_eq!(candidates[1].item_id, "b");
     }
-
-    Ok(rerank_candidates.len())
 }

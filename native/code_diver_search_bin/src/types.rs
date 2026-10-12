@@ -1,16 +1,113 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::Arc;
+
+/// Shared catalog token. JSON remains a string; catalog loading interns exact bytes.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct CatalogToken(pub Arc<str>);
+
+impl PartialEq<&str> for CatalogToken {
+    fn eq(&self, other: &&str) -> bool {
+        self.as_str() == *other
+    }
+}
+
+impl CatalogToken {
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::ops::Deref for CatalogToken {
+    type Target = str;
+    fn deref(&self) -> &str {
+        self.as_str()
+    }
+}
+
+impl From<String> for CatalogToken {
+    fn from(value: String) -> Self {
+        Self(Arc::from(value))
+    }
+}
+
+impl From<&str> for CatalogToken {
+    fn from(value: &str) -> Self {
+        Self(Arc::from(value))
+    }
+}
+
+impl Serialize for CatalogToken {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for CatalogToken {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        String::deserialize(deserializer).map(Self::from)
+    }
+}
 
 /// A single search result: a file path with a relevance score.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchResult {
     pub item_id: String,
     pub path: String,
+    /// Final ordering signal: meta prediction, adjusted CE, or degraded fused score.
+    /// CE epsilon ties may use fused score as a secondary ordering key.
     pub score: f64,
+    #[serde(default)]
+    pub title: String,
+    /// Inclusive source lines when source is readable; otherwise catalog-content lines.
+    /// Empty content uses the nonempty fallback range 1..=1.
+    #[serde(default = "first_line")]
+    pub start_line: usize,
+    #[serde(default = "first_line")]
+    pub end_line: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preview: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ce_score: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub meta_score: Option<f64>,
+}
+
+fn first_line() -> usize {
+    1
+}
+
+/// Request options for the search adapter. The configured candidate window is
+/// authoritative: requests exceeding it fail instead of silently returning 34.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SearchOptions {
+    pub limit: usize,
+    pub preview_chars: usize,
+    /// Optional path prefix for scoped ranking (e.g. "repos/cloud-console").
+    #[serde(default)]
+    pub path_prefix: Option<String>,
+}
+
+impl Default for SearchOptions {
+    fn default() -> Self {
+        Self {
+            limit: 10,
+            preview_chars: 0,
+            path_prefix: None,
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+pub struct SearchResponse {
+    pub results: Vec<SearchResult>,
+    pub rerank_applied: bool,
+    pub rerank_second_pass_failed: bool,
+    pub rerank_error: Option<String>,
+    pub meta_ranker_applied: bool,
+    /// Adapters (including MCP) must expose these notices to their callers.
+    pub notices: Vec<String>,
 }
 
 /// A catalog item as loaded from JSONL.
@@ -29,13 +126,13 @@ pub struct CatalogItem {
     #[serde(default)]
     pub symbols: Vec<String>,
     #[serde(default)]
-    pub tokenized_name: Vec<String>,
+    pub tokenized_name: Vec<CatalogToken>,
     #[serde(default)]
-    pub tokenized_path: Vec<String>,
+    pub tokenized_path: Vec<CatalogToken>,
     #[serde(default)]
-    pub tokenized_dir: Vec<String>,
+    pub tokenized_dir: Vec<CatalogToken>,
     #[serde(default)]
-    pub tokenized_content: Vec<String>,
+    pub tokenized_content: Vec<CatalogToken>,
 }
 
 /// The full catalog: all items, indexed by id and by path.
@@ -51,16 +148,21 @@ pub struct Catalog {
 /// BM25 index data.
 #[derive(Debug, Clone)]
 pub struct Bm25Index {
-    /// Mapping: doc_id -> doc_idx
+    /// Mapping: doc_idx -> doc_id
     pub doc_ids: Vec<String>,
+    /// Unused reverse lookup retained for source compatibility, intentionally empty.
+    #[allow(dead_code)]
     pub doc_id_to_idx: rustc_hash::FxHashMap<String, usize>,
     /// doc_idx -> document length in tokens
     pub doc_lengths: Vec<u32>,
     /// term -> list of (doc_idx, term_frequency)
     pub inverted_index: rustc_hash::FxHashMap<String, Vec<(u32, u32)>>,
-    /// Legacy compatibility fields
+    /// Legacy compatibility fields, intentionally empty: scoring uses the compact index.
+    #[allow(dead_code)]
     pub term_frequencies: HashMap<String, HashMap<String, u32>>,
+    #[allow(dead_code)]
     pub document_lengths: HashMap<String, u32>,
+    #[allow(dead_code)]
     pub postings: HashMap<String, Vec<String>>,
     /// average document length
     pub avgdl: f64,
@@ -177,6 +279,8 @@ pub struct LgbModel {
 /// Search configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchConfig {
+    #[serde(default)]
+    pub require_rerank: bool,
     #[serde(default = "default_retrieval_limit")]
     pub retrieval_limit: usize,
     pub candidate_limit: usize,
@@ -211,6 +315,34 @@ pub struct SearchConfig {
     pub ce_meta_ranker_enabled: bool,
     pub ce_meta_model_path: String,
     pub embedding_url: String,
+    #[serde(default = "default_embedding_model")]
+    pub embedding_model: String,
+    #[serde(default)]
+    pub embedding_query_prefix: String,
+    #[serde(default)]
+    pub embedding_document_prefix: String,
+    #[serde(default)]
+    pub embedding_dimensions: Option<usize>,
+    #[serde(default)]
+    pub index_metadata: Option<std::path::PathBuf>,
+    #[serde(default = "default_embedding_query_char_limit")]
+    pub embedding_query_char_limit: usize,
+    /// Conservative byte-token upper bound, including prefix; reserves 32 tokens
+    /// for model-added tokens at the default 512-token endpoint. Not a tokenizer.
+    #[serde(default = "default_embedding_query_token_budget")]
+    pub embedding_query_token_budget: usize,
+    #[serde(skip)]
+    pub qdrant_api_key: crate::index_net::Secret,
+    #[serde(skip)]
+    pub qdrant_bearer: crate::index_net::Secret,
+    #[serde(skip)]
+    pub embedding_api_key: crate::index_net::Secret,
+    #[serde(skip)]
+    pub ce_api_key: crate::index_net::Secret,
+    #[serde(default)]
+    pub ca_bundle: Option<String>,
+    #[serde(default)]
+    pub insecure_skip_verify: bool,
     pub qdrant_url: String,
     pub ce_url: String,
     /// Empty (default) = reuse ce_url. Set for mixed CE routing
@@ -223,11 +355,68 @@ pub struct SearchConfig {
     pub ce_timeout_ms: u64,
     #[serde(default)]
     pub ce_model: String,
+    #[serde(default = "default_qdrant_collection")]
+    pub qdrant_collection: String,
     pub catalog_path: String,
     pub graph_path: String,
     pub base_path: String,
     #[serde(default = "default_embed_cache_size")]
     pub embed_cache_size: usize,
+    /// Preserve the top vector candidate when its score is within margin of the fused leader.
+    #[serde(default)]
+    pub preserve_vector_top: bool,
+    /// Score margin for preserve_vector_top (Python: 0.03).
+    #[serde(default = "default_vector_top_score_margin")]
+    pub vector_top_score_margin: f64,
+    /// Per-kind vector retrieval limits (stored for config parity; single collection ignores these).
+    #[serde(default)]
+    pub vector_kind_limits: std::collections::HashMap<String, usize>,
+    /// Per-kind vector score multipliers (e.g. file_manifest: 1.08).
+    #[serde(default = "default_vector_kind_multipliers")]
+    pub vector_kind_multipliers: std::collections::HashMap<String, f64>,
+    /// Per-item-kind fusion weight multipliers (e.g. file_manifest: 1.08).
+    #[serde(default = "default_item_kind_weights")]
+    pub item_kind_weights: std::collections::HashMap<String, f64>,
+    /// Enable query routing (workflow/path_symbol/semantic) to adjust fusion weights.
+    #[serde(default)]
+    pub routing_enabled: bool,
+    /// Minimum token length for lexical tokens (Python: 3).
+    #[serde(default = "default_min_token_length")]
+    pub min_token_length: usize,
+    /// CE-stage: preserve top-N base candidates when margin >= preserve_top_score_margin.
+    #[serde(default)]
+    pub preserve_top_candidate: bool,
+    /// CE-stage: score margin for preserve_top_candidate (Python: 0.1).
+    #[serde(default = "default_preserve_top_score_margin")]
+    pub preserve_top_score_margin: f64,
+    /// CE-stage: how many leading base candidates to protect (Python: 1).
+    #[serde(default = "default_preserve_top_depth")]
+    pub preserve_top_depth: usize,
+    /// Graph file search: seed pool limit (Python: 140).
+    #[serde(default = "default_seed_limit")]
+    pub seed_limit: usize,
+    /// Graph file search: lexical seed limit (Python: 280).
+    #[serde(default = "default_lexical_seed_limit")]
+    pub lexical_seed_limit: usize,
+    /// Graph file search: compute lexical/path/symbol scores for vector-only seeds too.
+    #[serde(default)]
+    pub seed_score_parity: bool,
+}
+
+fn default_qdrant_collection() -> String {
+    String::new()
+}
+
+fn default_embedding_model() -> String {
+    crate::embedding::EMBED_MODEL.to_string()
+}
+
+fn default_embedding_query_char_limit() -> usize {
+    (512 - 32) * 3
+}
+
+fn default_embedding_query_token_budget() -> usize {
+    512 - 32
 }
 
 fn default_retrieval_limit() -> usize {
@@ -244,6 +433,31 @@ fn default_ce_timeout_ms() -> u64 {
 
 fn default_embed_cache_size() -> usize {
     0
+}
+
+fn default_vector_top_score_margin() -> f64 {
+    0.03
+}
+fn default_vector_kind_multipliers() -> std::collections::HashMap<String, f64> {
+    std::collections::HashMap::new()
+}
+fn default_item_kind_weights() -> std::collections::HashMap<String, f64> {
+    std::collections::HashMap::new()
+}
+fn default_min_token_length() -> usize {
+    3
+}
+fn default_preserve_top_score_margin() -> f64 {
+    0.1
+}
+fn default_preserve_top_depth() -> usize {
+    1
+}
+fn default_seed_limit() -> usize {
+    140
+}
+fn default_lexical_seed_limit() -> usize {
+    280
 }
 
 /// Defaults for the selective second CE pass. Kept as constants so CLI help,
@@ -289,18 +503,46 @@ impl Default for SearchConfig {
             hub_prior_protect_top: 4,
             hub_prior_protect_margin: 0.0,
             ce_meta_ranker_enabled: true,
+            require_rerank: false,
             ce_meta_model_path: String::new(),
             embedding_url: "http://localhost:8001/v1/embeddings".to_string(),
+            embedding_model: crate::embedding::EMBED_MODEL.to_string(),
+            embedding_query_prefix: String::new(),
+            embedding_document_prefix: String::new(),
+            embedding_dimensions: None,
+            index_metadata: None,
+            embedding_query_char_limit: default_embedding_query_char_limit(),
+            embedding_query_token_budget: default_embedding_query_token_budget(),
+            qdrant_api_key: Default::default(),
+            qdrant_bearer: Default::default(),
+            embedding_api_key: Default::default(),
+            ce_api_key: Default::default(),
+            ca_bundle: None,
+            insecure_skip_verify: false,
             qdrant_url: "http://localhost:6333".to_string(),
             ce_url: "http://localhost:18081/v1/rerank".to_string(),
             second_ce_url: String::new(),
             ce_route: default_ce_route(),
             ce_timeout_ms: default_ce_timeout_ms(),
             ce_model: String::new(),
+            qdrant_collection: default_qdrant_collection(),
             catalog_path: String::new(),
             graph_path: String::new(),
             base_path: String::new(),
             embed_cache_size: default_embed_cache_size(),
+            preserve_vector_top: false,
+            vector_top_score_margin: default_vector_top_score_margin(),
+            vector_kind_limits: std::collections::HashMap::new(),
+            vector_kind_multipliers: default_vector_kind_multipliers(),
+            item_kind_weights: default_item_kind_weights(),
+            routing_enabled: false,
+            min_token_length: default_min_token_length(),
+            preserve_top_candidate: false,
+            preserve_top_score_margin: default_preserve_top_score_margin(),
+            preserve_top_depth: default_preserve_top_depth(),
+            seed_limit: default_seed_limit(),
+            lexical_seed_limit: default_lexical_seed_limit(),
+            seed_score_parity: false,
         }
     }
 }
@@ -309,7 +551,10 @@ impl Default for SearchConfig {
 ///
 /// `--first-pass-cap` is an alias for `--candidate-limit`: when present it wins,
 /// otherwise `candidate_limit` is used. Values must be in `1..=CANDIDATE_LIMIT_MAX`.
-pub fn resolve_candidate_limit(candidate_limit: usize, first_pass_cap: Option<usize>) -> Result<usize, String> {
+pub fn resolve_candidate_limit(
+    candidate_limit: usize,
+    first_pass_cap: Option<usize>,
+) -> Result<usize, String> {
     let effective = first_pass_cap.unwrap_or(candidate_limit);
     if effective == 0 || effective > CANDIDATE_LIMIT_MAX {
         return Err(format!(
@@ -339,10 +584,12 @@ pub fn resolve_second_pass(
                 base_cap = SELECTIVE_STRICT_CAP;
                 base_floor = SELECTIVE_STRICT_FLOOR;
             }
-            other => return Err(format!(
-                "unknown --preset {:?}; expected \"selective-strict\"",
-                other
-            )),
+            other => {
+                return Err(format!(
+                    "unknown --preset {:?}; expected \"selective-strict\"",
+                    other
+                ));
+            }
         }
     }
     let cap = cap.unwrap_or(base_cap);
@@ -382,12 +629,16 @@ mod types_tests {
     fn second_pass_defaults_without_flags() {
         let (enabled, floor, cap) = resolve_second_pass(None, None, None, false).unwrap();
         assert!(enabled);
-        assert_eq!((floor, cap), (SECOND_PASS_FLOOR_DEFAULT, SECOND_PASS_CAP_DEFAULT));
+        assert_eq!(
+            (floor, cap),
+            (SECOND_PASS_FLOOR_DEFAULT, SECOND_PASS_CAP_DEFAULT)
+        );
     }
 
     #[test]
     fn selective_strict_preset_and_explicit_override() {
-        let (enabled, floor, cap) = resolve_second_pass(Some("selective-strict"), None, None, false).unwrap();
+        let (enabled, floor, cap) =
+            resolve_second_pass(Some("selective-strict"), None, None, false).unwrap();
         assert!(enabled);
         assert_eq!((floor, cap), (SELECTIVE_STRICT_FLOOR, SELECTIVE_STRICT_CAP));
         // Explicit flags win over the preset.

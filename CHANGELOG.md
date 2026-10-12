@@ -6,7 +6,77 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-12
+
+### Added
+
+- Search ranks files from the repository or directory named in the question
+  (`repos/<name>`, `kb/...`) above others and accepts an optional `path_prefix`
+  argument with the same behaviour.
+- Search results carry a preview of the matched content, a title and the line
+  range by default (`preview_chars` 400).
+- Search profiles: `--config <file>` loads a TOML profile with the keys of the
+  H-91a configuration (`profiles/h91a-pier.toml`, `profiles/h91a-intellij.toml`);
+  unknown keys are an error that names the key.
+
+### Fixed
+
+- The fan-in feature of the meta-ranker is computed from the graph instead of
+  being a constant; the additive hub prior is implemented.
+
+### Known gaps
+
+- H-91a parity with the Python reference is not reached: on the 100 Pier code
+  questions hit@10 is 84-86% against 94%. The H-91a profile is experimental;
+  several of its keys are read but not applied yet (see `docs/PARITY.md`). The
+  defaults stay unchanged.
+
+## [0.5.0] - 2026-10-07
+
+### M6 distribution and validation
+
+- Rust-only CI runs fmt, Clippy (`-D warnings`) and both crates' tests on Ubuntu
+  and macOS; shell mocks exercise acceptance without Python or a real cluster.
+- Release jobs package a `code-diver` executable for aarch64/x86_64 macOS and
+  Linux (Linux via cross), with `.tar.gz.sha256` files. Publication is tag-gated
+  and requires all builds; manual dispatch never publishes.
+- Installer defaults to `v0.5.0`; README begins with installation, setup, doctor
+  and MCP. Python installation is deprecated; see `docs/DEPRECATION.md`.
+- Repeatable isolated acceptance and nine full-sequence/failure mocks added.
+  Mock success does not establish real shared-collection acceptance or release
+  availability. Four-target builds and publication remain external release gates.
+
+### Added
+
+- POSIX `install.sh` downloads the configured GitHub release for macOS
+  arm64/x86_64 or Linux aarch64/x86_64, verifies SHA256 before installing to
+  `$HOME/.local/bin`, and runs interactive setup. `INSTALL_DIR` overrides the
+  installation directory independently of `CODE_DIVER_HOME`;
+  `CODE_DIVER_VERSION` and `CODE_DIVER_REPOSITORY` allow pinned installs.
+- Rust release workflow builds and packages all four targets with
+  per-archive `.sha256` files; tag builds publish only after every build succeeds.
+  Manual builds validate packaging without publishing a release.
+- One-page colleague install/setup/doctor/recovery guide and single-binary
+  README introduction. No published release or completed runtime acceptance is
+  claimed by these distribution changes.
+
 ### Changed
+
+- **Rust M5 configuration and health validation implemented.** Query/document
+  embedding prefixes honor flags, environment, config, profile and index
+  metadata, with an empty legacy fallback; configured Python prefix semantics
+  are preserved. Schema-2 metadata supports the actual hyphenated filename and
+  ISO/unix timestamps, checks artifact hashes, refuses model/dimension/collection
+  mismatches and warns on prefix overrides. `config show` redacts secrets.
+  MCP/doctor require reranking by default; CLI search remains optional with
+  `--no-require-rerank`, and failures in either CE pass are explicit. Doctor
+  reports timed checks/JSON and exits 1 for failures. Long CE requires physical
+  batch/ubatch >=4096, preserving manifest-tested parallel settings.
+  Final joined fmt/Clippy/tests/build passed (554 test executions); real-service
+  doctor runs remain non-green for missing metadata, long CE500 or incompatible
+  models. Paired 80-query prefix testing found only one-query Hit@5/10 differences,
+  not statistical superiority. Daemon/setup/MCP registration remain **M5b**;
+  full evidence and limitations are in `docs/rust-rewrite/STATUS.md`.
 
 - **H-91a (LightGBM meta-ranker) promoted to new champion.** Replaced the hand-tuned `ce_score + hub_prior` additive formula with a learned LambdaRank model (200 trees, 16 features) trained on 856 queries from the 1065-case dataset. WHERE-78: 78.2% → **87.2%** hit@10 (+7 hits), MRR 0.386 → **0.707** (+0.321), hit@1 23% → **63%** (+31). mech150: 88.2% hit@10, MRR 0.817, hit@1 78.2% — all non-regressive. New champion config: `configs/intellij/intellij-h91a-meta-ranker.yml`. Model artifact: `artifacts/ce_meta_ranker/`.
 

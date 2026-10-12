@@ -1,0 +1,8 @@
+3	class	Outer	@registry('service', enabled=True) class Outer:
+5	method	Outer.build	@staticmethod def build(value: str = "x"):
+7	function	helper	def helper():
+11	class	Outer.Inner	class Inner:
+12	method	Inner.run	async def run(self):
+16	function	conditional	def conditional(): pass
+18	function	task	@decorate('two', count=2) async def task(
+28	function	stub	def stub(): ...

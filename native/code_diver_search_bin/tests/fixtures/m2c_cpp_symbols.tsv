@@ -1,0 +1,11 @@
+4	struct	Packet	struct Packet {
+6	enum	State	enum class State { Ready };
+7	class	Box	template<class T> class Box {
+9	constructor	Packet	explicit Packet() {}
+10	constructor	Packet::Packet	Packet::Packet() : value(1) {}
+11	destructor	Packet::~Packet	Packet::~Packet() {}
+12	method	Packet::read	int Packet::read() const noexcept { return 1; }
+13	function	api	extern "C" int api() { return 0; }
+14	function	freeFn	static inline int freeFn(int x) { return x; }
+16	function	multiline	int multiline()
+20	function	inComment	int inComment() {}

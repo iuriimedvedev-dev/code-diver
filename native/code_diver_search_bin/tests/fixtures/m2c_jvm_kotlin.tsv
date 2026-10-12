@@ -1,0 +1,7 @@
+3	class	WorkHandler	internal class WorkHandler(x: Int) : Base(x), API {
+4	function	execute	override suspend fun execute() {}
+5	function	clean	private fun String.clean() = trim()
+7	annotation	Marker	annotation class Marker
+8	enum	Mode	enum class Mode { ON }
+9	object	Registry	object Registry {}
+10	function	map	inline fun <T> pkg.Type.map(value: T) = value

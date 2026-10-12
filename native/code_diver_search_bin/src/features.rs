@@ -35,7 +35,10 @@ fn camel_case_tokens(text: &str) -> Vec<String> {
                     // Boundary: ...aA... or ...0A...
                     tokens.push(current.clone().to_lowercase());
                     current.clear();
-                } else if prev.is_ascii_uppercase() && i + 1 < chars.len() && chars[i + 1].is_ascii_lowercase() {
+                } else if prev.is_ascii_uppercase()
+                    && i + 1 < chars.len()
+                    && chars[i + 1].is_ascii_lowercase()
+                {
                     // Boundary: ...AAa... — push all of current, start fresh
                     tokens.push(current.clone().to_lowercase());
                     current.clear();
@@ -89,7 +92,14 @@ const PERIPHERAL_TOKENS: &[&[&str]] = &[
 
 const TEST_PATH_SEGMENTS: &[&str] = &["test", "tests", "testsrc", "testdata"];
 const NON_SOURCE_EXTENSIONS: &[&str] = &[
-    ".xml", ".md", ".json", ".properties", ".txt", ".yaml", ".yml", ".html",
+    ".xml",
+    ".md",
+    ".json",
+    ".properties",
+    ".txt",
+    ".yaml",
+    ".yml",
+    ".html",
 ];
 
 /// Python: `NON_SOURCE_ROLE_PRIOR = -1.0`
@@ -104,7 +114,7 @@ const PERIPHERAL_ROLE_PRIOR: f64 = -0.5;
 const NEUTRAL_ROLE_PRIOR: f64 = 0.0;
 
 /// Exact Python `HubPriorScorer.role_prior(path)`.
-fn role_prior(path: &str) -> f64 {
+pub fn role_prior(path: &str) -> f64 {
     let posix_path = path.replace('\\', "/");
 
     // Check non-source extensions first
@@ -127,7 +137,10 @@ fn role_prior(path: &str) -> f64 {
 
     // Get stem (filename without extension) — Python: PurePosixPath.stem
     let filename = parts.last().unwrap_or(&"");
-    let stem = filename.rsplit_once('.').map(|(s, _)| s).unwrap_or(filename);
+    let stem = filename
+        .rsplit_once('.')
+        .map(|(s, _)| s)
+        .unwrap_or(filename);
     let tokens = camel_case_tokens(stem);
 
     if tokens.is_empty() {
@@ -186,9 +199,7 @@ fn contains_any(tokens: &[String], entries: &[&[&str]]) -> bool {
 /// Python: `_query_terms(query)` — exact match
 pub fn query_terms(query: &str) -> Vec<String> {
     query
-        .replace('-', " ")
-        .replace('_', " ")
-        .replace('/', " ")
+        .replace(['-', '_', '/'], " ")
         .split_whitespace()
         .filter(|t| !t.is_empty())
         .map(|t| t.to_lowercase())
@@ -229,9 +240,7 @@ pub fn extract_features(
 
     // Python: path_lower.replace("/", " ").replace("-", " ").replace("_", " ").split()
     let _path_terms: Vec<String> = path_lower
-        .replace('/', " ")
-        .replace('-', " ")
-        .replace('_', " ")
+        .replace(['/', '-', '_'], " ")
         .split_whitespace()
         .filter(|t| !t.is_empty())
         .map(|t| t.to_string())
@@ -246,7 +255,7 @@ pub fn extract_features(
     // Python: dir_tokens = set(); for part in dir_parts: dir_tokens.update(part.replace("-", " ").replace("_", " ").split())
     let mut dir_tokens: HashSet<String> = HashSet::new();
     for part in &dir_parts {
-        for token in part.replace('-', " ").replace('_', " ").split_whitespace() {
+        for token in part.replace(['-', '_'], " ").split_whitespace() {
             if !token.is_empty() {
                 dir_tokens.insert(token.to_string());
             }
@@ -323,15 +332,30 @@ pub fn extract_features(
     }
 }
 
-/// Returns neutral fan-in degree of 1.0 for each file path so the pretrained LightGBM model
-/// does not penalize paths with 0.0 in its trees.
+/// Computes the directed in-degree of every catalog path from the graph adjacency.
+///
+/// In-degree of file X = number of distinct source files whose neighbor list includes X.
+/// Matches Python `HubPriorScorer.fan_in_degree(path)`.
 pub fn build_fan_in_degrees(
-    _adjacency: &GraphAdjacency,
+    adjacency: &GraphAdjacency,
     by_path: &HashMap<String, Vec<usize>>,
 ) -> HashMap<String, f64> {
+    // Count how many times each path appears as a neighbor target
+    let mut target_counts: HashMap<&str, usize> = HashMap::new();
+    for neighbors in adjacency.edges.values() {
+        // Deduplicate neighbors within a single source to count unique referrers
+        let mut seen_in_source: HashSet<&str> = HashSet::new();
+        for (neighbor, _) in neighbors {
+            if seen_in_source.insert(neighbor.as_str()) {
+                *target_counts.entry(neighbor.as_str()).or_insert(0) += 1;
+            }
+        }
+    }
+
     let mut degrees: HashMap<String, f64> = HashMap::with_capacity(by_path.len());
     for path in by_path.keys() {
-        degrees.insert(path.clone(), 1.0);
+        let count = *target_counts.get(path.as_str()).unwrap_or(&0);
+        degrees.insert(path.clone(), count as f64);
     }
     degrees
 }
@@ -346,17 +370,26 @@ mod tests {
 
     #[test]
     fn test_query_terms_simple() {
-        assert_eq!(query_terms("find Project Manager"), vec!["find", "project", "manager"]);
+        assert_eq!(
+            query_terms("find Project Manager"),
+            vec!["find", "project", "manager"]
+        );
     }
 
     #[test]
     fn test_query_terms_special_chars() {
-        assert_eq!(query_terms("cross-encoder_rerank/find"), vec!["cross", "encoder", "rerank", "find"]);
+        assert_eq!(
+            query_terms("cross-encoder_rerank/find"),
+            vec!["cross", "encoder", "rerank", "find"]
+        );
     }
 
     #[test]
     fn test_camel_case_tokens_simple() {
-        assert_eq!(camel_case_tokens("ServiceManager"), vec!["service", "manager"]);
+        assert_eq!(
+            camel_case_tokens("ServiceManager"),
+            vec!["service", "manager"]
+        );
     }
 
     #[test]
@@ -378,37 +411,84 @@ mod tests {
     fn test_role_prior_hub() {
         // "ServiceManager" -> ["service", "manager"] -> ends_with ["manager"] -> HUB
         let score = role_prior("src/manager/ServiceManager.kt");
-        assert!((score - HUB_ROLE_PRIOR).abs() < 1e-6, "expected 1.0, got {}", score);
+        assert!(
+            (score - HUB_ROLE_PRIOR).abs() < 1e-6,
+            "expected 1.0, got {}",
+            score
+        );
     }
 
     #[test]
     fn test_role_prior_peripheral() {
         // "TestAction" -> ["test", "action"] -> ends_with ["action"] -> PERIPHERAL
         let score = role_prior("src/actions/TestAction.java");
-        assert!((score - PERIPHERAL_ROLE_PRIOR).abs() < 1e-6, "expected -0.5, got {}", score);
+        assert!(
+            (score - PERIPHERAL_ROLE_PRIOR).abs() < 1e-6,
+            "expected -0.5, got {}",
+            score
+        );
     }
 
     #[test]
     fn test_role_prior_neutral() {
         // "Main" -> ["main"] -> no match -> NEUTRAL
         let score = role_prior("src/main/Main.java");
-        assert!((score - NEUTRAL_ROLE_PRIOR).abs() < 1e-6, "expected 0.0, got {}", score);
+        assert!(
+            (score - NEUTRAL_ROLE_PRIOR).abs() < 1e-6,
+            "expected 0.0, got {}",
+            score
+        );
     }
 
     #[test]
     fn test_role_prior_test_path() {
         let score = role_prior("src/test/java/com/example/MyTest.java");
-        assert!((score - TEST_PATH_ROLE_PRIOR).abs() < 1e-6, "expected -0.75, got {}", score);
+        assert!(
+            (score - TEST_PATH_ROLE_PRIOR).abs() < 1e-6,
+            "expected -0.75, got {}",
+            score
+        );
     }
 
     #[test]
     fn test_role_prior_non_source() {
         let score = role_prior("src/main/resources/application.xml");
-        assert!((score - NON_SOURCE_ROLE_PRIOR).abs() < 1e-6, "expected -1.0, got {}", score);
+        assert!(
+            (score - NON_SOURCE_ROLE_PRIOR).abs() < 1e-6,
+            "expected -1.0, got {}",
+            score
+        );
     }
 
     #[test]
     fn test_build_fan_in_degrees() {
+        use std::collections::HashMap;
+        // Graph: a.rs -> [b.rs], c.rs -> [b.rs, d.rs], d.rs -> [b.rs]
+        // In-degrees: a.rs=0, b.rs=3 (referenced by a, c, d), c.rs=0, d.rs=1 (referenced by c)
+        let mut edges: HashMap<String, Vec<(String, f64)>> = HashMap::new();
+        edges.insert("a.rs".to_string(), vec![("b.rs".to_string(), 1.0)]);
+        edges.insert(
+            "c.rs".to_string(),
+            vec![("b.rs".to_string(), 1.0), ("d.rs".to_string(), 0.5)],
+        );
+        edges.insert("d.rs".to_string(), vec![("b.rs".to_string(), 1.0)]);
+        let adjacency = GraphAdjacency { edges };
+
+        let mut by_path: HashMap<String, Vec<usize>> = HashMap::new();
+        by_path.insert("a.rs".to_string(), vec![0]);
+        by_path.insert("b.rs".to_string(), vec![1]);
+        by_path.insert("c.rs".to_string(), vec![2]);
+        by_path.insert("d.rs".to_string(), vec![3]);
+
+        let degrees = build_fan_in_degrees(&adjacency, &by_path);
+        assert_eq!(degrees.get("a.rs"), Some(&0.0));
+        assert_eq!(degrees.get("b.rs"), Some(&3.0));
+        assert_eq!(degrees.get("c.rs"), Some(&0.0));
+        assert_eq!(degrees.get("d.rs"), Some(&1.0));
+    }
+
+    #[test]
+    fn test_build_fan_in_degrees_empty_graph() {
         use std::collections::HashMap;
         let edges: HashMap<String, Vec<(String, f64)>> = HashMap::new();
         let adjacency = GraphAdjacency { edges };
@@ -416,8 +496,8 @@ mod tests {
         by_path.insert("a.rs".to_string(), vec![0]);
         by_path.insert("b.rs".to_string(), vec![1]);
         let degrees = build_fan_in_degrees(&adjacency, &by_path);
-        assert_eq!(degrees.get("a.rs"), Some(&1.0));
-        assert_eq!(degrees.get("b.rs"), Some(&1.0));
+        assert_eq!(degrees.get("a.rs"), Some(&0.0));
+        assert_eq!(degrees.get("b.rs"), Some(&0.0));
     }
 
     #[test]
@@ -450,18 +530,24 @@ mod tests {
         let mut fan_in = HashMap::new();
         fan_in.insert("src/main/TestService.java".to_string(), 5.0);
 
-        let features = extract_features(
-            &cand, &query_terms, &query_term_set, 2.0, 10.0, &fan_in
-        );
+        let features = extract_features(&cand, &query_terms, &query_term_set, 2.0, 10.0, &fan_in);
         assert!((features.ce_score - 0.5).abs() < 1e-6);
         assert!((features.ce_rank - 1.0).abs() < 1e-6);
         assert!((features.base_fused_score - 0.8).abs() < 1e-6);
         assert!((features.base_fused_rank - 2.0).abs() < 1e-6);
         assert!((features.query_term_count - 2.0).abs() < 1e-6);
         // fan_in_prior = 5.0 / 10.0 = 0.5 (linear formula)
-        assert!((features.fan_in_prior - 0.5).abs() < 0.01, "expected 0.5, got {}", features.fan_in_prior);
+        assert!(
+            (features.fan_in_prior - 0.5).abs() < 0.01,
+            "expected 0.5, got {}",
+            features.fan_in_prior
+        );
         // "TestService" -> ["test", "service"] -> ends_with ["service"] -> HUB_ROLE_PRIOR = 1.0
-        assert!((features.role_prior - 1.0).abs() < 1e-6, "expected 1.0, got {}", features.role_prior);
+        assert!(
+            (features.role_prior - 1.0).abs() < 1e-6,
+            "expected 1.0, got {}",
+            features.role_prior
+        );
         // ext = "java"
         assert!((features.ext_java - 1.0).abs() < 1e-6);
         assert!((features.ext_kt - 0.0).abs() < 1e-6);

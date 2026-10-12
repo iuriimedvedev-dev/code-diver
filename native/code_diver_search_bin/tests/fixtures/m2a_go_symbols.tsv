@@ -1,0 +1,10 @@
+4	struct	Zebra	type Zebra struct {}
+5	interface	Reader	type Reader interface { Read() }
+6	type	Count	type Count int
+7	type	Alias	type Alias = Count
+8	struct	Box	type Box[T any] struct { Value T }
+10	struct	Grouped	Grouped struct {}
+11	interface	GroupInterface	GroupInterface interface {}
+14	method	Zebra.Run	func (r *Zebra) Run() {}
+15	function	Free	func Free[T any](x T) T { return x }
+16	method	Zebra.Bare	func (Zebra) Bare() {}

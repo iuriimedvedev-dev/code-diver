@@ -1,0 +1,69 @@
+{
+  "schema": 2,
+  "name": "code_diver_pier_gguf",
+  "supersedes": "code_diver_pier",
+  "built_from": {
+    "repo": "sre-support-pier", "git_commit": "b88c2267f7ea2289813ad1695ffa858ec1867707",
+    "uncommitted_files_in_indexed_paths": 0, "indexed_globs": ["repos/**", "kb/**"],
+    "note": "Same file set as code_diver_pier: 24503 files (kb/ + 10 populated submodules at their pinned commits); the other 8 submodules are empty and not indexed; .github/ has no indexed files. Qdrant holds file_summary + file_manifest points for all 24503 files (49006 points, includes vendor/ files); the graph artifacts and the Rust catalog cover the 16450 non-vendor items (same as code_diver_pier)."
+  },
+  "code_diver": {
+    "version": "0.4.5", "git_commit": "e2c27e09ffb8cc1850ffc3bc8e3cbe4bf0804abe",
+    "note": "index built with the Python indexer from a working tree with uncommitted changes in native/ and scripts/serve_reranker.sh only; Rust artifacts via scripts/dump_rust_catalog.py"
+  },
+  "embedding": {
+    "model": "Qwen/Qwen3-Embedding-0.6B",
+    "model_repo": "Qwen/Qwen3-Embedding-0.6B-GGUF",
+    "model_file": "Qwen3-Embedding-0.6B-Q8_0.gguf",
+    "model_repo_commit": "370f27d7550e0def9b39c1f16d3fbaa13aa67728",
+    "sha256": "06507c7b42688469c4e7298b0a1e16deff06caf291cf0a5b278c308249c3e439",
+    "bytes": 639150592,
+    "serving": "llama.cpp llama-server build 9430 (d48a56eff), --embedding --pooling last -c 16384 -np 4 -b 4096 -ub 4096; EOS token appended by the GGUF tokenizer, do not add another; L2-normalized output",
+    "dimensions": 1024,
+    "distance": "Cosine",
+    "query_prefix": "Represent this code search query for retrieving relevant files: ",
+    "document_prefix": "Represent this code file metadata for retrieval: ",
+    "max_input_chars": 2000,
+    "max_input_tokens": 512,
+    "token_safety_margin": 32,
+    "note": "Vectors are NOT compatible with code_diver_pier (MLX 4-bit DWQ). Queries must be embedded by this GGUF model with the query prefix; the Rust binary sends the raw query, so the embedder endpoint (sidecar) must prepend query_prefix."
+  },
+  "reranker": {
+    "model": "Qwen3-Reranker-0.6B", "gguf": "Qwen3-Reranker-0.6B-Q4_K_M.gguf",
+    "sha256": "c04f5f5657c52e04538c455e8c62817db3d3b795b39e9f547f8581510445f075",
+    "serving_note": "use -b/-ub >= 4096 (-c 16384 -np 4): with 2048 one second-pass pair of 2049 tokens failed in validation"
+  },
+  "meta_ranker": {"file": "artifacts/ce_meta_ranker/ce_meta_ranker.lgb.txt", "sha256": "8dcadfdc02b050fd35ebafca7f436c822859ff38cfeba4f9bd1203abc90e5010"},
+  "qdrant": {
+    "collection": "code_diver_pier_gguf", "points": 49006, "server_version": "1.18.3", "uploaded_by": "snapshot restore",
+    "snapshot_sha256": "f5653ecc40d8f6d74ba52357e74130b0720df7359a372e90f5eefb45bdaac7c3"
+  },
+  "search_strategy": "graph_file_cross_encoder",
+  "validation": {
+    "tool": "Rust code_diver_search_bin (copy of target/release build of 2026-10-04), per-query one-shot, candidate_limit 64, LightGBM meta-ranker on, same reranker for both sides, query prefix prepended by a forwarding proxy",
+    "sample60_fixed_seed_20261007": {
+      "code": {"n":60,"old_hit@1":60.0,"old_hit@5":81.7,"old_hit@10":91.7,"new_hit@1":65.0,"new_hit@5":83.3,"new_hit@10":93.3},
+      "hard": {"n":60,"old_hit@1":66.7,"old_hit@5":90.0,"old_hit@10":93.3,"new_hit@1":61.7,"new_hit@5":85.0,"new_hit@10":95.0}
+    },
+    "full_all_eval_queries": {
+      "code": {"n":100,"old_hit@1":56.0,"old_hit@5":76.0,"old_hit@10":84.0,"new_hit@1":61.0,"new_hit@5":79.0,"new_hit@10":88.0},
+      "hard": {"n":90,"old_hit@1":65.6,"old_hit@5":88.9,"old_hit@10":92.2,"new_hit@1":57.8,"new_hit@5":84.4,"new_hit@10":94.4}
+    },
+    "hard_without_meta_ranker_full90": {"n":90,"old_hit@1":57.8,"old_hit@5":85.6,"old_hit@10":92.2,"new_hit@1":55.6,"new_hit@5":85.6,"new_hit@10":91.1},
+    "raw_vector_top10_full": {
+      "code": {"n":100,"old_hit@1":33.0,"old_hit@5":50.0,"old_hit@10":55.0,"new_hit@1":36.0,"new_hit@5":53.0,"new_hit@10":58.0},
+      "hard": {"n":90,"old_hit@1":50.0,"old_hit@5":73.3,"old_hit@10":85.6,"new_hit@1":54.4,"new_hit@5":76.7,"new_hit@10":87.8}
+    },
+    "acceptance_rule": "FileHit@5 and @10 within 2 pp of old or better on both datasets",
+    "result": "hard FileHit@5 -5.0 pp (sample60) / -4.4 pp (full) with the meta-ranker: rule NOT met; without the meta-ranker hard @5 0.0 pp, @10 -1.1 pp; code and raw-vector level not worse"
+  },
+  "generated_at": "2026-10-07T13:58:36Z",
+  "files": {
+    "graph.json": {"sha256":"b385483cd2c6e95d8969d708f2b427da11df0aff611377942964fa7f47673b26","bytes":29243851},
+    "graph.file-graph-catalog.json": {"sha256":"89894099cc656bfb7e0098b61a93a0fed3cd58eb115c341f0e001e8b3152b3c9","bytes":24683789},
+    "graph.lexical-index.pickle": {"sha256":"1a8187c7e9662b37aeca9cb8580ba5ce3fc1c0ea81acb8c34a0f3c4e42dcc36c","bytes":39934795},
+    "rust_catalog.jsonl": {"sha256": "12e5b1f0414bcf94f9a39671366c891e2b3116d28addb7412d685a6ec165a1e6", "bytes": 49619641},
+    "rust_graph.jsonl": {"sha256": "c3413237ee19f0e2f375990ba44eaa10b609e0bc116b9172537997ba52b950cc", "bytes": 118408},
+    "context/repository-context.md": {"sha256":"56c96c99e5d507deaf2f50efc21b9e77f7d4a0e6c0dbc6880ed93015a9b0d90f","bytes":16022}
+  }
+}

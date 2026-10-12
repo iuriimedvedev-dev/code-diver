@@ -1,0 +1,498 @@
+use std::process::Command;
+
+fn records(path: &std::path::Path) -> Vec<serde_json::Value> {
+    std::fs::read_to_string(path)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect()
+}
+
+#[test]
+fn m2a_reference_derived_templates_and_lane_filters() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("root");
+    std::fs::create_dir(&root).unwrap();
+    let go = "package workers\nimport \"fmt\"\ntype Worker struct {}\nfunc (w *Worker) Run() {}\n";
+    let ts = "import { dep } from 'pkg';\nexport class Worker {}\n";
+    std::fs::write(root.join("worker.go"), go).unwrap();
+    for suffix in ["ts", "tsx", "js", "jsx", "mjs", "cjs", "mts", "cts"] {
+        std::fs::write(root.join(format!("worker.{suffix}")), ts).unwrap();
+    }
+    std::fs::write(root.join("readme.md"), "# Synthetic\n").unwrap();
+    let config = dir.path().join("config.yml");
+    std::fs::write(&config, "scanner:\n  file_summary_compact_budget: true\n").unwrap();
+    let out = dir.path().join("catalog.jsonl");
+    let build = binary()
+        .env("PATH", "")
+        .args(["index", "--catalog-only", "--root"])
+        .arg(&root)
+        .args(["--include", "*"])
+        .arg("--config")
+        .arg(&config)
+        .arg("--out")
+        .arg(&out)
+        .output()
+        .unwrap();
+    assert!(
+        build.status.success(),
+        "{}",
+        String::from_utf8_lossy(&build.stderr)
+    );
+    let items = records(&out);
+    let go_summary = "purpose: worker\nterms: worker type struct run func workers\nfile: worker.go\nextension: .go\nsymbols:\n- struct Worker: type Worker struct {}\n- method Worker.Run: func (w *Worker) Run() {}\nhead:\n- package workers\n- import \"fmt\"\n- type Worker struct {}\n- func (w *Worker) Run() {}\nimports: none";
+    let go_manifest = "file: worker.go\nfilename: worker.go\nextension: .go\ndirectories: none\npath_tokens: worker go\npackage: workers\nsymbols:\n- struct Worker: type Worker struct {}\n- method Worker.Run: func (w *Worker) Run() {}\nimports: none\nconfig_keys: none";
+    for item in &items {
+        let path = item["path"].as_str().unwrap();
+        if path == "readme.md" {
+            continue;
+        }
+        let summary = item["kind"] == "file_summary";
+        let expected = if path == "worker.go" {
+            if summary {
+                go_summary.to_string()
+            } else {
+                go_manifest.to_string()
+            }
+        } else {
+            let suffix = path.rsplit('.').next().unwrap();
+            if summary {
+                format!(
+                    "purpose: worker\nterms: worker export\nfile: {path}\nextension: .{suffix}\nsymbols:\n- class Worker: export class Worker {{}}\nhead:\n- import {{ dep }} from 'pkg';\n- export class Worker {{}}\nimports: none"
+                )
+            } else {
+                format!(
+                    "file: {path}\nfilename: {path}\nextension: .{suffix}\ndirectories: none\npath_tokens: worker {suffix}\npackage: none\nsymbols:\n- class Worker: export class Worker {{}}\nimports: none\nconfig_keys: none"
+                )
+            }
+        };
+        assert_eq!(item["content"], expected, "{path}");
+        assert_eq!(item["symbols"], serde_json::json!([]));
+    }
+    assert_eq!(items.len(), 20);
+    for (lane, count) in [("go", 2), ("ts-js", 16), ("generic", 2), ("all", 20)] {
+        let result = binary()
+            .args(["catalog-compare", "--reference"])
+            .arg(&out)
+            .arg("--built")
+            .arg(&out)
+            .args(["--lane", lane])
+            .output()
+            .unwrap();
+        assert!(result.status.success(), "{lane}");
+        let stdout = String::from_utf8_lossy(&result.stdout);
+        for label in [
+            "reference items      :",
+            "content equal        :",
+            "tokenized_* all equal:",
+            "embed text (500ch) eq:",
+        ] {
+            assert!(
+                stdout.contains(&format!("{label} {count}")),
+                "{lane}: {stdout}"
+            );
+        }
+    }
+    let mut changed = items.clone();
+    for item in &mut changed {
+        if item["path"] == "worker.cts" {
+            item["content"] = serde_json::json!("changed");
+        }
+    }
+    let altered = dir.path().join("altered.jsonl");
+    std::fs::write(
+        &altered,
+        changed
+            .iter()
+            .map(|item| format!("{item}\n"))
+            .collect::<String>(),
+    )
+    .unwrap();
+    for (lane, success) in [("go", true), ("ts-js", false), ("generic", true)] {
+        let result = binary()
+            .args(["catalog-compare", "--reference"])
+            .arg(&out)
+            .arg("--built")
+            .arg(&altered)
+            .args(["--lane", lane])
+            .output()
+            .unwrap();
+        assert_eq!(result.status.success(), success, "{lane}");
+    }
+}
+
+fn binary() -> Command {
+    Command::new(env!("CARGO_BIN_EXE_code-diver"))
+}
+
+#[test]
+fn m2c_comparator_suffixes_prefixes_and_strict_lane_isolation() {
+    let dir = tempfile::tempdir().unwrap();
+    let reference = dir.path().join("reference.jsonl");
+    let built = dir.path().join("built.jsonl");
+    let mut items = Vec::new();
+    for (suffix, lane) in [
+        ("java", "jvm"),
+        ("KT", "jvm"),
+        ("kts", "jvm"),
+        ("c", "cpp"),
+        ("CC", "cpp"),
+        ("cpp", "cpp"),
+        ("cxx", "cpp"),
+        ("h", "cpp"),
+        ("hh", "cpp"),
+        ("hpp", "cpp"),
+        ("hxx", "cpp"),
+        ("c++", "cpp"),
+        ("H++", "cpp"),
+        ("scala", "generic"),
+        ("SCALA", "generic"),
+        ("cs", "generic"),
+        ("cpp.txt", "generic"),
+    ] {
+        for kind in ["file_summary", "file_manifest"] {
+            let path = format!("scope/worker.{suffix}");
+            items.push(serde_json::json!({
+                "id": format!("{path}::{kind}"), "path": path, "name": lane,
+                "kind": kind, "content": "purpose: synthetic", "symbols": [],
+                "tokenized_name": [], "tokenized_path": [], "tokenized_dir": [],
+                "tokenized_content": []
+            }));
+        }
+    }
+    let mut outside = items[0].clone();
+    outside["id"] = serde_json::json!("outside");
+    outside["path"] = serde_json::json!("other/worker.java");
+    items.push(outside);
+    let write = |path: &std::path::Path, values: &[serde_json::Value]| {
+        std::fs::write(
+            path,
+            values.iter().map(|v| format!("{v}\n")).collect::<String>(),
+        )
+        .unwrap();
+    };
+    write(&reference, &items);
+    write(&built, &items);
+    for (lane, count) in [("jvm", 6), ("cpp", 20), ("generic", 8), ("all", 34)] {
+        let result = binary()
+            .args(["catalog-compare", "--reference"])
+            .arg(&reference)
+            .arg("--built")
+            .arg(&built)
+            .args(["--lane", lane, "--path-prefix", "scope/"])
+            .output()
+            .unwrap();
+        assert!(
+            result.status.success(),
+            "{lane}: {}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        let output = String::from_utf8_lossy(&result.stdout);
+        for label in [
+            "reference items      :",
+            "built items          :",
+            "content equal        :",
+            "tokenized_* all equal:",
+        ] {
+            assert!(
+                output.contains(&format!("{label} {count}")),
+                "{lane}: {output}"
+            );
+        }
+    }
+    for affected in ["jvm", "cpp", "generic"] {
+        for mutation in ["content", "tokens", "missing", "extra"] {
+            let mut changed = items.clone();
+            let index = changed.iter().position(|v| v["name"] == affected).unwrap();
+            match mutation {
+                "content" => changed[index]["content"] = serde_json::json!("purpose: changed"),
+                "tokens" => changed[index]["tokenized_content"] = serde_json::json!(["changed"]),
+                "missing" => {
+                    changed.remove(index);
+                }
+                "extra" => {
+                    let mut extra = changed[index].clone();
+                    extra["id"] = serde_json::json!("extra");
+                    changed.push(extra);
+                }
+                _ => unreachable!(),
+            }
+            write(&built, &changed);
+            for lane in ["jvm", "cpp", "generic", "all"] {
+                let result = binary()
+                    .args(["catalog-compare", "--reference"])
+                    .arg(&reference)
+                    .arg("--built")
+                    .arg(&built)
+                    .args(["--lane", lane, "--path-prefix", "scope/"])
+                    .output()
+                    .unwrap();
+                assert_eq!(
+                    result.status.success(),
+                    lane != affected && lane != "all",
+                    "{mutation} in {affected}, compared {lane}: {}",
+                    String::from_utf8_lossy(&result.stderr)
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn m2b_python_rust_content_counts_and_isolated_mismatches() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("root");
+    std::fs::create_dir(&root).unwrap();
+    for suffix in ["py", "PYI"] {
+        std::fs::write(
+            root.join(format!("worker.{suffix}")),
+            "class Worker:\n    async def run(self):\n        pass\n",
+        )
+        .unwrap();
+    }
+    std::fs::write(
+        root.join("worker.RS"),
+        "pub(crate) struct Worker;\nimpl Display for Worker {}\n",
+    )
+    .unwrap();
+    std::fs::write(root.join("readme.md"), "# Synthetic\n").unwrap();
+    let out = dir.path().join("catalog.jsonl");
+    let build = binary()
+        .env("PATH", "")
+        .args(["index", "--catalog-only", "--root"])
+        .arg(&root)
+        .args(["--include", "*"])
+        .arg("--out")
+        .arg(&out)
+        .output()
+        .unwrap();
+    assert!(
+        build.status.success(),
+        "{}",
+        String::from_utf8_lossy(&build.stderr)
+    );
+    let items = records(&out);
+    assert_eq!(items.len(), 8);
+    for item in &items {
+        let path = item["path"].as_str().unwrap();
+        let content = item["content"].as_str().unwrap();
+        if path.ends_with("py") || path.ends_with("PYI") {
+            assert!(
+                content.contains("- class Worker: class Worker:"),
+                "{content}"
+            );
+            assert!(
+                content.contains("- method Worker.run: async def run(self):"),
+                "{content}"
+            );
+        } else if path.ends_with("RS") {
+            assert!(
+                content.contains("- struct Worker: pub(crate) struct Worker;"),
+                "{content}"
+            );
+            assert!(
+                content.contains("- impl Display for Worker: impl Display for Worker {}"),
+                "{content}"
+            );
+        }
+    }
+    for (lane, count) in [("python", 4), ("rust", 2), ("generic", 2), ("all", 8)] {
+        let result = binary()
+            .args(["catalog-compare", "--reference"])
+            .arg(&out)
+            .arg("--built")
+            .arg(&out)
+            .args(["--lane", lane])
+            .output()
+            .unwrap();
+        assert!(
+            result.status.success(),
+            "{lane}: {}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&result.stdout);
+        for label in [
+            "reference items      :",
+            "content equal        :",
+            "tokenized_* all equal:",
+            "embed text (500ch) eq:",
+        ] {
+            assert!(
+                stdout.contains(&format!("{label} {count}")),
+                "{lane}: {stdout}"
+            );
+        }
+    }
+    for (path, affected) in [("worker.py", "python"), ("worker.RS", "rust")] {
+        let mut changed = items.clone();
+        for item in &mut changed {
+            if item["path"] == path {
+                item["content"] = serde_json::json!("changed");
+                item["tokenized_content"] = serde_json::json!(["changed"]);
+            }
+        }
+        let altered = dir.path().join("altered.jsonl");
+        std::fs::write(
+            &altered,
+            changed
+                .iter()
+                .map(|item| format!("{item}\n"))
+                .collect::<String>(),
+        )
+        .unwrap();
+        for lane in ["python", "rust", "go", "ts-js", "generic", "all"] {
+            let result = binary()
+                .args(["catalog-compare", "--reference"])
+                .arg(&out)
+                .arg("--built")
+                .arg(&altered)
+                .args(["--lane", lane])
+                .output()
+                .unwrap();
+            assert_eq!(
+                result.status.success(),
+                lane != affected && lane != "all",
+                "mutated {path}, lane {lane}"
+            );
+        }
+    }
+}
+
+#[test]
+fn catalog_build_and_compare_without_runtime_dependencies() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("root");
+    std::fs::create_dir(&root).unwrap();
+    std::fs::write(root.join("readme.md"), "# Synthetic\nBody\n").unwrap();
+    let out = dir.path().join("catalog.jsonl");
+    let build = binary()
+        .env("PATH", "")
+        .args(["index", "--catalog-only", "--root"])
+        .arg(&root)
+        .arg("--out")
+        .arg(&out)
+        .output()
+        .unwrap();
+    assert!(
+        build.status.success(),
+        "{}",
+        String::from_utf8_lossy(&build.stderr)
+    );
+    assert_eq!(std::fs::read_to_string(&out).unwrap().lines().count(), 2);
+    let compare = binary()
+        .args(["catalog-compare", "--reference"])
+        .arg(&out)
+        .arg("--built")
+        .arg(&out)
+        .args(["--lane", "generic"])
+        .output()
+        .unwrap();
+    assert!(compare.status.success());
+    assert!(String::from_utf8_lossy(&compare.stdout).contains("content equal        : 2"));
+    let original = std::fs::read_to_string(&out).unwrap();
+    std::fs::write(&out, format!("{original}{original}")).unwrap();
+    assert!(
+        !binary()
+            .args(["catalog-compare", "--reference"])
+            .arg(&out)
+            .arg("--built")
+            .arg(&out)
+            .status()
+            .unwrap()
+            .success()
+    );
+}
+
+#[test]
+fn config_validation_and_explicit_catalog_only() {
+    let dir = tempfile::tempdir().unwrap();
+    let config = dir.path().join("config.yml");
+    std::fs::write(&config, "scanner:\n  line_chunks: true\n").unwrap();
+    let result = binary()
+        .args(["index", "--catalog-only", "--config"])
+        .arg(&config)
+        .arg("--out")
+        .arg(dir.path().join("out"))
+        .output()
+        .unwrap();
+    assert!(!result.status.success());
+    assert!(String::from_utf8_lossy(&result.stderr).contains("line_chunks=true"));
+    assert!(
+        !binary()
+            .args(["index", "--out"])
+            .arg(dir.path().join("out"))
+            .output()
+            .unwrap()
+            .status
+            .success()
+    );
+}
+
+#[test]
+fn comparator_reports_fields_and_rejects_invalid_schema() {
+    let dir = tempfile::tempdir().unwrap();
+    let reference = dir.path().join("reference.jsonl");
+    let built = dir.path().join("built.jsonl");
+    let valid = serde_json::json!({"id": "sample", "path": "kb/sample.md", "name": "sample", "kind": "file_summary", "content": "purpose: old", "symbols": [], "tokenized_name": [], "tokenized_path": [], "tokenized_dir": [], "tokenized_content": []});
+    std::fs::write(&reference, valid.to_string()).unwrap();
+    for field in [
+        "name",
+        "path",
+        "kind",
+        "content",
+        "tokenized_name",
+        "tokenized_path",
+        "tokenized_dir",
+        "tokenized_content",
+        "id",
+    ] {
+        let mut changed = valid.clone();
+        changed[field] = if field.starts_with("tokenized_") {
+            serde_json::json!(["changed"])
+        } else {
+            serde_json::json!("changed")
+        };
+        std::fs::write(&built, changed.to_string()).unwrap();
+        let result = binary()
+            .args(["catalog-compare", "--reference"])
+            .arg(&reference)
+            .arg("--built")
+            .arg(&built)
+            .output()
+            .unwrap();
+        assert!(!result.status.success(), "{field}");
+        let output = String::from_utf8_lossy(&result.stdout);
+        let category = if field == "id" {
+            "IDs/missing".to_string()
+        } else if field == "content" {
+            "file_summary/purpose".to_string()
+        } else if field.starts_with("tokenized_") {
+            format!("tokens/{field}")
+        } else {
+            format!("metadata/{field}")
+        };
+        assert!(output.contains(&category), "{field}: {output}");
+        assert!(output.contains("sample") && output.contains("changed"));
+    }
+    for field in [
+        "tokenized_name",
+        "tokenized_path",
+        "tokenized_dir",
+        "tokenized_content",
+        "symbols",
+    ] {
+        let mut invalid = valid.clone();
+        invalid.as_object_mut().unwrap().remove(field);
+        std::fs::write(&reference, invalid.to_string()).unwrap();
+        std::fs::write(&built, invalid.to_string()).unwrap();
+        let result = binary()
+            .args(["catalog-compare", "--reference"])
+            .arg(&reference)
+            .arg("--built")
+            .arg(&built)
+            .output()
+            .unwrap();
+        assert!(!result.status.success());
+        assert!(String::from_utf8_lossy(&result.stderr).contains(field));
+    }
+}

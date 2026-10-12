@@ -18,12 +18,12 @@ pub fn load_graph_adjacency(path: &Path) -> Result<GraphAdjacency, String> {
             continue;
         }
         // Simple JSON parsing without full serde for performance
-        if let Some(path) = extract_json_string(&line, "path") {
-            if let Some(neighbors) = extract_json_array(&line, "neighbors") {
-                let parsed: Vec<(String, f64)> = parse_neighbors(&neighbors);
-                if !parsed.is_empty() {
-                    edges.insert(path, parsed);
-                }
+        if let Some(path) = extract_json_string(&line, "path")
+            && let Some(neighbors) = extract_json_array(&line, "neighbors")
+        {
+            let parsed: Vec<(String, f64)> = parse_neighbors(&neighbors);
+            if !parsed.is_empty() {
+                edges.insert(path, parsed);
             }
         }
     }
@@ -78,9 +78,7 @@ pub fn propagate_scores(
 
         // Explore neighbors
         if let Some(neighbors) = adjacency.edges.get(&node) {
-            let num_neighbors = neighbors.len().min(neighbor_limit);
-            for i in 0..num_neighbors {
-                let (neighbor, _weight) = &neighbors[i];
+            for (neighbor, _weight) in neighbors.iter().take(neighbor_limit) {
                 if visited.contains(neighbor) {
                     continue;
                 }
@@ -103,9 +101,9 @@ fn extract_json_string(json: &str, key: &str) -> Option<String> {
     let colon = json[start..].find(':')?;
     let value_start = start + colon + 1;
     let trimmed = json[value_start..].trim();
-    if trimmed.starts_with('"') {
-        let end = trimmed[1..].find('"')?;
-        let raw = trimmed[1..=end].to_string();
+    if let Some(trimmed) = trimmed.strip_prefix('"') {
+        let end = trimmed.find('"')?;
+        let raw = trimmed[..end].to_string();
         // Unescape basic JSON escapes
         Some(raw.replace("\\\"", "\"").replace("\\\\", "\\"))
     } else {
@@ -114,7 +112,7 @@ fn extract_json_string(json: &str, key: &str) -> Option<String> {
 }
 
 /// Extract a JSON array as a string slice.
-fn extract_json_array<'a>(json: &'a str, key: &str) -> Option<String> {
+fn extract_json_array(json: &str, key: &str) -> Option<String> {
     let search = format!("\"{}\"", key);
     let start = json.find(&search)?;
     let colon = json[start..].find(':')?;
@@ -147,6 +145,21 @@ fn parse_neighbors(json: &str) -> Vec<(String, f64)> {
     let mut result = Vec::new();
     let mut i = 0;
     let bytes = json.as_bytes();
+    // extract_json_array returns the wrapping neighbors array. Skip that
+    // outer '[' when the first element is a nested pair or object so the
+    // wrapper is not consumed as the first neighbor.
+    while i < json.len() && bytes[i].is_ascii_whitespace() {
+        i += 1;
+    }
+    if i < json.len() && bytes[i] == b'[' {
+        let mut j = i + 1;
+        while j < json.len() && bytes[j].is_ascii_whitespace() {
+            j += 1;
+        }
+        if j < json.len() && (bytes[j] == b'[' || bytes[j] == b'{') {
+            i += 1;
+        }
+    }
     while i < json.len() {
         if bytes[i] == b'{' {
             // Object format: {"path":"...","weight":0.8}
@@ -177,7 +190,9 @@ fn parse_neighbors(json: &str) -> Vec<(String, f64)> {
             // Array format: ["path", 0.8]
             let mut j = i + 1;
             // Skip whitespace
-            while j < json.len() && bytes[j] == b' ' { j += 1; }
+            while j < json.len() && bytes[j] == b' ' {
+                j += 1;
+            }
             // Extract path string
             let path = if j < json.len() && bytes[j] == b'"' {
                 let start = j + 1;
@@ -192,11 +207,20 @@ fn parse_neighbors(json: &str) -> Vec<(String, f64)> {
                 None
             };
             // Skip comma and whitespace
-            while j < json.len() && (bytes[j] == b',' || bytes[j] == b' ') { j += 1; }
+            while j < json.len() && (bytes[j] == b',' || bytes[j] == b' ') {
+                j += 1;
+            }
             // Extract weight float
             let weight = if j < json.len() {
                 let mut end = j;
-                while end < json.len() && (bytes[end].is_ascii_digit() || bytes[end] == b'.' || bytes[end] == b'-' || bytes[end] == b'e' || bytes[end] == b'E' || bytes[end] == b'+') {
+                while end < json.len()
+                    && (bytes[end].is_ascii_digit()
+                        || bytes[end] == b'.'
+                        || bytes[end] == b'-'
+                        || bytes[end] == b'e'
+                        || bytes[end] == b'E'
+                        || bytes[end] == b'+')
+                {
                     end += 1;
                 }
                 json[j..end].parse::<f64>().ok()
@@ -207,7 +231,9 @@ fn parse_neighbors(json: &str) -> Vec<(String, f64)> {
                 result.push((p, w));
             }
             // Find closing bracket
-            while j < json.len() && bytes[j] != b']' { j += 1; }
+            while j < json.len() && bytes[j] != b']' {
+                j += 1;
+            }
             i = j + 1;
         }
         i += 1;
@@ -240,5 +266,49 @@ mod tests {
         assert!(result.contains_key("a"));
         assert!(result.contains_key("b"));
         assert!((result["b"] - 0.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn parse_neighbors_keeps_first_nested_array_pair() {
+        assert_eq!(
+            parse_neighbors(r#"[["other.txt",1.0],["third.txt",0.5]]"#),
+            vec![
+                ("other.txt".to_string(), 1.0),
+                ("third.txt".to_string(), 0.5)
+            ]
+        );
+        assert_eq!(
+            parse_neighbors(r#"[["other.txt", 1.0], ["third.txt", 0.5]]"#),
+            vec![
+                ("other.txt".to_string(), 1.0),
+                ("third.txt".to_string(), 0.5)
+            ]
+        );
+        assert_eq!(
+            parse_neighbors(r#"[["only.txt",1.0]]"#),
+            vec![("only.txt".to_string(), 1.0)]
+        );
+    }
+
+    #[test]
+    fn load_graph_reads_shared_array_pair_jsonl() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("rust_graph.jsonl");
+        std::fs::write(
+            &path,
+            r#"{"path":"smoke.txt","neighbors":[["other.txt",1.0],["third.txt",0.5]]}"#,
+        )
+        .unwrap();
+        let graph = load_graph_adjacency(&path).unwrap();
+        assert_eq!(
+            graph.edges.get("smoke.txt").map(Vec::as_slice),
+            Some(
+                [
+                    ("other.txt".to_string(), 1.0),
+                    ("third.txt".to_string(), 0.5)
+                ]
+                .as_slice()
+            )
+        );
     }
 }

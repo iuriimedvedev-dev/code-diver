@@ -1,0 +1,5 @@
+3	struct	Worker	struct Worker {
+6	enum	Mode	enum Mode { MODE_READY };
+8	function	process_task	static int process_task(int value) { return value; }
+10	function	matched_pointer	int* matched_pointer(void) { return 0; }
+12	function	multiline	int multiline(void)
