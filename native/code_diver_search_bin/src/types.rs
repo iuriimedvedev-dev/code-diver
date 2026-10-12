@@ -84,6 +84,9 @@ fn first_line() -> usize {
 pub struct SearchOptions {
     pub limit: usize,
     pub preview_chars: usize,
+    /// Optional path prefix for scoped ranking (e.g. "repos/cloud-console").
+    #[serde(default)]
+    pub path_prefix: Option<String>,
 }
 
 impl Default for SearchOptions {
@@ -91,6 +94,7 @@ impl Default for SearchOptions {
         Self {
             limit: 10,
             preview_chars: 0,
+            path_prefix: None,
         }
     }
 }

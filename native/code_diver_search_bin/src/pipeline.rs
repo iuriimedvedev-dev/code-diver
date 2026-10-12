@@ -22,6 +22,41 @@ use crate::types::{
     SearchResponse, SearchResult,
 };
 
+// Scope helpers — inlined so integration tests (which compile pipeline.rs
+// without the full crate root) can still resolve them.
+mod scope_helpers {
+    use regex::Regex;
+    use std::sync::LazyLock;
+
+    static SCOPE_RE: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"\b(repos/[a-zA-Z0-9_][a-zA-Z0-9_/\-]*|kb/[a-zA-Z0-9_][a-zA-Z0-9_/\-]*)")
+            .unwrap()
+    });
+
+    pub fn detect_scopes(query: &str) -> Vec<String> {
+        let mut scopes = Vec::new();
+        for cap in SCOPE_RE.captures_iter(query) {
+            if let Some(s) = cap
+                .get(1)
+                .map(|m| m.as_str().trim_end_matches('/').to_string())
+                && !scopes.contains(&s)
+            {
+                scopes.push(s);
+            }
+        }
+        scopes
+    }
+
+    pub fn is_in_scope(path: &str, scopes: &[String]) -> bool {
+        for scope in scopes {
+            if path == scope.as_str() || path.starts_with(&format!("{}/", scope)) {
+                return true;
+            }
+        }
+        false
+    }
+}
+
 /// Context: catalog/graph loaded at startup, BM25 initialized on first search.
 pub struct SearchContext {
     pub catalog: Catalog,
@@ -382,12 +417,15 @@ async fn prepare_candidates(
 
     // Step 3b: admit BM25-only candidates (Python HybridRetrievalStrategy parity:
     // lexical_candidates merged into scores up to lexical_candidate_limit).
+    // Scopes are passed so in-scope lexical candidates are admitted first.
+    let scopes = detect_scopes_for_query(query);
     admit_lexical_candidates(
         &mut candidates,
         &bm25_normalized,
         &ctx.catalog,
         &query_terms,
         ctx.config.lexical_candidate_limit,
+        &scopes,
     );
 
     // Also compute path/symbol/symbol_match scores from separate coverage (Python champion parity)
@@ -599,6 +637,7 @@ pub async fn search(
         &SearchOptions {
             limit,
             preview_chars: 0,
+            path_prefix: None,
         },
     )
     .await?;
@@ -650,6 +689,15 @@ pub async fn search_with_options(
     }
 
     timings.total_ms = start.elapsed().as_secs_f64() * 1000.0;
+
+    // Apply scope preference: in-scope candidates rank above out-of-scope ones
+    let mut all_scopes = detect_scopes_for_query(query);
+    if let Some(ref prefix) = options.path_prefix
+        && !all_scopes.contains(prefix)
+    {
+        all_scopes.push(prefix.clone());
+    }
+    apply_scope_preference(&mut rerank_candidates, &all_scopes);
 
     // Build final results
     let ce_available = rerank.applied;
@@ -774,6 +822,8 @@ pub async fn dump_features(
 /// the top `lexical_candidate_limit` lexical hits are merged into the score map with
 /// no cap on the combined total. `lexical_limit` therefore bounds only the number of
 /// NEW admissions here, not `candidates.len()`.
+///
+/// When `scopes` is provided, in-scope candidates are admitted first (before out-of-scope ones).
 #[allow(dead_code)]
 pub fn admit_lexical_candidates(
     candidates: &mut HashMap<String, Candidate>,
@@ -781,12 +831,28 @@ pub fn admit_lexical_candidates(
     catalog: &Catalog,
     query_terms: &[String],
     lexical_limit: usize,
+    scopes: &[String],
 ) {
     let mut sorted_bm25: Vec<(&String, &f64)> = bm25_normalized.iter().collect();
     sorted_bm25.sort_by(|a, b| {
-        b.1.partial_cmp(a.1)
-            .unwrap_or(std::cmp::Ordering::Equal)
-            .then_with(|| a.0.cmp(b.0))
+        // Prioritize in-scope candidates
+        let a_in_scope = !scopes.is_empty()
+            && a.1 > &0.0
+            && catalog
+                .by_id
+                .get(a.0)
+                .is_some_and(|&idx| scope_helpers::is_in_scope(&catalog.items[idx].path, scopes));
+        let b_in_scope = !scopes.is_empty()
+            && b.1 > &0.0
+            && catalog
+                .by_id
+                .get(b.0)
+                .is_some_and(|&idx| scope_helpers::is_in_scope(&catalog.items[idx].path, scopes));
+        b_in_scope.cmp(&a_in_scope).then_with(|| {
+            b.1.partial_cmp(a.1)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| a.0.cmp(b.0))
+        })
     });
     let mut admitted = 0usize;
     for (doc_id, score) in sorted_bm25 {
@@ -995,6 +1061,26 @@ fn truncate_chars(s: &str, max_chars: usize) -> &str {
         Some((idx, _)) => &s[..idx],
         None => s,
     }
+}
+
+/// Collect scope prefixes from query text.
+fn detect_scopes_for_query(query: &str) -> Vec<String> {
+    scope_helpers::detect_scopes(query)
+}
+
+/// Stable partition: in-scope candidates move to the front, preserving relative order
+/// within each group. This is applied after all ranking (CE, meta-ranker) but before
+/// truncating to `options.limit`.
+pub fn apply_scope_preference(candidates: &mut [Candidate], scopes: &[String]) {
+    if scopes.is_empty() {
+        return;
+    }
+    candidates.sort_by(|a, b| {
+        let a_in = scope_helpers::is_in_scope(&a.path, scopes);
+        let b_in = scope_helpers::is_in_scope(&b.path, scopes);
+        // In-scope first; within each group preserve original order (stable sort)
+        b_in.cmp(&a_in)
+    });
 }
 
 /// Title for the CE document: catalog title (`name`, = Python `item.title`),
@@ -1622,7 +1708,7 @@ mod tests {
 
         let query_terms = vec!["lex2".to_string()];
         // lexical_limit = 1 (only 1 NEW candidate may be admitted on top of vec_doc)
-        admit_lexical_candidates(&mut candidates, &bm25, &catalog, &query_terms, 1);
+        admit_lexical_candidates(&mut candidates, &bm25, &catalog, &query_terms, 1, &[]);
 
         assert_eq!(candidates.len(), 2);
         // lex_doc2 had higher score (0.95 vs 0.8), so it was admitted first
@@ -1727,12 +1813,118 @@ mod tests {
         };
         // Total (5) already exceeds any retrieval cap; both lexical hits must
         // still be admitted because the limit counts NEW admissions only.
-        admit_lexical_candidates(&mut candidates, &bm25, &catalog, &[], 1000);
+        admit_lexical_candidates(&mut candidates, &bm25, &catalog, &[], 1000, &[]);
         assert_eq!(candidates.len(), 7);
         // Zero limit admits nothing.
         let mut candidates2 = HashMap::new();
         candidates2.insert("vec0".to_string(), Candidate::default());
-        admit_lexical_candidates(&mut candidates2, &bm25, &catalog, &[], 0);
+        admit_lexical_candidates(&mut candidates2, &bm25, &catalog, &[], 0, &[]);
         assert_eq!(candidates2.len(), 1);
+    }
+
+    #[test]
+    fn scope_preference_in_scope_wins_over_out_of_scope() {
+        let mut candidates = vec![
+            Candidate {
+                item_id: "out1".into(),
+                path: "other/repo/file.go".into(),
+                ce_score_final: 0.9,
+                ..Default::default()
+            },
+            Candidate {
+                item_id: "in1".into(),
+                path: "repos/cloud-console/src/main.go".into(),
+                ce_score_final: 0.85,
+                ..Default::default()
+            },
+            Candidate {
+                item_id: "out2".into(),
+                path: "other/repo/util.go".into(),
+                ce_score_final: 0.8,
+                ..Default::default()
+            },
+        ];
+        let scopes = vec!["repos/cloud-console".to_string()];
+        apply_scope_preference(&mut candidates, &scopes);
+        // In-scope candidate moves to front despite lower score
+        assert_eq!(candidates[0].item_id, "in1");
+        // Out-of-scope candidates preserve relative order
+        assert_eq!(candidates[1].item_id, "out1");
+        assert_eq!(candidates[2].item_id, "out2");
+    }
+
+    #[test]
+    fn scope_preference_fill_up_when_scope_has_few() {
+        let mut candidates = vec![
+            Candidate {
+                item_id: "in1".into(),
+                path: "repos/sre/config.yaml".into(),
+                ce_score_final: 0.7,
+                ..Default::default()
+            },
+            Candidate {
+                item_id: "out1".into(),
+                path: "other/file.go".into(),
+                ce_score_final: 0.95,
+                ..Default::default()
+            },
+            Candidate {
+                item_id: "out2".into(),
+                path: "another/file.rs".into(),
+                ce_score_final: 0.9,
+                ..Default::default()
+            },
+        ];
+        let scopes = vec!["repos/sre".to_string()];
+        apply_scope_preference(&mut candidates, &scopes);
+        // In-scope first, then out-of-scope in original order
+        assert_eq!(candidates[0].item_id, "in1");
+        assert_eq!(candidates[1].item_id, "out1");
+        assert_eq!(candidates[2].item_id, "out2");
+    }
+
+    #[test]
+    fn scope_preference_empty_scopes_no_change() {
+        let mut candidates = vec![
+            Candidate {
+                item_id: "a".into(),
+                path: "repos/cloud-console/src/main.go".into(),
+                ce_score_final: 0.8,
+                ..Default::default()
+            },
+            Candidate {
+                item_id: "b".into(),
+                path: "other/file.go".into(),
+                ce_score_final: 0.9,
+                ..Default::default()
+            },
+        ];
+        apply_scope_preference(&mut candidates, &[]);
+        // Order unchanged
+        assert_eq!(candidates[0].item_id, "a");
+        assert_eq!(candidates[1].item_id, "b");
+    }
+
+    #[test]
+    fn scope_preference_all_in_scope_no_change() {
+        let mut candidates = vec![
+            Candidate {
+                item_id: "a".into(),
+                path: "repos/sre/a.yaml".into(),
+                ce_score_final: 0.8,
+                ..Default::default()
+            },
+            Candidate {
+                item_id: "b".into(),
+                path: "repos/sre/b.yaml".into(),
+                ce_score_final: 0.9,
+                ..Default::default()
+            },
+        ];
+        let scopes = vec!["repos/sre".to_string()];
+        apply_scope_preference(&mut candidates, &scopes);
+        // All in scope, order preserved
+        assert_eq!(candidates[0].item_id, "a");
+        assert_eq!(candidates[1].item_id, "b");
     }
 }

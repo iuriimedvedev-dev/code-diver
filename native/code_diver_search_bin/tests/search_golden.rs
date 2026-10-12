@@ -364,6 +364,7 @@ async fn adapter_returns_40_results_and_notices_without_preview_ranking_changes(
     let options = types::SearchOptions {
         limit: 40,
         preview_chars: 0,
+        path_prefix: None,
     };
     let (plain, _) = pipeline::search_with_options(&context, &query, &options)
         .await

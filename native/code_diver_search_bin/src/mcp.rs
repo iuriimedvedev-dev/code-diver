@@ -41,7 +41,7 @@ fn text_result(text: String, is_error: bool) -> Value {
 fn tools(max_limit: usize) -> Value {
     let tool = |name: &str, description: &str, properties: Value, required: Value| json!({"name":name,"description":description,"inputSchema":{"type":"object","properties":properties,"required":required,"additionalProperties":false}});
     json!({"tools":[
-        tool("code_diver_search", "Search repository code", json!({"query":{"type":"string","minLength":1},"limit":{"type":"integer","minimum":1,"maximum":max_limit,"default":10},"preview_chars":{"type":"integer","minimum":0,"default":0}}), json!(["query"])),
+        tool("code_diver_search", "Search repository code and return matching files with path, relevance score, preview of matched content, and line range. Use read to open a file.", json!({"query":{"type":"string","minLength":1},"limit":{"type":"integer","minimum":1,"maximum":max_limit,"default":10},"preview_chars":{"type":"integer","minimum":0,"default":400},"path_prefix":{"type":"string","minLength":1}}), json!(["query"])),
         tool("code_diver_read", "Read sandboxed numbered lines", json!({"file":{"type":"string"},"start_line":{"type":"integer","minimum":1,"default":1},"lines":{"type":"integer","minimum":1,"maximum":400,"default":100}}), json!(["file"])),
         tool("code_diver_grep", "Gitignore-aware text search", json!({"pattern":{"type":"string"},"path":{"type":"string"},"limit":{"type":"integer","minimum":1,"default":50},"regex":{"type":"boolean","default":false}}), json!(["pattern"])),
         tool("code_diver_symbols", "List source symbols", json!({"path":{"type":"string"},"limit":{"type":"integer","minimum":1,"default":100}}), json!([])),
@@ -73,10 +73,18 @@ impl Server {
                 .filter(|q| !q.trim().is_empty())
                 .ok_or("query must be a nonempty string")?;
             let limit = integer(&args, "limit", 10, false)?;
-            let preview = integer(&args, "preview_chars", 0, true)?;
+            let preview = integer(&args, "preview_chars", 400, true)?;
+            let path_prefix = args
+                .get("path_prefix")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
             if args.as_object().is_some_and(|m| {
-                m.keys()
-                    .any(|k| !matches!(k.as_str(), "query" | "limit" | "preview_chars"))
+                m.keys().any(|k| {
+                    !matches!(
+                        k.as_str(),
+                        "query" | "limit" | "preview_chars" | "path_prefix"
+                    )
+                })
             }) {
                 return Err("Unknown search argument".into());
             }
@@ -92,6 +100,7 @@ impl Server {
                 &SearchOptions {
                     limit,
                     preview_chars: preview,
+                    path_prefix,
                 },
             )
             .await?;

@@ -20,6 +20,7 @@ mod model_store;
 mod pipeline;
 pub mod profile;
 pub mod runtime_config;
+pub mod scope;
 mod service_manager;
 pub mod setup;
 mod types;
@@ -2354,6 +2355,7 @@ async fn run_single(
         &types::SearchOptions {
             limit,
             preview_chars: 0,
+            path_prefix: None,
         },
     )
     .await?;
