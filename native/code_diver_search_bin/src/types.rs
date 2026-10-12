@@ -358,6 +358,45 @@ pub struct SearchConfig {
     pub base_path: String,
     #[serde(default = "default_embed_cache_size")]
     pub embed_cache_size: usize,
+    /// Preserve the top vector candidate when its score is within margin of the fused leader.
+    #[serde(default)]
+    pub preserve_vector_top: bool,
+    /// Score margin for preserve_vector_top (Python: 0.03).
+    #[serde(default = "default_vector_top_score_margin")]
+    pub vector_top_score_margin: f64,
+    /// Per-kind vector retrieval limits (stored for config parity; single collection ignores these).
+    #[serde(default)]
+    pub vector_kind_limits: std::collections::HashMap<String, usize>,
+    /// Per-kind vector score multipliers (e.g. file_manifest: 1.08).
+    #[serde(default = "default_vector_kind_multipliers")]
+    pub vector_kind_multipliers: std::collections::HashMap<String, f64>,
+    /// Per-item-kind fusion weight multipliers (e.g. file_manifest: 1.08).
+    #[serde(default = "default_item_kind_weights")]
+    pub item_kind_weights: std::collections::HashMap<String, f64>,
+    /// Enable query routing (workflow/path_symbol/semantic) to adjust fusion weights.
+    #[serde(default)]
+    pub routing_enabled: bool,
+    /// Minimum token length for lexical tokens (Python: 3).
+    #[serde(default = "default_min_token_length")]
+    pub min_token_length: usize,
+    /// CE-stage: preserve top-N base candidates when margin >= preserve_top_score_margin.
+    #[serde(default)]
+    pub preserve_top_candidate: bool,
+    /// CE-stage: score margin for preserve_top_candidate (Python: 0.1).
+    #[serde(default = "default_preserve_top_score_margin")]
+    pub preserve_top_score_margin: f64,
+    /// CE-stage: how many leading base candidates to protect (Python: 1).
+    #[serde(default = "default_preserve_top_depth")]
+    pub preserve_top_depth: usize,
+    /// Graph file search: seed pool limit (Python: 140).
+    #[serde(default = "default_seed_limit")]
+    pub seed_limit: usize,
+    /// Graph file search: lexical seed limit (Python: 280).
+    #[serde(default = "default_lexical_seed_limit")]
+    pub lexical_seed_limit: usize,
+    /// Graph file search: compute lexical/path/symbol scores for vector-only seeds too.
+    #[serde(default)]
+    pub seed_score_parity: bool,
 }
 
 fn default_qdrant_collection() -> String {
@@ -390,6 +429,31 @@ fn default_ce_timeout_ms() -> u64 {
 
 fn default_embed_cache_size() -> usize {
     0
+}
+
+fn default_vector_top_score_margin() -> f64 {
+    0.03
+}
+fn default_vector_kind_multipliers() -> std::collections::HashMap<String, f64> {
+    std::collections::HashMap::new()
+}
+fn default_item_kind_weights() -> std::collections::HashMap<String, f64> {
+    std::collections::HashMap::new()
+}
+fn default_min_token_length() -> usize {
+    3
+}
+fn default_preserve_top_score_margin() -> f64 {
+    0.1
+}
+fn default_preserve_top_depth() -> usize {
+    1
+}
+fn default_seed_limit() -> usize {
+    140
+}
+fn default_lexical_seed_limit() -> usize {
+    280
 }
 
 /// Defaults for the selective second CE pass. Kept as constants so CLI help,
@@ -462,6 +526,19 @@ impl Default for SearchConfig {
             graph_path: String::new(),
             base_path: String::new(),
             embed_cache_size: default_embed_cache_size(),
+            preserve_vector_top: false,
+            vector_top_score_margin: default_vector_top_score_margin(),
+            vector_kind_limits: std::collections::HashMap::new(),
+            vector_kind_multipliers: default_vector_kind_multipliers(),
+            item_kind_weights: default_item_kind_weights(),
+            routing_enabled: false,
+            min_token_length: default_min_token_length(),
+            preserve_top_candidate: false,
+            preserve_top_score_margin: default_preserve_top_score_margin(),
+            preserve_top_depth: default_preserve_top_depth(),
+            seed_limit: default_seed_limit(),
+            lexical_seed_limit: default_lexical_seed_limit(),
+            seed_score_parity: false,
         }
     }
 }

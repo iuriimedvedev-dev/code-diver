@@ -1,0 +1,75 @@
+# H-91a profile for IntelliJ Community codebase
+# Mirrors the Python config at configs/intellij/intellij-h91a-meta-ranker.yml
+
+[search]
+candidate_limit = 70
+retrieval_limit = 360
+lexical_candidate_limit = 1000
+
+# Fusion weights (hybrid_search)
+vector_weight = 0.42
+lexical_weight = 0.26
+path_weight = 0.12
+symbol_weight = 0.10
+symbol_match_weight = 0.10
+graph_weight = 0.0
+file_vote_weight = 0.06
+
+# Graph propagation
+graph_depth = 0
+graph_neighbor_limit = 0
+graph_decay = 0.65
+
+# CE first pass
+max_document_chars = 850
+
+# CE second pass
+second_pass_enabled = true
+second_pass_score_floor = 0.3
+second_pass_candidate_cap = 24
+second_pass_max_document_chars = 2400
+
+# Hub prior (additive mode)
+hub_prior_enabled = true
+hub_prior_mode = "additive"
+hub_prior_role_weight = 0.0
+hub_prior_fanin_weight = 0.04
+hub_prior_protect_top = 3
+
+# Meta-ranker
+ce_meta_ranker_enabled = true
+
+# H-91a: preserve_vector_top
+preserve_vector_top = true
+vector_top_score_margin = 0.03
+
+# H-91a: query routing
+routing_enabled = true
+
+# H-91a: min token length
+min_token_length = 3
+
+# H-91a: CE preserve_top
+preserve_top_candidate = true
+preserve_top_score_margin = 0.1
+preserve_top_depth = 1
+
+# H-91a: graph_file_search
+seed_limit = 140
+lexical_seed_limit = 280
+seed_score_parity = true
+
+# H-91a: vector kind limits (stored for parity; single collection ignores these)
+[search.vector_kind_limits]
+file_summary = 170
+file_manifest = 170
+
+# H-91a: vector kind multipliers
+[search.vector_kind_multipliers]
+file_summary = 1.0
+file_manifest = 1.08
+
+# H-91a: item kind weights
+[search.item_kind_weights]
+file_summary = 1.0
+file_manifest = 1.08

@@ -18,6 +18,7 @@ pub mod mcp_registration;
 mod metadata;
 mod model_store;
 mod pipeline;
+pub mod profile;
 pub mod runtime_config;
 mod service_manager;
 pub mod setup;
@@ -832,7 +833,39 @@ async fn main() -> Result<(), String> {
     }
 }
 
+/// Returns true if the TOML file is a pure search profile (only [search] table).
+fn is_search_profile(path: &Path) -> bool {
+    if path.extension().and_then(|e| e.to_str()) != Some("toml") {
+        return false;
+    }
+    if let Ok(text) = std::fs::read_to_string(path)
+        && let Ok(value) = toml::from_str::<toml::Value>(&text)
+        && let Some(table) = value.as_table()
+    {
+        // A profile has exactly one top-level key: "search"
+        return table.len() == 1 && table.contains_key("search");
+    }
+    false
+}
+
 pub(crate) fn configured_candidate_limit(args: &SearchArgs) -> Result<usize, String> {
+    // Check TOML profile for candidate_limit default (only pure [search] profiles)
+    let profile_default = if let Some(ref config_path) = args.config {
+        if config_path.extension().and_then(|e| e.to_str()) == Some("toml")
+            && is_search_profile(config_path.as_path())
+        {
+            if let Ok(profile) = crate::profile::load_profile(config_path.as_path()) {
+                profile.search.candidate_limit.map(|n| n.to_string())
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
     let path = args
         .config
         .clone()
@@ -846,7 +879,7 @@ pub(crate) fn configured_candidate_limit(args: &SearchArgs) -> Result<usize, Str
         "CANDIDATE_LIMIT",
         None,
         &remote["search"]["candidate_limit"],
-        "34",
+        profile_default.as_deref().unwrap_or("34"),
     );
     let limit = value
         .parse::<usize>()
@@ -1876,6 +1909,23 @@ fn build_search_config_default(
         }
         config.embedding_dimensions = Some(metadata.embedding.dimensions);
     }
+
+    // Load TOML profile if --config points to a pure [search] profile.
+    // Runtime config TOML files (with other tables) are not profiles.
+    if let Some(ref config_path) = args.config
+        && is_search_profile(config_path.as_path())
+    {
+        match crate::profile::load_profile(config_path.as_path()) {
+            Ok(profile) => {
+                eprintln!("Loading profile: {}", config_path.display());
+                crate::profile::apply_profile(&mut config, &profile);
+            }
+            Err(e) => {
+                return Err(format!("Profile error: {}", e));
+            }
+        }
+    }
+
     Ok((config, root_path))
 }
 
