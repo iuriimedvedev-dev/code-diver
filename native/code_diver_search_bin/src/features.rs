@@ -114,7 +114,7 @@ const PERIPHERAL_ROLE_PRIOR: f64 = -0.5;
 const NEUTRAL_ROLE_PRIOR: f64 = 0.0;
 
 /// Exact Python `HubPriorScorer.role_prior(path)`.
-fn role_prior(path: &str) -> f64 {
+pub fn role_prior(path: &str) -> f64 {
     let posix_path = path.replace('\\', "/");
 
     // Check non-source extensions first
@@ -332,15 +332,30 @@ pub fn extract_features(
     }
 }
 
-/// Returns neutral fan-in degree of 1.0 for each file path so the pretrained LightGBM model
-/// does not penalize paths with 0.0 in its trees.
+/// Computes the directed in-degree of every catalog path from the graph adjacency.
+///
+/// In-degree of file X = number of distinct source files whose neighbor list includes X.
+/// Matches Python `HubPriorScorer.fan_in_degree(path)`.
 pub fn build_fan_in_degrees(
-    _adjacency: &GraphAdjacency,
+    adjacency: &GraphAdjacency,
     by_path: &HashMap<String, Vec<usize>>,
 ) -> HashMap<String, f64> {
+    // Count how many times each path appears as a neighbor target
+    let mut target_counts: HashMap<&str, usize> = HashMap::new();
+    for neighbors in adjacency.edges.values() {
+        // Deduplicate neighbors within a single source to count unique referrers
+        let mut seen_in_source: HashSet<&str> = HashSet::new();
+        for (neighbor, _) in neighbors {
+            if seen_in_source.insert(neighbor.as_str()) {
+                *target_counts.entry(neighbor.as_str()).or_insert(0) += 1;
+            }
+        }
+    }
+
     let mut degrees: HashMap<String, f64> = HashMap::with_capacity(by_path.len());
     for path in by_path.keys() {
-        degrees.insert(path.clone(), 1.0);
+        let count = *target_counts.get(path.as_str()).unwrap_or(&0);
+        degrees.insert(path.clone(), count as f64);
     }
     degrees
 }
@@ -448,14 +463,41 @@ mod tests {
     #[test]
     fn test_build_fan_in_degrees() {
         use std::collections::HashMap;
+        // Graph: a.rs -> [b.rs], c.rs -> [b.rs, d.rs], d.rs -> [b.rs]
+        // In-degrees: a.rs=0, b.rs=3 (referenced by a, c, d), c.rs=0, d.rs=1 (referenced by c)
+        let mut edges: HashMap<String, Vec<(String, f64)>> = HashMap::new();
+        edges.insert("a.rs".to_string(), vec![("b.rs".to_string(), 1.0)]);
+        edges.insert(
+            "c.rs".to_string(),
+            vec![("b.rs".to_string(), 1.0), ("d.rs".to_string(), 0.5)],
+        );
+        edges.insert("d.rs".to_string(), vec![("b.rs".to_string(), 1.0)]);
+        let adjacency = GraphAdjacency { edges };
+
+        let mut by_path: HashMap<String, Vec<usize>> = HashMap::new();
+        by_path.insert("a.rs".to_string(), vec![0]);
+        by_path.insert("b.rs".to_string(), vec![1]);
+        by_path.insert("c.rs".to_string(), vec![2]);
+        by_path.insert("d.rs".to_string(), vec![3]);
+
+        let degrees = build_fan_in_degrees(&adjacency, &by_path);
+        assert_eq!(degrees.get("a.rs"), Some(&0.0));
+        assert_eq!(degrees.get("b.rs"), Some(&3.0));
+        assert_eq!(degrees.get("c.rs"), Some(&0.0));
+        assert_eq!(degrees.get("d.rs"), Some(&1.0));
+    }
+
+    #[test]
+    fn test_build_fan_in_degrees_empty_graph() {
+        use std::collections::HashMap;
         let edges: HashMap<String, Vec<(String, f64)>> = HashMap::new();
         let adjacency = GraphAdjacency { edges };
         let mut by_path: HashMap<String, Vec<usize>> = HashMap::new();
         by_path.insert("a.rs".to_string(), vec![0]);
         by_path.insert("b.rs".to_string(), vec![1]);
         let degrees = build_fan_in_degrees(&adjacency, &by_path);
-        assert_eq!(degrees.get("a.rs"), Some(&1.0));
-        assert_eq!(degrees.get("b.rs"), Some(&1.0));
+        assert_eq!(degrees.get("a.rs"), Some(&0.0));
+        assert_eq!(degrees.get("b.rs"), Some(&0.0));
     }
 
     #[test]

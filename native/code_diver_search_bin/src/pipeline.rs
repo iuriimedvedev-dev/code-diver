@@ -580,8 +580,8 @@ async fn prepare_candidates(
     }
     timings.ce_second_pass_ms = t0.elapsed().as_secs_f64() * 1000.0;
 
-    // Step 8: Apply ranking adjustments (logit, tie-break)
-    finalize_ce_candidates(&mut rerank_candidates, &ctx.config);
+    // Step 8: Apply ranking adjustments (logit, hub prior, tie-break)
+    finalize_ce_candidates(&mut rerank_candidates, &ctx.config, &ctx.fan_in_degrees);
 
     timings.total_ms = start.elapsed().as_secs_f64() * 1000.0;
     Ok((rerank_candidates, timings, notices, rerank))
@@ -905,13 +905,52 @@ fn candidate_features(
         .collect()
 }
 
-fn finalize_ce_candidates(candidates: &mut [Candidate], config: &SearchConfig) {
+fn finalize_ce_candidates(
+    candidates: &mut [Candidate],
+    config: &SearchConfig,
+    fan_in_degrees: &HashMap<String, f64>,
+) {
+    // Apply logit conversion first
     for candidate in candidates.iter_mut() {
         if config.rank_by_raw_logits {
             candidate.ce_score_final = logit(candidate.ce_score_final);
         }
         candidate.ce_score = candidate.ce_score_final;
     }
+
+    // Apply hub prior (additive mode) — matches Python HubPriorScorer.priors()
+    if config.hub_prior_enabled && config.hub_prior_mode == "additive" {
+        let max_fan_in = candidates
+            .iter()
+            .filter_map(|c| fan_in_degrees.get(&c.path))
+            .copied()
+            .fold(0.0, f64::max);
+
+        if max_fan_in > 0.0 {
+            // Store original scores for protection
+            let originals: Vec<f64> = candidates.iter().map(|c| c.ce_score_final).collect();
+
+            for (i, candidate) in candidates.iter_mut().enumerate() {
+                let fan_in = fan_in_degrees.get(&candidate.path).copied().unwrap_or(0.0);
+                let role = crate::features::role_prior(&candidate.path);
+                let fanin_prior = (1.0 + fan_in).ln() / (1.0 + max_fan_in).ln();
+                let prior = config.hub_prior_role_weight * role
+                    + config.hub_prior_fanin_weight * fanin_prior;
+                candidate.hub_prior = prior;
+                let adjusted = candidate.ce_score_final + prior;
+
+                // Protect top N candidates from being down-ranked
+                let protected = i < config.hub_prior_protect_top;
+                if protected {
+                    candidate.ce_score_final = originals[i].max(adjusted);
+                } else {
+                    candidate.ce_score_final = adjusted;
+                }
+                candidate.ce_score = candidate.ce_score_final;
+            }
+        }
+    }
+
     sort_by_ce(candidates);
     if config.tie_break_by_fused_score {
         tie_break_by_fused(candidates, config.tie_break_epsilon);
@@ -1327,7 +1366,7 @@ mod tests {
     #[test]
     fn empty_and_zero_candidate_windows_are_safe() {
         let mut candidates = select_ce_candidates(vec![Candidate::default()], 0);
-        finalize_ce_candidates(&mut candidates, &SearchConfig::default());
+        finalize_ce_candidates(&mut candidates, &SearchConfig::default(), &HashMap::new());
         assert!(candidates.is_empty());
         assert!(candidate_features(&candidates, "", &HashMap::new()).is_empty());
         assert!(select_ce_candidates(vec![], 34).is_empty());
@@ -1382,7 +1421,7 @@ mod tests {
             tie_break_by_fused_score: false,
             ..Default::default()
         };
-        finalize_ce_candidates(&mut candidates, &config);
+        finalize_ce_candidates(&mut candidates, &config, &HashMap::new());
         assert_eq!(candidates[0].path, "rescued.rs");
         for (rank, candidate) in candidates.iter().enumerate() {
             assert_eq!(candidate.ce_rank, rank);
@@ -1426,7 +1465,7 @@ mod tests {
             tie_break_epsilon: 1e-6,
             ..Default::default()
         };
-        finalize_ce_candidates(&mut candidates, &config);
+        finalize_ce_candidates(&mut candidates, &config, &HashMap::new());
         assert_eq!(candidates[0].fused_score, 2.0);
         assert_eq!(candidates[0].ce_rank, 0);
         assert_eq!(candidates[0].base_fused_rank, 0);
