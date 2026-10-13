@@ -526,6 +526,121 @@ async fn symlink_escape_is_tool_error() {
     s.stop().await;
 }
 
+#[cfg(unix)]
+#[tokio::test]
+async fn read_is_confined_to_root_and_keeps_kb_and_repos_working() {
+    let base = tempfile::tempdir().unwrap();
+    let root = base.path().join("root");
+    let sibling = base.path().join("root-sibling");
+    for dir in ["kb/docs", "repos/svc/src", "inner"] {
+        std::fs::create_dir_all(root.join(dir)).unwrap();
+    }
+    std::fs::create_dir_all(&sibling).unwrap();
+    std::fs::write(root.join("kb/docs/guide.md"), "kb guide line\n").unwrap();
+    std::fs::write(root.join("repos/svc/src/lib.rs"), "fn svc_entry() {}\n").unwrap();
+    std::fs::write(base.path().join("secret.txt"), "TOP-SECRET-OUTSIDE").unwrap();
+    std::fs::write(sibling.join("secret.txt"), "TOP-SECRET-SIBLING").unwrap();
+    std::os::unix::fs::symlink(&sibling, root.join("sibling-dir")).unwrap();
+    std::os::unix::fs::symlink(
+        base.path().join("secret.txt"),
+        root.join("inner/secret-link"),
+    )
+    .unwrap();
+    std::os::unix::fs::symlink(
+        root.join("kb/docs/guide.md"),
+        root.join("inner/guide-alias"),
+    )
+    .unwrap();
+    let mut s = Session::start(&root, &[]);
+    s.initialize().await;
+    for (file, expected) in [
+        ("kb/docs/guide.md", "kb guide line"),
+        ("repos/svc/src/lib.rs", "svc_entry"),
+        ("inner/guide-alias", "kb guide line"),
+    ] {
+        let result = s.call(1, "code_diver_read", json!({"file": file})).await;
+        assert_eq!(result["result"]["isError"], false, "{file}: {result}");
+        let text = result["result"]["content"][0]["text"].as_str().unwrap();
+        assert!(text.contains(expected), "{file}: {text}");
+    }
+    let outside = base.path().join("secret.txt").display().to_string();
+    let sibling_secret = sibling.join("secret.txt").display().to_string();
+    for file in [
+        "../secret.txt",
+        "kb/../../secret.txt",
+        "kb/docs/../guide.md",
+        "../root-sibling/secret.txt",
+        outside.as_str(),
+        sibling_secret.as_str(),
+        "sibling-dir/secret.txt",
+        "inner/secret-link",
+    ] {
+        let result = s.call(2, "code_diver_read", json!({"file": file})).await;
+        assert!(result.get("error").is_none(), "{file}: {result}");
+        assert_eq!(result["result"]["isError"], true, "{file}: {result}");
+        let text = result["result"]["content"][0]["text"].as_str().unwrap();
+        assert!(!text.contains("TOP-SECRET"), "{file}: {text}");
+    }
+    s.stop().await;
+}
+
+#[tokio::test]
+async fn health_reports_pid_version_and_catalog_items() {
+    let root = tempfile::tempdir().unwrap();
+    let catalog = root.path().join("catalog.jsonl");
+    let graph = root.path().join("graph.jsonl");
+    std::fs::write(
+        &catalog,
+        concat!(
+            "{\"id\":\"a::file_summary\",\"path\":\"a\",\"content\":\"alpha\"}\n",
+            "{\"id\":\"b::file_summary\",\"path\":\"b\",\"content\":\"beta\"}\n",
+            "{\"id\":\"c::file_summary\",\"path\":\"c\",\"content\":\"gamma\"}\n",
+        ),
+    )
+    .unwrap();
+    std::fs::write(&graph, "").unwrap();
+    let mut s = Session::start(
+        root.path(),
+        &[
+            "--catalog",
+            catalog.to_str().unwrap(),
+            "--graph",
+            graph.to_str().unwrap(),
+        ],
+    );
+    s.send(json!({"jsonrpc":"2.0","id":1,"method":"health"}))
+        .await;
+    let health = s.receive().await;
+    assert_eq!(health["id"], 1);
+    assert_eq!(health["result"]["items"], 3, "{health}");
+    assert_eq!(health["result"]["version"], env!("CARGO_PKG_VERSION"));
+    let pid = health["result"]["pid"].as_u64().unwrap();
+    assert_eq!(Some(pid as u32), s.child.id());
+    s.send(json!({"jsonrpc":"2.0","id":2,"method":"ping"}))
+        .await;
+    assert_eq!(s.receive().await["result"], json!({}));
+    s.send(json!({"jsonrpc":"2.0","id":3,"method":"health","params":[]}))
+        .await;
+    assert_eq!(s.receive().await["error"]["code"], -32602);
+    s.stop().await;
+}
+
+#[tokio::test]
+async fn health_is_error_when_catalog_is_unavailable() {
+    let root = tempfile::tempdir().unwrap();
+    let missing = root.path().join("missing.jsonl");
+    let mut s = Session::start(root.path(), &["--catalog", missing.to_str().unwrap()]);
+    s.send(json!({"jsonrpc":"2.0","id":1,"method":"health"}))
+        .await;
+    let health = s.receive().await;
+    assert_eq!(health["error"]["code"], -32603, "{health}");
+    assert!(health.get("result").is_none(), "{health}");
+    s.send(json!({"jsonrpc":"2.0","id":2,"method":"ping"}))
+        .await;
+    assert_eq!(s.receive().await["result"], json!({}));
+    s.stop().await;
+}
+
 #[tokio::test]
 async fn slow_search_does_not_block_read_and_can_be_cancelled() {
     let root = tempfile::tempdir().unwrap();

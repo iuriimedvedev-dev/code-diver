@@ -210,3 +210,53 @@ async fn info_uses_configured_collection_and_reports_artifacts() {
         .unwrap();
     assert_eq!(paths, ["/", "/collections/zz_synthetic_info"]);
 }
+
+#[tokio::test]
+async fn info_cli_qdrant_collection_overrides_config_collection() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let root = tempfile::tempdir().unwrap();
+    std::fs::write(root.path().join("catalog.jsonl"), "{}\n").unwrap();
+    std::fs::write(root.path().join("graph.jsonl"), "{}\n").unwrap();
+    std::fs::write(root.path().join("model.txt"), "synthetic").unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    let mock = tokio::spawn(async move {
+        let mut paths = Vec::new();
+        for _ in 0..2 {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut bytes = [0u8; 4096];
+            let size = socket.read(&mut bytes).await.unwrap();
+            paths.push(
+                String::from_utf8_lossy(&bytes[..size])
+                    .split_whitespace()
+                    .nth(1)
+                    .unwrap()
+                    .to_string(),
+            );
+            let body = r#"{"result":{"points_count":3}}"#;
+            socket.write_all(format!("HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}", body.len()).as_bytes()).await.unwrap();
+        }
+        paths
+    });
+    let config = root.path().join("config.toml");
+    std::fs::write(&config, format!("catalog = 'catalog.jsonl'\ngraph_path = 'graph.jsonl'\nmodel = 'model.txt'\n[storage.qdrant]\nurl = '{url}'\ncollection = 'zz_from_config'\n")).unwrap();
+    let output = tokio::process::Command::new(env!("CARGO_BIN_EXE_code-diver"))
+        .args(["info", "--config", config.to_str().unwrap(), "--json"])
+        .args(["--qdrant-collection", "zz_from_flag"])
+        .output()
+        .await
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(value["qdrant_collection"], "zz_from_flag");
+    assert_eq!(value["qdrant_collection_points"], 3);
+    let paths = tokio::time::timeout(std::time::Duration::from_secs(5), mock)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(paths, ["/", "/collections/zz_from_flag"]);
+}

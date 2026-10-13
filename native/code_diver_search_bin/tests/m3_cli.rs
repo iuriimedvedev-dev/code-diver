@@ -382,6 +382,46 @@ fn search_shared_config_env_cli_model_prefix_and_isolated_auth() {
 }
 
 #[test]
+fn search_cli_qdrant_collection_overrides_config_collection() {
+    let server = Mock::start();
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("a.md"), "# Alpha\nSearch text").unwrap();
+    success(server.run(dir.path(), &["--apply"]));
+    server.state.lock().unwrap().requests.clear();
+    let config = dir.path().join("services.toml");
+    std::fs::write(&config, format!("catalog = '.code-diver/rust_catalog.jsonl'\ngraph_path = '.code-diver/rust_graph.jsonl'\n[storage.qdrant]\nurl = '{}'\ncollection = 'zz_from_config'\n[embedding]\nurl = '{}/embeddings'\n", server.url, server.url)).unwrap();
+    let search = |extra: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_code-diver"))
+            .args(["search", "--config"])
+            .arg(&config)
+            .args(["--query", "Alpha", "--ce-url"])
+            .arg(format!("{}/rerank", server.url))
+            .args(extra)
+            .output()
+            .unwrap()
+    };
+    // The config collection differs from the indexed one, so it is rejected.
+    assert_eq!(search(&[]).status.code(), Some(1));
+    assert!(server.state.lock().unwrap().requests.is_empty());
+    // The flag wins over the config and is the collection that gets queried.
+    success(search(&["--qdrant-collection", "zz_synthetic"]));
+    let state = server.state.lock().unwrap();
+    let searched: Vec<_> = state
+        .requests
+        .iter()
+        .filter(|(first, _, _)| first.contains("/points/search "))
+        .map(|(first, _, _)| first.as_str())
+        .collect();
+    assert!(!searched.is_empty());
+    assert!(
+        searched
+            .iter()
+            .all(|first| first.contains("/collections/zz_synthetic/")),
+        "{searched:?}"
+    );
+}
+
+#[test]
 fn audit_reports_measurable_estimated_candidates_without_exact_parity_claim() {
     let server = Mock::start();
     let dir = tempfile::tempdir().unwrap();

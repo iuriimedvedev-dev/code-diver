@@ -248,6 +248,57 @@ fn inspection_symlink_escape_and_traversal_are_blocked() {
 }
 
 #[test]
+fn inspection_read_confinement_covers_outside_absolute_sibling_and_nested_dotdot() {
+    let base = TempDir::new().unwrap();
+    let root = base.path().join("root");
+    let sibling = base.path().join("root-sibling");
+    write(&root, "kb/docs/guide.md", "kb guide\n");
+    write(&root, "repos/svc/src/lib.rs", "fn svc() {}\n");
+    write(base.path(), "secret.txt", "TOP-SECRET");
+    write(&sibling, "secret.txt", "TOP-SECRET");
+    assert_eq!(
+        text(
+            &root,
+            "code_diver_read",
+            json!({"file": "kb/docs/guide.md"})
+        ),
+        "kb/docs/guide.md:1-1\n    1 | kb guide"
+    );
+    assert!(
+        text(
+            &root,
+            "code_diver_read",
+            json!({"file": "repos/svc/src/lib.rs"})
+        )
+        .contains("fn svc()")
+    );
+    let mut hostile = vec![
+        "../secret.txt".to_owned(),
+        "kb/../../secret.txt".into(),
+        "kb/docs/../guide.md".into(),
+        "../root-sibling/secret.txt".into(),
+        "./../secret.txt".into(),
+        base.path().join("secret.txt").display().to_string(),
+        sibling.join("secret.txt").display().to_string(),
+        "/".into(),
+    ];
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::symlink;
+        symlink(&sibling, root.join("sibling-dir")).unwrap();
+        symlink(base.path().join("secret.txt"), root.join("secret-link")).unwrap();
+        hostile.extend(["sibling-dir/secret.txt".into(), "secret-link".into()]);
+    }
+    for file in hostile {
+        let error = inspection::call(&root, "code_diver_read", &json!({"file": file}))
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("escapes"), "{file}: {error}");
+        assert!(!error.contains("TOP-SECRET"), "{file}: {error}");
+    }
+}
+
+#[test]
 fn inspection_grep_literal_regex_limits_and_ignores() {
     let root = TempDir::new().unwrap();
     write(root.path(), ".gitignore", "ignored/\n*.log\n");

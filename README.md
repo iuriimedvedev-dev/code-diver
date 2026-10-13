@@ -12,7 +12,7 @@ code-diver doctor --json
 The installer verifies SHA256 and runs setup interactively: enter the team profile
 URL or file path, then credentials at the hidden prompt. Run it in a terminal.
 It requires a compatible published
-v0.6.0 release; this documentation does not assert current release availability.
+v0.6.5 release; this documentation does not assert current release availability.
 See [the colleague guide](docs/COLLEAGUES.md) for PASS/FAIL checks and recovery.
 After setup, use the binary directly:
 
@@ -25,6 +25,7 @@ code-diver mcp
 For non-interactive setup, use `code-diver setup --yes --no-register --profile /path/to/team.toml --key-file /path/to/private-key`.
 Use `code-diver update-index` to refresh the shared index. Connect your MCP client
 with command `code-diver`, arguments `["mcp"]`, and your repository as its working directory.
+To share one process between several agent sessions, see [`serve` and `shim`](docs/integrations/mcp_server.md#sharing-one-process-between-agent-sessions-serve-and-shim).
 The Python distribution is deprecated for new installations; see
 [deprecation status](docs/DEPRECATION.md). Release maintainers can run the
 [isolated acceptance procedure](docs/acceptance.md).

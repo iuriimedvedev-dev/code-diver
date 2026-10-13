@@ -1,16 +1,18 @@
 use serde_json::{Value, json};
 use std::collections::HashMap;
+use std::future::Future;
 use std::path::PathBuf;
-use std::sync::Arc;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::sync::{Mutex, OnceCell, Semaphore};
+use std::sync::{Arc, RwLock};
+use std::time::Duration;
+use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::sync::{Mutex, Semaphore};
 use tokio::task::{AbortHandle, JoinSet};
 
 use crate::SearchArgs;
 use crate::pipeline::{SearchContext, init_search_context, search_with_options};
 use crate::types::SearchOptions;
 
-const MAX_REQUEST_BYTES: usize = 1_048_576;
+pub(crate) const MAX_REQUEST_BYTES: usize = 1_048_576;
 const MAX_ACTIVE_CALLS: usize = 128;
 const PROTOCOLS: &[&str] = &["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
 
@@ -20,17 +22,94 @@ pub struct McpConfig {
     pub max_concurrent_searches: usize,
 }
 
-struct Server {
-    config: McpConfig,
-    context: OnceCell<Arc<SearchContext>>,
-    searches: Semaphore,
+/// How a session treats the MCP handshake.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum SessionMode {
+    /// One session per process: initialize and notifications/initialized come first.
+    Handshake,
+    /// Every request stands alone (daemon connections opened by the stateless shim).
+    #[cfg(unix)]
+    Stateless,
 }
 
-fn error(id: Value, code: i64, message: &str) -> Value {
+/// Bounds applied to one session; `None` disables a bound (stdio keeps the original behavior).
+#[derive(Clone, Copy, Default, Debug)]
+pub(crate) struct SessionLimits {
+    /// Close a session that sends nothing while no request is in flight.
+    pub idle_timeout: Option<Duration>,
+    /// Give up on a request line that stops arriving before its newline.
+    pub stall_timeout: Option<Duration>,
+    /// Give up on a peer that stops reading responses.
+    pub write_timeout: Option<Duration>,
+}
+
+/// The context currently serving requests. Requests clone the `Arc`, so replacing it never
+/// disturbs a call that already holds the previous generation.
+#[derive(Default)]
+pub(crate) struct ContextSlot {
+    current: RwLock<Option<Arc<SearchContext>>>,
+    init: Mutex<()>,
+}
+
+impl ContextSlot {
+    pub(crate) fn peek(&self) -> Option<Arc<SearchContext>> {
+        self.current.read().unwrap().clone()
+    }
+
+    pub(crate) fn replace(&self, context: Arc<SearchContext>) -> Option<Arc<SearchContext>> {
+        self.current.write().unwrap().replace(context)
+    }
+}
+
+pub(crate) type HealthExtra = Box<dyn Fn() -> Value + Send + Sync>;
+
+pub(crate) struct Server {
+    config: McpConfig,
+    context: Arc<ContextSlot>,
+    searches: Semaphore,
+    health_extra: Option<HealthExtra>,
+}
+
+/// Load the catalog, graph and models once for the given engine flags.
+pub(crate) async fn build_context(args: &SearchArgs) -> Result<Arc<SearchContext>, String> {
+    let args = args.clone();
+    let runtime = tokio::runtime::Handle::current();
+    tokio::task::spawn_blocking(move || {
+        let (config, _) = crate::build_search_config_default(&args, true, true)?;
+        runtime.block_on(init_search_context(config)).map(Arc::new)
+    })
+    .await
+    .map_err(|_| "Search initialization worker failed".to_string())?
+}
+
+/// Answer to `initialize`, shared by the stdio server, the daemon and the shim.
+pub(crate) fn initialize_result(params: &Value) -> Result<Value, (i64, &'static str)> {
+    if !params["protocolVersion"].is_string()
+        || !params["capabilities"].is_object()
+        || !params["clientInfo"]["name"].is_string()
+        || !params["clientInfo"]["version"].is_string()
+    {
+        return Err((
+            -32602,
+            "initialize requires protocolVersion, capabilities and clientInfo",
+        ));
+    }
+    let requested = params["protocolVersion"].as_str().unwrap();
+    let version = if PROTOCOLS.contains(&requested) {
+        requested
+    } else {
+        PROTOCOLS[0]
+    };
+    Ok(
+        json!({"protocolVersion":version,"capabilities":{"tools":{},"resources":{},"prompts":{}},"serverInfo":{"name":"code-diver","version":env!("CARGO_PKG_VERSION")}}),
+    )
+}
+
+pub(crate) fn error(id: Value, code: i64, message: &str) -> Value {
     json!({"jsonrpc":"2.0","id":id,"error":{"code":code,"message":message}})
 }
 
-fn response(id: Value, result: Value) -> Value {
+pub(crate) fn response(id: Value, result: Value) -> Value {
     json!({"jsonrpc":"2.0","id":id,"result":result})
 }
 
@@ -38,7 +117,7 @@ fn text_result(text: String, is_error: bool) -> Value {
     json!({"content":[{"type":"text","text":text}],"isError":is_error})
 }
 
-fn tools(max_limit: usize) -> Value {
+pub(crate) fn tools(max_limit: usize) -> Value {
     let tool = |name: &str, description: &str, properties: Value, required: Value| json!({"name":name,"description":description,"inputSchema":{"type":"object","properties":properties,"required":required,"additionalProperties":false}});
     json!({"tools":[
         tool("code_diver_search", "Search repository code and return matching files with path, relevance score, preview of matched content, and line range. Use read to open a file.", json!({"query":{"type":"string","minLength":1},"limit":{"type":"integer","minimum":1,"maximum":max_limit,"default":10},"preview_chars":{"type":"integer","minimum":0,"default":400},"path_prefix":{"type":"string","minLength":1}}), json!(["query"])),
@@ -51,19 +130,50 @@ fn tools(max_limit: usize) -> Value {
 }
 
 impl Server {
-    async fn context(&self) -> Result<&Arc<SearchContext>, String> {
-        self.context
-            .get_or_try_init(|| async {
-                let args = self.config.args.clone();
-                let runtime = tokio::runtime::Handle::current();
-                tokio::task::spawn_blocking(move || {
-                    let (config, _) = crate::build_search_config_default(&args, true, true)?;
-                    runtime.block_on(init_search_context(config)).map(Arc::new)
-                })
-                .await
-                .map_err(|_| "Search initialization worker failed".to_string())?
-            })
-            .await
+    /// `context` is shared with whoever may swap it later (hot reload); an empty slot is filled
+    /// lazily on first use.
+    pub(crate) fn new(
+        config: McpConfig,
+        context: Arc<ContextSlot>,
+        health_extra: Option<HealthExtra>,
+    ) -> Result<Arc<Self>, String> {
+        if config.max_concurrent_searches == 0 {
+            return Err("max-concurrent-searches must be positive".into());
+        }
+        Ok(Arc::new(Server {
+            searches: Semaphore::new(config.max_concurrent_searches),
+            config,
+            context,
+            health_extra,
+        }))
+    }
+
+    async fn health(&self) -> Result<Value, String> {
+        let ctx = self.context().await?;
+        let mut health = json!({
+            "pid": std::process::id(),
+            "version": env!("CARGO_PKG_VERSION"),
+            "items": ctx.catalog.items.len(),
+        });
+        if let Some(extra) = &self.health_extra
+            && let (Some(base), Value::Object(extra)) = (health.as_object_mut(), extra())
+        {
+            base.extend(extra);
+        }
+        Ok(health)
+    }
+
+    async fn context(&self) -> Result<Arc<SearchContext>, String> {
+        if let Some(ctx) = self.context.peek() {
+            return Ok(ctx);
+        }
+        let _init = self.context.init.lock().await;
+        if let Some(ctx) = self.context.peek() {
+            return Ok(ctx);
+        }
+        let ctx = build_context(&self.config.args).await?;
+        self.context.replace(ctx.clone());
+        Ok(ctx)
     }
 
     async fn call(&self, name: &str, args: Value) -> Result<Value, String> {
@@ -95,7 +205,7 @@ impl Server {
                 .map_err(|_| "Search queue closed")?;
             let ctx = self.context().await?;
             let (search_response, _timings) = search_with_options(
-                ctx,
+                &ctx,
                 query,
                 &SearchOptions {
                     limit,
@@ -172,14 +282,59 @@ async fn write(stdout: &tokio::sync::mpsc::Sender<Value>, value: Value) -> Resul
         .map_err(|_| "stdout writer closed".to_string())
 }
 
+type Active = Arc<Mutex<HashMap<String, AbortHandle>>>;
+
+// Run a request off the read loop so slow work never blocks other requests or cancellation.
+async fn spawn_request<F>(
+    tasks: &mut JoinSet<Result<(), String>>,
+    active: &Active,
+    stdout: &tokio::sync::mpsc::Sender<Value>,
+    id: Value,
+    work: F,
+) where
+    F: Future<Output = Result<Value, (i64, String)>> + Send + 'static,
+{
+    let stdout = stdout.clone();
+    let key = id.to_string();
+    let task_key = key.clone();
+    let task_active = active.clone();
+    let (ready, start) = tokio::sync::oneshot::channel();
+    let handle = tasks.spawn(async move {
+        let _ = start.await;
+        let result = work.await;
+        task_active.lock().await.remove(&task_key);
+        write(
+            &stdout,
+            match result {
+                Ok(result) => response(id, result),
+                Err((code, message)) => error(id, code, &message),
+            },
+        )
+        .await
+    });
+    active.lock().await.insert(key, handle);
+    let _ = ready.send(());
+}
+
 // Retain at most one bounded record, but always consume through its delimiter.
-async fn record<R: tokio::io::AsyncBufRead + Unpin>(
+// A `stall` timeout bounds the wait for the rest of a record once its first bytes arrived.
+pub(crate) async fn record<R: AsyncBufRead + Unpin>(
     reader: &mut R,
+    stall: Option<Duration>,
 ) -> Result<Option<Vec<u8>>, String> {
     let mut data = Vec::new();
     let mut oversized = false;
+    let mut started = false;
     loop {
-        let buf = reader.fill_buf().await.map_err(|e| e.to_string())?;
+        let filled = reader.fill_buf();
+        let buf = match stall.filter(|_| started) {
+            Some(limit) => tokio::time::timeout(limit, filled)
+                .await
+                .map_err(|_| "Request line stalled before its newline".to_string())?,
+            None => filled.await,
+        }
+        .map_err(|e| e.to_string())?;
+        started = true;
         if buf.is_empty() {
             return if data.is_empty() && !oversized {
                 Ok(None)
@@ -207,31 +362,66 @@ async fn record<R: tokio::io::AsyncBufRead + Unpin>(
 }
 
 pub async fn run_mcp_server(config: McpConfig) -> Result<(), String> {
-    if config.max_concurrent_searches == 0 {
-        return Err("max-concurrent-searches must be positive".into());
-    }
-    let server = Arc::new(Server {
-        searches: Semaphore::new(config.max_concurrent_searches),
-        config,
-        context: OnceCell::new(),
-    });
+    let server = Server::new(config, Arc::default(), None)?;
+    run_session(
+        server,
+        tokio::io::BufReader::new(tokio::io::stdin()),
+        tokio::io::stdout(),
+        SessionMode::Handshake,
+        SessionLimits::default(),
+    )
+    .await
+}
+
+/// Serve one MCP session over any line-oriented transport until the peer closes it.
+pub(crate) async fn run_session<R, W>(
+    server: Arc<Server>,
+    mut reader: R,
+    mut output: W,
+    mode: SessionMode,
+    limits: SessionLimits,
+) -> Result<(), String>
+where
+    R: AsyncBufRead + Unpin,
+    W: AsyncWrite + Unpin + Send + 'static,
+{
     let (stdout, mut responses) = tokio::sync::mpsc::channel::<Value>(MAX_ACTIVE_CALLS);
+    let write_timeout = limits.write_timeout;
     let writer = tokio::spawn(async move {
-        let mut output = tokio::io::stdout();
         while let Some(value) = responses.recv().await {
             let mut bytes = serde_json::to_vec(&value).map_err(|e| e.to_string())?;
             bytes.push(b'\n');
-            output.write_all(&bytes).await.map_err(|e| e.to_string())?;
-            output.flush().await.map_err(|e| e.to_string())?;
+            let flush = async {
+                output.write_all(&bytes).await?;
+                output.flush().await
+            };
+            match write_timeout {
+                Some(limit) => tokio::time::timeout(limit, flush)
+                    .await
+                    .map_err(|_| "Peer stopped reading responses".to_string())?,
+                None => flush.await,
+            }
+            .map_err(|e| e.to_string())?;
         }
         Ok::<_, String>(())
     });
-    let mut reader = BufReader::new(tokio::io::stdin());
     let mut tasks = JoinSet::new();
-    let active: Arc<Mutex<HashMap<String, AbortHandle>>> = Arc::new(Mutex::new(HashMap::new()));
-    let mut initialized = false;
-    let mut ready = false;
-    while let Some(bytes) = record(&mut reader).await? {
+    let active: Active = Arc::new(Mutex::new(HashMap::new()));
+    let stateless = mode != SessionMode::Handshake;
+    let mut initialized = stateless;
+    let mut ready = stateless;
+    loop {
+        if let Some(idle) = limits.idle_timeout {
+            match tokio::time::timeout(idle, reader.fill_buf()).await {
+                Err(_) if active.lock().await.is_empty() => break,
+                Err(_) => continue,
+                Ok(Err(e)) => return Err(e.to_string()),
+                Ok(Ok(_)) => {}
+            }
+        }
+        let Some(bytes) = record(&mut reader, limits.stall_timeout).await? else {
+            break;
+        };
         while let Some(done) = tasks.try_join_next() {
             if let Ok(result) = done {
                 result?;
@@ -297,31 +487,33 @@ pub async fn run_mcp_server(config: McpConfig) -> Result<(), String> {
         }
         let result = match method {
             "initialize" => {
-                if initialized {
+                if initialized && !stateless {
                     Err((-32600, "Already initialized"))
-                } else if !params["protocolVersion"].is_string()
-                    || !params["capabilities"].is_object()
-                    || !params["clientInfo"]["name"].is_string()
-                    || !params["clientInfo"]["version"].is_string()
-                {
-                    Err((
-                        -32602,
-                        "initialize requires protocolVersion, capabilities and clientInfo",
-                    ))
                 } else {
-                    initialized = true;
-                    let requested = params["protocolVersion"].as_str().unwrap();
-                    let version = if PROTOCOLS.contains(&requested) {
-                        requested
-                    } else {
-                        PROTOCOLS[0]
-                    };
-                    Ok(
-                        json!({"protocolVersion":version,"capabilities":{"tools":{},"resources":{},"prompts":{}},"serverInfo":{"name":"code-diver","version":env!("CARGO_PKG_VERSION")}}),
-                    )
+                    let result = initialize_result(&params);
+                    initialized |= result.is_ok();
+                    result
                 }
             }
             "ping" => Ok(json!({})),
+            "health" => {
+                if active.lock().await.len() >= MAX_ACTIVE_CALLS {
+                    Err((-32603, "Too many active requests; retry later"))
+                } else {
+                    let server = server.clone();
+                    spawn_request(&mut tasks, &active, &stdout, id, async move {
+                        server.health().await.map_err(|message| {
+                            eprintln!("Health check failed: {message}");
+                            (
+                                -32603,
+                                "Health check failed: search context unavailable".to_string(),
+                            )
+                        })
+                    })
+                    .await;
+                    continue;
+                }
+            }
             _ if !ready => Err((
                 -32600,
                 "Complete initialize and notifications/initialized first",
@@ -344,22 +536,13 @@ pub async fn run_mcp_server(config: McpConfig) -> Result<(), String> {
                 } else {
                     let name = params["name"].as_str().unwrap().to_string();
                     let server = server.clone();
-                    let stdout = stdout.clone();
-                    let key = id.to_string();
-                    let task_key = key.clone();
-                    let task_active = active.clone();
-                    let (ready, start) = tokio::sync::oneshot::channel();
-                    let handle = tasks.spawn(async move {
-                        let _ = start.await;
-                        let result = server
+                    spawn_request(&mut tasks, &active, &stdout, id, async move {
+                        Ok(server
                             .call(&name, args)
                             .await
-                            .unwrap_or_else(|e| text_result(e, true));
-                        task_active.lock().await.remove(&task_key);
-                        write(&stdout, response(id, result)).await
-                    });
-                    active.lock().await.insert(key, handle);
-                    let _ = ready.send(());
+                            .unwrap_or_else(|e| text_result(e, true)))
+                    })
+                    .await;
                     continue;
                 }
             }

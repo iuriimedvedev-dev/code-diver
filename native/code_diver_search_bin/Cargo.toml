@@ -1,6 +1,6 @@
 [package]
 name = "code_diver_search_bin"
-version = "0.6.0"
+version = "0.6.5"
 edition = "2024"
 default-run = "code-diver"
 
@@ -27,10 +27,10 @@ tokio = { version = "1.53.1", features = ["full"] }
 uuid = { version = "1.26.1", features = ["v5"] }
 time = { version = "0.3.51", features = ["parsing", "formatting"] }
 sha2 = "0.10.9"
+libc = "0.2"
 
 [dev-dependencies]
 tempfile = "3"
-libc = "0.2"
 
 [[test]]
 name = "runtime-test-helper"
