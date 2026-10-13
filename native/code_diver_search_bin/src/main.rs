@@ -24,6 +24,9 @@ pub mod scope;
 #[cfg(unix)]
 #[allow(dead_code)]
 mod serve;
+#[cfg(unix)]
+#[allow(dead_code)]
+mod shim;
 mod service_manager;
 pub mod setup;
 mod types;
