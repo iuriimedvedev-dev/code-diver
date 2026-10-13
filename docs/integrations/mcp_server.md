@@ -98,3 +98,79 @@ You can test the MCP server directly via stdio:
 ```bash
 uv run code-diver mcp code-diver.yml
 ```
+
+---
+
+## Sharing one process between agent sessions: `serve` and `shim`
+
+Code-Diver offers two ways to run the MCP server. Both answer the same methods
+(`initialize`, `tools/list`, `tools/call`, `ping`, `health`) with the same tools.
+
+| Command | Process model | Use it when |
+|---|---|---|
+| `code-diver mcp` | One process per MCP client, speaks MCP on stdio | You run one agent session, or each client may load its own copy of the catalog and graph. This is the simplest setup. |
+| `code-diver serve` | One long-lived process that listens on a unix socket | Several agent sessions share one machine and you want to load the catalog, graph and models once and reload them without restarting clients. |
+| `code-diver shim` | Stateless stdio process that forwards to a `serve` socket | The MCP client can only launch stdio servers and you run `serve`. |
+| `code-diver daemon` | Supervises the local embedder and reranker (`llama-server`) | Not an MCP server. It is the model runtime that `mcp` and `serve` talk to. |
+
+`serve` and `shim` are available on unix systems only.
+
+### Start the shared process
+
+`serve` takes the same engine flags as `mcp` (`--catalog`, `--graph`, `--root`,
+`--config`, `--qdrant-collection`, ...) plus `--listen`:
+
+```sh
+code-diver serve --listen unix:<socket> --catalog <catalog> --graph <graph> --root <project-root>
+```
+
+The socket is created with mode `0600`, so only the same user can connect. Put it
+in a directory that only you can access. Optional limits:
+`--max-connections <n>` (default 32), `--reload-poll-secs <n>` (default 10, `0`
+disables polling) and `--reload-debounce-secs <n>` (default 2).
+
+### Connect a client
+
+Point the MCP client at `shim`:
+
+```json
+{
+  "mcpServers": {
+    "code-diver": {
+      "command": "code-diver",
+      "args": ["shim", "--socket", "<socket>"]
+    }
+  }
+}
+```
+
+The same entry as a command line: `code-diver shim --socket <socket>`. The shim
+keeps no state and loads no index. It answers `initialize` and `ping` itself, so a
+client can always start; `tools/list` falls back to a built-in list while `serve`
+is away, and other requests are retried for a short time and then fail with an
+error that names the socket.
+
+### Hot reload
+
+`serve` reloads the catalog and graph without dropping connections:
+
+- when either file changes on disk (checked every `--reload-poll-secs`, applied
+  after the files stay unchanged for `--reload-debounce-secs`), and
+- on `SIGHUP`: `kill -HUP <serve-pid>`.
+
+If a reload fails, the previous data stays active and the error is reported by
+`health`.
+
+### Health check
+
+Send the `health` method to see whether the process is alive and which data it
+serves. `mcp` and `serve` report `pid`, `version` and `items` (the number of
+catalog items). `serve` adds `connections`, `max_connections`, `uptime_s` and the
+reload state: `generation`, `reload_count`, `catalog_stale` and
+`last_reload_error`. `ping` returns an empty result.
+
+### Read confinement
+
+`code_diver_read` and the other inspection tools are confined to the project root
+(`--root`, or `--base-path`, or the working directory of the process). Use relative
+paths; absolute paths, `..` components and symlinks that leave the root are refused.
