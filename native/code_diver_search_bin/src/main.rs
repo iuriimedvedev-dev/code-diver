@@ -21,6 +21,9 @@ mod pipeline;
 pub mod profile;
 pub mod runtime_config;
 pub mod scope;
+#[cfg(unix)]
+#[allow(dead_code)]
+mod serve;
 mod service_manager;
 pub mod setup;
 mod types;
