@@ -65,7 +65,7 @@ pub(crate) type HealthExtra = Box<dyn Fn() -> Value + Send + Sync>;
 
 pub(crate) struct Server {
     config: McpConfig,
-    context: ContextSlot,
+    context: Arc<ContextSlot>,
     searches: Semaphore,
     health_extra: Option<HealthExtra>,
 }
@@ -130,17 +130,15 @@ pub(crate) fn tools(max_limit: usize) -> Value {
 }
 
 impl Server {
+    /// `context` is shared with whoever may swap it later (hot reload); an empty slot is filled
+    /// lazily on first use.
     pub(crate) fn new(
         config: McpConfig,
-        preloaded: Option<Arc<SearchContext>>,
+        context: Arc<ContextSlot>,
         health_extra: Option<HealthExtra>,
     ) -> Result<Arc<Self>, String> {
         if config.max_concurrent_searches == 0 {
             return Err("max-concurrent-searches must be positive".into());
-        }
-        let context = ContextSlot::default();
-        if let Some(preloaded) = preloaded {
-            context.replace(preloaded);
         }
         Ok(Arc::new(Server {
             searches: Semaphore::new(config.max_concurrent_searches),
@@ -150,10 +148,6 @@ impl Server {
         }))
     }
 
-    #[cfg(unix)]
-    pub(crate) fn contexts(&self) -> &ContextSlot {
-        &self.context
-    }
 
     async fn health(&self) -> Result<Value, String> {
         let ctx = self.context().await?;
@@ -369,7 +363,7 @@ pub(crate) async fn record<R: AsyncBufRead + Unpin>(
 }
 
 pub async fn run_mcp_server(config: McpConfig) -> Result<(), String> {
-    let server = Server::new(config, None, None)?;
+    let server = Server::new(config, Arc::default(), None)?;
     run_session(
         server,
         tokio::io::BufReader::new(tokio::io::stdin()),
