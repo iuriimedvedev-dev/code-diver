@@ -212,8 +212,8 @@ pub(crate) fn bind_socket(path: &Path) -> Result<(UnixListener, SocketGuard), St
         .create(&staging)
         .map_err(|e| format!("create {}: {e}", staging.display()))?;
     let bound = (|| {
-        let listener = UnixListener::bind(&temporary)
-            .map_err(|e| format!("bind {}: {e}", path.display()))?;
+        let listener =
+            UnixListener::bind(&temporary).map_err(|e| format!("bind {}: {e}", path.display()))?;
         std::fs::set_permissions(&temporary, std::fs::Permissions::from_mode(SOCKET_MODE))
             .map_err(|e| format!("chmod {}: {e}", path.display()))?;
         std::fs::hard_link(&temporary, path).map_err(|e| {
@@ -252,6 +252,7 @@ pub(crate) async fn accept_loop(
     guard: SocketGuard,
     server: Arc<Server>,
     connections: Arc<Semaphore>,
+    limits: SessionLimits,
     shutdown: impl Future<Output = ()>,
 ) {
     let mut sessions: JoinSet<()> = JoinSet::new();
@@ -281,7 +282,7 @@ pub(crate) async fn accept_loop(
                         BufReader::new(reader),
                         writer,
                         SessionMode::Stateless,
-                        session_limits(),
+                        limits,
                     )
                     .await
                     {
@@ -423,7 +424,10 @@ impl Reloader {
                 state.generation += 1;
                 state.items = items;
                 state.failure = None;
-                eprintln!("{LOG} reload ok: generation {}, {items} items", state.generation);
+                eprintln!(
+                    "{LOG} reload ok: generation {}, {items} items",
+                    state.generation
+                );
                 Ok(())
             }
             Err(cause) => {
@@ -510,7 +514,10 @@ pub(crate) async fn run_serve(config: ServeConfig) -> Result<(), String> {
     let mut terminate = install(SignalKind::terminate(), "SIGTERM")?;
     let mut interrupt = install(SignalKind::interrupt(), "SIGINT")?;
     let socket = prepare_socket_path(&socket).await?;
-    eprintln!("{LOG} starting (pid {}), loading context", std::process::id());
+    eprintln!(
+        "{LOG} starting (pid {}), loading context",
+        std::process::id()
+    );
     let context = build_context(&config.mcp.args).await?;
     let connections = Arc::new(Semaphore::new(config.max_connections));
     let started = Instant::now();
@@ -530,8 +537,7 @@ pub(crate) async fn run_serve(config: ServeConfig) -> Result<(), String> {
         slot,
         Some(Box::new(move || -> Value {
             let mut health = health_reloader.health();
-            health["connections"] =
-                json!(max_connections - health_connections.available_permits());
+            health["connections"] = json!(max_connections - health_connections.available_permits());
             health["max_connections"] = json!(max_connections);
             health["uptime_s"] = json!(started.elapsed().as_secs());
             health
@@ -551,7 +557,15 @@ pub(crate) async fn run_serve(config: ServeConfig) -> Result<(), String> {
             _ = interrupt.recv() => {}
         }
     };
-    accept_loop(listener, guard, server, connections, shutdown).await;
+    accept_loop(
+        listener,
+        guard,
+        server,
+        connections,
+        session_limits(),
+        shutdown,
+    )
+    .await;
     if let Some(watcher) = watcher {
         watcher.abort();
     }
@@ -571,7 +585,10 @@ mod tests {
             PathBuf::from("/run/x.sock")
         );
         for bad in ["", "unix:", "/run/x.sock", "tcp:127.0.0.1:1"] {
-            assert!(parse_listen(bad).unwrap_err().contains("unix:PATH"), "{bad}");
+            assert!(
+                parse_listen(bad).unwrap_err().contains("unix:PATH"),
+                "{bad}"
+            );
         }
     }
 
@@ -579,15 +596,29 @@ mod tests {
     fn directory_must_be_owned_and_closed_to_others() {
         assert!(check_directory(1000, 0o40700, 1000).is_ok());
         assert!(check_directory(1000, 0o40755, 1000).is_ok());
-        assert!(check_directory(0, 0o40700, 1000).unwrap_err().contains("owned by uid 0"));
-        assert!(check_directory(1000, 0o40770, 1000).unwrap_err().contains("group or others"));
-        assert!(check_directory(1000, 0o41777, 1000).unwrap_err().contains("group or others"));
+        assert!(
+            check_directory(0, 0o40700, 1000)
+                .unwrap_err()
+                .contains("owned by uid 0")
+        );
+        assert!(
+            check_directory(1000, 0o40770, 1000)
+                .unwrap_err()
+                .contains("group or others")
+        );
+        assert!(
+            check_directory(1000, 0o41777, 1000)
+                .unwrap_err()
+                .contains("group or others")
+        );
     }
 
     #[tokio::test]
     async fn bound_socket_is_0600_and_removed_by_its_guard() {
         let dir = tempfile::tempdir().unwrap();
-        let path = prepare_socket_path(&dir.path().join("s.sock")).await.unwrap();
+        let path = prepare_socket_path(&dir.path().join("s.sock"))
+            .await
+            .unwrap();
         let (listener, guard) = bind_socket(&path).unwrap();
         let mode = std::fs::metadata(&path).unwrap().permissions().mode();
         assert_eq!(mode & 0o777, SOCKET_MODE);
@@ -601,13 +632,18 @@ mod tests {
     #[tokio::test]
     async fn guard_leaves_a_replaced_socket_alone() {
         let dir = tempfile::tempdir().unwrap();
-        let path = prepare_socket_path(&dir.path().join("s.sock")).await.unwrap();
+        let path = prepare_socket_path(&dir.path().join("s.sock"))
+            .await
+            .unwrap();
         let (listener, guard) = bind_socket(&path).unwrap();
         std::fs::remove_file(&path).unwrap();
         let _other = StdListener::bind(&path).unwrap();
         drop(listener);
         drop(guard);
-        assert!(path.exists(), "another process's socket must survive our cleanup");
+        assert!(
+            path.exists(),
+            "another process's socket must survive our cleanup"
+        );
     }
 
     #[tokio::test]
@@ -669,9 +705,11 @@ mod tests {
         std::fs::write(&catalog, rows.join("\n") + "\n").unwrap();
         let graph = dir.join(format!("{name}-graph.jsonl"));
         std::fs::write(&graph, "").unwrap();
-        let mut config = crate::types::SearchConfig::default();
-        config.catalog_path = catalog.to_string_lossy().into_owned();
-        config.graph_path = graph.to_string_lossy().into_owned();
+        let config = crate::types::SearchConfig {
+            catalog_path: catalog.to_string_lossy().into_owned(),
+            graph_path: graph.to_string_lossy().into_owned(),
+            ..Default::default()
+        };
         Arc::new(crate::pipeline::init_search_context(config).await.unwrap())
     }
 
@@ -683,9 +721,172 @@ mod tests {
         let in_flight = slot.peek().unwrap();
         let old = slot.replace(context_with_items(dir.path(), "new", &["a", "b", "c"]).await);
         assert!(old.is_some());
-        assert_eq!(in_flight.catalog.items.len(), 1, "running call keeps its generation");
-        assert_eq!(slot.peek().unwrap().catalog.items.len(), 3, "new calls see the swap");
-        assert_eq!(Arc::strong_count(&in_flight), 2, "old generation lives until the call ends");
+        assert_eq!(
+            in_flight.catalog.items.len(),
+            1,
+            "running call keeps its generation"
+        );
+        assert_eq!(
+            slot.peek().unwrap().catalog.items.len(),
+            3,
+            "new calls see the swap"
+        );
+        assert_eq!(
+            Arc::strong_count(&in_flight),
+            2,
+            "old generation lives until the call ends"
+        );
+    }
+
+    struct Running {
+        socket: PathBuf,
+        stop: Option<tokio::sync::oneshot::Sender<()>>,
+        task: tokio::task::JoinHandle<()>,
+        _dir: tempfile::TempDir,
+    }
+
+    async fn start_server(max_connections: usize, limits: SessionLimits) -> Running {
+        let dir = tempfile::tempdir().unwrap();
+        let slot = Arc::new(ContextSlot::default());
+        slot.replace(context_with_items(dir.path(), "c", &["a"]).await);
+        let Some(crate::Commands::Mcp(mcp)) =
+            <crate::Cli as clap::Parser>::try_parse_from(["code-diver", "mcp"])
+                .unwrap()
+                .command
+        else {
+            panic!("expected the mcp subcommand");
+        };
+        let config = McpConfig {
+            args: mcp.search,
+            root_dir: dir.path().to_path_buf(),
+            max_concurrent_searches: 2,
+        };
+        let server = Server::new(config, slot, None).unwrap();
+        let socket = prepare_socket_path(&dir.path().join("s.sock"))
+            .await
+            .unwrap();
+        let (listener, guard) = bind_socket(&socket).unwrap();
+        let (stop, stopped) = tokio::sync::oneshot::channel::<()>();
+        let task = tokio::spawn(accept_loop(
+            listener,
+            guard,
+            server,
+            Arc::new(Semaphore::new(max_connections)),
+            limits,
+            async move {
+                let _ = stopped.await;
+            },
+        ));
+        Running {
+            socket,
+            stop: Some(stop),
+            task,
+            _dir: dir,
+        }
+    }
+
+    const PING: &str = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\"}\n";
+
+    async fn read_reply(stream: &mut BufReader<UnixStream>) -> String {
+        use tokio::io::AsyncBufReadExt;
+        let mut line = String::new();
+        tokio::time::timeout(Duration::from_secs(5), stream.read_line(&mut line))
+            .await
+            .expect("an answer in time")
+            .unwrap();
+        line
+    }
+
+    async fn exchange(stream: &mut BufReader<UnixStream>, request: &str) -> Value {
+        stream
+            .get_mut()
+            .write_all(request.as_bytes())
+            .await
+            .unwrap();
+        let line = read_reply(stream).await;
+        serde_json::from_str(&line).expect(&line)
+    }
+
+    #[tokio::test]
+    async fn oversized_request_line_is_rejected_and_the_connection_stays_usable() {
+        let server = start_server(4, SessionLimits::default()).await;
+        let mut client = BufReader::new(UnixStream::connect(&server.socket).await.unwrap());
+        let huge = format!("{}\n", "x".repeat(2 * crate::mcp::MAX_REQUEST_BYTES));
+        let rejected = exchange(&mut client, &huge).await;
+        assert_eq!(rejected["error"]["code"], -32700);
+        let pong = exchange(&mut client, PING).await;
+        assert_eq!(pong["result"], json!({}));
+    }
+
+    #[tokio::test]
+    async fn connections_beyond_the_limit_get_a_busy_error_and_are_closed() {
+        let server = start_server(1, SessionLimits::default()).await;
+        let mut first = BufReader::new(UnixStream::connect(&server.socket).await.unwrap());
+        assert_eq!(exchange(&mut first, PING).await["result"], json!({}));
+        let mut second = BufReader::new(UnixStream::connect(&server.socket).await.unwrap());
+        let busy: Value = serde_json::from_str(&read_reply(&mut second).await).unwrap();
+        assert_eq!(busy["error"]["code"], BUSY_CODE);
+        assert!(
+            read_reply(&mut second).await.is_empty(),
+            "the rejected connection is closed"
+        );
+        // The first session is unaffected, and its slot frees up when it ends.
+        assert_eq!(exchange(&mut first, PING).await["id"], 1);
+        drop(first);
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            let mut third = BufReader::new(UnixStream::connect(&server.socket).await.unwrap());
+            let reply = exchange(&mut third, PING).await;
+            if reply["result"] == json!({}) {
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "slot was never released: {reply}"
+            );
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    }
+
+    #[tokio::test]
+    async fn a_client_that_stalls_mid_line_or_goes_idle_is_disconnected() {
+        use tokio::io::AsyncReadExt;
+        let limits = SessionLimits {
+            idle_timeout: Some(Duration::from_millis(300)),
+            stall_timeout: Some(Duration::from_millis(300)),
+            write_timeout: Some(Duration::from_secs(5)),
+        };
+        let server = start_server(4, limits).await;
+        let mut stalled = UnixStream::connect(&server.socket).await.unwrap();
+        stalled
+            .write_all(b"{\"jsonrpc\":\"2.0\",\"id\":1,")
+            .await
+            .unwrap();
+        let mut idle = UnixStream::connect(&server.socket).await.unwrap();
+        for stream in [&mut stalled, &mut idle] {
+            let mut buffer = Vec::new();
+            let read =
+                tokio::time::timeout(Duration::from_secs(5), stream.read_to_end(&mut buffer))
+                    .await
+                    .expect("the server hangs up on a slow client");
+            assert!(read.is_ok());
+            assert!(buffer.is_empty(), "no reply is owed to half a request");
+        }
+    }
+
+    #[tokio::test]
+    async fn shutdown_stops_accepting_and_removes_the_socket_file() {
+        let mut server = start_server(4, SessionLimits::default()).await;
+        let mut client = BufReader::new(UnixStream::connect(&server.socket).await.unwrap());
+        assert_eq!(exchange(&mut client, PING).await["result"], json!({}));
+        server.stop.take().unwrap().send(()).unwrap();
+        drop(client);
+        tokio::time::timeout(Duration::from_secs(5), &mut server.task)
+            .await
+            .expect("accept loop ends after shutdown")
+            .unwrap();
+        assert!(!server.socket.exists());
+        assert!(UnixStream::connect(&server.socket).await.is_err());
     }
 
     fn sig(inode: u64, mtime: i64, size: u64) -> Option<FileSig> {
@@ -706,7 +907,11 @@ mod tests {
         let first = file_sig(&path).unwrap();
         assert_eq!(file_sig(&path), Some(first));
         std::fs::write(&path, "one\ntwo\n").unwrap();
-        assert_ne!(file_sig(&path), Some(first), "size change is a new generation");
+        assert_ne!(
+            file_sig(&path),
+            Some(first),
+            "size change is a new generation"
+        );
         let second = file_sig(&path).unwrap();
         let staged = dir.path().join("next");
         std::fs::write(&staged, "one\ntwo\n").unwrap();
@@ -724,10 +929,22 @@ mod tests {
         assert!(!needs_reload(loaded, loaded, None), "unchanged");
         let changed = (sig(3, 20, 120), sig(2, 10, 50));
         assert!(needs_reload(changed, loaded, None));
-        assert!(!needs_reload(changed, loaded, Some(changed)), "failed already");
+        assert!(
+            !needs_reload(changed, loaded, Some(changed)),
+            "failed already"
+        );
         let newer = (sig(3, 30, 130), sig(2, 10, 50));
-        assert!(needs_reload(newer, loaded, Some(changed)), "new files retry");
-        assert!(!needs_reload((None, sig(2, 10, 50)), loaded, None), "catalog mid-swap");
-        assert!(!needs_reload((sig(3, 20, 120), None), loaded, None), "graph mid-swap");
+        assert!(
+            needs_reload(newer, loaded, Some(changed)),
+            "new files retry"
+        );
+        assert!(
+            !needs_reload((None, sig(2, 10, 50)), loaded, None),
+            "catalog mid-swap"
+        );
+        assert!(
+            !needs_reload((sig(3, 20, 120), None), loaded, None),
+            "graph mid-swap"
+        );
     }
 }

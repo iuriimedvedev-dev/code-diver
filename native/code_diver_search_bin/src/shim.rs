@@ -105,7 +105,9 @@ async fn forward_once(
     }
     if response.last() != Some(&b'\n') {
         return Err(if response.len() as u64 > MAX_RESPONSE_BYTES {
-            Attempt::Fatal(format!("the daemon's response exceeds {MAX_RESPONSE_BYTES} bytes"))
+            Attempt::Fatal(format!(
+                "the daemon's response exceeds {MAX_RESPONSE_BYTES} bytes"
+            ))
         } else {
             Attempt::Retry("the daemon closed the connection mid-response".into())
         });
@@ -117,7 +119,9 @@ async fn forward_once(
         .ok()
         .is_some_and(|v| v["error"]["code"] == BUSY_CODE);
     if busy {
-        return Err(Attempt::Retry("the daemon is at its connection limit".into()));
+        return Err(Attempt::Retry(
+            "the daemon is at its connection limit".into(),
+        ));
     }
     Ok(text)
 }
@@ -296,18 +300,25 @@ mod tests {
         );
         assert_eq!(init["result"]["protocolVersion"], "2024-11-05");
         assert_eq!(init["result"]["serverInfo"]["name"], "code-diver");
-        assert_eq!(init["result"]["serverInfo"]["version"], env!("CARGO_PKG_VERSION"));
+        assert_eq!(
+            init["result"]["serverInfo"]["version"],
+            env!("CARGO_PKG_VERSION")
+        );
         let bad = parse(
             handle_shim_line(&cfg, r#"{"jsonrpc":"2.0","id":2,"method":"initialize"}"#).await,
         );
         assert_eq!(bad["error"]["code"], -32602);
-        let ping = parse(handle_shim_line(&cfg, r#"{"jsonrpc":"2.0","id":3,"method":"ping"}"#).await);
+        let ping =
+            parse(handle_shim_line(&cfg, r#"{"jsonrpc":"2.0","id":3,"method":"ping"}"#).await);
         assert_eq!(ping["result"], json!({}));
         assert_eq!(ping["id"], 3);
         assert!(
-            handle_shim_line(&cfg, r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#)
-                .await
-                .is_none()
+            handle_shim_line(
+                &cfg,
+                r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#
+            )
+            .await
+            .is_none()
         );
         assert!(start.elapsed() < Duration::from_millis(250));
     }
@@ -328,7 +339,9 @@ mod tests {
     async fn tools_list_falls_back_and_calls_report_how_to_start_the_daemon() {
         let dir = tempfile::tempdir().unwrap();
         let cfg = unreachable_config(dir.path());
-        let list = parse(handle_shim_line(&cfg, r#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#).await);
+        let list = parse(
+            handle_shim_line(&cfg, r#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#).await,
+        );
         let names: Vec<&str> = list["result"]["tools"]
             .as_array()
             .unwrap()
@@ -352,12 +365,16 @@ mod tests {
         assert!(text.contains("code-diver serve --listen unix:"), "{text}");
         assert!(text.contains("none.sock"), "{text}");
 
-        let health = parse(handle_shim_line(&cfg, r#"{"jsonrpc":"2.0","id":4,"method":"health"}"#).await);
+        let health =
+            parse(handle_shim_line(&cfg, r#"{"jsonrpc":"2.0","id":4,"method":"health"}"#).await);
         assert_eq!(health["error"]["code"], UNREACHABLE_CODE);
     }
 
     /// Daemon double: each accepted connection is handled by the next scripted behavior.
-    async fn scripted_daemon(socket: &Path, script: Vec<&'static str>) -> tokio::task::JoinHandle<usize> {
+    async fn scripted_daemon(
+        socket: &Path,
+        script: Vec<&'static str>,
+    ) -> tokio::task::JoinHandle<usize> {
         let listener = UnixListener::bind(socket).unwrap();
         tokio::spawn(async move {
             let mut served = 0;
@@ -371,7 +388,10 @@ mod tests {
                     "drop" => {}
                     "busy" => {
                         let busy = crate::mcp::error(Value::Null, BUSY_CODE, "busy").to_string();
-                        writer.write_all(format!("{busy}\n").as_bytes()).await.unwrap();
+                        writer
+                            .write_all(format!("{busy}\n").as_bytes())
+                            .await
+                            .unwrap();
                     }
                     "hang" => {
                         tokio::time::sleep(Duration::from_secs(30)).await;
@@ -379,7 +399,9 @@ mod tests {
                     _ => {
                         let id: Value = serde_json::from_str::<Value>(&line).unwrap()["id"].clone();
                         writer
-                            .write_all(format!("{}\n", rpc_result(id, json!({"ok": true}))).as_bytes())
+                            .write_all(
+                                format!("{}\n", rpc_result(id, json!({"ok": true}))).as_bytes(),
+                            )
                             .await
                             .unwrap();
                     }
@@ -396,7 +418,11 @@ mod tests {
         cfg.deadline = Duration::from_secs(10);
         let daemon = scripted_daemon(&cfg.socket, vec!["drop", "busy", "answer"]).await;
         let response = parse(
-            handle_shim_line(&cfg, r#"{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{}}"#).await,
+            handle_shim_line(
+                &cfg,
+                r#"{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{}}"#,
+            )
+            .await,
         );
         assert_eq!(response["result"]["ok"], true);
         assert_eq!(response["id"], 5);
@@ -412,9 +438,16 @@ mod tests {
         let daemon = scripted_daemon(&cfg.socket, vec!["hang"]).await;
         let start = Instant::now();
         let response = parse(
-            handle_shim_line(&cfg, r#"{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{}}"#).await,
+            handle_shim_line(
+                &cfg,
+                r#"{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{}}"#,
+            )
+            .await,
         );
-        assert!(start.elapsed() < Duration::from_secs(5), "bounded by the response timeout");
+        assert!(
+            start.elapsed() < Duration::from_secs(5),
+            "bounded by the response timeout"
+        );
         let text = response["result"]["content"][0]["text"].as_str().unwrap();
         assert!(text.contains("did not answer within"), "{text}");
         daemon.abort();
