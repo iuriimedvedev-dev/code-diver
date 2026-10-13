@@ -526,6 +526,64 @@ async fn symlink_escape_is_tool_error() {
     s.stop().await;
 }
 
+#[cfg(unix)]
+#[tokio::test]
+async fn read_is_confined_to_root_and_keeps_kb_and_repos_working() {
+    let base = tempfile::tempdir().unwrap();
+    let root = base.path().join("root");
+    let sibling = base.path().join("root-sibling");
+    for dir in ["kb/docs", "repos/svc/src", "inner"] {
+        std::fs::create_dir_all(root.join(dir)).unwrap();
+    }
+    std::fs::create_dir_all(&sibling).unwrap();
+    std::fs::write(root.join("kb/docs/guide.md"), "kb guide line\n").unwrap();
+    std::fs::write(root.join("repos/svc/src/lib.rs"), "fn svc_entry() {}\n").unwrap();
+    std::fs::write(base.path().join("secret.txt"), "TOP-SECRET-OUTSIDE").unwrap();
+    std::fs::write(sibling.join("secret.txt"), "TOP-SECRET-SIBLING").unwrap();
+    std::os::unix::fs::symlink(&sibling, root.join("sibling-dir")).unwrap();
+    std::os::unix::fs::symlink(
+        base.path().join("secret.txt"),
+        root.join("inner/secret-link"),
+    )
+    .unwrap();
+    std::os::unix::fs::symlink(
+        root.join("kb/docs/guide.md"),
+        root.join("inner/guide-alias"),
+    )
+    .unwrap();
+    let mut s = Session::start(&root, &[]);
+    s.initialize().await;
+    for (file, expected) in [
+        ("kb/docs/guide.md", "kb guide line"),
+        ("repos/svc/src/lib.rs", "svc_entry"),
+        ("inner/guide-alias", "kb guide line"),
+    ] {
+        let result = s.call(1, "code_diver_read", json!({"file": file})).await;
+        assert_eq!(result["result"]["isError"], false, "{file}: {result}");
+        let text = result["result"]["content"][0]["text"].as_str().unwrap();
+        assert!(text.contains(expected), "{file}: {text}");
+    }
+    let outside = base.path().join("secret.txt").display().to_string();
+    let sibling_secret = sibling.join("secret.txt").display().to_string();
+    for file in [
+        "../secret.txt",
+        "kb/../../secret.txt",
+        "kb/docs/../guide.md",
+        "../root-sibling/secret.txt",
+        outside.as_str(),
+        sibling_secret.as_str(),
+        "sibling-dir/secret.txt",
+        "inner/secret-link",
+    ] {
+        let result = s.call(2, "code_diver_read", json!({"file": file})).await;
+        assert!(result.get("error").is_none(), "{file}: {result}");
+        assert_eq!(result["result"]["isError"], true, "{file}: {result}");
+        let text = result["result"]["content"][0]["text"].as_str().unwrap();
+        assert!(!text.contains("TOP-SECRET"), "{file}: {text}");
+    }
+    s.stop().await;
+}
+
 #[tokio::test]
 async fn slow_search_does_not_block_read_and_can_be_cancelled() {
     let root = tempfile::tempdir().unwrap();
