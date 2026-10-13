@@ -655,6 +655,16 @@ mod tests {
         assert!(error.contains("already serving"), "{error}");
         assert!(path.exists());
         drop(live);
+        // A child process forked by a parallel test can hold a copy of the listening descriptor until its exec, so the socket may
+        // answer for a moment after the drop: wait until nobody answers, which is the state this test is about.
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        while std::os::unix::net::UnixStream::connect(&path).is_ok() {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the dropped listener keeps answering"
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        }
         // The file stays behind after the listener is gone: nobody answers on it any more.
         assert!(path.exists());
         prepare_socket_path(&path).await.unwrap();
