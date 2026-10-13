@@ -148,7 +148,6 @@ impl Server {
         }))
     }
 
-
     async fn health(&self) -> Result<Value, String> {
         let ctx = self.context().await?;
         let mut health = json!({
