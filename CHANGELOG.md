@@ -6,6 +6,38 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.6.5] - 2026-10-13
+
+### Added
+
+- `code-diver serve --listen unix:<socket>` runs the MCP server as one long-lived
+  process shared by many agent sessions. It loads the catalog, graph and models
+  once, limits concurrent connections, and reloads the catalog and graph on
+  `SIGHUP` and when the files change on disk. Unix only. It is separate from
+  `code-diver daemon`, which supervises the model servers.
+- `code-diver shim --socket <socket>` is a stateless stdio MCP process that
+  forwards to `serve`, for clients that can only launch stdio servers.
+- The MCP `health` method reports the process id, the version and the number of
+  catalog items; `serve` adds connections, uptime and the reload state.
+- Documentation on when to use `mcp` versus `serve` and `shim`
+  (`docs/integrations/mcp_server.md`).
+
+### Security
+
+- `code_diver_read` is confined to the project root: absolute paths, `..`
+  components and symlinks that leave the root are refused. The v0.4.5 line,
+  on which the patch below was written, did not confine the read tool, so it
+  could read files outside the project root. The 0.6.x line already refused such
+  paths; this release adds regression tests for outside, sibling-prefix and
+  symlink paths.
+
+### Credits
+
+- `serve`, `shim`, `health` and the read confinement are ported from patches by
+  Angkira (`cortex/0.4.5-patched`, based on v0.4.5) and re-implemented on top of
+  0.6.0. His `--qdrant-collection` fix was already covered by 0.6.0; this release
+  adds tests for it.
+
 ## [0.6.0] - 2026-10-12
 
 ### Added
