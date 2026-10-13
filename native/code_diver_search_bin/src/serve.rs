@@ -27,11 +27,6 @@ use crate::mcp::{
 };
 use crate::pipeline::SearchContext;
 
-pub(crate) const DEFAULT_MAX_CONNECTIONS: usize = 32;
-pub(crate) const DEFAULT_POLL_SECS: u64 = 10;
-/// The files must stay unchanged this long before a reload starts, so a writer that is still
-/// producing the catalog is not loaded half-written.
-pub(crate) const DEFAULT_DEBOUNCE_SECS: u64 = 2;
 /// JSON-RPC error code the daemon uses when it is at its connection limit; the shim retries it.
 pub(crate) const BUSY_CODE: i64 = -32001;
 

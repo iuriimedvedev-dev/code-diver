@@ -22,13 +22,11 @@ pub mod profile;
 pub mod runtime_config;
 pub mod scope;
 #[cfg(unix)]
-#[allow(dead_code)]
 mod serve;
-#[cfg(unix)]
-#[allow(dead_code)]
-mod shim;
 mod service_manager;
 pub mod setup;
+#[cfg(unix)]
+mod shim;
 mod types;
 pub mod update_index;
 
@@ -62,7 +60,10 @@ pub struct Cli {
 pub enum Commands {
     /// Configure local models, runtime, shared index and MCP hosts
     Setup(SetupArgs),
-    /// Run the loopback-only local model runtime
+    /// Run the local model runtime (supervises the embedder and reranker llama-server children)
+    ///
+    /// This is the model supervisor, not a search server. To share one loaded index between
+    /// several agent sessions, see `serve` and `shim`.
     Daemon(DaemonArgs),
     /// Fetch and verify shared index artifacts atomically
     UpdateIndex(UpdateIndexArgs),
@@ -95,6 +96,20 @@ pub enum Commands {
 
     /// Start Model Context Protocol (MCP) stdio server
     Mcp(McpArgs),
+
+    /// Serve search to many agent sessions from one long-lived process on a unix socket
+    ///
+    /// Loads the catalog, graph and models once and answers newline-delimited JSON-RPC on the
+    /// socket (same engine flags as `mcp`). Reloads when the catalog or graph change on disk and
+    /// on SIGHUP. Agents reach it through `shim`. This is not the model runtime; that is
+    /// `daemon`. Unix only.
+    Serve(ServeArgs),
+
+    /// Stdio MCP server that forwards to a running `serve` process
+    ///
+    /// For MCP clients that can only launch stdio servers. Keeps no state and loads no index;
+    /// start `serve` first. Unix only.
+    Shim(ShimArgs),
 }
 
 #[derive(clap::Args, Debug, Clone)]
@@ -215,6 +230,32 @@ pub struct McpArgs {
     pub max_concurrent_searches: usize,
     #[command(flatten)]
     pub search: SearchArgs,
+}
+
+#[derive(clap::Args, Debug, Clone)]
+pub struct ServeArgs {
+    #[command(flatten)]
+    pub mcp: McpArgs,
+    /// Listen address, `unix:PATH`; the socket is created with mode 0600
+    #[arg(long, value_name = "unix:PATH")]
+    pub listen: String,
+    /// Refuse sessions beyond this many concurrent connections
+    #[arg(long, default_value_t = 32)]
+    pub max_connections: usize,
+    /// Seconds between checks of the catalog and graph for changes; 0 disables the check
+    /// (SIGHUP still reloads)
+    #[arg(long, default_value_t = 10)]
+    pub reload_poll_secs: u64,
+    /// Seconds the files must stay unchanged before a reload starts
+    #[arg(long, default_value_t = 2)]
+    pub reload_debounce_secs: u64,
+}
+
+#[derive(clap::Args, Debug, Clone)]
+pub struct ShimArgs {
+    /// Unix socket of the `serve` process
+    #[arg(long, value_name = "PATH")]
+    pub socket: PathBuf,
 }
 
 #[derive(clap::Args, Debug, Clone)]
@@ -827,6 +868,8 @@ async fn main() -> Result<(), String> {
             Ok(())
         }
         Some(Commands::Mcp(args)) => run_mcp(args).await,
+        Some(Commands::Serve(args)) => run_serve(args).await,
+        Some(Commands::Shim(args)) => run_shim(args).await,
         Some(Commands::Search(args)) => run_search_cli(args).await,
         None => {
             if cli.search.doctor {
@@ -1937,6 +1980,40 @@ fn build_search_config_default(
 }
 
 async fn run_mcp(args: McpArgs) -> Result<(), String> {
+    crate::mcp::run_mcp_server(prepare_mcp(args).await?).await
+}
+
+#[cfg(unix)]
+async fn run_serve(args: ServeArgs) -> Result<(), String> {
+    let mcp = prepare_mcp(args.mcp).await?;
+    crate::serve::run_serve(crate::serve::ServeConfig {
+        mcp,
+        listen: args.listen,
+        max_connections: args.max_connections,
+        poll: std::time::Duration::from_secs(args.reload_poll_secs),
+        debounce: std::time::Duration::from_secs(args.reload_debounce_secs),
+    })
+    .await
+}
+
+#[cfg(unix)]
+async fn run_shim(args: ShimArgs) -> Result<(), String> {
+    crate::shim::run_shim(crate::shim::ShimConfig::new(args.socket)).await
+}
+
+#[cfg(not(unix))]
+async fn run_serve(_: ServeArgs) -> Result<(), String> {
+    Err("`serve` needs unix sockets and is not available on this platform; use `mcp`".into())
+}
+
+#[cfg(not(unix))]
+async fn run_shim(_: ShimArgs) -> Result<(), String> {
+    Err("`shim` needs unix sockets and is not available on this platform; use `mcp`".into())
+}
+
+/// Everything `mcp` and `serve` share before they start answering: the model runtime autostart
+/// and the project root the inspection tools are confined to.
+async fn prepare_mcp(args: McpArgs) -> Result<crate::mcp::McpConfig, String> {
     if let Some((config, paths)) = runtime_for_args(&args.search)?
         && config.daemon.autostart
     {
@@ -1949,12 +2026,11 @@ async fn run_mcp(args: McpArgs) -> Result<(), String> {
             .or_else(|| args.search.base_path.as_deref().map(Path::new)),
         args.search.config.as_deref(),
     )?;
-    let mcp_config = crate::mcp::McpConfig {
+    Ok(crate::mcp::McpConfig {
         args: args.search,
         root_dir: root_path,
         max_concurrent_searches: args.max_concurrent_searches,
-    };
-    crate::mcp::run_mcp_server(mcp_config).await
+    })
 }
 
 struct RuntimeProcessLock {
@@ -2982,6 +3058,58 @@ mod cli_tests {
             Some(Commands::Mcp(_)) => {}
             _ => panic!("Expected Mcp subcommand"),
         }
+    }
+
+    #[test]
+    fn test_subcommand_serve_and_shim() {
+        let cli = Cli::try_parse_from([
+            "code-diver",
+            "serve",
+            "--listen",
+            "unix:/run/x.sock",
+            "--max-concurrent-searches",
+            "3",
+        ])
+        .unwrap();
+        match cli.command {
+            Some(Commands::Serve(args)) => {
+                assert_eq!(args.listen, "unix:/run/x.sock");
+                assert_eq!(args.mcp.max_concurrent_searches, 3);
+                assert_eq!(args.max_connections, 32);
+                assert_eq!(args.reload_poll_secs, 10);
+                assert_eq!(args.reload_debounce_secs, 2);
+            }
+            _ => panic!("Expected Serve subcommand"),
+        }
+        assert!(Cli::try_parse_from(["code-diver", "serve"]).is_err());
+        let cli = Cli::try_parse_from(["code-diver", "shim", "--socket", "/run/x.sock"]).unwrap();
+        match cli.command {
+            Some(Commands::Shim(args)) => assert_eq!(args.socket, PathBuf::from("/run/x.sock")),
+            _ => panic!("Expected Shim subcommand"),
+        }
+        assert!(Cli::try_parse_from(["code-diver", "shim"]).is_err());
+    }
+
+    #[test]
+    fn serve_shim_and_daemon_help_say_what_each_one_is() {
+        use clap::CommandFactory;
+        let help = |name: &str| {
+            Cli::command()
+                .find_subcommand(name)
+                .and_then(|command| command.get_about().map(|about| about.to_string()))
+                .unwrap_or_default()
+        };
+        assert!(help("daemon").contains("model runtime"));
+        assert!(help("serve").contains("unix socket"));
+        assert!(help("shim").contains("forwards to a running `serve`"));
+        let long = |name: &str| {
+            Cli::command()
+                .find_subcommand(name)
+                .and_then(|command| command.get_long_about().map(|about| about.to_string()))
+                .unwrap_or_default()
+        };
+        assert!(long("daemon").contains("not a search server"));
+        assert!(long("serve").contains("not the model runtime"));
     }
 
     #[test]
