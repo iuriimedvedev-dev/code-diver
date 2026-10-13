@@ -585,6 +585,63 @@ async fn read_is_confined_to_root_and_keeps_kb_and_repos_working() {
 }
 
 #[tokio::test]
+async fn health_reports_pid_version_and_catalog_items() {
+    let root = tempfile::tempdir().unwrap();
+    let catalog = root.path().join("catalog.jsonl");
+    let graph = root.path().join("graph.jsonl");
+    std::fs::write(
+        &catalog,
+        concat!(
+            "{\"id\":\"a::file_summary\",\"path\":\"a\",\"content\":\"alpha\"}\n",
+            "{\"id\":\"b::file_summary\",\"path\":\"b\",\"content\":\"beta\"}\n",
+            "{\"id\":\"c::file_summary\",\"path\":\"c\",\"content\":\"gamma\"}\n",
+        ),
+    )
+    .unwrap();
+    std::fs::write(&graph, "").unwrap();
+    let mut s = Session::start(
+        root.path(),
+        &[
+            "--catalog",
+            catalog.to_str().unwrap(),
+            "--graph",
+            graph.to_str().unwrap(),
+        ],
+    );
+    s.send(json!({"jsonrpc":"2.0","id":1,"method":"health"}))
+        .await;
+    let health = s.receive().await;
+    assert_eq!(health["id"], 1);
+    assert_eq!(health["result"]["items"], 3, "{health}");
+    assert_eq!(health["result"]["version"], env!("CARGO_PKG_VERSION"));
+    let pid = health["result"]["pid"].as_u64().unwrap();
+    assert_eq!(Some(pid as u32), s.child.id());
+    s.send(json!({"jsonrpc":"2.0","id":2,"method":"ping"}))
+        .await;
+    assert_eq!(s.receive().await["result"], json!({}));
+    s.send(json!({"jsonrpc":"2.0","id":3,"method":"health","params":[]}))
+        .await;
+    assert_eq!(s.receive().await["error"]["code"], -32602);
+    s.stop().await;
+}
+
+#[tokio::test]
+async fn health_is_error_when_catalog_is_unavailable() {
+    let root = tempfile::tempdir().unwrap();
+    let missing = root.path().join("missing.jsonl");
+    let mut s = Session::start(root.path(), &["--catalog", missing.to_str().unwrap()]);
+    s.send(json!({"jsonrpc":"2.0","id":1,"method":"health"}))
+        .await;
+    let health = s.receive().await;
+    assert_eq!(health["error"]["code"], -32603, "{health}");
+    assert!(health.get("result").is_none(), "{health}");
+    s.send(json!({"jsonrpc":"2.0","id":2,"method":"ping"}))
+        .await;
+    assert_eq!(s.receive().await["result"], json!({}));
+    s.stop().await;
+}
+
+#[tokio::test]
 async fn slow_search_does_not_block_read_and_can_be_cancelled() {
     let root = tempfile::tempdir().unwrap();
     std::fs::write(root.path().join("hello"), "fast read").unwrap();

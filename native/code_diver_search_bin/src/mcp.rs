@@ -1,5 +1,6 @@
 use serde_json::{Value, json};
 use std::collections::HashMap;
+use std::future::Future;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -51,6 +52,15 @@ fn tools(max_limit: usize) -> Value {
 }
 
 impl Server {
+    async fn health(&self) -> Result<Value, String> {
+        let ctx = self.context().await?;
+        Ok(json!({
+            "pid": std::process::id(),
+            "version": env!("CARGO_PKG_VERSION"),
+            "items": ctx.catalog.items.len(),
+        }))
+    }
+
     async fn context(&self) -> Result<&Arc<SearchContext>, String> {
         self.context
             .get_or_try_init(|| async {
@@ -172,6 +182,40 @@ async fn write(stdout: &tokio::sync::mpsc::Sender<Value>, value: Value) -> Resul
         .map_err(|_| "stdout writer closed".to_string())
 }
 
+type Active = Arc<Mutex<HashMap<String, AbortHandle>>>;
+
+// Run a request off the read loop so slow work never blocks other requests or cancellation.
+async fn spawn_request<F>(
+    tasks: &mut JoinSet<Result<(), String>>,
+    active: &Active,
+    stdout: &tokio::sync::mpsc::Sender<Value>,
+    id: Value,
+    work: F,
+) where
+    F: Future<Output = Result<Value, (i64, String)>> + Send + 'static,
+{
+    let stdout = stdout.clone();
+    let key = id.to_string();
+    let task_key = key.clone();
+    let task_active = active.clone();
+    let (ready, start) = tokio::sync::oneshot::channel();
+    let handle = tasks.spawn(async move {
+        let _ = start.await;
+        let result = work.await;
+        task_active.lock().await.remove(&task_key);
+        write(
+            &stdout,
+            match result {
+                Ok(result) => response(id, result),
+                Err((code, message)) => error(id, code, &message),
+            },
+        )
+        .await
+    });
+    active.lock().await.insert(key, handle);
+    let _ = ready.send(());
+}
+
 // Retain at most one bounded record, but always consume through its delimiter.
 async fn record<R: tokio::io::AsyncBufRead + Unpin>(
     reader: &mut R,
@@ -228,7 +272,7 @@ pub async fn run_mcp_server(config: McpConfig) -> Result<(), String> {
     });
     let mut reader = BufReader::new(tokio::io::stdin());
     let mut tasks = JoinSet::new();
-    let active: Arc<Mutex<HashMap<String, AbortHandle>>> = Arc::new(Mutex::new(HashMap::new()));
+    let active: Active = Arc::new(Mutex::new(HashMap::new()));
     let mut initialized = false;
     let mut ready = false;
     while let Some(bytes) = record(&mut reader).await? {
@@ -322,6 +366,24 @@ pub async fn run_mcp_server(config: McpConfig) -> Result<(), String> {
                 }
             }
             "ping" => Ok(json!({})),
+            "health" => {
+                if active.lock().await.len() >= MAX_ACTIVE_CALLS {
+                    Err((-32603, "Too many active requests; retry later"))
+                } else {
+                    let server = server.clone();
+                    spawn_request(&mut tasks, &active, &stdout, id, async move {
+                        server.health().await.map_err(|message| {
+                            eprintln!("Health check failed: {message}");
+                            (
+                                -32603,
+                                "Health check failed: search context unavailable".to_string(),
+                            )
+                        })
+                    })
+                    .await;
+                    continue;
+                }
+            }
             _ if !ready => Err((
                 -32600,
                 "Complete initialize and notifications/initialized first",
@@ -344,22 +406,13 @@ pub async fn run_mcp_server(config: McpConfig) -> Result<(), String> {
                 } else {
                     let name = params["name"].as_str().unwrap().to_string();
                     let server = server.clone();
-                    let stdout = stdout.clone();
-                    let key = id.to_string();
-                    let task_key = key.clone();
-                    let task_active = active.clone();
-                    let (ready, start) = tokio::sync::oneshot::channel();
-                    let handle = tasks.spawn(async move {
-                        let _ = start.await;
-                        let result = server
+                    spawn_request(&mut tasks, &active, &stdout, id, async move {
+                        Ok(server
                             .call(&name, args)
                             .await
-                            .unwrap_or_else(|e| text_result(e, true));
-                        task_active.lock().await.remove(&task_key);
-                        write(&stdout, response(id, result)).await
-                    });
-                    active.lock().await.insert(key, handle);
-                    let _ = ready.send(());
+                            .unwrap_or_else(|e| text_result(e, true)))
+                    })
+                    .await;
                     continue;
                 }
             }
