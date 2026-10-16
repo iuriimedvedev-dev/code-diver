@@ -1,0 +1,12 @@
+[Unit]
+Description=code-diver local reranker (Qwen3-Reranker-0.6B, llama.cpp Vulkan on 780M iGPU)
+[Service]
+ExecStart=/home/angkira/llama.cpp/build-vk/bin/llama-server -m /home/angkira/.local/share/code-diver/models/qwen3-reranker-0.6b-q8_0.gguf --alias Qwen3-Reranker-0.6B --embedding --reranking --pooling rank --host 127.0.0.1 --port 8792 -c 8192 -b 2048 -ub 2048 -np 2 --no-webui --device Vulkan0 -ngl 99
+# Pin the Vulkan device to the 780M iGPU (index 0 in RADV enumeration) so the
+# daemon can never land on the training R9700 after a reorder.
+Environment=GGML_VK_VISIBLE_DEVICES=0
+Restart=on-failure
+RestartSec=5
+Nice=5
+[Install]
+WantedBy=default.target
