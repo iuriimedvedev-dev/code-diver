@@ -1,0 +1,18 @@
+# Holds the GGUF model(s). ~320 MB for embeddinggemma-300M Q8_0; 5 GiB leaves
+# room for a reranker GGUF as well. ReadWriteOnce because the embedder is a
+# single replica; set storageClassName in the overlay with the other PVCs.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: embedder-models
+  namespace: code-diver
+  labels:
+    app.kubernetes.io/name: code-diver-embedder
+    app.kubernetes.io/component: embedder
+    app.kubernetes.io/part-of: code-diver
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi

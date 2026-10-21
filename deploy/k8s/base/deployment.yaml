@@ -1,0 +1,233 @@
+# One Deployment per project.
+#
+# Why replicas: 1 + strategy: Recreate
+#   * the local catalog (index.json + graph.json + traces) is a single-writer
+#     directory on a RWO volume, and `code_diver_index_trigger` spawns a child
+#     process that writes it;
+#   * the OAuth store is SQLite on the state PVC -- two pods would corrupt it;
+#   * Recreate guarantees the old pod releases both RWO volumes before the new
+#     one starts.
+# Vectors live in the external Qdrant, which *can* serve many readers; the
+# blocker for replicas > 1 is the local state, not Qdrant. See README.
+#
+# Why one Deployment per project instead of one with a PROJECT env var:
+#   the CLI takes exactly one config file and one `root` per process, and each
+#   project needs its own collection, PVC and OAuth issuer. `code-diver serve`
+#   creates one SearchRuntime per process, so multi-project in one process is
+#   not supported. Use overlays/project-example to stamp another copy.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: code-diver-service
+  namespace: code-diver
+  labels:
+    app.kubernetes.io/name: code-diver
+    app.kubernetes.io/instance: code-diver
+    app.kubernetes.io/component: mcp-server
+    # Kept from the previous single-file manifest so `kubectl apply` adopts
+    # the existing object instead of failing on an immutable selector.
+    app: code-diver
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app: code-diver
+  template:
+    metadata:
+      labels:
+        app: code-diver
+        app.kubernetes.io/name: code-diver
+        app.kubernetes.io/instance: code-diver
+        app.kubernetes.io/component: mcp-server
+      annotations:
+        # Requires stakater/reloader. Without it, apply the ConfigMap and run
+        # `kubectl -n code-diver rollout restart deploy/code-diver-service`.
+        configmap.reloader.stakater.com/reload: "code-diver-config,code-diver-env"
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: prepare-data
+          image: code-diver:0.6.5
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -c
+            - mkdir -p /data/catalog/traces /data/oauth
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          volumeMounts:
+            - name: state
+              mountPath: /data
+      containers:
+        - name: code-diver
+          image: code-diver:0.6.5
+          imagePullPolicy: IfNotPresent
+          # Override the image ENTRYPOINT (tini + entrypoint.sh, which would
+          # re-inject `--config`). The console script is installed system-wide
+          # by the image build. Global --config MUST precede the subcommand.
+          command:
+            - code-diver
+          args:
+            - --config
+            - /etc/code-diver/code-diver.yml
+            - serve
+            - --host
+            - 0.0.0.0
+            - --http-port
+            - "8080"
+            # gRPC is not covered by OAuth; keep it disabled.
+            - --grpc-port
+            - "0"
+          ports:
+            - name: mcp
+              containerPort: 8080
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: code-diver-env
+          env:
+            - name: HOME
+              value: /tmp
+            - name: TMPDIR
+              value: /tmp
+            - name: CODE_DIVER_OAUTH_JWT_SECRET_FILE
+              value: /etc/code-diver/oauth/jwt-secret
+            # Operator code for the /authorize consent form. Optional so the
+            # local profile (OAuth disabled) starts without any Secret; when
+            # OAuth is enabled a missing value makes the server fail closed.
+            - name: CODE_DIVER_OAUTH_CONSENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: code-diver-oauth
+                  key: consent-secret
+                  optional: true
+            # Optional: only when the external Qdrant requires auth.
+            - name: QDRANT_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: code-diver-qdrant
+                  key: api-key
+                  optional: true
+          # /health is public and does not load the SearchRuntime, so it is a
+          # process-liveness probe, not an index-readiness probe. The first
+          # tool call pays the lazy runtime init.
+          startupProbe:
+            httpGet:
+              path: /health
+              port: mcp
+            periodSeconds: 2
+            timeoutSeconds: 2
+            failureThreshold: 30 # 60 s for a slow image pull / import
+            successThreshold: 1
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: mcp
+            initialDelaySeconds: 3
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+            successThreshold: 1
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: mcp
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 5
+          lifecycle:
+            preStop:
+              # Let the ingress/Service drop this endpoint before uvicorn
+              # closes listeners and in-flight SSE streams are cut.
+              exec:
+                command:
+                  - /bin/sh
+                  - -c
+                  - sleep 5
+          resources:
+            # Embedding and reranking are external; this pod is CPU-only:
+            # BM25 + fusion + graph expansion. Scale vertically with repo size
+            # and concurrent sessions.
+            requests:
+              cpu: "1"
+              memory: 2Gi
+            limits:
+              cpu: "2"
+              memory: 4Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: config
+              mountPath: /etc/code-diver
+              readOnly: true
+            - name: oauth-secret
+              mountPath: /etc/code-diver/oauth
+              readOnly: true
+            - name: repo
+              mountPath: /workspace
+              # Writable because code_diver_index_ingest writes
+              # /workspace/.code_diver_remote_ingest. Mount readOnly: true and
+              # never grant code:write if the repo volume is shared read-only.
+            - name: state
+              mountPath: /data
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: config
+          configMap:
+            name: code-diver-config
+        - name: oauth-secret
+          secret:
+            secretName: code-diver-oauth
+            # Optional so the local profile needs no Secret. When OAuth is
+            # enabled and the Secret is missing, the server exits on startup
+            # (the JWT secret is a hard requirement) -- fail closed.
+            optional: true
+            defaultMode: 0440
+            items:
+              - key: jwt-secret
+                path: jwt-secret
+        - name: repo
+          persistentVolumeClaim:
+            claimName: repo-shared-pvc
+        - name: state
+          persistentVolumeClaim:
+            claimName: code-diver-state-pvc
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 256Mi

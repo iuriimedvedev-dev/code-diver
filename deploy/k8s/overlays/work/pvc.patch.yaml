@@ -1,0 +1,16 @@
+# Knob 3: STORAGE CLASS (same value for both volumes).
+# `fast-ssd` is a placeholder. Replace with the StorageClass that backs the
+# PVCs on this cluster (gp3, premium-rwo, managed-csi, longhorn, ...).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: repo-shared-pvc
+spec:
+  storageClassName: fast-ssd
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: code-diver-state-pvc
+spec:
+  storageClassName: fast-ssd

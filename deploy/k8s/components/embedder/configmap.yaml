@@ -1,0 +1,34 @@
+# Sizing knobs for the shared embedder. Overlays patch this ConfigMap; the
+# Deployment renders every value into the llama-server argv via $(VAR).
+#
+# SIZING RULE: one slot blocks on one embedding request. Set EMBED_SLOTS >= the
+# number of simultaneous searches across ALL projects sharing this endpoint.
+# Threads should match the CPU you grant the pod, not exceed it.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: embedder-config
+  namespace: code-diver
+  labels:
+    app.kubernetes.io/name: code-diver-embedder
+    app.kubernetes.io/component: embedder
+    app.kubernetes.io/part-of: code-diver
+data:
+  # GGUF file name inside the mounted models PVC (/models).
+  EMBED_MODEL_FILE: "embeddinggemma-300M-Q8_0.gguf"
+  # Must equal `embedding.model` in code-diver-embedder.yml.
+  EMBED_MODEL_ALIAS: "google/embeddinggemma-300m"
+  # Concurrency: number of llama.cpp slots (--parallel).
+  EMBED_SLOTS: "4"
+  # CPU threads per slot group (-t). Keep <= the CPU limit.
+  EMBED_THREADS: "4"
+  # Per-slot prompt context; embeddings are short, 2048 is ample.
+  EMBED_CTX: "2048"
+  # Logical / physical batch. Bigger batches amortise better under load but
+  # increase per-request latency; 512/512 matches the reference host.
+  EMBED_BATCH: "512"
+  EMBED_UBATCH: "512"
+  EMBED_HOST: "0.0.0.0"
+  EMBED_PORT: "8791"
+  # Optional: leave empty to require a pre-seeded PVC.
+  EMBED_MODEL_URL: ""

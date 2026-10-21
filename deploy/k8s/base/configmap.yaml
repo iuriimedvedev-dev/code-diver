@@ -1,0 +1,156 @@
+# Two ConfigMaps on purpose:
+#
+#   code-diver-config : the YAML file the CLI loads (mounted as a file).
+#   code-diver-env    : environment variables (OAuth, sessions, CORS).
+#
+# They cannot be one object: `envFrom` would also turn the `code-diver.yml`
+# key into an invalid environment variable name.
+#
+# Placeholders that MUST be replaced:
+#   * storage.qdrant.url / collection
+#   * embedding.model / dimensions / url
+#   * CODE_DIVER_OAUTH_ISSUER (must equal the public URL clients use)
+#
+# Per-project deployments: copy overlays/project-example, give each project a
+# DISTINCT qdrant collection and its own PVCs/namespace. Two projects must
+# never share one collection.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: code-diver-config
+  namespace: code-diver
+  labels:
+    app.kubernetes.io/name: code-diver
+    app.kubernetes.io/component: mcp-server
+data:
+  code-diver.yml: |
+    # Repository content comes from the repo PVC mounted at /workspace.
+    root: /workspace
+    # Local catalog metadata. With storage.provider=qdrant this file is not
+    # the vector store, but graph/trace indexes live beside it.
+    artifact: /data/catalog/index.json
+
+    storage:
+      provider: qdrant
+      qdrant:
+        # EXTERNAL Qdrant. Point this at an existing instance, or apply the
+        # optional qdrant-statefulset.yaml in this directory.
+        url: http://qdrant.qdrant.svc.cluster.local:6333
+        # One collection per project. Never share it between projects.
+        collection: code_diver
+        api_key_env: QDRANT_API_KEY
+        batch_size: 128
+
+    embedding:
+      provider: openai_compatible
+      # MUST match the model that built the collection (dimension mismatch
+      # fails at query time, not at startup).
+      model: REPLACE_ME-embedding-model
+      dimensions: 768
+      url: http://embedding.embedding.svc.cluster.local:8000/v1/embeddings
+      api_key: local
+      batch_size: 96
+      workers: 4
+      max_input_chars: 1200
+      max_input_tokens: 512
+      token_safety_margin: 32
+      query_prefix: "task: code retrieval | query: "
+      document_prefix: "title: none | text: "
+
+    indexing:
+      mode: scanner
+
+    scanner:
+      include: []
+      exclude:
+        - .git/**
+        - .env*
+        - node_modules/**
+        - .venv/**
+        - dist/**
+        - build/**
+        - target/**
+        - .code-diver/**
+        - "*.png"
+        - "*.jpg"
+        - "*.jpeg"
+        - "*.gif"
+        - "*.webp"
+        - "*.db"
+      max_file_bytes: 1000000
+
+    search:
+      limit: 10
+      preview_lines: 8
+      # "hybrid" needs the embedder + Qdrant only. Switch to
+      # "graph_file_cross_encoder" after pointing cross_encoder_rerank.url at
+      # an external rerank daemon (see README, "External dependencies").
+      strategy: hybrid
+
+    graph:
+      enabled: true
+      artifact: /data/catalog/graph.json
+      ast_enabled: false
+      reference_edges_enabled: true
+      expansion_depth: 1
+      neighbor_limit: 20
+
+    trace:
+      enabled: true
+      artifact: /data/catalog/traces/indexing.jsonl
+      include_prompts: false
+
+    ui:
+      color: false
+      pager: never
+      links: false
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: code-diver-env
+  namespace: code-diver
+  labels:
+    app.kubernetes.io/name: code-diver
+    app.kubernetes.io/component: mcp-server
+data:
+  # ---------------------------------------------------------------------
+  # OAuth 2.1. BASE DEFAULT: DISABLED (local/home profile). The work overlay
+  # flips it to "1" and replaces the issuer/resource with the public host.
+  # Never expose the Service outside the cluster while it is disabled.
+  # ---------------------------------------------------------------------
+  CODE_DIVER_OAUTH_ENABLED: "0"
+  # Byte-identical to the URL clients use, https, no trailing slash.
+  CODE_DIVER_OAUTH_ISSUER: "https://code-diver.example.com"
+  CODE_DIVER_OAUTH_RESOURCE: "https://code-diver.example.com/mcp"
+  CODE_DIVER_OAUTH_ACCESS_TTL: "900"
+  CODE_DIVER_OAUTH_REFRESH_TTL: "2592000"
+  CODE_DIVER_OAUTH_CODE_TTL: "60"
+  CODE_DIVER_OAUTH_DB: "/data/oauth/oauth.sqlite3"
+  # Protect /api/* with the same scopes; the ingress does not publish /api by
+  # default, but the Service still exposes it in-cluster.
+  CODE_DIVER_OAUTH_PROTECT_REST: "1"
+  CODE_DIVER_OAUTH_MAX_CLIENTS: "500"
+  # Non-browser MCP clients send no Origin; set the exact browser origin in
+  # the work overlay. "*" is acceptable only for the unauthenticated local
+  # profile on a trusted network.
+  CODE_DIVER_CORS_ORIGINS: "*"
+
+  # ---------------------------------------------------------------------
+  # Streamable HTTP sessions / limits
+  # ---------------------------------------------------------------------
+  CODE_DIVER_MCP_MAX_SESSIONS: "256"
+  CODE_DIVER_MCP_SESSION_IDLE: "1800"
+  CODE_DIVER_MCP_SSE_PING: "15"
+  CODE_DIVER_MCP_MAX_BODY: "4194304"
+  CODE_DIVER_INGEST_MAX_FILES: "500"
+  CODE_DIVER_INDEX_TIMEOUT: "3600"
+
+  # uvicorn trusts X-Forwarded-* only from these peers. ingress-nginx is the
+  # only ingress; narrow this to the controller's pod CIDR where possible.
+  FORWARDED_ALLOW_IPS: "*"
+
+  # No dedicated log-level switch exists in code-diver (uvicorn runs at
+  # info). PYTHONUNBUFFERED keeps container logs line-buffered.
+  PYTHONUNBUFFERED: "1"
+  PYTHONDONTWRITEBYTECODE: "1"

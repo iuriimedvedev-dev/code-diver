@@ -1,0 +1,14 @@
+# Second project, same cluster: isolated PVCs with the work storage class.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: repo-shared-pvc
+spec:
+  storageClassName: fast-ssd
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: code-diver-state-pvc
+spec:
+  storageClassName: fast-ssd

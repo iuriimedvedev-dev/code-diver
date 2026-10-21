@@ -1,0 +1,15 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# OPTIONAL, work profile only: the app terminates TLS itself instead of the
+# ingress. Use when the pod must be reachable directly (NodePort/LoadBalancer,
+# ingress ssl-passthrough, or WireGuard).
+#
+# Switchable topologies (README, "TLS topologies"):
+#   W1 (default) ingress TLS, app plain HTTP  -> do NOT add this component
+#   W2           app TLS, ingress passthrough  -> add this component AND
+#                                                overlays/work/ingress-passthrough.patch.yaml
+#
+# Requires Secret code-diver-mcp-tls of type kubernetes.io/tls.
+patches:
+  - path: patch-deployment.yaml

@@ -1,0 +1,15 @@
+# Embedder sizing for the LOCAL profile. Only valid together with
+# `components/embedder` (uncomment it in kustomization.yaml).
+#
+# One user, one or two agent sessions per project: two slots are enough and
+# leave the remaining cores for code-diver itself.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: embedder-config
+data:
+  EMBED_SLOTS: "2"
+  EMBED_THREADS: "4"
+  EMBED_CTX: "2048"
+  EMBED_BATCH: "512"
+  EMBED_UBATCH: "512"

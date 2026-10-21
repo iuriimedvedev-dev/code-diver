@@ -1,0 +1,18 @@
+# Home-sized requests. The pod is CPU-only (embedding/rerank are external);
+# large repositories need more than 4Gi for graph + BM25 caches.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: code-diver-service
+spec:
+  template:
+    spec:
+      containers:
+        - name: code-diver
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: "2"
+              memory: 3Gi

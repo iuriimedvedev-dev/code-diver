@@ -1,0 +1,14 @@
+# Knob 2, TLS variant A (ACTIVE): cert-manager issues the certificate.
+#
+# Requires cert-manager and a ClusterIssuer named `letsencrypt-prod` (change
+# the annotation value to the issuer this cluster actually has). cert-manager
+# creates the `code-diver-tls` secret referenced by the Ingress.
+#
+# Variant B (pre-created secret, no cert-manager) is the sibling file
+# ingress-external-secret.patch.yaml. Use exactly one.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: code-diver
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod

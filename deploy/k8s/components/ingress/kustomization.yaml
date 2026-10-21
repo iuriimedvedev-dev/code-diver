@@ -1,0 +1,10 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Ingress component: TLS terminates here, the app speaks plain HTTP.
+# Included by overlays/work only. The local overlay has NO Ingress.
+#
+# Host, TLS secret name and the cert-manager annotation are supplied by the
+# work overlay -- nothing here needs hand-editing.
+resources:
+  - ingress.yaml

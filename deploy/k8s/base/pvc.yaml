@@ -1,0 +1,45 @@
+# Two volumes, two lifetimes:
+#
+#   repo-shared-pvc     the checkout code-diver reads and indexes. Refresh it
+#                       with CI/git-sync; the engine only needs read access,
+#                       except for `code_diver_index_ingest` which writes
+#                       <root>/.code_diver_remote_ingest (see README).
+#   code-diver-state-pvc catalog/index metadata, graph, traces, OAuth SQLite
+#                       and remote-ingest bookkeeping. Size per project.
+#
+# Both are ReadWriteOnce: the Deployment uses strategy: Recreate, so only one
+# pod mounts them at a time. Vectors live in the external Qdrant, not here.
+#
+# The repo PVC name is kept from the previous manifest (`repo-shared-pvc`) so
+# an existing claim is adopted instead of orphaned.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: repo-shared-pvc
+  namespace: code-diver
+  labels:
+    app.kubernetes.io/name: code-diver
+    app.kubernetes.io/component: repo
+spec:
+  accessModes:
+    - ReadWriteOnce
+  # storageClassName: REPLACE_ME_STORAGE_CLASS
+  resources:
+    requests:
+      storage: 20Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: code-diver-state-pvc
+  namespace: code-diver
+  labels:
+    app.kubernetes.io/name: code-diver
+    app.kubernetes.io/component: catalog
+spec:
+  accessModes:
+    - ReadWriteOnce
+  # storageClassName: REPLACE_ME_STORAGE_CLASS
+  resources:
+    requests:
+      storage: 10Gi

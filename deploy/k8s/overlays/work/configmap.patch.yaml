@@ -1,0 +1,13 @@
+# Knob 1: ISSUER HOST + OAuth.
+# The issuer is the public origin clients use. It must be https, must match
+# /spec/rules[0].host on the Ingress, and must be byte-identical to what
+# clients type (no trailing slash, no default port).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: code-diver-env
+data:
+  CODE_DIVER_OAUTH_ENABLED: "1"
+  CODE_DIVER_OAUTH_ISSUER: "https://code-diver.work.example"
+  CODE_DIVER_OAUTH_RESOURCE: "https://code-diver.work.example/mcp"
+  CODE_DIVER_CORS_ORIGINS: "https://code-diver.work.example"

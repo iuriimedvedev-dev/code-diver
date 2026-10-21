@@ -1,0 +1,25 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Base: one project, one Deployment, two PVCs, one Service.
+# NO Ingress and OAuth DISABLED -- that is the local/home profile and the safe
+# default: nothing is exposed outside the cluster and no Secret is required.
+#
+# Do not apply this directory directly -- use an overlay:
+#   kubectl apply -k deploy/k8s/overlays/local
+#   kubectl apply -k deploy/k8s/overlays/work
+#   kubectl apply -k deploy/k8s/overlays/project-example
+#
+# Object names are kept from the previous single-file manifest so an existing
+# install is adopted in place:
+#   Deployment/code-diver-service, Service/code-diver-service,
+#   ConfigMap/code-diver-config, PVC/repo-shared-pvc
+
+namespace: code-diver
+
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - pvc.yaml
+  - deployment.yaml
+  - service.yaml

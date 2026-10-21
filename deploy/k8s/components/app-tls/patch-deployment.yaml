@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: code-diver-service
+spec:
+  template:
+    spec:
+      containers:
+        - name: code-diver
+          env:
+            - name: CODE_DIVER_TLS_CERT
+              value: /etc/code-diver/tls/tls.crt
+            - name: CODE_DIVER_TLS_KEY
+              value: /etc/code-diver/tls/tls.key
+          # Probes must speak HTTPS once the listener is TLS.
+          startupProbe:
+            httpGet:
+              scheme: HTTPS
+          readinessProbe:
+            httpGet:
+              scheme: HTTPS
+          livenessProbe:
+            httpGet:
+              scheme: HTTPS
+          volumeMounts:
+            - name: app-tls
+              mountPath: /etc/code-diver/tls
+              readOnly: true
+      volumes:
+        - name: app-tls
+          secret:
+            secretName: code-diver-mcp-tls
+            defaultMode: 0440
