@@ -1,0 +1,60 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Example SECOND project ("cortex"), work-style: OAuth on, own host, own
+# namespace, own PVCs, own Qdrant collection.
+#
+#   kubectl apply -k deploy/k8s/overlays/project-example
+#
+# namePrefix renames every base object AND the Namespace:
+#   Namespace/cortex-code-diver
+#   Deployment/cortex-code-diver-service
+#   Service/cortex-code-diver-service
+#   PVC/cortex-repo-shared-pvc, PVC/cortex-code-diver-state-pvc
+#   Ingress/cortex-code-diver
+#
+# A second project must NEVER reuse the Qdrant collection, the OAuth SQLite
+# DB or the catalog PVC of another project.
+#
+# Secrets are namespaced but NOT part of this bundle, so kustomize does not
+# prefix their names. Recreate them INSIDE cortex-code-diver with the same
+# names: code-diver-oauth, code-diver-qdrant, registry-credentials. They are
+# different objects from the ones in the code-diver namespace.
+
+namespace: cortex-code-diver
+namePrefix: cortex-
+
+resources:
+  - ../../base
+
+components:
+  - ../../components/ingress
+
+images:
+  - name: code-diver
+    newName: registry.work.example/code-diver/code-diver
+    newTag: "0.6.5"
+
+patches:
+  - path: pvc.patch.yaml
+  - path: env.patch.yaml
+  - path: app-config.patch.yaml
+
+# Ingress host / TLS secret for this project. JSON6902 because a strategic
+# merge on `rules` would replace the whole list and drop the paths.
+patchesJson6902:
+  - target:
+      group: networking.k8s.io
+      version: v1
+      kind: Ingress
+      name: code-diver
+    patch: |-
+      - op: replace
+        path: /spec/rules/0/host
+        value: code-diver-cortex.work.example
+      - op: replace
+        path: /spec/tls/0/hosts/0
+        value: code-diver-cortex.work.example
+      - op: replace
+        path: /spec/tls/0/secretName
+        value: code-diver-cortex-tls

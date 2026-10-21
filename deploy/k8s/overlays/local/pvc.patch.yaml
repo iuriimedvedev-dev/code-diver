@@ -1,0 +1,15 @@
+# Knob: STORAGE CLASS (same value for both volumes).
+# `local-path` is the default provisioner on k3s/kind/Rancher Desktop.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: repo-shared-pvc
+spec:
+  storageClassName: local-path
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: code-diver-state-pvc
+spec:
+  storageClassName: local-path

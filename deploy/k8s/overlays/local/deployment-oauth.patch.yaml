@@ -1,0 +1,16 @@
+# The Base Deployment points CODE_DIVER_OAUTH_JWT_SECRET_FILE at the mounted
+# Secret key. OAuthSettings reads that file whenever the variable is set, even
+# with OAuth disabled, so the local profile (which has no Secret) must clear it
+# explicitly. With an empty value the file is not read.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: code-diver-service
+spec:
+  template:
+    spec:
+      containers:
+        - name: code-diver
+          env:
+            - name: CODE_DIVER_OAUTH_JWT_SECRET_FILE
+              value: ""

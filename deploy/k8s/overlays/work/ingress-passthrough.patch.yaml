@@ -1,0 +1,22 @@
+# Knob 2, topology W2 only (INACTIVE): the app terminates TLS itself.
+#
+# Use together with `components/app-tls` in kustomization.yaml. ingress-nginx
+# passes the TLS stream through without decrypting, so the certificate mounted
+# in the pod must be valid for the public host.
+#
+# Requires ingress-nginx started with --enable-ssl-passthrough (off by
+# default). Otherwise terminate TLS at the ingress (variant A/B) -- the
+# default W1 topology.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: code-diver
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-passthrough: "true"
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "false"
+spec:
+  tls:
+    - hosts:
+        - code-diver.work.example
+      secretName: code-diver-mcp-tls

@@ -1,0 +1,143 @@
+# Optional first-run Job: restore the local catalog (index.json + graph.json
+# + traces) into the state PVC.
+#
+# Only vectors live in Qdrant. If the collection is also new, index the repo
+# once instead of restoring (see README, "First index").
+#
+#   kubectl -n code-diver apply -k deploy/k8s/jobs/restore-catalog
+#   kubectl -n code-diver wait --for=condition=complete job/code-diver-restore-catalog --timeout=30m
+#
+# The Job is idempotent (marker /data/catalog/.restore-complete). The Deployment
+# must be scaled to 0 while it runs: the catalog is single-writer.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: code-diver-restore-catalog
+  namespace: code-diver
+  labels:
+    app.kubernetes.io/name: code-diver
+    app.kubernetes.io/component: restore-job
+spec:
+  backoffLimit: 1
+  activeDeadlineSeconds: 1800
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: code-diver
+        app.kubernetes.io/component: restore-job
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: restore
+          image: python:3.13-slim
+          imagePullPolicy: IfNotPresent
+          command:
+            - python
+            - -c
+            - |
+              import hashlib
+              import os
+              import pathlib
+              import tarfile
+              import urllib.request
+
+              url = os.environ["CATALOG_URL"]
+              dest = pathlib.Path("/data/catalog")
+              marker = dest / ".restore-complete"
+              if marker.exists() and os.environ.get("FORCE_RESTORE") != "1":
+                  print("catalog already restored; set FORCE_RESTORE=1 to overwrite")
+                  raise SystemExit(0)
+
+              dest.mkdir(parents=True, exist_ok=True)
+              if os.environ.get("CLEAN_TARGET", "1") == "1":
+                  # Clear stale catalog files (index.json/graph.json/traces)
+                  # but never touch /data/oauth, which lives outside dest.
+                  for child in dest.iterdir():
+                      if child == marker:
+                          continue
+                      if child.is_dir():
+                          import shutil
+                          shutil.rmtree(child)
+                      else:
+                          child.unlink()
+                  print("cleared existing catalog contents", flush=True)
+
+              archive = pathlib.Path("/tmp/catalog.tar.gz")
+              print(f"downloading {url}", flush=True)
+              with urllib.request.urlopen(url, timeout=600) as response, archive.open("wb") as out:
+                  while True:
+                      chunk = response.read(1 << 20)
+                      if not chunk:
+                          break
+                      out.write(chunk)
+
+              expected = os.environ.get("CATALOG_SHA256", "").strip().lower()
+              if expected:
+                  digest = hashlib.sha256()
+                  with archive.open("rb") as handle:
+                      for chunk in iter(lambda: handle.read(1 << 20), b""):
+                          digest.update(chunk)
+                  actual = digest.hexdigest()
+                  if actual != expected:
+                      raise SystemExit(f"sha256 mismatch: got {actual}, expected {expected}")
+                  print("sha256 ok", flush=True)
+
+              print(f"extracting into {dest}", flush=True)
+              with tarfile.open(archive, "r:gz") as tar:
+                  tar.extractall(dest, filter="data")
+              marker.write_text("ok\n", encoding="utf-8")
+              print("restore complete", flush=True)
+          env:
+            - name: HOME
+              value: /tmp
+            - name: CATALOG_URL
+              valueFrom:
+                secretKeyRef:
+                  name: code-diver-restore
+                  key: catalog-url
+            - name: CATALOG_SHA256
+              valueFrom:
+                secretKeyRef:
+                  name: code-diver-restore
+                  key: catalog-sha256
+                  optional: true
+            - name: FORCE_RESTORE
+              value: "0"
+            - name: CLEAN_TARGET
+              value: "1"
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: state
+              mountPath: /data
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: state
+          persistentVolumeClaim:
+            claimName: code-diver-state-pvc
+        - name: tmp
+          emptyDir:
+            sizeLimit: 4Gi

@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: code-diver-env
+# Knob: OAuth. Local is permanently unauthenticated.
+# The endpoint must not be reachable from an untrusted network in this mode.
+data:
+  CODE_DIVER_OAUTH_ENABLED: "0"
+  # Any Origin is acceptable only because there is no bearer token to steal
+  # and the endpoint is confined to a trusted network.
+  CODE_DIVER_CORS_ORIGINS: "*"

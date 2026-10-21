@@ -1,0 +1,155 @@
+# OPTIONAL -- only for clusters without an external Qdrant.
+#
+# The default ConfigMap points at http://qdrant.qdrant.svc.cluster.local:6333,
+# i.e. a Qdrant in namespace "qdrant" (shared, external to code-diver). That is
+# the recommended topology: several code-diver projects can share one Qdrant
+# with distinct collections.
+#
+# This file is a single-replica StatefulSet with its own PVC and the Service
+# name the ConfigMap expects. Use the same file for the hars-longterm-memory
+# bundle if both services should share one Qdrant.
+#
+# The legacy monolithic manifest (deploy/k8s/code-diver-k8s.yaml) still embeds
+# its own Qdrant Deployment. Do not apply both in one cluster.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: qdrant
+  labels:
+    app.kubernetes.io/name: qdrant
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: qdrant
+  namespace: qdrant
+  labels:
+    app.kubernetes.io/name: qdrant
+spec:
+  type: ClusterIP
+  selector:
+    app: qdrant
+  ports:
+    - name: http
+      port: 6333
+      targetPort: http
+      protocol: TCP
+    - name: grpc
+      port: 6334
+      targetPort: grpc
+      protocol: TCP
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: qdrant
+  namespace: qdrant
+  labels:
+    app.kubernetes.io/name: qdrant
+spec:
+  serviceName: qdrant
+  replicas: 1
+  podManagementPolicy: OrderedReady
+  selector:
+    matchLabels:
+      app: qdrant
+  template:
+    metadata:
+      labels:
+        app: qdrant
+        app.kubernetes.io/name: qdrant
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsNonRoot: true
+        # The upstream image ships UID/GID 1000; the PVC is chowned by fsGroup.
+        # If this exact image tag does not start (or cannot write), check the
+        # image's own USER and adjust both values -- do not run it as root.
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: qdrant
+          image: qdrant/qdrant:v1.13.4
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 6333
+              protocol: TCP
+            - name: grpc
+              containerPort: 6334
+              protocol: TCP
+          env:
+            - name: QDRANT__SERVICE__HTTP_PORT
+              value: "6333"
+            - name: QDRANT__SERVICE__GRPC_PORT
+              value: "6334"
+            - name: QDRANT__TELEMETRY_DISABLED
+              value: "true"
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 30
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 5
+          resources:
+            requests:
+              cpu: "1"
+              memory: 2Gi
+            limits:
+              cpu: "4"
+              memory: 8Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: data
+              mountPath: /qdrant/storage
+            - name: snapshots
+              mountPath: /qdrant/snapshots
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: snapshots
+          emptyDir:
+            sizeLimit: 10Gi
+        - name: tmp
+          emptyDir:
+            sizeLimit: 1Gi
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          app.kubernetes.io/name: qdrant
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        # storageClassName: REPLACE_ME_STORAGE_CLASS
+        resources:
+          requests:
+            storage: 50Gi

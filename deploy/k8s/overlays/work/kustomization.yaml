@@ -1,0 +1,82 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# WORK / ENTERPRISE PROFILE
+#
+#   kubectl apply -k deploy/k8s/overlays/work
+#
+# * OAuth ENABLED, issuer = the public https host patched below
+# * Ingress + TLS:
+#     variant A (ACTIVE)   cert-manager ClusterIssuer `letsencrypt-prod`
+#     variant B (inactive) pre-created kubernetes.io/tls secret
+# * storage class: fast-ssd (placeholder knob)
+# * image: registry.work.example/... + imagePullSecret `registry-credentials`
+# * app terminates TLS only if you add components/app-tls (topology W2)
+#
+# Required Secret: code-diver-oauth (jwt-secret + consent-secret). The base
+# Deployment mounts it; OAuth fails closed if it is missing.
+#
+# THE FOUR KNOBS (all in this directory, never in base/):
+#   1. issuer host      -> configmap.patch.yaml + the JSON6902 patch below
+#   2. TLS              -> A: ingress-cert-manager.patch.yaml (active)
+#                          B: ingress-external-secret.patch.yaml (swap in)
+#   3. storage class    -> pvc.patch.yaml
+#   4. registry         -> images: below (+ image-pull-secret component)
+#
+# Exact sed commands are in README.md, "Deploy at work in 5 commands".
+
+resources:
+  - ../../base
+
+# Components are patched onto the resources above; a component in `resources:`
+# would be treated as a separate base and could not touch the Deployment.
+components:
+  - ../../components/ingress
+  - ../../components/image-pull-secret
+  # Topology W2 only: the app terminates TLS itself and the ingress passes
+  # TLS through. Adds HTTPS probes and the TLS volume.
+  # - ../../components/app-tls
+
+images:
+  - name: code-diver
+    newName: registry.work.example/code-diver/code-diver
+    newTag: "0.6.5"
+
+# Guard, not a scaling knob: the local catalog + SQLite OAuth store are
+# single-writer.
+replicas:
+  - name: code-diver-service
+    count: 1
+
+patches:
+  - path: configmap.patch.yaml
+  - path: pvc.patch.yaml
+  - path: deployment-pullpolicy.patch.yaml
+  # TLS variant A -- ACTIVE. Comment it out and uncomment B to switch.
+  - path: ingress-cert-manager.patch.yaml
+  # TLS variant B -- inactive. Pre-created secret, no cert-manager.
+  # - path: ingress-external-secret.patch.yaml
+  # Topology W2 only, together with components/app-tls above.
+  # - path: ingress-passthrough.patch.yaml
+
+# Knob 1 (continued): the public host on the Ingress. JSON6902 is used
+# because a strategic merge on `rules` would replace the whole list and drop
+# the paths. Keep this value identical to the OAuth issuer above.
+patchesJson6902:
+  - target:
+      group: networking.k8s.io
+      version: v1
+      kind: Ingress
+      name: code-diver
+    patch: |-
+      - op: replace
+        path: /spec/rules/0/host
+        value: code-diver.work.example
+      - op: replace
+        path: /spec/tls/0/hosts/0
+        value: code-diver.work.example
+      # Knob 2: name of the TLS secret. With cert-manager (variant A) the
+      # controller creates/populates it from the Certificate it issues.
+      - op: replace
+        path: /spec/tls/0/secretName
+        value: code-diver-tls

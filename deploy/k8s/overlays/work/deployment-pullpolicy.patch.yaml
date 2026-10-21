@@ -1,0 +1,12 @@
+# Work profile: always resolve the tag at pod start so a re-pushed immutable
+# tag is picked up on restart. (A digest reference makes this a no-op.)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: code-diver-service
+spec:
+  template:
+    spec:
+      containers:
+        - name: code-diver
+          imagePullPolicy: Always

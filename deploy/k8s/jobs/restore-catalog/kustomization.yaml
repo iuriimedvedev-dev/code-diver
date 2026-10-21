@@ -1,0 +1,10 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# One-off catalog restore:
+#   kubectl -n code-diver apply -k deploy/k8s/jobs/restore-catalog
+#
+# Uses python:3.13-slim (stdlib only). The snapshot URL comes from Secret
+# code-diver-restore, created with kubectl -- see README, "Restore".
+resources:
+  - job.yaml

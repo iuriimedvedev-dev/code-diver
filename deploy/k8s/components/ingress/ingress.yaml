@@ -1,0 +1,103 @@
+# TLS termination at the ingress controller. The app listens on plain HTTP
+# inside the pod; the OAuth issuer is the https origin in the ConfigMap.
+#
+# All OAuth endpoints are siblings of /mcp (discovery, /register,
+# /authorize, /token, /revoke). Routing only /mcp means clients get a 401
+# challenge they cannot follow.
+#
+# X-Forwarded-Proto: ingress-nginx sets it, but the app only trusts it from
+# the peers in FORWARDED_ALLOW_IPS (see base/configmap.yaml). Keep that value
+# as narrow as the controller's pod CIDR allows.
+#
+# Placeholders patched by overlays/work:
+#   spec.rules[0].host, spec.tls[0].hosts[0], spec.tls[0].secretName
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: code-diver
+  namespace: code-diver
+  labels:
+    app.kubernetes.io/name: code-diver
+    app.kubernetes.io/component: ingress
+    app.kubernetes.io/part-of: code-diver
+  annotations:
+    # Streamable HTTP keeps a GET SSE stream open for server->client messages.
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-request-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-http-version: "1.1"
+    nginx.ingress.kubernetes.io/proxy-body-size: "8m"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - code-diver.example.com
+      secretName: code-diver-tls
+  rules:
+    - host: code-diver.example.com
+      http:
+        paths:
+          - path: /mcp
+            pathType: Prefix
+            backend:
+              service:
+                name: code-diver-service
+                port:
+                  name: mcp
+          - path: /.well-known
+            pathType: Prefix
+            backend:
+              service:
+                name: code-diver-service
+                port:
+                  name: mcp
+          - path: /register
+            pathType: Prefix
+            backend:
+              service:
+                name: code-diver-service
+                port:
+                  name: mcp
+          - path: /authorize
+            pathType: Prefix
+            backend:
+              service:
+                name: code-diver-service
+                port:
+                  name: mcp
+          - path: /token
+            pathType: Prefix
+            backend:
+              service:
+                name: code-diver-service
+                port:
+                  name: mcp
+          - path: /revoke
+            pathType: Prefix
+            backend:
+              service:
+                name: code-diver-service
+                port:
+                  name: mcp
+
+          # Optional: REST API (OAuth-protected with code:read / code:write).
+          # - path: /api
+          #   pathType: Prefix
+          #   backend:
+          #     service:
+          #       name: code-diver-service
+          #       port:
+          #         name: mcp
+          #
+          # Optional: ACP transport. It is NOT OAuth-protected; publish it
+          # only on a trusted network.
+          # - path: /acp
+          #   pathType: Prefix
+          #   backend:
+          #     service:
+          #       name: code-diver-service
+          #       port:
+          #         name: mcp

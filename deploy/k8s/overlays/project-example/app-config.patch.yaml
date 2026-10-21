@@ -1,0 +1,79 @@
+# Per-project application config. The ONLY difference from
+# base/configmap.yaml is `storage.qdrant.collection: code_diver_cortex`.
+# Keep the rest in sync when the base changes.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: code-diver-config
+data:
+  code-diver.yml: |
+    root: /workspace
+    artifact: /data/catalog/index.json
+
+    storage:
+      provider: qdrant
+      qdrant:
+        url: http://qdrant.qdrant.svc.cluster.local:6333
+        # PER-PROJECT collection: never share it with the default project.
+        collection: code_diver_cortex
+        api_key_env: QDRANT_API_KEY
+        batch_size: 128
+
+    embedding:
+      provider: openai_compatible
+      model: REPLACE_ME-embedding-model
+      dimensions: 768
+      url: http://embedding.embedding.svc.cluster.local:8000/v1/embeddings
+      api_key: local
+      batch_size: 96
+      workers: 4
+      max_input_chars: 1200
+      max_input_tokens: 512
+      token_safety_margin: 32
+      query_prefix: "task: code retrieval | query: "
+      document_prefix: "title: none | text: "
+
+    indexing:
+      mode: scanner
+
+    scanner:
+      include: []
+      exclude:
+        - .git/**
+        - .env*
+        - node_modules/**
+        - .venv/**
+        - dist/**
+        - build/**
+        - target/**
+        - .code-diver/**
+        - "*.png"
+        - "*.jpg"
+        - "*.jpeg"
+        - "*.gif"
+        - "*.webp"
+        - "*.db"
+      max_file_bytes: 1000000
+
+    search:
+      limit: 10
+      preview_lines: 8
+      strategy: hybrid
+
+    graph:
+      enabled: true
+      artifact: /data/catalog/graph.json
+      ast_enabled: false
+      reference_edges_enabled: true
+      expansion_depth: 1
+      neighbor_limit: 20
+
+    trace:
+      enabled: true
+      artifact: /data/catalog/traces/indexing.jsonl
+      include_prompts: false
+
+    ui:
+      color: false
+      pager: never
+      links: false

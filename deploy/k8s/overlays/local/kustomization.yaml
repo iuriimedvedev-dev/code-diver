@@ -1,0 +1,37 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# LOCAL / HOME PROFILE
+#
+#   kubectl apply -k deploy/k8s/overlays/local
+#
+# * no OAuth (unauthenticated endpoint -- cluster network / WireGuard /
+#   port-forward only)
+# * no Ingress, no TLS: the Service is ClusterIP-only, app speaks plain HTTP
+# * storage class: local-path (k3s/kind/Rancher default)
+# * image from a local registry, imagePullPolicy IfNotPresent (base)
+# * single replica, smaller resource requests
+# * embedder + rerank are still external (see README, "External dependencies")
+#
+#   kubectl -n code-diver port-forward svc/code-diver-service 8080:8080
+#
+# The four knobs: REGISTRY (images below), STORAGE CLASS (pvc patch),
+# OAuth (configmap patch, permanently off here), TLS/Ingress (absent).
+
+resources:
+  - ../../base
+
+images:
+  - name: code-diver
+    newName: registry.local/code-diver
+    newTag: "0.6.5"
+
+patches:
+  - path: configmap.patch.yaml
+  - path: pvc.patch.yaml
+  - path: deployment-resources.patch.yaml
+  # OAuthSettings reads CODE_DIVER_OAUTH_JWT_SECRET_FILE whenever it is set,
+  # even with OAuth disabled -- clear it because local has no Secret.
+  - path: deployment-oauth.patch.yaml
+  # Optional: publish on a node port for a home LAN / WireGuard interface.
+  # - path: service-nodeport.patch.yaml
