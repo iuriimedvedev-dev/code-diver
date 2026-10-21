@@ -1,10 +1,13 @@
 """HTTP and SSE Remote Transport Server for Code Diver.
 
 Provides:
-- Native MCP over SSE (`/mcp/sse` and `/mcp/messages`)
-- Native ACP over HTTP/SSE (`/acp/v1/initialize`, `/acp/v1/sessions`, `/acp/v1/events`)
+- Standard MCP Streamable HTTP (`POST`/`GET`/`DELETE /mcp`) with sessions
+- Legacy MCP JSON-RPC compatibility alias (`/mcp/rpc`, `/`)
+- Native ACP over HTTP/SSE (`/acp/v1/rpc`, `/acp/v1/events`)
 - Direct REST Search & Inspection APIs (`/api/v1/search`, `/api/v1/info`, `/api/v1/grep`, etc.)
-- Healthcheck (`/health`)
+- Optional OAuth 2.1 protection and diagnostics (`/health`, `/api/v1/runtime/stats`)
+
+All transports share one lazily created :class:`SearchRuntime` per process.
 """
 
 from __future__ import annotations
@@ -12,11 +15,14 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from pathlib import Path
-from typing import Any, AsyncGenerator
+import os
 import uuid
+from collections.abc import AsyncGenerator, Callable
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any, Literal
 
-from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
@@ -28,6 +34,20 @@ from ..inspection.read_excerpt_service import ReadExcerptService
 from ..inspection.symbols_service import SymbolsService
 from ..inspection.tree_service import TreeService
 from ..runtime.search_runtime import SearchRuntime
+from .mcp_http import (
+    RemoteToolService,
+    SessionLimits,
+    SessionRegistry,
+    register_mcp_routes,
+    runtime_fingerprint,
+)
+from .oauth import (
+    OAuthError,
+    OAuthProvider,
+    OAuthSettings,
+    bearer_token,
+    protected_path_scope,
+)
 
 logger = logging.getLogger("code_diver.transport.http")
 
@@ -83,20 +103,30 @@ class JsonRpcRequestModel(BaseModel):
     params: dict[str, Any] = Field(default_factory=dict)
 
 
-def create_remote_app(config_path: Path | str = "code-diver.yml") -> FastAPI:
-    """Build FastAPI application with HTTP, SSE, and ACP/MCP endpoints."""
+def create_remote_app(
+    config_path: Path | str = "code-diver.yml",
+    *,
+    oauth: OAuthProvider | Literal[False] | None = None,
+    runtime_factory: Callable[[Path], tuple[Any, SearchRuntime]] | None = None,
+    session_limits: SessionLimits | None = None,
+    index_runner: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
+    cors_origins: list[str] | None = None,
+) -> FastAPI:
+    """Build the FastAPI application with MCP, REST, and ACP transports.
+
+    Args:
+        config_path: Path to the repository ``code-diver.yml``.
+        oauth: ``None`` resolves OAuth from the environment, ``False`` forces it
+            off, and an :class:`OAuthProvider` instance enables it (tests).
+        runtime_factory: Optional override used by tests to count runtime loads.
+        session_limits: MCP session limits (defaults to environment values).
+        index_runner: Optional override for the write-scope index tool.
+        cors_origins: Explicit CORS origins (defaults to env/issuer).
+    """
     app = FastAPI(
         title="Code Diver Remote Engine",
         version="0.4.5",
         description="Unified Remote API: HTTP, SSE, MCP, and ACP for code retrieval & exploration",
-    )
-
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
     )
 
     cfg_path = Path(config_path).expanduser()
@@ -104,13 +134,51 @@ def create_remote_app(config_path: Path | str = "code-diver.yml") -> FastAPI:
     _runtime: SearchRuntime | None = None
     _sessions: dict[str, dict[str, Any]] = {}
     _sse_queues: dict[str, asyncio.Queue] = {}
+    started_at = datetime.now(UTC).isoformat()
+    runtime_state: dict[str, Any] = {"loads": 0, "created_at": None}
+
+    if oauth is None:
+        oauth_settings = OAuthSettings.from_env()
+        oauth_provider: OAuthProvider | None = (
+            OAuthProvider(oauth_settings) if oauth_settings.enabled else None
+        )
+    elif oauth is False:
+        oauth_provider = None
+    elif isinstance(oauth, OAuthProvider):
+        oauth_provider = oauth
+    else:  # pragma: no cover - defensive
+        raise TypeError("oauth must be None, False, or an OAuthProvider")
+
+    sessions = SessionRegistry(session_limits or SessionLimits.from_env())
+
+    configured_origins = (
+        cors_origins if cors_origins is not None else os.environ.get("CODE_DIVER_CORS_ORIGINS")
+    )
+    if configured_origins is None:
+        origins = [oauth_provider.settings.issuer] if oauth_provider is not None else ["*"]
+    elif isinstance(configured_origins, str):
+        origins = [origin.strip() for origin in configured_origins.split(",") if origin.strip()]
+    else:
+        origins = list(configured_origins)
+    origins = origins or ["*"]
 
     def get_runtime() -> tuple[Any, SearchRuntime]:
         nonlocal _config, _runtime
         if _runtime is None:
             resolved = cfg_path if cfg_path.exists() else Path("code-diver.yml")
-            _config = ConfigLoader().load(resolved)
-            _runtime = SearchRuntime(_config)
+            if runtime_factory is not None:
+                _config, _runtime = runtime_factory(resolved)
+            else:
+                _config = ConfigLoader().load(resolved)
+                _runtime = SearchRuntime(_config)
+            runtime_state["loads"] += 1
+            runtime_state["created_at"] = datetime.now(UTC).isoformat()
+            logger.info(
+                "runtime: loaded %s for %s (load #%s)",
+                type(_runtime).__name__,
+                resolved,
+                runtime_state["loads"],
+            )
         return _config, _runtime
 
     # --- Health ---
@@ -121,7 +189,7 @@ def create_remote_app(config_path: Path | str = "code-diver.yml") -> FastAPI:
     # --- REST Inspection & Search ---
     @app.post("/api/v1/search")
     async def api_search(req: SearchRequestModel) -> dict[str, Any]:
-        config, runtime = get_runtime()
+        _, runtime = get_runtime()
         results = runtime.base_strategy.search(query=req.query, limit=req.limit)
         return {
             "results": [
@@ -187,222 +255,65 @@ def create_remote_app(config_path: Path | str = "code-diver.yml") -> FastAPI:
         )
         return {"tree": tree_text}
 
-    # --- Remote Indexing Endpoints ---
+    # --- Remote Indexing Endpoints (write scope when OAuth is enabled) ---
     @app.post("/api/v1/index/trigger")
     async def api_index_trigger(req: RemoteIndexTriggerModel) -> dict[str, Any]:
         """Trigger background indexing on the remote host."""
         config, _ = get_runtime()
-        task_id = f"idx_{uuid.uuid4().hex[:10]}"
+        result = service.call(
+            "code_diver_index_trigger",
+            {
+                "repo_path": req.repo_path,
+                "clear_existing": req.clear_existing,
+                "build_graph": req.build_graph,
+            },
+            scopes=None,
+        )
+        if result.get("isError"):
+            return {"status": "error", "message": result["content"][0]["text"]}
+        task = json.loads(result["content"][0]["text"])
         return {
-            "task_id": task_id,
+            "task_id": task.get("task_id"),
             "status": "triggered",
             "message": f"Indexing queued for {req.repo_path or str(config.root)}",
         }
 
     @app.post("/api/v1/index/ingest")
     async def api_index_ingest(req: RemoteIngestRequestModel) -> dict[str, Any]:
-        """Ingest code files from remote client into server workspace."""
-        config, _ = get_runtime()
-        ingest_dir = config.root / ".code_diver_remote_ingest"
-        ingest_dir.mkdir(parents=True, exist_ok=True)
+        """Ingest code files from a remote client into the server workspace."""
+        result = service.call(
+            "code_diver_index_ingest",
+            {"files": [payload.model_dump() for payload in req.files]},
+            scopes=None,
+        )
+        if result.get("isError"):
+            raise HTTPException(status_code=400, detail=result["content"][0]["text"])
+        return json.loads(result["content"][0]["text"])
 
-        count = 0
-        total_size = 0
-        for f in req.files:
-            target = ingest_dir / f.path
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(f.content, encoding="utf-8")
-            count += 1
-            total_size += len(f.content.encode("utf-8"))
+    # --- Shared MCP tool service (standard Streamable HTTP + compatibility) ---
+    service = RemoteToolService(
+        get_runtime,
+        config_path=cfg_path,
+        index_runner=index_runner,
+    )
+    register_mcp_routes(app, service, sessions, oauth_provider, allowed_origins=origins)
 
+    @app.get("/api/v1/runtime/stats")
+    async def api_runtime_stats() -> dict[str, Any]:
+        """Prove that every client shares one lazily-loaded SearchRuntime."""
         return {
-            "status": "ok",
-            "files_received": count,
-            "total_bytes": total_size,
-            "directory": str(ingest_dir),
+            "pid": os.getpid(),
+            "started_at": started_at,
+            "runtime_loads": runtime_state["loads"],
+            "runtime_created_at": runtime_state["created_at"],
+            "runtime": runtime_fingerprint(_runtime),
+            "mcp_sessions": sessions.stats(),
+            "tools": service.stats(),
+            "oauth": {
+                "enabled": oauth_provider is not None,
+                "issuer": oauth_provider.settings.issuer if oauth_provider else None,
+            },
         }
-
-    # --- Standard MCP JSON-RPC 2.0 (Streamable HTTP / MCP over HTTP) ---
-    @app.post("/")
-    @app.post("/mcp")
-    @app.post("/mcp/rpc")
-    async def standard_mcp_rpc(req: JsonRpcRequestModel) -> dict[str, Any]:
-        """Standard Model Context Protocol (MCP) JSON-RPC 2.0 handler."""
-        method = req.method
-        params = req.params
-
-        if method == "initialize":
-            return {
-                "jsonrpc": "2.0",
-                "id": req.id,
-                "result": {
-                    "protocolVersion": "2024-11-05",
-                    "capabilities": {"tools": {}},
-                    "serverInfo": {"name": "code-diver", "version": "0.4.5"},
-                },
-            }
-        elif method == "notifications/initialized":
-            return {"jsonrpc": "2.0", "id": req.id, "result": {}}
-        elif method == "tools/list":
-            return {
-                "jsonrpc": "2.0",
-                "id": req.id,
-                "result": {
-                    "tools": [
-                        {
-                            "name": "code_diver_search",
-                            "description": "Search repository code using neural and hybrid retrieval.",
-                            "inputSchema": {
-                                "type": "object",
-                                "properties": {
-                                    "query": {"type": "string", "description": "Search query"},
-                                    "limit": {"type": "integer", "default": 10},
-                                },
-                                "required": ["query"],
-                            },
-                        },
-                        {
-                            "name": "code_diver_grep",
-                            "description": "Search literal text or regex patterns across the codebase.",
-                            "inputSchema": {
-                                "type": "object",
-                                "properties": {
-                                    "pattern": {"type": "string"},
-                                    "path": {"type": "string"},
-                                    "limit": {"type": "integer", "default": 50},
-                                    "regex": {"type": "boolean", "default": False},
-                                },
-                                "required": ["pattern"],
-                            },
-                        },
-                        {
-                            "name": "code_diver_read",
-                            "description": "Read a bounded excerpt of lines from a project file.",
-                            "inputSchema": {
-                                "type": "object",
-                                "properties": {
-                                    "file": {"type": "string"},
-                                    "start_line": {"type": "integer", "default": 1},
-                                    "lines": {"type": "integer", "default": 100},
-                                },
-                                "required": ["file"],
-                            },
-                        },
-                        {
-                            "name": "code_diver_symbols",
-                            "description": "List AST parsed source symbols (classes, methods, functions) for a file or repo.",
-                            "inputSchema": {
-                                "type": "object",
-                                "properties": {
-                                    "path": {"type": "string"},
-                                    "limit": {"type": "integer", "default": 100},
-                                },
-                            },
-                        },
-                        {
-                            "name": "code_diver_tree",
-                            "description": "Print a gitignore-aware directory tree of the repository.",
-                            "inputSchema": {
-                                "type": "object",
-                                "properties": {
-                                    "path": {"type": "string"},
-                                    "depth": {"type": "integer", "default": 3},
-                                    "limit": {"type": "integer", "default": 100},
-                                },
-                            },
-                        },
-                        {
-                            "name": "code_diver_info",
-                            "description": "Get Code Diver index, vector store, graph, and model footprint statistics.",
-                            "inputSchema": {"type": "object", "properties": {}},
-                        },
-                    ]
-                },
-            }
-        elif method == "tools/call":
-            tool_name = params.get("name")
-            tool_args = params.get("arguments", {})
-            config, runtime = get_runtime()
-
-            try:
-                if tool_name == "code_diver_search":
-                    query = tool_args.get("query", "")
-                    limit = int(tool_args.get("limit", 10))
-                    results = runtime.base_strategy.search(query=query, limit=limit)
-                    out = [
-                        {
-                            "path": r.item.path,
-                            "score": round(float(r.score), 4),
-                            "start_line": r.item.start_line,
-                            "end_line": r.item.end_line,
-                            "title": r.item.title,
-                            "content_preview": (
-                                r.item.content[:300] + "..." if len(r.item.content) > 300 else r.item.content
-                            ),
-                        }
-                        for r in results
-                    ]
-                    content_str = json.dumps(out, indent=2)
-
-                elif tool_name == "code_diver_grep":
-                    pattern = tool_args.get("pattern", "")
-                    path = tool_args.get("path")
-                    limit = int(tool_args.get("limit", 50))
-                    regex = bool(tool_args.get("regex", False))
-                    matches = GrepService(config.root).search(pattern=pattern, path=path, limit=limit, regex=regex)
-                    content_str = json.dumps([{"path": m.path, "line": m.line, "text": m.text} for m in matches], indent=2)
-
-                elif tool_name == "code_diver_read":
-                    file_p = tool_args.get("file", "")
-                    start_l = int(tool_args.get("start_line", 1))
-                    lines = int(tool_args.get("lines", 100))
-                    content_str = ReadExcerptService(config.root).render(path=file_p, start_line=start_l, lines=lines)
-
-                elif tool_name == "code_diver_symbols":
-                    path = tool_args.get("path")
-                    limit = int(tool_args.get("limit", 100))
-                    syms = SymbolsService(config.root).structured(path=path, limit=limit)
-                    content_str = json.dumps(syms.get("symbols", []), indent=2)
-
-                elif tool_name == "code_diver_tree":
-                    path = tool_args.get("path")
-                    depth = int(tool_args.get("depth", 3))
-                    limit = int(tool_args.get("limit", 100))
-                    content_str = TreeService(config.root).render(path=path, max_depth=depth, limit=limit)
-
-                elif tool_name == "code_diver_info":
-                    content_str = json.dumps(InfoService(config).get_info().to_dict(), indent=2)
-
-                else:
-                    return {
-                        "jsonrpc": "2.0",
-                        "id": req.id,
-                        "error": {"code": -32601, "message": f"Tool '{tool_name}' not found"},
-                    }
-
-                return {
-                    "jsonrpc": "2.0",
-                    "id": req.id,
-                    "result": {
-                        "content": [{"type": "text", "text": content_str}],
-                        "isError": False,
-                    },
-                }
-            except Exception as e:
-                return {
-                    "jsonrpc": "2.0",
-                    "id": req.id,
-                    "result": {
-                        "content": [{"type": "text", "text": f"Error: {e}"}],
-                        "isError": True,
-                    },
-                }
-        else:
-            return {
-                "jsonrpc": "2.0",
-                "id": req.id,
-                "error": {"code": -32601, "message": f"Method '{method}' not found"},
-            }
 
     # --- ACP HTTP / SSE Endpoints ---
     @app.post("/acp/v1/rpc")
@@ -469,7 +380,7 @@ def create_remote_app(config_path: Path | str = "code-diver.yml") -> FastAPI:
                     }
                 )
 
-                config, runtime = get_runtime()
+                _, runtime = get_runtime()
                 results = runtime.base_strategy.search(query=query, limit=5)
                 # Emit search message chunk
                 res_text = "\n".join([f"- `{r.item.path}` ({r.item.start_line}-{r.item.end_line})" for r in results])
@@ -512,5 +423,52 @@ def create_remote_app(config_path: Path | str = "code-diver.yml") -> FastAPI:
                 pass
 
         return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+    # --- OAuth 2.1 protection (disabled by default) ---
+    if oauth_provider is not None:
+        settings = oauth_provider.settings
+        oauth_provider.register_routes(app)
+
+        @app.middleware("http")
+        async def oauth_guard(request: Request, call_next):  # type: ignore[no-untyped-def]
+            required = protected_path_scope(request.url.path, protect_rest=settings.protect_rest)
+            if required is None:
+                return await call_next(request)
+            token = bearer_token(request)
+            if token is None:
+                logger.info("oauth: rejected unauthenticated %s %s", request.method, request.url.path)
+                return JSONResponse(
+                    {"error": "invalid_token", "error_description": "Bearer token required"},
+                    status_code=401,
+                    headers={"WWW-Authenticate": oauth_provider.challenge()},
+                )
+            try:
+                principal = oauth_provider.authenticate(token)
+                oauth_provider.require(principal, required)
+            except OAuthError as exc:
+                logger.info("oauth: rejected token for %s: %s", request.url.path, exc.error)
+                return JSONResponse(
+                    {"error": exc.error, "error_description": exc.description},
+                    status_code=exc.status_code,
+                    headers={
+                        "WWW-Authenticate": oauth_provider.challenge(
+                            error=exc.error,
+                            description=exc.description,
+                            scope=required if exc.error == "insufficient_scope" else None,
+                        )
+                    },
+                )
+            request.state.principal = principal
+            return await call_next(request)
+
+    # CORS is registered last so it wraps the auth guard and decorates 401/403s.
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=origins,
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["*"],
+        expose_headers=["Mcp-Session-Id", "Mcp-Protocol-Version"],
+    )
 
     return app

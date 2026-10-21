@@ -4,6 +4,7 @@ import argparse
 import contextlib
 import fnmatch
 import json
+import logging
 import os
 import shutil
 import sys
@@ -971,6 +972,40 @@ def add_advanced_parsers(
         type=str,
         default="0.0.0.0",
         help="Server listen host (default: 0.0.0.0).",
+    )
+    serve_parser.add_argument(
+        "--tls-cert",
+        type=str,
+        default=None,
+        help="PEM certificate chain for HTTPS (default: CODE_DIVER_TLS_CERT).",
+    )
+    serve_parser.add_argument(
+        "--tls-key",
+        type=str,
+        default=None,
+        help="PEM private key for HTTPS (default: CODE_DIVER_TLS_KEY).",
+    )
+    serve_parser.add_argument(
+        "--tls-client-ca",
+        type=str,
+        default=None,
+        help="CA bundle used to verify client certificates (default: CODE_DIVER_TLS_CLIENT_CA).",
+    )
+    serve_parser.add_argument(
+        "--require-client-cert",
+        action="store_true",
+        help="Require mTLS client certificates (needs --tls-client-ca).",
+    )
+    serve_parser.add_argument(
+        "--oauth-issuer",
+        type=str,
+        default=None,
+        help="Public issuer URL for OAuth metadata (default: CODE_DIVER_OAUTH_ISSUER).",
+    )
+    serve_parser.add_argument(
+        "--no-oauth",
+        action="store_true",
+        help="Disable OAuth even when CODE_DIVER_OAUTH_ENABLED=1.",
     )
     serve_parser.add_argument(
         "config_path",
@@ -4014,7 +4049,7 @@ def cmd_monitor(args: argparse.Namespace, config: AppConfig) -> int:
 def cmd_mcp(args: argparse.Namespace, config: AppConfig) -> int:
     from .mcp.server import create_mcp_server
 
-    cfg_path = getattr(args, "config_path", None) or "code-diver.yml"
+    cfg_path = getattr(args, "config", None) or getattr(args, "config_path", None) or "code-diver.yml"
     server = create_mcp_server(cfg_path)
     server.run("stdio")
     return 0
@@ -4023,32 +4058,62 @@ def cmd_mcp(args: argparse.Namespace, config: AppConfig) -> int:
 def cmd_acp(args: argparse.Namespace, config: AppConfig) -> int:
     from .acp.server import AcpServer
 
-    cfg_path = getattr(args, "config_path", None) or "code-diver.yml"
+    cfg_path = getattr(args, "config", None) or getattr(args, "config_path", None) or "code-diver.yml"
     server = AcpServer(cfg_path)
     server.run_stdio()
     return 0
 
 
 def cmd_serve(args: argparse.Namespace, config: AppConfig) -> int:
-    import threading
     from concurrent import futures
-    import uvicorn
+
     import grpc
+    import uvicorn
 
-    from .transport.grpc_server import CodeDiverGrpcServicer
     from .transport.grpc_gen import code_diver_pb2_grpc
+    from .transport.grpc_server import CodeDiverGrpcServicer
     from .transport.http_server import create_remote_app
+    from .transport.oauth import OAuthProvider, OAuthSettings
+    from .transport.tls import TLSSettings
 
-    cfg_path = getattr(args, "config_path", None) or "code-diver.yml"
+    cfg_path = getattr(args, "config", None) or getattr(args, "config_path", None) or "code-diver.yml"
     host = getattr(args, "host", "0.0.0.0")
     http_port = getattr(args, "http_port", 8080)
     grpc_port = getattr(args, "grpc_port", 50051)
 
+    tls = TLSSettings.from_env(
+        cert=getattr(args, "tls_cert", None),
+        key=getattr(args, "tls_key", None),
+        client_ca=getattr(args, "tls_client_ca", None),
+        require_client_cert=(
+            True if getattr(args, "require_client_cert", False) else None
+        ),
+    )
+    oauth_env = dict(os.environ)
+    if getattr(args, "oauth_issuer", None):
+        oauth_env["CODE_DIVER_OAUTH_ISSUER"] = args.oauth_issuer
+    oauth_settings = OAuthSettings.from_env(oauth_env)
+    oauth_enabled = oauth_settings.enabled
+    if getattr(args, "no_oauth", False):
+        oauth_enabled = False
+
+    if tls.enabled and oauth_enabled and not oauth_settings.allow_insecure_issuer:
+        issuer_scheme = oauth_settings.issuer.split(":", 1)[0]
+        if issuer_scheme != "https":
+            raise ValueError(
+                "OAuth over TLS requires an https CODE_DIVER_OAUTH_ISSUER "
+                f"(got {oauth_settings.issuer!r}); set it to the public https URL"
+            )
+
     grpc_server = None
     if grpc_port and grpc_port > 0:
-        from .transport.knotgate_servicer import KnotgateMcpServiceServicer
         from .transport.grpc_gen import mcp_service_pb2_grpc
+        from .transport.knotgate_servicer import KnotgateMcpServiceServicer
 
+        if oauth_enabled:
+            logging.getLogger("code_diver.cli").warning(
+                "gRPC transport is not covered by OAuth; bind it to loopback or disable it with --grpc-port 0"
+            )
         grpc_server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
         code_diver_pb2_grpc.add_CodeDiverServiceServicer_to_server(
             CodeDiverGrpcServicer(cfg_path), grpc_server
@@ -4059,12 +4124,35 @@ def cmd_serve(args: argparse.Namespace, config: AppConfig) -> int:
         listen_addr = f"{host}:{grpc_port}"
         grpc_server.add_insecure_port(listen_addr)
         grpc_server.start()
-        print(f"[Code Diver] gRPC server (CodeDiverService & knotgate MCPService) running at {listen_addr}", flush=True)
+        print(
+            f"[Code Diver] gRPC server (CodeDiverService & knotgate MCPService) running at {listen_addr}",
+            flush=True,
+        )
 
     try:
-        app = create_remote_app(cfg_path)
-        print(f"[Code Diver] HTTP/SSE server running at http://{host}:{http_port}", flush=True)
-        uvicorn.run(app, host=host, port=http_port, log_level="info")
+        app = create_remote_app(
+            cfg_path,
+            oauth=OAuthProvider(oauth_settings) if oauth_enabled else False,
+        )
+        base_url = tls.base_url(host, http_port)
+        print(
+            f"[Code Diver] MCP Streamable HTTP server running at {base_url}/mcp "
+            f"(tls={'on' if tls.enabled else 'off'}, oauth={'on' if oauth_enabled else 'off'})",
+            flush=True,
+        )
+        if oauth_enabled:
+            print(
+                f"[Code Diver] OAuth metadata: {base_url}/.well-known/oauth-protected-resource "
+                f"issuer={oauth_settings.issuer}",
+                flush=True,
+            )
+        uvicorn.run(
+            app,
+            host=host,
+            port=http_port,
+            log_level="info",
+            **tls.uvicorn_kwargs(),
+        )
     finally:
         if grpc_server:
             grpc_server.stop(grace=1)

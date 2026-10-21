@@ -117,16 +117,27 @@ Code Diver can be integrated directly into **OpenCode**, **Claude Desktop**, **C
 > 📖 **Architecture Deep Dive**: See [`docs/architecture/retrieval_and_mcp_architecture.md`](docs/architecture/retrieval_and_mcp_architecture.md) for full architectural specifications, ASCII data flow diagrams, the H-91a 4-stage cascade, and the complete model fleet breakdown.
 
 ### 1. Unified Remote Server (`code-diver serve`)
-Starting with v0.4.3+, `code-diver serve` hosts both HTTP/SSE and high-performance gRPC transports simultaneously:
-- **HTTP/JSON-RPC 2.0 (MCP)**: Streamable endpoint at `POST /mcp` and `POST /` conforming to Model Context Protocol specification (`2024-11-05`).
+Starting with v0.4.3+, `code-diver serve` hosts both HTTP and high-performance gRPC transports simultaneously:
+- **MCP Streamable HTTP**: standard `POST/GET/DELETE /mcp` transport with `Mcp-Session-Id`, SSE streaming, and one shared `SearchRuntime` for every client. Legacy JSON-RPC aliases `POST /mcp/rpc` and `POST /` remain for pre-spec clients.
 - **knotgate gRPC MCP Service**: Native Kubernetes service mesh integration implementing `mcp.service.v1.MCPService` (`ListTools`, `CallTool`, `GetHealth`, `GetCapabilities`) on `--grpc-port 50051`.
-- **REST & SSE Endpoints**: `/api/v1/search`, `/api/v1/info`, `/api/v1/index/trigger`, `/api/v1/index/ingest`, `/health`, `/sse`.
+- **REST & SSE Endpoints**: `/api/v1/search`, `/api/v1/info`, `/api/v1/index/trigger`, `/api/v1/index/ingest`, `/health`, `/api/v1/runtime/stats`, plus ACP at `/acp/v1/rpc`.
+- **Optional HTTPS and OAuth 2.1**: TLS from env (including mTLS), dynamic client registration, authorization code + PKCE S256, refresh tokens, revocation, and `code:read` / `code:write` scopes. OAuth is off by default. See [`docs/http-mcp.md`](docs/http-mcp.md).
 
 ```bash
-# Run server with both HTTP (8000) and gRPC (50051)
-code-diver serve --host 0.0.0.0 --port 8000 --grpc-port 50051
+# Run HTTP (8000) + gRPC (50051); --grpc-port 0 disables gRPC
+code-diver serve --host 0.0.0.0 --http-port 8000 --grpc-port 50051
 
-# Or run stdio MCP server for local CLI agents
+# HTTPS + OAuth 2.1, spare local port
+CODE_DIVER_TLS_CERT=~/.config/code-diver/tls/server.pem \
+CODE_DIVER_TLS_KEY=~/.config/code-diver/tls/server.key \
+CODE_DIVER_OAUTH_ENABLED=1 \
+CODE_DIVER_OAUTH_ISSUER=https://mcp.example.internal:18080 \
+CODE_DIVER_OAUTH_JWT_SECRET_FILE=~/.config/code-diver/oauth-jwt.secret \
+CODE_DIVER_OAUTH_CONSENT_SECRET=one-time-code \
+code-diver serve --config ~/.config/code-diver/cortex.yml \
+  --host 127.0.0.1 --http-port 18080 --grpc-port 0
+
+# Or run the stdio MCP server for local CLI agents
 code-diver mcp
 ```
 

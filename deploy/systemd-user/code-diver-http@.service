@@ -1,0 +1,30 @@
+[Unit]
+Description=code-diver MCP Streamable HTTP server (%i)
+Documentation=file://%h/.local/src/code-diver/docs/http-mcp.md
+After=network-online.target code-diver-proxy.service code-diver-embed.service code-diver-rerank.service
+Wants=code-diver-proxy.service code-diver-embed.service code-diver-rerank.service
+# Keep both transports available while migrating: this unit is additive and
+# does not conflict with code-diver-daemon@%i.service (stdio shim).
+
+[Service]
+Type=exec
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+# Per-project overrides (port, TLS, OAuth). Optional: the defaults below apply
+# when the file is absent, so OAuth/TLS stay off exactly as before.
+EnvironmentFile=-%h/.config/code-diver/%i.http.env
+Environment=CODE_DIVER_MCP_HOST=127.0.0.1
+Environment=CODE_DIVER_HTTP_PORT=18080
+ExecStart=%h/.local/bin/code-diver serve --config %h/.config/code-diver/%i.yml --host ${CODE_DIVER_MCP_HOST} --http-port ${CODE_DIVER_HTTP_PORT} --grpc-port 0
+Restart=always
+RestartSec=5
+TimeoutStopSec=20
+# 0077 keeps the OAuth SQLite store and any ingest files private.
+UMask=0077
+RuntimeDirectory=code-diver
+RuntimeDirectoryMode=0700
+RuntimeDirectoryPreserve=yes
+Nice=10
+MemoryHigh=2G
+
+[Install]
+WantedBy=default.target

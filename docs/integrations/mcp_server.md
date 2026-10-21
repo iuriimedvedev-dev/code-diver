@@ -103,6 +103,13 @@ uv run code-diver mcp code-diver.yml
 
 ## Sharing one process between agent sessions: `serve` and `shim`
 
+> **Two different `serve` commands.** The commands on this page are the native
+> Rust engine (`code-diver-search serve|shim`, exposed by
+> `code-diver-project <project> daemon`) and share one process over a **unix
+> socket** for stdio-only clients. The Python CLI's `code-diver serve` instead
+> runs the **network** MCP Streamable HTTP server (TLS + OAuth 2.1); see
+> [`docs/http-mcp.md`](../http-mcp.md).
+
 Code-Diver offers two ways to run the MCP server. Both answer the same methods
 (`initialize`, `tools/list`, `tools/call`, `ping`, `health`) with the same tools.
 

@@ -1,6 +1,7 @@
-# systemd user units for local code-diver model servers
+# systemd user units for local code-diver servers
 
-Canonical defaults for the two llama-server daemons. Install:
+Canonical defaults for the two llama-server daemons and the optional MCP HTTP
+server. Install:
 
 ```bash
 cp deploy/systemd-user/*.service ~/.config/systemd/user/
@@ -35,3 +36,35 @@ systemctl --user enable --now code-diver-rerank.service code-diver-embed.service
 Previous (fat) revisions are backed up next to the live units as
 `code-diver-{rerank,embed}.service.bak-cpu-20261014` (and timestamped copies
 under `/tmp/opencode/`). Restore = copy back + `daemon-reload` + restart.
+
+## `code-diver-http@<project>.service` — MCP Streamable HTTP (:18080)
+
+Additive unit: it does **not** replace `code-diver-daemon@<project>.service`
+(the stdio shim over `$XDG_RUNTIME_DIR/code-diver/<project>.sock`). Both can run
+while clients are migrated.
+
+```bash
+install -Dm644 deploy/systemd-user/code-diver-http@.service \
+  ~/.config/systemd/user/code-diver-http@.service
+install -Dm600 deploy/systemd-user/code-diver-http.env.example \
+  ~/.config/code-diver/cortex.http.env     # optional: port/TLS/OAuth
+systemctl --user daemon-reload
+systemctl --user enable --now code-diver-http@cortex.service
+curl -fsS http://127.0.0.1:18080/health
+```
+
+- Reads `~/.config/code-diver/<project>.yml` (same per-project config as the
+  daemon) and optional `~/.config/code-diver/<project>.http.env`.
+- Binds `127.0.0.1:18080` by default; override `CODE_DIVER_HTTP_PORT` /
+  `CODE_DIVER_MCP_HOST` in the env file to run one unit per project.
+- gRPC is disabled (`--grpc-port 0`) because it is not covered by OAuth.
+- TLS and OAuth are opt-in; see [`docs/http-mcp.md`](../../docs/http-mcp.md)
+  for the full env table, OAuth flow, mkcert instructions and verification.
+
+Rollback:
+
+```bash
+systemctl --user disable --now code-diver-http@cortex.service
+```
+
+Clients return to the stdio configuration; no other unit is affected.
