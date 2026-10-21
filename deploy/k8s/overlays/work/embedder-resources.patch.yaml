@@ -1,0 +1,19 @@
+# Embedder component only: CPU/memory for the 8-slot / 6-thread default.
+# `-t 6` needs at least 6 usable cores; the limit is the ceiling and the
+# request is what the scheduler reserves. Raise both together with EMBED_SLOTS.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: embedder
+spec:
+  template:
+    spec:
+      containers:
+        - name: embedder
+          resources:
+            requests:
+              cpu: "4"
+              memory: 2Gi
+            limits:
+              cpu: "6"
+              memory: 4Gi

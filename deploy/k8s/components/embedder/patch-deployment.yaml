@@ -1,0 +1,30 @@
+# Switch the app to the embedder-specific config file and mount it. `args`
+# has no merge key, so the full list is restated here (same as base except the
+# --config value).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: code-diver-service
+spec:
+  template:
+    spec:
+      containers:
+        - name: code-diver
+          args:
+            - --config
+            - /etc/code-diver-embedder/code-diver-embedder.yml
+            - serve
+            - --host
+            - 0.0.0.0
+            - --http-port
+            - "8080"
+            - --grpc-port
+            - "0"
+          volumeMounts:
+            - name: embedder-config
+              mountPath: /etc/code-diver-embedder
+              readOnly: true
+      volumes:
+        - name: embedder-config
+          configMap:
+            name: code-diver-embedder-config

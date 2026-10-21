@@ -1,0 +1,7 @@
+# Embedder component only: put the model PVC on the work StorageClass.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: embedder-models
+spec:
+  storageClassName: fast-ssd

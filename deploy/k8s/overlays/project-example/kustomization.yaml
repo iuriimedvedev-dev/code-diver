@@ -20,6 +20,10 @@ kind: Kustomization
 # prefix their names. Recreate them INSIDE cortex-code-diver with the same
 # names: code-diver-oauth, code-diver-qdrant, registry-credentials. They are
 # different objects from the ones in the code-diver namespace.
+#
+# If you also enable components/embedder here, its `code-diver-embedder.yml`
+# still names the default collection `code_diver`; patch it to
+# `code_diver_cortex` (or mount a project-specific copy) before applying.
 
 namespace: cortex-code-diver
 namePrefix: cortex-

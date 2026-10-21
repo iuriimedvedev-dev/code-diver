@@ -1,0 +1,240 @@
+# One shared llama.cpp embedding server.
+#
+# Why one replica: llama-server is itself multi-slot (`-np`). Several replicas
+# on one node contend for the same cores and each load the model again. Scale
+# `EMBED_SLOTS`/`EMBED_THREADS` first; add a second Service only when the
+# node's cores are exhausted.
+#
+# `strategy: Recreate` keeps the RWO model volume single-writer while the init
+# container may download a model.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: embedder
+  namespace: code-diver
+  labels:
+    app.kubernetes.io/name: code-diver-embedder
+    app.kubernetes.io/instance: embedder
+    app.kubernetes.io/component: embedder
+    app.kubernetes.io/part-of: code-diver
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  revisionHistoryLimit: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: code-diver-embedder
+      app.kubernetes.io/component: embedder
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: code-diver-embedder
+        app.kubernetes.io/instance: embedder
+        app.kubernetes.io/component: embedder
+        app.kubernetes.io/part-of: code-diver
+      annotations:
+        configmap.reloader.stakater.com/reload: "embedder-config"
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        # Either pre-seed the PVC (recommended, offline-friendly) or provide a
+        # URL: `kubectl -n code-diver create secret generic embedder-model
+        # --from-literal=url=https://.../embeddinggemma-300M-Q8_0.gguf`
+        # or set EMBED_MODEL_URL in embedder-config.
+        - name: fetch-model
+          image: curlimages/curl:8.10.1
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              target="/models/${EMBED_MODEL_FILE}"
+              if [ -s "$target" ]; then
+                echo "model present: $target"
+                exit 0
+              fi
+              url="${MODEL_URL:-${EMBED_MODEL_URL:-}}"
+              if [ -z "$url" ]; then
+                echo "ERROR: $target is missing and no URL is configured." >&2
+                echo "Seed the embedder-models PVC or set Secret embedder-model/url." >&2
+                exit 1
+              fi
+              echo "downloading $url"
+              curl -fL --retry 3 --retry-delay 5 --connect-timeout 15 \
+                -o "${target}.part" "$url"
+              mv "${target}.part" "$target"
+          envFrom:
+            - configMapRef:
+                name: embedder-config
+          env:
+            - name: MODEL_URL
+              valueFrom:
+                secretKeyRef:
+                  name: embedder-model
+                  key: url
+                  optional: true
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          volumeMounts:
+            - name: models
+              mountPath: /models
+            - name: tmp
+              mountPath: /tmp
+      containers:
+        - name: embedder
+          # Pin a digest in production. GPU builds (server-cuda/rocm/vulkan)
+          # work with the same args plus a nodeSelector/GPU resource.
+          image: ghcr.io/ggml-org/llama.cpp:server
+          imagePullPolicy: IfNotPresent
+          command:
+            - /app/llama-server
+          # Values come from embedder-config; overlays patch that ConfigMap.
+          args:
+            - -m
+            - /models/$(EMBED_MODEL_FILE)
+            - --alias
+            - $(EMBED_MODEL_ALIAS)
+            - --embedding
+            - --pooling
+            - mean
+            - --host
+            - $(EMBED_HOST)
+            - --port
+            - $(EMBED_PORT)
+            - -t
+            - $(EMBED_THREADS)
+            - -c
+            - $(EMBED_CTX)
+            - -b
+            - $(EMBED_BATCH)
+            - -ub
+            - $(EMBED_UBATCH)
+            - -np
+            - $(EMBED_SLOTS)
+            - --no-webui
+          envFrom:
+            - configMapRef:
+                name: embedder-config
+          env:
+            # Explicit refs for every value used in argv: Kubernetes expands
+            # $(VAR) in args from the container environment, and an explicit
+            # env entry makes that deterministic (env also overrides envFrom).
+            - name: EMBED_MODEL_FILE
+              valueFrom:
+                configMapKeyRef: {name: embedder-config, key: EMBED_MODEL_FILE}
+            - name: EMBED_MODEL_ALIAS
+              valueFrom:
+                configMapKeyRef: {name: embedder-config, key: EMBED_MODEL_ALIAS}
+            - name: EMBED_HOST
+              valueFrom:
+                configMapKeyRef: {name: embedder-config, key: EMBED_HOST}
+            - name: EMBED_PORT
+              valueFrom:
+                configMapKeyRef: {name: embedder-config, key: EMBED_PORT}
+            - name: EMBED_THREADS
+              valueFrom:
+                configMapKeyRef: {name: embedder-config, key: EMBED_THREADS}
+            - name: EMBED_CTX
+              valueFrom:
+                configMapKeyRef: {name: embedder-config, key: EMBED_CTX}
+            - name: EMBED_BATCH
+              valueFrom:
+                configMapKeyRef: {name: embedder-config, key: EMBED_BATCH}
+            - name: EMBED_UBATCH
+              valueFrom:
+                configMapKeyRef: {name: embedder-config, key: EMBED_UBATCH}
+            - name: EMBED_SLOTS
+              valueFrom:
+                configMapKeyRef: {name: embedder-config, key: EMBED_SLOTS}
+            - name: HOME
+              value: /tmp
+          ports:
+            - name: http
+              containerPort: 8791
+              protocol: TCP
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 2
+            timeoutSeconds: 2
+            failureThreshold: 60 # 2 min for a cold model load
+            successThreshold: 1
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 5
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                  - /bin/sh
+                  - -c
+                  - sleep 2
+          # CPU limit == threads: `-t 4` with a lower limit throttles every
+          # slot. Raise both together (README sizing table).
+          resources:
+            requests:
+              cpu: "2"
+              memory: 1Gi
+            limits:
+              cpu: "4"
+              memory: 2Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: models
+              mountPath: /models
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: models
+          persistentVolumeClaim:
+            claimName: embedder-models
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 128Mi

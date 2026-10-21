@@ -1,0 +1,29 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# OPTIONAL shared embedder: llama.cpp `llama-server` in embedding mode.
+#
+#   components:
+#     - ../../components/embedder
+#
+# One instance serves many clients/projects; `-np` slots are the concurrency
+# limit (see README, "Embedder sizing"). Enabling this component:
+#   * creates Deployment/Service/ConfigMap/PVC `embedder*`;
+#   * mounts a second app config (`code-diver-embedder.yml`) whose
+#     `embedding.url` is http://embedder:8791/v1/embeddings, and switches the
+#     Deployment `--config` to it. The base config keeps the external URL, so
+#     the component is never required;
+#   * expects the GGUF in the `embedder-models` PVC (init container downloads
+#     it when Secret `embedder-model` has key `url`, else seed it yourself).
+#
+# `-np`/`-t`/context live in `embedder-config`; overlays patch that ConfigMap
+# (overlays/work/embedder-sizing.patch.yaml) rather than editing this file.
+resources:
+  - configmap.yaml
+  - pvc.yaml
+  - service.yaml
+  - app-config.yaml
+  - deployment.yaml
+
+patches:
+  - path: patch-deployment.yaml

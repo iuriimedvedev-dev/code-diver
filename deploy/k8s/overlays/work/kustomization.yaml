@@ -36,6 +36,10 @@ components:
   # Topology W2 only: the app terminates TLS itself and the ingress passes
   # TLS through. Adds HTTPS probes and the TLS volume.
   # - ../../components/app-tls
+  # OPTIONAL shared embedder (llama.cpp). When enabled it switches the app to
+  # a config with embedding.url = http://embedder:8791/v1/embeddings. Size it
+  # with embedder-sizing.patch.yaml (see README, "Embedder sizing").
+  # - ../../components/embedder
 
 images:
   - name: code-diver
@@ -58,6 +62,10 @@ patches:
   # - path: ingress-external-secret.patch.yaml
   # Topology W2 only, together with components/app-tls above.
   # - path: ingress-passthrough.patch.yaml
+  # Embedder component only (enable with the component above):
+  # - path: embedder-sizing.patch.yaml
+  # - path: embedder-resources.patch.yaml
+  # - path: embedder-storageclass.patch.yaml
 
 # Knob 1 (continued): the public host on the Ingress. JSON6902 is used
 # because a strategic merge on `rules` would replace the whole list and drop

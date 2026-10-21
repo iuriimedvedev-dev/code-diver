@@ -23,6 +23,7 @@ client ──https──> ingress-nginx ──http──> Service:8080 ──> P
 | `base/` | shared resources: Namespace, 2 ConfigMaps, 2 PVCs, Deployment, Service. **OAuth off, no Ingress.** |
 | `base/kustomization.yaml` | base entry point (not applied directly) |
 | `components/ingress/` | Ingress for `/mcp` + all OAuth endpoints (work only) |
+| `components/embedder/` | optional shared llama.cpp embedding server (`-np`/`-t` from `embedder-config`) |
 | `components/app-tls/` | optional app-terminated TLS (topology W2) |
 | `components/image-pull-secret/` | work profile `imagePullSecrets: registry-credentials` |
 | `overlays/local/` | home profile: no OAuth, no Ingress, `local-path`, local registry |
@@ -44,7 +45,8 @@ client ──https──> ingress-nginx ──http──> Service:8080 ──> P
 * Repository content in the `repo-shared-pvc` volume: code-diver reads (and can
   ingest into) `/workspace`. See "Populate the repo volume" below.
 * An OpenAI-compatible **embedding** endpoint; the model/dimension must match
-  the Qdrant collection.
+  the Qdrant collection -- **or** enable `components/embedder` (see
+  "Embedder sizing").
 * Optional: a **rerank** endpoint, only for `graph_file_cross_encoder` /
   `hybrid_rerank` strategies (the default `hybrid` does not use it).
 * TLS: cert-manager **or** a pre-created `kubernetes.io/tls` secret (work).
@@ -81,6 +83,133 @@ and the external/StatefulSet path in the same cluster**. Pick one:
 * no Qdrant -> `kubectl apply -f deploy/k8s/qdrant-statefulset.yaml`;
 * legacy self-contained file -> only that file, never the overlays.
 
+## Embedder: a first-class, sized dependency
+
+The shared embedding server is the first throughput ceiling, not code-diver
+itself. On the reference CPU-only host with llama-server at `-t 4 -np 2`:
+
+* 8 concurrent embedding requests reached only **1.46×** the single-client
+  throughput;
+* 8 concurrent recalls through the memory service reached only **1.51×**.
+
+Both are queueing on two slots. For a deployment shared by several colleagues
+(or several project processes) size the embedder **before** anything else.
+
+### Concurrency model (what is parallel, what is serial)
+
+1. **One process per project**, one `SearchRuntime` each, no child processes.
+2. **The committed transport runs retrieval synchronously inside the async
+   request handler**, so one project process issues roughly one embedding at a
+   time; concurrency comes from *several project processes* and from indexing
+   jobs, not from parallel calls inside one process.
+3. **One search ≈ one embedding request** (query). Indexing embeds every
+   chunk/summary in batches and competes with queries — schedule indexing off
+   peak hours or give the embedder headroom.
+4. **Parallel:** HTTP handling, embedder slots, Qdrant queries, BM25/graph
+   work in separate processes. **Serial:** everything inside one project
+   process (single event loop), the OAuth SQLite writer, catalog writes.
+5. **Do not add app replicas to fix latency.** Two replicas of the same
+   project would both open the catalog and the SQLite OAuth DB; the fix is
+   embedder slots, then a faster node.
+
+### Sizing table
+
+`-np` = slots (concurrent embedding requests), `-t` = CPU threads, `-c` =
+per-slot context, `-b`/`-ub` = logical/physical batch.
+
+| Simultaneous searches (all projects) | `EMBED_SLOTS` (`-np`) | `EMBED_THREADS` (`-t`) | Pod CPU req/limit | Memory req/limit |
+|---|---|---|---|---|
+| 1–2 (home) | 2 | 4 | 1 / 2 | 1Gi / 2Gi |
+| 3–4 | 4 | 4 | 2 / 4 | 1Gi / 2Gi |
+| 5–8 (work default) | 8 | 6–8 | 4 / 6 | 2Gi / 4Gi |
+| 9–16 | 12–16 | 8 | 6 / 8 | 2Gi / 4Gi |
+| >16 | second embedder Service + split project groups, or GPU | | | |
+
+Rules of thumb:
+
+* `EMBED_SLOTS >= simultaneous searches`; extra slots only cost RAM/context.
+* `EMBED_THREADS <= pod CPU limit`; a lower limit throttles every slot.
+* Keep `-c 2048`, `-b/-ub 512` for 300M embedding models; code chunks are
+  short enough that larger batches mostly add latency.
+* One 300M Q8 model is ~0.4–1 GiB; the rest is per-slot context.
+
+### Enable the in-cluster embedder (opt-in)
+
+```bash
+# 1. uncomment the component + its sizing/storage patches in the chosen overlay
+#    (work also has embedder-resources.patch.yaml for its 6-CPU default):
+#      - ../../components/embedder
+#      - path: embedder-sizing.patch.yaml
+#      - path: embedder-resources.patch.yaml
+#      - path: embedder-storageclass.patch.yaml
+
+# 2. provide the model (either)
+#    a) recommended: a URL the init container downloads on first start
+kubectl -n code-diver create secret generic embedder-model \
+  --from-literal=url='https://models.example.com/embeddinggemma-300M-Q8_0.gguf'
+#       (or set EMBED_MODEL_URL in components/embedder/configmap.yaml)
+#    b) offline: pre-seed the embedder-models volume with
+#       /models/embeddinggemma-300M-Q8_0.gguf before the pod starts; for a
+#       local-path StorageClass that is a directory on the node.
+
+# 3. apply; the component switches the app to a config whose
+#    embedding.url is http://embedder:8791/v1/embeddings
+kubectl apply -k deploy/k8s/overlays/work
+kubectl -n code-diver rollout status deploy/embedder
+```
+
+The component ships `code-diver-embedder.yml` (same as the base config, only
+`embedding.*` differs) and a Deployment patch that points `--config` at it, so
+the base config keeps the external URL. Sizing lives in
+`components/embedder/configmap.yaml`; overlays patch it.
+
+### Use an external embedder instead
+
+The base `code-diver.yml` points at
+`http://embedding.embedding.svc.cluster.local:8000/v1/embeddings`. Change
+`embedding.url` / `embedding.model` / `embedding.dimensions` there (one block in
+`base/configmap.yaml`, or the same block in the embedder config when the
+component is enabled). The model and dimension must match the Qdrant
+collection.
+
+### Measure it
+
+```bash
+# 1. embedder throughput: 1 vs N concurrent requests
+kubectl -n code-diver port-forward svc/embedder 8791:8791 &
+python3 - <<'PY'
+import concurrent.futures, json, time, urllib.request
+URL = "http://127.0.0.1:8791/v1/embeddings"
+BODY = json.dumps({"model": "google/embeddinggemma-300m", "input": ["def search(): pass"]}).encode()
+
+def one():
+    req = urllib.request.Request(URL, BODY, {"content-type": "application/json"})
+    t = time.perf_counter()
+    with urllib.request.urlopen(req, timeout=60) as r:
+        r.read()
+    return time.perf_counter() - t
+
+for n in (1, 8):
+    t = time.perf_counter()
+    with concurrent.futures.ThreadPoolExecutor(n) as ex:
+        list(ex.map(lambda _: one(), range(n * 5)))
+    total = time.perf_counter() - t
+    print(f"{n} concurrent: {n*5/total:.2f} req/s")
+PY
+
+# 2. concurrent searches through the app (local profile: no OAuth on /api)
+seq 8 | xargs -P8 -I{} curl -s -o /dev/null -w '%{time_total}\n' \
+  -X POST http://127.0.0.1:8080/api/v1/search \
+  -H 'content-type: application/json' \
+  -d '{"query":"where is retry logic","limit":10}'
+
+# 3. shared-runtime proof (always 1 load, N sessions)
+curl -s http://127.0.0.1:8080/api/v1/runtime/stats | jq '.runtime_loads, .mcp_sessions'
+```
+
+If N-concurrent req/s is far below 1-concurrent × N (e.g. 1.46× at N=8), add
+slots; when `-t` already equals the CPU limit, add CPU or a second embedder.
+
 ## Profiles
 
 | | `overlays/local` | `overlays/work` |
@@ -91,6 +220,7 @@ and the external/StatefulSet path in the same cluster**. Pick one:
 | StorageClass | `local-path` | `fast-ssd` (placeholder) |
 | Registry | `registry.local/code-diver:0.6.5` | `registry.work.example/...` + pull secret |
 | Secrets | **none required** | `code-diver-oauth`, plus TLS (unless cert-manager) |
+| Embedder | external URL (or optional in-cluster component) | external URL **or** in-cluster component (opt-in) |
 | Resources | 0.5 CPU / 1 Gi request | 1 CPU / 2 Gi request |
 
 ## The four knobs (never edit `base/`)
@@ -112,6 +242,7 @@ and the external/StatefulSet path in the same cluster**. Pick one:
 | **Image registry** | `registry.local/...`, `registry.work.example/...` (+ `registry-credentials` pull secret) | `overlays/*/kustomization.yaml`, `components/image-pull-secret` |
 | **Qdrant endpoint / collection** | external `qdrant.qdrant.svc.cluster.local:6333`, collection `code_diver` | `base/configmap.yaml` |
 | **Embedding endpoint/model** | `embedding.embedding.svc...` (placeholder model) | `base/configmap.yaml` |
+| **Embedder sizing** (if in-cluster) | `EMBED_SLOTS=8`, `EMBED_THREADS=8` | `overlays/work/embedder-sizing.patch.yaml` |
 | **Rerank endpoint** | unused by default (`strategy: hybrid`) | `base/configmap.yaml` (`cross_encoder_rerank`) |
 | **TLS topology** | W1 ingress termination (W2 app termination available) | `components/app-tls` + work overlay |
 
@@ -244,14 +375,16 @@ cluster network is not fully trusted.
 
 ## External dependencies (deliberately not Deployments here)
 
-| Dependency | Why external | Knob |
+| Dependency | Why external by default | Knob |
 |---|---|---|
 | **Qdrant** | shared across projects, survives rollouts | `base/configmap.yaml` -> `storage.qdrant.url` / `collection` |
-| **Embedding daemon** (OpenAI-compatible) | GPU/llama.cpp model server, vendor-specific, often shared | `embedding.url` / `model` / `dimensions` |
+| **Embedding daemon** | often already GPU-backed/shared; the component is opt-in | `components/embedder/` or `embedding.url` in `base/configmap.yaml` |
 | **Rerank daemon** | optional: the default `search.strategy: hybrid` does not use it | add `cross_encoder_rerank.url` and switch strategy to `graph_file_cross_encoder` |
 
-The pod itself is CPU-only. Shipping GPU model servers as Deployments would
-bake in one vendor's runtime and image size; point the ConfigMap at yours.
+The app pod itself is CPU-only. The optional embedder component runs a CPU
+llama-server with the right `-np`/`-t` for the expected concurrency; GPU model
+servers are intentionally not baked into these manifests. Point the ConfigMap
+at yours, or enable the component.
 
 ## Populate the repo volume
 
@@ -385,18 +518,22 @@ not prefixed: create `code-diver-oauth`, `code-diver-qdrant` and
 
 ## Scaling
 
-**Do not set `replicas: 2`.** The blocker is local state, not Qdrant:
+**Do not set `replicas: 2`.** The blocker is local state and the shared
+embedder, not Qdrant:
 
-* the catalog (`index.json`, `graph.json`, traces) is single-writer on a RWO
-  PVC, and `code_diver_index_trigger` spawns a child that writes it;
-* the OAuth store is SQLite on the state PVC — two pods would corrupt it;
-* `strategy: Recreate` guarantees both RWO volumes are released before the
-  replacement pod starts.
+1. **Scale the embedder first.** Measured: 8 concurrent recalls on 2 slots
+   reached only 1.51× single-client throughput. Two app replicas against the
+   same endpoint only queue longer (see "Embedder sizing" above).
+2. the catalog (`index.json`, `graph.json`, traces) is single-writer on a RWO
+   PVC, and `code_diver_index_trigger` spawns a child that writes it;
+3. the OAuth store is SQLite on the state PVC — two pods would corrupt it;
+4. `strategy: Recreate` guarantees both RWO volumes are released before the
+   replacement pod starts.
 
-Qdrant itself can serve many readers, so the future path is: make the catalog
-read-only, move OAuth to a shared store, and run multiple readers against a
-single indexer. That is not implemented in this bundle. Scale vertically
-(CPU/RAM) first, and isolate projects with separate Deployments.
+`replicas: 2` would therefore need a read-only/shared catalog, a shared OAuth
+store (not implemented — code-diver only has SQLite), and a separate indexer.
+None of that is in this bundle, so the scale unit is **one Deployment per
+project**. Scale vertically (CPU/RAM) and add projects rather than replicas.
 
 ## Switching profiles
 
