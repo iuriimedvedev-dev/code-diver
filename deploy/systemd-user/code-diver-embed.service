@@ -1,0 +1,8 @@
+[Unit]
+Description=code-diver local embedding server (EmbeddingGemma-300M, llama.cpp CPU)
+[Service]
+ExecStart=/home/angkira/llama.cpp/build-cpu/bin/llama-server -m /home/angkira/.local/share/code-diver/models/embeddinggemma-300M-Q8_0.gguf --alias google/embeddinggemma-300m --embedding --pooling mean --host 127.0.0.1 --port 8791 -t 4 -c 2048 -b 512 -ub 512 -np 2 --no-webui
+Restart=on-failure
+Nice=10
+[Install]
+WantedBy=default.target
