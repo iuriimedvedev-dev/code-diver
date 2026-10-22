@@ -344,10 +344,24 @@ impl Daemon {
             let mut worker = self.workers[role].lock().await;
             worker.active -= 1;
             worker.last_used = Instant::now();
-            let dead = !worker
+            let mut dead = !worker
                 .process
                 .as_mut()
                 .is_some_and(|c| matches!(c.try_wait(), Ok(None)));
+            // A child that dies mid-request closes its socket before the OS
+            // reports the exit, so the first liveness sample can still see it
+            // running. Give it a bounded moment to become reapable instead of
+            // returning a 503 that the restart would have answered.
+            if result.0 == 503 && !dead && attempt == 0 {
+                let deadline = Instant::now() + Duration::from_millis(500);
+                while !dead && Instant::now() < deadline {
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                    dead = !worker
+                        .process
+                        .as_mut()
+                        .is_some_and(|c| matches!(c.try_wait(), Ok(None)));
+                }
+            }
             if result.0 == 503 && dead && attempt == 0 {
                 continue;
             }
