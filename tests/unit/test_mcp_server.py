@@ -132,3 +132,32 @@ storage:
     assert len(list_res) >= 1
     assert any(t["task_id"] == task_id for t in list_res)
 
+
+
+def test_mcp_server_reports_the_build_version() -> None:
+    from code_diver import build_version
+
+    server = create_mcp_server("code-diver.yml")
+    assert server.version == build_version()
+
+
+def test_mcp_server_info_tool_carries_the_version(tmp_path: Path) -> None:
+    cfg_file = tmp_path / "v-config.yml"
+    cfg_file.write_text(
+        f"""
+root: {tmp_path}
+artifact: {tmp_path}/index.json
+storage:
+  provider: json
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / "index.json").write_text(
+        json.dumps({"schema_version": 1, "provider": "openai_compatible", "model": "m", "dimensions": 8, "items": []}),
+        encoding="utf-8",
+    )
+    from code_diver import build_version
+
+    server = create_mcp_server(cfg_file)
+    payload = json.loads(server._tool_manager._tools["code_diver_info"].fn())
+    assert payload["version"] == build_version()

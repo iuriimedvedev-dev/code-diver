@@ -9,6 +9,7 @@ from typing import Any
 
 from mcp.server.mcpserver import MCPServer
 
+from .. import build_version
 from ..config import ConfigLoader
 from ..inspection.grep_service import GrepService
 from ..inspection.info_service import InfoService
@@ -23,7 +24,10 @@ from .tasks import BackgroundTaskManager
 def create_mcp_server(config_path: Path | str = "code-diver.yml") -> MCPServer:
     """Create and configure the Code Diver MCP server."""
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
-    server = MCPServer("code-diver")
+    # The SDK reports this string verbatim as ``serverInfo.version`` in the
+    # ``initialize`` response, so every MCP client (our agents, the eval harness)
+    # learns the checkout state without a separate call.
+    server = MCPServer("code-diver", version=build_version())
     cfg_path = Path(config_path).expanduser()
     task_manager = BackgroundTaskManager(max_workers=4)
 

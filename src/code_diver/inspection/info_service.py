@@ -6,6 +6,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
+from .. import build_version
 from ..config import AppConfig
 from ..graph.code_graph_store import CodeGraphStore
 from ..store.vector_store_factory import create_vector_store
@@ -99,6 +100,7 @@ class CodeDiverDirInfo:
 
 @dataclass(slots=True)
 class CodebaseInfo:
+    version: str
     root: str
     store: StoreInfo
     graph: GraphInfo
@@ -194,6 +196,7 @@ class InfoService:
         }
 
         return CodebaseInfo(
+            version=build_version(),
             root=str(self.config.root.resolve()),
             store=store_info,
             graph=graph_info,

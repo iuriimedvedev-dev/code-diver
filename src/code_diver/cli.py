@@ -28,6 +28,7 @@ from rich.progress import (
 )
 from rich.table import Table
 
+from . import build_version
 from .agent import DirectIndexingOrchestrator, DirectSearchOrchestrator
 from .agent.h3_search_tool_handler import H3SearchToolHandler
 from .agent.rerank_tool_handler import RerankToolHandler
@@ -278,6 +279,15 @@ def main(argv: list[str] | None = None) -> int:
 def build_parser(include_advanced: bool = False) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="code-diver", description="Config-first codebase RAG CLI."
+    )
+    # Version lives on the root parser only: the value is the checkout's git
+    # description (so a dirty tree is visible), never a constant copied into a
+    # package, which is what made benchmark provenance unreadable before.
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"code-diver {build_version()}",
+        help="Show the version (git description when available) and exit.",
     )
     parser.add_argument(
         OptionName.CONFIG.value, type=Path, default=None, help="YAML config path."
@@ -2180,6 +2190,10 @@ def cmd_info(args: argparse.Namespace, config: AppConfig) -> int:
     table.add_column("Category", style="bold yellow")
     table.add_column("Property", style="bold")
     table.add_column("Value", style="green")
+
+    # Version first: an operator reads the checkout state before anything else, and a
+    # dirty tree is exactly what makes a published number unreproducible.
+    table.add_row("Code Diver", "Version", info.version)
 
     # Root
     table.add_row("Codebase", "Root Directory", info.root)

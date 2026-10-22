@@ -342,6 +342,20 @@ async fn exported_run_http_and_idle_shutdown() {
 #[tokio::test]
 async fn crash_restart_is_capped() {
     let (_temp, d) = fixture();
+    // The first request races the daemon's startup: on a slow CI runner it can
+    // still be booting and answer 503. Wait until it is actually ready instead
+    // of asserting a fixed status on the very first call.
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        if d.proxy(0, json!({"input":"hello"})).await.0 == 200 {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "daemon did not become ready within 10s"
+        );
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
     assert_eq!(d.proxy(0, json!({"input":"crash_once"})).await.0, 200);
     assert_eq!(d.workers[0].lock().await.failures, 1);
     for _ in 0..4 {

@@ -46,6 +46,7 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
+from .. import build_version
 from ..inspection.grep_service import GrepService
 from ..inspection.info_service import InfoService
 from ..inspection.read_excerpt_service import ReadExcerptService
@@ -63,7 +64,10 @@ from .oauth import (
 logger = logging.getLogger("code_diver.transport.mcp_http")
 
 SERVER_NAME = "code-diver"
-SERVER_VERSION = "0.4.5"
+# The checkout's git description (dirty state included), not a constant: this is what the
+# server reports as ``serverInfo.version``. A hardcoded value here once read 0.4.5 long after
+# the package shipped 0.6.5, so a benchmark row could name a release the tree had left.
+SERVER_VERSION = build_version()
 
 MCP_SESSION_HEADER = "mcp-session-id"
 MCP_PROTOCOL_HEADER = "mcp-protocol-version"

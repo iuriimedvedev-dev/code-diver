@@ -111,6 +111,8 @@ def test_initialize_returns_session_and_server_info() -> None:
     result = response.json()["result"]
     assert result["protocolVersion"] == "2025-06-18"
     assert result["serverInfo"]["name"] == "code-diver"
+    from code_diver import build_version
+    assert result["serverInfo"]["version"] == build_version()
     assert "tools" in result["capabilities"]
 
 
